@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter, usePathname } from 'next/navigation';
+import Image from 'next/image';
 import Icon from '../ui/Icon';
 
 export default function TopBar() {
@@ -11,6 +12,7 @@ export default function TopBar() {
   return (
     <div className="topbar">
       <div className="topbar-brand">
+        <Image src="/logo.svg" alt="ORBIT" width={28} height={28} style={{ flexShrink: 0 }} />
         <span className="topbar-logo">ORBIT</span>
         <span className="topbar-tagline">Plateforme coaching</span>
       </div>

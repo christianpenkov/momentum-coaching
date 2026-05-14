@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
+  <!-- Anneau orbital extérieur -->
+  <circle cx="100" cy="100" r="78" stroke="#C8A97E" stroke-width="3" stroke-dasharray="12 6" stroke-linecap="round" opacity="0.35"/>
+
+  <!-- Anneau principal -->
+  <circle cx="100" cy="100" r="62" stroke="#C8A97E" stroke-width="2.5" opacity="0.6"/>
+
+  <!-- Arc orbital incliné (ellipse) -->
+  <ellipse cx="100" cy="100" rx="62" ry="22" stroke="#C8A97E" stroke-width="2" transform="rotate(-30 100 100)" opacity="0.5"/>
+
+  <!-- Point orbital sur l'arc (planète) -->
+  <circle cx="148" cy="77" r="6" fill="#C8A97E"/>
+  <circle cx="148" cy="77" r="9" stroke="#C8A97E" stroke-width="1.5" opacity="0.3"/>
+
+  <!-- Point central (étoile) -->
+  <circle cx="100" cy="100" r="10" fill="#C8A97E"/>
+  <circle cx="100" cy="100" r="5" fill="#1A1814"/>
+
+  <!-- Petits points accent -->
+  <circle cx="52" cy="123" r="3" fill="#C8A97E" opacity="0.5"/>
+  <circle cx="62" cy="58" r="2" fill="#C8A97E" opacity="0.35"/>
+</svg>
