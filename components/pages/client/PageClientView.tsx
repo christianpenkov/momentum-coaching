@@ -1,11 +1,10 @@
 'use client';
 
-import { useState } from 'react';
 import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
-import { getClient, type Task } from '@/lib/data';
+import { useClients } from '@/lib/ClientsContext';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -43,8 +42,9 @@ function DeadlineBadge({ deadline, done }: { deadline?: string; done: boolean })
 const THOMAS_ID = 'thomas';
 
 export default function PageClientView() {
-  const client = getClient(THOMAS_ID) || getClient('thomas');
-  const [tasks, setTasks] = useState<Task[]>(client?.plan || []);
+  const { getClient, toggleTask: ctxToggle } = useClients();
+  const client = getClient(THOMAS_ID);
+  const tasks = client?.plan || [];
 
   if (!client) return <div className="page-content"><div className="page-title">Client introuvable</div></div>;
 
@@ -53,7 +53,7 @@ export default function PageClientView() {
   const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
 
   function toggleTask(idx: number, checked: boolean) {
-    setTasks(prev => prev.map((t, i) => i === idx ? { ...t, done: checked } : t));
+    ctxToggle(THOMAS_ID, idx, checked);
   }
 
   const unlockedResources = 8;

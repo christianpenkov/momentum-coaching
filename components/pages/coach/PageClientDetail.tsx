@@ -8,7 +8,8 @@ import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
-import { getClient, type Task } from '@/lib/data';
+import { useClients } from '@/lib/ClientsContext';
+import type { Task } from '@/lib/data';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -39,8 +40,9 @@ function DeadlineBadge({ deadline, done }: { deadline?: string; done: boolean })
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
+  const { getClient, addTask, toggleTask: ctxToggle } = useClients();
   const client = getClient(id);
-  const [tasks, setTasks] = useState<Task[]>(client?.plan || []);
+  const tasks = client?.plan || [];
   const [note, setNote] = useState(client?.privateNotes || '');
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -58,7 +60,7 @@ export default function PageClientDetail({ id }: Props) {
   const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
 
   function toggleTask(idx: number, checked: boolean) {
-    setTasks(prev => prev.map((t, i) => i === idx ? { ...t, done: checked } : t));
+    ctxToggle(id, idx, checked);
   }
 
   return (
@@ -110,7 +112,7 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      <TaskModal open={modalOpen} onClose={() => setModalOpen(false)} onAdd={t => setTasks(prev => [...prev, t])} />
+      <TaskModal open={modalOpen} onClose={() => setModalOpen(false)} onAdd={t => addTask(id, t)} />
 
       <div className="grid-2">
         {/* Plan de la semaine */}
