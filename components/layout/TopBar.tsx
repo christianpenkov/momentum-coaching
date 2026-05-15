@@ -11,16 +11,15 @@ export default function TopBar() {
   return (
     <div className="topbar">
       <div className="topbar-brand">
-        <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, flexShrink: 0 }}>
-          {/* Halo ambiant CSS — pas de clip */}
+        <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 32, height: 32, flexShrink: 0 }}>
           <span style={{
             position: 'absolute',
-            inset: -10,
+            inset: -8,
             borderRadius: '50%',
-            background: 'radial-gradient(circle, rgba(160,160,155,0.45) 0%, rgba(160,160,155,0.12) 50%, transparent 72%)',
+            background: 'radial-gradient(circle, rgba(155,155,150,0.5) 0%, rgba(155,155,150,0.15) 52%, transparent 72%)',
             pointerEvents: 'none',
           }} />
-          <svg width="36" height="36" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <svg width="32" height="32" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
             <rect x="16" y="16" width="168" height="168" rx="38" fill="#EBEBEB"/>
             <circle cx="100" cy="100" r="56" stroke="#2E2E2E" strokeWidth="8" fill="none"/>
             <circle cx="100" cy="100" r="34" stroke="#2E2E2E" strokeWidth="8" fill="none"/>

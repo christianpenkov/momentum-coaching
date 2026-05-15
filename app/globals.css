@@ -78,7 +78,7 @@ a { color: inherit; text-decoration: none; }
 }
 
 .topbar {
-  height: 36px;
+  height: 48px;
   background: var(--surface-2);
   border-bottom: 1px solid var(--border);
   display: flex;
@@ -90,6 +90,7 @@ a { color: inherit; text-decoration: none; }
   position: sticky;
   top: 0;
   z-index: 50;
+  overflow: visible;
 }
 .topbar .grip {
   display: inline-flex; flex-direction: column; gap: 2px;
