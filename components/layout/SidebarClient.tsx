@@ -4,12 +4,13 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
 
-const NAV: { href: string; icon: IconName; label: string }[] = [
+const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/espace', icon: 'activity', label: 'Mon espace' },
   { href: '/espace/stats', icon: 'bar-chart', label: 'Mes stats' },
   { href: '/espace/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/espace/calls', icon: 'phone-call', label: 'Prochain call' },
   { href: '/espace/resources', icon: 'folder', label: 'Ressources' },
+  { href: '/espace/ai', icon: 'sparkle', label: 'Assistant IA', highlight: true },
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
@@ -22,12 +23,13 @@ export default function SidebarClient() {
   return (
     <aside className="sidebar">
       <nav className="sidebar-nav">
-        {NAV.map(({ href, icon, label }) => {
+        {NAV.map(({ href, icon, label, highlight }) => {
           const active = pathname === href || (href !== '/espace' && pathname.startsWith(href));
           return (
-            <Link key={href} href={href} className={`nav-item${active ? ' active' : ''}`}>
+            <Link key={href} href={href} className={`nav-item${active ? ' active' : ''}`} style={highlight && !active ? { color: 'var(--accent)', borderLeft: '2px solid var(--accent)', marginLeft: -2 } : undefined}>
               <Icon name={icon} size={16} />
               <span>{label}</span>
+              {highlight && !active && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>IA</span>}
             </Link>
           );
         })}

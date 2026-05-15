@@ -4,13 +4,14 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
 
-const NAV: { href: string; icon: IconName; label: string }[] = [
+const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/dashboard', icon: 'activity', label: 'Aujourd\'hui' },
   { href: '/analytics', icon: 'bar-chart', label: 'Analytics' },
   { href: '/clients', icon: 'users', label: 'Clients' },
   { href: '/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/calls', icon: 'phone-call', label: 'Calls' },
   { href: '/resources', icon: 'folder', label: 'Ressources' },
+  { href: '/ai', icon: 'sparkle', label: 'Assistant IA', highlight: true },
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
@@ -23,12 +24,13 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <nav className="sidebar-nav">
-        {NAV.map(({ href, icon, label }) => {
+        {NAV.map(({ href, icon, label, highlight }) => {
           const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
           return (
-            <Link key={href} href={href} className={`nav-item${active ? ' active' : ''}`}>
+            <Link key={href} href={href} className={`nav-item${active ? ' active' : ''}`} style={highlight && !active ? { color: 'var(--accent)', borderLeft: '2px solid var(--accent)', marginLeft: -2 } : undefined}>
               <Icon name={icon} size={16} />
               <span>{label}</span>
+              {highlight && !active && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>IA</span>}
             </Link>
           );
         })}
