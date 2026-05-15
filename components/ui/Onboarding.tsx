@@ -24,14 +24,30 @@ interface OnboardingStep {
   features: StepFeature[];
   ctaLabel: string;
   isFinal?: boolean;
+  isConnect?: boolean;
 }
+
+interface ConnectTile {
+  id: string;
+  icon: IconName;
+  name: string;
+  tagline: string;
+  color: string;
+}
+
+const CONNECT_TILES: ConnectTile[] = [
+  { id: 'instagram', icon: 'instagram', name: 'Instagram',  tagline: 'Suivi followers & engagement',        color: '#E1306C' },
+  { id: 'youtube',   icon: 'youtube',   name: 'YouTube',    tagline: 'Progression vues & abonnés',          color: '#FF0000' },
+  { id: 'calendly',  icon: 'calendar',  name: 'Calendly',   tagline: 'Calls synchronisés automatiquement',  color: '#0069FF' },
+  { id: 'stripe',    icon: 'stripe',    name: 'Stripe',     tagline: 'Revenus trackés en temps réel',       color: '#635BFF' },
+];
 
 const STEPS: OnboardingStep[] = [
   {
     icon: 'target',
     iconColor: 'var(--accent)',
     iconBg: 'rgba(42,42,40,0.07)',
-    label: '01 / 06',
+    label: '01 / 07',
     title: 'Bienvenue sur ORBIT',
     subtitle: 'Votre espace de suivi coaching personnalisé. En quelques secondes, découvrez tout ce que la plateforme peut faire pour vous.',
     features: [
@@ -45,7 +61,7 @@ const STEPS: OnboardingStep[] = [
     icon: 'activity',
     iconColor: 'var(--green)',
     iconBg: 'rgba(63,138,82,0.1)',
-    label: '02 / 06',
+    label: '02 / 07',
     title: 'Votre plan de la semaine',
     subtitle: 'Chaque lundi, votre coach dépose votre plan personnalisé. Cochez vos tâches au fil des jours pour suivre votre progression.',
     features: [
@@ -59,7 +75,7 @@ const STEPS: OnboardingStep[] = [
     icon: 'bar-chart',
     iconColor: 'var(--amber)',
     iconBg: 'rgba(181,128,37,0.1)',
-    label: '03 / 06',
+    label: '03 / 07',
     title: 'Vos statistiques',
     subtitle: 'Visualisez vos métriques clés : followers, engagement, revenus. Comprenez d\'un coup d\'œil ce qui fonctionne.',
     features: [
@@ -73,7 +89,7 @@ const STEPS: OnboardingStep[] = [
     icon: 'message-circle',
     iconColor: '#4a7fa5',
     iconBg: 'rgba(74,127,165,0.1)',
-    label: '04 / 06',
+    label: '04 / 07',
     title: 'Échangez avec votre coach',
     subtitle: 'Posez vos questions, partagez vos victoires ou vos blocages. Votre coach répond directement dans l\'interface.',
     features: [
@@ -87,7 +103,7 @@ const STEPS: OnboardingStep[] = [
     icon: 'folder',
     iconColor: 'var(--accent)',
     iconBg: 'rgba(42,42,40,0.07)',
-    label: '05 / 06',
+    label: '05 / 07',
     title: 'Vos ressources exclusives',
     subtitle: 'Guides, templates, replays de calls — débloqués progressivement par votre coach selon votre avancement.',
     features: [
@@ -98,10 +114,21 @@ const STEPS: OnboardingStep[] = [
     ctaLabel: 'Suivant',
   },
   {
+    icon: 'link',
+    iconColor: '#4a7fa5',
+    iconBg: 'rgba(74,127,165,0.1)',
+    label: '06 / 07',
+    title: 'Activez votre suivi',
+    subtitle: 'Votre coach a besoin de ces données pour vous accompagner au meilleur niveau. Ces accès sont privés, sécurisés, et uniquement visibles par lui.',
+    features: [],
+    ctaLabel: 'C\'est parti →',
+    isConnect: true,
+  },
+  {
     icon: 'award',
     iconColor: 'var(--green)',
     iconBg: 'rgba(63,138,82,0.1)',
-    label: '06 / 06',
+    label: '07 / 07',
     title: 'Vous êtes prêt(e) !',
     subtitle: 'Tout est en place. Votre coach vous attend. Lancez-vous dès maintenant et commencez cette semaine avec élan.',
     features: [
@@ -147,13 +174,19 @@ const staggerChild = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
 };
 
+const checkVariants = {
+  hidden:  { scale: 0, opacity: 0 },
+  visible: { scale: 1, opacity: 1, transition: { type: 'spring' as const, stiffness: 400, damping: 20 } },
+};
+
 export default function Onboarding({ open, onClose }: OnboardingProps) {
   const [step, setStep] = useState(0);
   const [nextHovered, setNextHovered] = useState(false);
+  const [connected, setConnected] = useState<Set<string>>(new Set());
   const reduced = useReducedMotion();
 
   useEffect(() => {
-    if (open) setStep(0);
+    if (open) { setStep(0); setConnected(new Set()); }
   }, [open]);
 
   useEffect(() => {
@@ -165,9 +198,18 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
 
   const current = STEPS[step];
   const isLast = step === STEPS.length - 1;
+  const anyConnected = connected.size > 0;
 
   function handleNext() {
     if (isLast) { onClose(); } else { setStep(s => s + 1); }
+  }
+
+  function toggleConnect(id: string) {
+    setConnected(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) { next.delete(id); } else { next.add(id); }
+      return next;
+    });
   }
 
   if (reduced) {
@@ -228,7 +270,7 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
                   borderRadius: 20,
                   border: '1px solid var(--border)',
                   boxShadow: '0 32px 80px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)',
-                  padding: '48px 48px 40px',
+                  padding: current.isConnect ? '40px 40px 32px' : '48px 48px 40px',
                   position: 'relative',
                   zIndex: 1,
                 }}
@@ -241,10 +283,10 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
                   </m.div>
 
                   {/* Icon */}
-                  <m.div variants={staggerChild} style={{ display: 'flex', justifyContent: 'center', marginBottom: 28 }}>
+                  <m.div variants={staggerChild} style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
                     <m.div
                       style={{
-                        width: 88, height: 88, borderRadius: 22,
+                        width: 80, height: 80, borderRadius: 20,
                         background: current.iconBg,
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         position: 'relative',
@@ -252,7 +294,7 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
                       animate={current.isFinal ? { scale: [1, 1.08, 1] } : {}}
                       transition={current.isFinal ? { repeat: Infinity, duration: 2.4, ease: 'easeInOut' } as object : {}}
                     >
-                      <Icon name={current.icon} size={40} color={current.iconColor} />
+                      <Icon name={current.icon} size={36} color={current.iconColor} />
                       {current.isFinal && CONFETTI_PIECES.map((p, i) => (
                         <span
                           key={i}
@@ -269,76 +311,127 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
 
                   {/* Title */}
                   <m.div variants={staggerChild}>
-                    <h2 style={{ fontSize: 30, fontWeight: 800, color: 'var(--accent)', letterSpacing: '-0.5px', textAlign: 'center', margin: '0 0 10px' }}>
+                    <h2 style={{ fontSize: current.isConnect ? 24 : 30, fontWeight: 800, color: 'var(--accent)', letterSpacing: '-0.5px', textAlign: 'center', margin: '0 0 8px' }}>
                       {current.title}
                     </h2>
                   </m.div>
 
                   {/* Subtitle */}
                   <m.div variants={staggerChild}>
-                    <p style={{ fontSize: 14, color: 'var(--muted)', textAlign: 'center', maxWidth: 400, margin: '0 auto 28px', lineHeight: 1.65 }}>
+                    <p style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 400, margin: '0 auto 20px', lineHeight: 1.65 }}>
                       {current.subtitle}
                     </p>
                   </m.div>
 
-                  {/* Features */}
-                  {current.features.map((f, i) => (
-                    <m.div
-                      key={i}
-                      variants={staggerChild}
-                      style={{
-                        display: 'flex', alignItems: 'center', gap: 12,
-                        padding: '10px 14px', borderRadius: 10,
-                        background: 'var(--surface-2)',
-                        border: '1px solid var(--border)',
-                        marginBottom: 8,
-                      }}
-                    >
-                      <span style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
-                        <Icon name={f.icon} size={15} />
-                      </span>
-                      <span style={{ fontSize: 13, color: 'var(--ink-2, var(--accent))' }}>{f.text}</span>
-                    </m.div>
-                  ))}
+                  {/* Connect grid (step isConnect) OR Feature rows */}
+                  {current.isConnect ? (
+                    <>
+                      <m.div variants={staggerChild} className="onboarding-connect-grid">
+                        {CONNECT_TILES.map(tile => {
+                          const isConn = connected.has(tile.id);
+                          return (
+                            <div
+                              key={tile.id}
+                              className={`onboarding-connect-tile${isConn ? ' connected' : ''}`}
+                            >
+                              <div className="onboarding-connect-tile-header">
+                                <Icon name={tile.icon} size={20} color={tile.color} />
+                                {isConn && (
+                                  <m.span
+                                    variants={checkVariants}
+                                    initial="hidden"
+                                    animate="visible"
+                                    style={{ color: 'var(--green)', display: 'flex' }}
+                                  >
+                                    <Icon name="check" size={14} />
+                                  </m.span>
+                                )}
+                              </div>
+                              <div className="onboarding-connect-tile-name">{tile.name}</div>
+                              <div className="onboarding-connect-tile-tagline">{tile.tagline}</div>
+                              <button
+                                type="button"
+                                className={`onboarding-connect-btn${isConn ? ' connected' : ''}`}
+                                onClick={() => toggleConnect(tile.id)}
+                              >
+                                {isConn ? (
+                                  <><Icon name="check" size={11} color="#fff" /> Connecté</>
+                                ) : (
+                                  <><Icon name="link" size={11} color="#fff" /> Connecter</>
+                                )}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </m.div>
+
+                      {/* Security badge */}
+                      <m.div variants={staggerChild} className="onboarding-badge-secure">
+                        <Icon name="shield" size={15} color="var(--green)" style={{ flexShrink: 0 }} />
+                        <span>Vos données sont privées et sécurisées. Accessibles uniquement par votre coach.</span>
+                      </m.div>
+                    </>
+                  ) : (
+                    current.features.map((f, i) => (
+                      <m.div
+                        key={i}
+                        variants={staggerChild}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 12,
+                          padding: '10px 14px', borderRadius: 10,
+                          background: 'var(--surface-2)',
+                          border: '1px solid var(--border)',
+                          marginBottom: 8,
+                        }}
+                      >
+                        <span style={{ color: 'var(--muted)', display: 'flex', flexShrink: 0 }}>
+                          <Icon name={f.icon} size={15} />
+                        </span>
+                        <span style={{ fontSize: 13, color: 'var(--ink-2, var(--accent))' }}>{f.text}</span>
+                      </m.div>
+                    ))
+                  )}
 
                   {/* CTA */}
-                  <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 28 }}>
+                  <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 24 }}>
                     <button
                       type="button"
                       onClick={handleNext}
                       onMouseEnter={() => setNextHovered(true)}
                       onMouseLeave={() => setNextHovered(false)}
+                      disabled={current.isConnect && !anyConnected}
                       style={{
-                        background: 'var(--accent)', color: '#fff',
+                        background: current.isConnect && !anyConnected ? 'var(--border)' : 'var(--accent)',
+                        color: current.isConnect && !anyConnected ? 'var(--muted)' : '#fff',
                         border: 'none', borderRadius: 10,
                         padding: '13px 32px', fontSize: 14, fontWeight: 600,
-                        cursor: 'pointer',
+                        cursor: current.isConnect && !anyConnected ? 'not-allowed' : 'pointer',
                         display: 'inline-flex', alignItems: 'center', gap: 8,
                         fontFamily: 'inherit',
-                        transition: 'background 120ms, transform 80ms',
-                        transform: nextHovered ? 'translateY(-1px)' : 'translateY(0)',
-                        boxShadow: nextHovered ? '0 6px 20px rgba(42,42,40,0.18)' : '0 2px 8px rgba(42,42,40,0.10)',
+                        transition: 'background 120ms, transform 80ms, color 120ms',
+                        transform: nextHovered && !(current.isConnect && !anyConnected) ? 'translateY(-1px)' : 'translateY(0)',
+                        boxShadow: nextHovered && !(current.isConnect && !anyConnected) ? '0 6px 20px rgba(42,42,40,0.18)' : '0 2px 8px rgba(42,42,40,0.10)',
                       }}
                     >
                       {current.ctaLabel}
                       <span style={{ display: 'inline-flex', transition: 'transform 120ms', transform: nextHovered ? 'translateX(3px)' : 'translateX(0)' }}>
-                        <Icon name="arrowR" size={15} color="#fff" />
+                        <Icon name="arrowR" size={15} color={current.isConnect && !anyConnected ? 'var(--muted)' : '#fff'} />
                       </span>
                     </button>
 
-                    {!isLast && (
+                    {(!isLast) && (
                       <button
                         type="button"
-                        onClick={onClose}
+                        onClick={current.isConnect ? handleNext : onClose}
                         style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 8px' }}
                       >
-                        Passer l'introduction
+                        {current.isConnect ? 'Passer cette étape' : 'Passer l\'introduction'}
                       </button>
                     )}
                   </m.div>
 
                   {/* Progress dots */}
-                  <m.div variants={staggerChild} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, marginTop: 24 }}>
+                  <m.div variants={staggerChild} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, marginTop: 20 }}>
                     {STEPS.map((_, i) => (
                       <m.div
                         key={i}
