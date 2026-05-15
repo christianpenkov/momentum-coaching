@@ -284,6 +284,14 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
 
                   {/* Icon */}
                   <m.div variants={staggerChild} style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+                    <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <span style={{
+                        position: 'absolute',
+                        inset: -18,
+                        borderRadius: '50%',
+                        background: `radial-gradient(circle, ${current.iconColor.startsWith('var') ? 'rgba(160,160,150,0.22)' : current.iconColor + '22'} 0%, transparent 70%)`,
+                        pointerEvents: 'none',
+                      }} />
                     <m.div
                       style={{
                         width: 80, height: 80, borderRadius: 20,
@@ -307,6 +315,7 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
                         />
                       ))}
                     </m.div>
+                    </span>
                   </m.div>
 
                   {/* Title */}
