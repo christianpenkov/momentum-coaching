@@ -11,20 +11,22 @@ export default function TopBar() {
   return (
     <div className="topbar">
       <div className="topbar-brand">
-        <svg width="44" height="44" viewBox="-20 -20 240 240" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0, overflow: 'visible' }}>
-          <defs>
-            <radialGradient id="topbar-ambient" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stopColor="#BEBEBE" stopOpacity="0.7"/>
-              <stop offset="55%" stopColor="#BEBEBE" stopOpacity="0.22"/>
-              <stop offset="100%" stopColor="#BEBEBE" stopOpacity="0"/>
-            </radialGradient>
-          </defs>
-          <ellipse cx="100" cy="100" rx="118" ry="118" fill="url(#topbar-ambient)"/>
-          <rect x="16" y="16" width="168" height="168" rx="38" fill="#EBEBEB"/>
-          <circle cx="100" cy="100" r="56" stroke="#2E2E2E" strokeWidth="8" fill="none"/>
-          <circle cx="100" cy="100" r="34" stroke="#2E2E2E" strokeWidth="8" fill="none"/>
-          <circle cx="100" cy="100" r="12" fill="#2E2E2E"/>
-        </svg>
+        <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 36, height: 36, flexShrink: 0 }}>
+          {/* Halo ambiant CSS — pas de clip */}
+          <span style={{
+            position: 'absolute',
+            inset: -10,
+            borderRadius: '50%',
+            background: 'radial-gradient(circle, rgba(160,160,155,0.45) 0%, rgba(160,160,155,0.12) 50%, transparent 72%)',
+            pointerEvents: 'none',
+          }} />
+          <svg width="36" height="36" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <rect x="16" y="16" width="168" height="168" rx="38" fill="#EBEBEB"/>
+            <circle cx="100" cy="100" r="56" stroke="#2E2E2E" strokeWidth="8" fill="none"/>
+            <circle cx="100" cy="100" r="34" stroke="#2E2E2E" strokeWidth="8" fill="none"/>
+            <circle cx="100" cy="100" r="12" fill="#2E2E2E"/>
+          </svg>
+        </span>
         <span className="topbar-logo">ORBIT</span>
         <span className="topbar-tagline">Plateforme coaching</span>
       </div>
