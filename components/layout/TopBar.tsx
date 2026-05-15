@@ -12,7 +12,7 @@ export default function TopBar() {
   return (
     <div className="topbar">
       <div className="topbar-brand">
-        <Image src="/logo.svg" alt="ORBIT" width={28} height={28} style={{ flexShrink: 0 }} />
+        <Image src="/logo.svg" alt="ORBIT" width={36} height={36} style={{ flexShrink: 0, overflow: 'visible' }} />
         <span className="topbar-logo">ORBIT</span>
         <span className="topbar-tagline">Plateforme coaching</span>
       </div>

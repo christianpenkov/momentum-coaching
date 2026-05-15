@@ -1,22 +1,20 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" fill="none">
-  <!-- Anneau orbital extérieur -->
-  <circle cx="100" cy="100" r="78" stroke="#C8A97E" stroke-width="3" stroke-dasharray="12 6" stroke-linecap="round" opacity="0.35"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 240 240" fill="none">
+  <defs>
+    <radialGradient id="ambient" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#CBCBCB" stop-opacity="0.6"/>
+      <stop offset="60%" stop-color="#CBCBCB" stop-opacity="0.18"/>
+      <stop offset="100%" stop-color="#CBCBCB" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
 
-  <!-- Anneau principal -->
-  <circle cx="100" cy="100" r="62" stroke="#C8A97E" stroke-width="2.5" opacity="0.6"/>
+  <!-- Dégradé ambiant autour du carré -->
+  <ellipse cx="100" cy="100" rx="115" ry="115" fill="url(#ambient)"/>
 
-  <!-- Arc orbital incliné (ellipse) -->
-  <ellipse cx="100" cy="100" rx="62" ry="22" stroke="#C8A97E" stroke-width="2" transform="rotate(-30 100 100)" opacity="0.5"/>
+  <!-- Fond carré arrondi gris -->
+  <rect x="16" y="16" width="168" height="168" rx="38" fill="#EBEBEB"/>
 
-  <!-- Point orbital sur l'arc (planète) -->
-  <circle cx="148" cy="77" r="6" fill="#C8A97E"/>
-  <circle cx="148" cy="77" r="9" stroke="#C8A97E" stroke-width="1.5" opacity="0.3"/>
-
-  <!-- Point central (étoile) -->
-  <circle cx="100" cy="100" r="10" fill="#C8A97E"/>
-  <circle cx="100" cy="100" r="5" fill="#1A1814"/>
-
-  <!-- Petits points accent -->
-  <circle cx="52" cy="123" r="3" fill="#C8A97E" opacity="0.5"/>
-  <circle cx="62" cy="58" r="2" fill="#C8A97E" opacity="0.35"/>
+  <!-- Cercles concentriques target — légèrement agrandis -->
+  <circle cx="100" cy="100" r="56" stroke="#2E2E2E" stroke-width="8" fill="none"/>
+  <circle cx="100" cy="100" r="34" stroke="#2E2E2E" stroke-width="8" fill="none"/>
+  <circle cx="100" cy="100" r="12" fill="#2E2E2E"/>
 </svg>
