@@ -1,8 +1,10 @@
 'use client';
 
+import { useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
+import Onboarding from '../ui/Onboarding';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/espace', icon: 'activity', label: 'Mon espace' },
@@ -19,8 +21,10 @@ const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
 
 export default function SidebarClient() {
   const pathname = usePathname();
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
 
   return (
+    <>
     <aside className="sidebar">
       <nav className="sidebar-nav">
         {NAV.map(({ href, icon, label, highlight }) => {
@@ -36,6 +40,15 @@ export default function SidebarClient() {
       </nav>
 
       <nav className="sidebar-nav sidebar-nav-bottom">
+        <button
+          type="button"
+          className="nav-item"
+          onClick={() => setOnboardingOpen(true)}
+          style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+        >
+          <Icon name="help" size={16} />
+          <span>Guide de démarrage</span>
+        </button>
         {NAV_BOTTOM.map(({ href, icon, label }) => {
           const active = pathname === href;
           return (
@@ -54,5 +67,7 @@ export default function SidebarClient() {
         </div>
       </nav>
     </aside>
+    <Onboarding open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
+    </>
   );
 }
