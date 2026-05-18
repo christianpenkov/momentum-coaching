@@ -11,6 +11,24 @@ type Tab = 'upcoming' | 'history';
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
   const { calls, clients, loading } = useSupabaseClients();
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  async function syncCalendly() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch('/api/calendly/sync', { method: 'POST' });
+      const data = await res.json();
+      setSyncMsg(data.ok
+        ? (data.synced > 0 ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}` : 'Aucun nouveau call')
+        : (data.error || 'Erreur'));
+    } catch {
+      setSyncMsg('Erreur réseau');
+    }
+    setSyncing(false);
+    setTimeout(() => setSyncMsg(null), 4000);
+  }
 
   const now = new Date();
   const upcoming = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) >= now)
@@ -39,6 +57,18 @@ export default function PageCalls() {
         <div>
           <h1 className="page-title">Calls</h1>
           <p className="page-sub">{upcoming.length} à venir · {history.length} dans l'historique</p>
+        </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {syncMsg && (
+            <span style={{ fontSize: 12, color: syncMsg.includes('Erreur') ? 'var(--red)' : 'var(--green)' }}>
+              {syncMsg}
+            </span>
+          )}
+          <button className="btn-ghost" type="button" onClick={syncCalendly} disabled={syncing}
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <Icon name="refresh-cw" size={13} />
+            {syncing ? 'Sync…' : 'Sync Calendly'}
+          </button>
         </div>
       </div>
 
