@@ -1,11 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { Suspense, useState, useEffect } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter, useSearchParams } from 'next/navigation';
 
-export default function SignupPage() {
+function SignupContent() {
   const [name, setName] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
@@ -19,7 +19,6 @@ export default function SignupPage() {
   const supabase = createClient();
 
   useEffect(() => {
-    // L'email peut être pré-rempli via le lien d'invitation
     const emailParam = searchParams.get('email');
     const tokenParam = searchParams.get('token');
     if (emailParam) setEmail(decodeURIComponent(emailParam));
@@ -45,7 +44,6 @@ export default function SignupPage() {
 
     setLoading(true);
 
-    // 1. Créer le compte Supabase Auth
     const { data, error: signupErr } = await supabase.auth.signUp({
       email,
       password,
@@ -62,14 +60,12 @@ export default function SignupPage() {
     }
 
     if (data.user) {
-      // 2. Créer le profil avec rôle client
       await supabase.from('profiles').upsert({
         id: data.user.id,
         role: 'client',
         full_name: name.trim(),
       });
 
-      // 3. Lier au client si token présent (créé par le webhook Stripe)
       if (token) {
         await supabase.from('clients')
           .update({ profile_id: data.user.id })
@@ -77,7 +73,6 @@ export default function SignupPage() {
           .is('profile_id', null);
       }
 
-      // Si email confirmation requise
       if (!data.session) {
         router.push('/signup/confirm?email=' + encodeURIComponent(email));
         return;
@@ -139,7 +134,7 @@ export default function SignupPage() {
               placeholder="ton@email.fr"
               required
               readOnly={!!email}
-              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 14, background: email ? 'var(--surface-2)' : 'var(--surface-2)', color: email ? 'var(--muted)' : 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 14, background: 'var(--surface-2)', color: email ? 'var(--muted)' : 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
             />
           </div>
 
@@ -195,5 +190,13 @@ export default function SignupPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense>
+      <SignupContent />
+    </Suspense>
   );
 }

@@ -1,9 +1,10 @@
 'use client';
 
+import { Suspense } from 'react';
 import Image from 'next/image';
 import { useSearchParams } from 'next/navigation';
 
-export default function SignupConfirmPage() {
+function ConfirmContent() {
   const searchParams = useSearchParams();
   const email = searchParams.get('email') || '';
 
@@ -38,5 +39,13 @@ export default function SignupConfirmPage() {
         </p>
       </div>
     </div>
+  );
+}
+
+export default function SignupConfirmPage() {
+  return (
+    <Suspense>
+      <ConfirmContent />
+    </Suspense>
   );
 }
