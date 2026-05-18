@@ -1,20 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="-20 -20 240 240" fill="none">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500">
   <defs>
-    <radialGradient id="ambient" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#CBCBCB" stop-opacity="0.6"/>
-      <stop offset="60%" stop-color="#CBCBCB" stop-opacity="0.18"/>
-      <stop offset="100%" stop-color="#CBCBCB" stop-opacity="0"/>
-    </radialGradient>
+    <mask id="cut">
+      <rect width="500" height="500" fill="white"/>
+      <ellipse cx="193" cy="222" rx="68" ry="65" fill="black"/>
+      <ellipse cx="307" cy="278" rx="68" ry="65" fill="black"/>
+    </mask>
   </defs>
 
-  <!-- Dégradé ambiant autour du carré -->
-  <ellipse cx="100" cy="100" rx="115" ry="115" fill="url(#ambient)"/>
+  <!-- Boucle gauche — capsule inclinée -->
+  <ellipse cx="178" cy="228" rx="125" ry="70"
+           transform="rotate(-18 178 228)"
+           fill="#0057FF" mask="url(#cut)"/>
 
-  <!-- Fond carré arrondi gris -->
-  <rect x="16" y="16" width="168" height="168" rx="38" fill="#EBEBEB"/>
-
-  <!-- Cercles concentriques target — légèrement agrandis -->
-  <circle cx="100" cy="100" r="56" stroke="#2E2E2E" stroke-width="8" fill="none"/>
-  <circle cx="100" cy="100" r="34" stroke="#2E2E2E" stroke-width="8" fill="none"/>
-  <circle cx="100" cy="100" r="12" fill="#2E2E2E"/>
+  <!-- Boucle droite — capsule inclinée -->
+  <ellipse cx="322" cy="272" rx="125" ry="70"
+           transform="rotate(-18 322 272)"
+           fill="#0057FF" mask="url(#cut)"/>
 </svg>
