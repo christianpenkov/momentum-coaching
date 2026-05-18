@@ -29,9 +29,9 @@ const INTEGRATION_CONFIG: {
     provider: 'stripe',
     name: 'Stripe',
     icon: 'stripe',
-    desc: 'Paiements, MRR, webhook automatique post-achat',
-    mode: 'oauth',
-    oauthPath: '/api/oauth/stripe',
+    desc: 'Clé secrète Stripe pour recevoir les paiements et déclencher l\'onboarding clients',
+    mode: 'apikey',
+    placeholder: 'sk_live_... ou sk_test_...',
   },
   {
     provider: 'calendly',
@@ -194,7 +194,7 @@ export default function PageSettings() {
       <div className="settings-section" style={{ marginTop: 28 }}>
         <div className="settings-section-title">Intégrations</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-          Stripe et Calendly se connectent en un clic via OAuth — aucune clé à copier.
+          Colle tes clés API — stockées chiffrées, jamais exposées.
         </div>
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {INTEGRATION_CONFIG.map((cfg, i) => {
