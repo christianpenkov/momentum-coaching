@@ -1,288 +1,83 @@
 'use client';
 
-import dynamic from 'next/dynamic';
-import { useState } from 'react';
-import KpiRibbon from '@/components/ui/KpiRibbon';
-import CardHead from '@/components/ui/CardHead';
-import Pill from '@/components/ui/Pill';
 import Icon from '@/components/ui/Icon';
-import { clients, getTotalMRR, getActiveClients } from '@/lib/data';
-
-const LineChart = dynamic(() => import('@/components/charts/LineChart'), { ssr: false });
-const BarChart = dynamic(() => import('@/components/charts/BarChart'), { ssr: false });
-const AreaChart = dynamic(() => import('@/components/charts/AreaChart'), { ssr: false });
-const DonutChart = dynamic(() => import('@/components/charts/DonutChart'), { ssr: false });
-const Heatmap = dynamic(() => import('@/components/charts/Heatmap'), { ssr: false });
-
-const WEEKS = Array.from({ length: 12 }, (_, i) => `S${i + 1}`);
-
-function buildMRRTimeline() {
-  return WEEKS.map((week, wi) => ({
-    week,
-    mrr: clients.reduce((sum, c) => sum + (c.weeklyHistory[wi]?.stripeMRR || 0), 0),
-  }));
-}
-
-function buildFollowerTimeline(network: 'followersIG' | 'followersYT') {
-  return WEEKS.map((week, wi) => {
-    const entry: Record<string, unknown> = { week };
-    clients.slice(0, 6).forEach(c => {
-      entry[c.initials] = c.weeklyHistory[wi]?.[network] || 0;
-    });
-    return entry;
-  });
-}
-
-function buildHeatmapRows() {
-  return clients.slice(0, 8).map(c => ({
-    name: c.initials,
-    cells: c.weeklyHistory.map((w, i) => ({ label: `S${i + 1}`, value: w.postsCount })),
-  }));
-}
-
-function buildComparativeTable() {
-  return clients.slice(0, 12).map(c => {
-    const last = c.weeklyHistory[11];
-    const first = c.weeklyHistory[0];
-    const totalFollowers = last.followersIG + last.followersYT;
-    const growth = first.followersIG > 0 ? Math.round(((last.followersIG - first.followersIG) / first.followersIG) * 100) : 0;
-    return {
-      ...c,
-      totalFollowers,
-      growth,
-      lastMRR: last.stripeMRR,
-      lastPosts: last.postsCount,
-      lastDMs: last.dmsSent,
-      lastCals: last.calendlyCalls,
-    };
-  });
-}
-
-const donutData = [
-  { label: 'En vert', value: clients.filter(c => c.status === 'green').length, color: 'var(--green)' },
-  { label: 'En amber', value: clients.filter(c => c.status === 'amber').length, color: 'var(--amber)' },
-  { label: 'En alerte', value: clients.filter(c => c.status === 'red').length, color: 'var(--red)' },
-];
-
-type NetworkKey = 'followersIG' | 'followersYT';
-const NETWORKS: { key: NetworkKey; label: string }[] = [
-  { key: 'followersIG', label: 'Instagram' },
-  { key: 'followersYT', label: 'YouTube' },
-];
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 export default function PageAnalytics() {
-  const [network, setNetwork] = useState<NetworkKey>('followersIG');
-  const mrrTimeline = buildMRRTimeline();
-  const followerTimeline = buildFollowerTimeline(network);
-  const heatmapRows = buildHeatmapRows();
-  const tableData = buildComparativeTable();
-  const totalMRR = getTotalMRR();
-  const activeCount = getActiveClients();
-  const avgGrowth = Math.round(tableData.reduce((s, c) => s + c.growth, 0) / tableData.length);
+  const { clients, loading } = useSupabaseClients();
 
-  const kpis = [
-    { label: 'MRR total', value: totalMRR, formatter: (n: number) => `${n.toLocaleString('fr-FR')} €` },
-    { label: 'Clients actifs', value: activeCount },
-    { label: 'Rétention moy.', value: 91, formatter: (n: number) => `${n}%` },
-    { label: 'Croissance moy.', value: avgGrowth, formatter: (n: number) => `+${n}%`, color: 'var(--green)' },
-  ];
+  if (loading) {
+    return (
+      <div className="page-content">
+        <div className="page-header"><h1 className="page-title">Analytics</h1></div>
+        <div style={{ color: 'var(--muted)', fontSize: 13, paddingTop: 40, textAlign: 'center' }}>
+          <Icon name="refresh-cw" size={16} /> Chargement…
+        </div>
+      </div>
+    );
+  }
 
-  const top6 = clients.slice(0, 6);
-  const followerLines = top6.map((c, i) => ({ key: c.initials, label: c.name.split(' ')[0] }));
+  const totalMRR = clients.reduce((sum, c) => sum + (c.latestMetrics?.stripe_mrr || 0), 0);
+  const activeClients = clients.filter(c => c.status === 'green').length;
 
   return (
     <div className="page-content">
       <div className="page-header">
-        <div>
-          <h1 className="page-title">Analytics</h1>
-          <p className="page-sub">Vue cross-data de tous vos élèves</p>
-        </div>
-        <button className="btn-ghost" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Icon name="download" size={14} /> Exporter
-        </button>
+        <h1 className="page-title">Analytics</h1>
       </div>
 
-      <KpiRibbon items={kpis} />
-
-      {/* Section 1 — Portfolio */}
-      <div className="grid-analytics" style={{ marginTop: 24 }}>
-        <div className="card" style={{ gridColumn: 'span 2' }}>
-          <CardHead title="Évolution MRR" subtitle="12 dernières semaines · tous élèves" />
-          <LineChart
-            data={mrrTimeline}
-            lines={[{ key: 'mrr', label: 'MRR global', color: 'var(--accent)' }]}
-            xKey="week"
-            height={200}
-            formatter={(n) => `${n.toLocaleString('fr-FR')} €`}
-          />
-        </div>
-
-        <div className="card" style={{ position: 'relative' }}>
-          <CardHead title="Répartition statuts" subtitle="Distribution rouge/amber/vert" />
-          <div style={{ display: 'flex', justifyContent: 'center', marginTop: 8 }}>
-            <DonutChart
-              data={donutData}
-              height={180}
-              centerLabel={`${clients.length}`}
-              centerSub="élèves"
-              formatter={(n) => `${n} élèves`}
-            />
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginBottom: 28 }}>
+        {[
+          { label: 'MRR total', value: `${totalMRR.toLocaleString('fr-FR')} €` },
+          { label: 'Clients actifs', value: String(clients.length) },
+          { label: 'En vert', value: String(activeClients) },
+          { label: 'Semaine moyenne', value: clients.length > 0 ? `S${Math.round(clients.reduce((s, c) => s + c.week, 0) / clients.length)}` : '—' },
+        ].map(({ label, value }) => (
+          <div key={label} className="card">
+            <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>{label}</div>
+            <div className="kpi-value">{value}</div>
           </div>
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 8 }}>
-            {donutData.map((d, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 12 }}>
-                <span style={{ width: 8, height: 8, borderRadius: '50%', background: d.color, display: 'inline-block' }} />
-                <span style={{ color: 'var(--muted)' }}>{d.label}</span>
-                <strong style={{ color: 'var(--accent)' }}>{d.value}</strong>
-              </div>
-            ))}
-          </div>
-        </div>
+        ))}
       </div>
 
-      {/* Section 2 — Croissance followers */}
-      <div className="card" style={{ marginTop: 24 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <CardHead title="Croissance audience" subtitle="Trajectoire par élève sur 12 semaines" />
-          <div style={{ display: 'flex', gap: 6 }}>
-            {NETWORKS.map(n => (
-              <button
-                key={n.key}
-                className={`chip${network === n.key ? ' chip-active' : ''}`}
-                onClick={() => setNetwork(n.key)}
-                type="button"
-              >
-                {n.label}
-              </button>
-            ))}
-          </div>
+      {clients.length === 0 ? (
+        <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', fontSize: 13 }}>
+          Les graphiques apparaîtront ici une fois que tes clients auront des métriques enregistrées.
         </div>
-        <LineChart
-          data={followerTimeline}
-          lines={followerLines}
-          xKey="week"
-          height={240}
-          formatter={(n) => n.toLocaleString('fr-FR')}
-        />
-      </div>
-
-      {/* Section 3 — Activité contenu */}
-      <div className="grid-2" style={{ marginTop: 24 }}>
-        <div className="card">
-          <CardHead title="Posts par élève / semaine" subtitle="Fréquence de publication (12 semaines)" />
-          <Heatmap
-            rows={heatmapRows}
-            colLabels={WEEKS}
-          />
-        </div>
-
-        <div className="card">
-          <CardHead title="DM envoyés vs Taux réponse" subtitle="Activité prospection par élève" />
-          <BarChart
-            data={clients.slice(0, 8).map(c => ({
-              name: c.initials,
-              dms: Math.round(c.weeklyHistory.reduce((s, w) => s + w.dmsSent, 0) / 12),
-              reply: Math.round(c.weeklyHistory.reduce((s, w) => s + w.dmsReplyRate, 0) / 12),
-            }))}
-            bars={[
-              { key: 'dms', label: 'DM/sem moy.', color: 'var(--accent)' },
-              { key: 'reply', label: 'Réponses %', color: 'var(--green)' },
-            ]}
-            xKey="name"
-            height={220}
-          />
-        </div>
-      </div>
-
-      {/* Section 4 — Funnel business */}
-      <div className="grid-4" style={{ marginTop: 24 }}>
-        <div className="card funnel-card">
-          <div className="funnel-icon"><Icon name="target" size={20} /></div>
-          <div className="funnel-label">Taux de closing</div>
-          <div className="funnel-value">{Math.round(clients.reduce((s, c) => s + (c.iClosedRate || 0), 0) / clients.length)}%</div>
-          <div className="funnel-sub">moyenne élèves</div>
-        </div>
-        <div className="card funnel-card">
-          <div className="funnel-icon" style={{ color: 'var(--amber)' }}><Icon name="calendar" size={20} /></div>
-          <div className="funnel-label">Taux no-show</div>
-          <div className="funnel-value" style={{ color: 'var(--amber)' }}>
-            {parseFloat((clients.reduce((s, c) => {
-              const avg = c.weeklyHistory.reduce((a, w) => a + w.noShowRate, 0) / 12;
-              return s + avg;
-            }, 0) / clients.length).toFixed(1))}%
-          </div>
-          <div className="funnel-sub">calls manqués moy.</div>
-        </div>
-        <div className="card funnel-card">
-          <div className="funnel-icon" style={{ color: 'var(--accent)' }}><Icon name="eye" size={20} /></div>
-          <div className="funnel-label">Rétention vidéo</div>
-          <div className="funnel-value" style={{ color: 'var(--accent)' }}>
-            {parseFloat((clients.reduce((s, c) => {
-              const avg = c.weeklyHistory.reduce((a, w) => a + w.videoRetention, 0) / 12;
-              return s + avg;
-            }, 0) / clients.length).toFixed(1))}%
-          </div>
-          <div className="funnel-sub">durée vue moy.</div>
-        </div>
-        <div className="card funnel-card">
-          <div className="funnel-icon" style={{ color: 'var(--green)' }}><Icon name="trending-up" size={20} /></div>
-          <div className="funnel-label">CTR lien en bio</div>
-          <div className="funnel-value" style={{ color: 'var(--green)' }}>
-            {parseFloat((clients.reduce((s, c) => {
-              const avg = c.weeklyHistory.reduce((a, w) => a + w.ctrBioLink, 0) / 12;
-              return s + avg;
-            }, 0) / clients.length).toFixed(1))}%
-          </div>
-          <div className="funnel-sub">Short.io · moy.</div>
-        </div>
-      </div>
-
-      {/* Section 5 — Tableau comparatif */}
-      <div className="card" style={{ marginTop: 24 }}>
-        <CardHead
-          title="Tableau comparatif"
-          subtitle="Tous les élèves · métriques clés"
-          action={<button className="btn-ghost" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 5 }}><Icon name="download" size={13} /> Export CSV</button>}
-        />
-        <div style={{ overflowX: 'auto', marginTop: 16 }}>
-          <table className="data-table" style={{ minWidth: 700 }}>
+      ) : (
+        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+          <table className="data-table">
             <thead>
               <tr>
-                <th>Élève</th>
-                <th>Statut</th>
-                <th>Audience totale</th>
-                <th>Croissance IG</th>
-                <th>Posts/sem</th>
-                <th>DM/sem</th>
-                <th>Calls</th>
+                <th>Client</th>
+                <th>Semaine</th>
                 <th>MRR</th>
+                <th>Followers IG</th>
+                <th>Followers YT</th>
+                <th>Closing</th>
+                <th>Statut</th>
               </tr>
             </thead>
             <tbody>
-              {tableData.map(c => (
+              {clients.map(c => (
                 <tr key={c.id}>
+                  <td style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</td>
+                  <td style={{ fontSize: 12, color: 'var(--muted)' }}>S{c.week}</td>
+                  <td style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{(c.latestMetrics?.stripe_mrr || 0).toLocaleString('fr-FR')} €</td>
+                  <td style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{(c.latestMetrics?.followers_ig || 0).toLocaleString('fr-FR')}</td>
+                  <td style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{(c.latestMetrics?.followers_yt || 0).toLocaleString('fr-FR')}</td>
+                  <td style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>{c.latestMetrics?.closing_rate || 0}%</td>
                   <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <div className="avatar" style={{ width: 26, height: 26, fontSize: 10 }}>{c.initials}</div>
-                      <div>
-                        <div style={{ fontWeight: 600, fontSize: 12 }}>{c.name}</div>
-                        <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.niche}</div>
-                      </div>
-                    </div>
+                    <span className={`pill pill-${c.status}`} style={{ fontSize: 11 }}>
+                      {c.status === 'green' ? 'Vert' : c.status === 'amber' ? 'Vigilance' : 'Alerte'}
+                    </span>
                   </td>
-                  <td><Pill status={c.status as 'green' | 'amber' | 'red'} label={c.status === 'green' ? 'Vert' : c.status === 'amber' ? 'Vigilance' : 'Alerte'} size="sm" /></td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{c.totalFollowers.toLocaleString('fr-FR')}</td>
-                  <td style={{ color: c.growth >= 0 ? 'var(--green)' : 'var(--red)', fontWeight: 600, fontSize: 12 }}>{c.growth >= 0 ? '+' : ''}{c.growth}%</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{c.lastPosts}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{c.lastDMs}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{c.lastCals}</td>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600 }}>{c.lastMRR.toLocaleString('fr-FR')} €</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
-      </div>
+      )}
     </div>
   );
 }

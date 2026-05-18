@@ -1,119 +1,136 @@
 'use client';
 
-import { useState } from 'react';
-import Link from 'next/link';
-import Avatar from '@/components/ui/Avatar';
+import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
-import { callsToday, callsHistory, clients } from '@/lib/data';
+import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import type { Call, Client } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history';
 
-function getClient(id: string) {
-  return clients.find(c => c.id === id);
-}
-
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
+  const { calls, clients, loading } = useSupabaseClients();
+
+  const now = new Date();
+  const upcoming = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) >= now)
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  const history = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) < now)
+    .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
+
+  function getClient(clientId: string) {
+    return clients.find(c => c.id === clientId);
+  }
+
+  if (loading) {
+    return (
+      <div className="page-content">
+        <div className="page-header"><h1 className="page-title">Calls</h1></div>
+        <div style={{ color: 'var(--muted)', fontSize: 13, paddingTop: 40, textAlign: 'center' }}>
+          <Icon name="refresh-cw" size={16} /> Chargement…
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="page-content">
       <div className="page-header">
         <div>
           <h1 className="page-title">Calls</h1>
-          <p className="page-sub">{callsToday.length} aujourd'hui · {callsHistory.length} dans l'historique</p>
+          <p className="page-sub">{upcoming.length} à venir · {history.length} dans l'historique</p>
         </div>
-        <button className="btn-primary" type="button">
-          <Icon name="plus" size={14} /> Planifier un call
-        </button>
       </div>
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         <button className={`chip${tab === 'upcoming' ? ' chip-active' : ''}`} onClick={() => setTab('upcoming')} type="button">
-          À venir ({callsToday.length})
+          À venir ({upcoming.length})
         </button>
         <button className={`chip${tab === 'history' ? ' chip-active' : ''}`} onClick={() => setTab('history')} type="button">
-          Historique ({callsHistory.length})
+          Historique ({history.length})
         </button>
       </div>
 
       {tab === 'upcoming' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-          {callsToday.map(call => {
-            const cl = getClient(call.clientId);
-            const isReady = call.ready === 'ready';
-            return (
-              <div key={call.clientId} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
-                <div style={{ minWidth: 64, textAlign: 'center' }}>
-                  <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{call.time}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Aujourd'hui</div>
-                </div>
-                <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
-                <Avatar initials={cl?.initials || '??'} size={40} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--accent)' }}>{cl?.name || call.clientId}</div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{call.topic}</div>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                    {call.duration} · <span style={{ color: 'var(--accent)' }}>Zoom</span>
+        upcoming.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', fontSize: 13 }}>
+            Aucun call planifié pour le moment.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {upcoming.map(call => {
+              const cl = getClient(call.client_id);
+              const d = new Date(call.scheduled_at!);
+              return (
+                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
+                  <div style={{ minWidth: 80, textAlign: 'center' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>
+                      {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                    </div>
                   </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <span className={`pill pill-${isReady ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
-                    {isReady ? 'Prêt' : 'Partiel'}
+                  <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                    {cl?.initials || '??'}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{cl?.name || '—'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{call.topic || 'Call coaching'}</div>
+                  </div>
+                  <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
+                    {call.ready === 'ready' ? 'Prêt' : 'En attente'}
                   </span>
-                  <Link href={`/clients/${call.clientId}/brief`} className="btn-ghost" style={{ fontSize: 12 }}>
-                    Brief IA
-                  </Link>
-                  <button className="btn-primary" style={{ fontSize: 12 }} type="button">
-                    <Icon name="video" size={13} /> Rejoindre
-                  </button>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )
       )}
 
       {tab === 'history' && (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Date</th>
-                <th>Client</th>
-                <th>Durée</th>
-                <th>Sujet</th>
-                <th>Notes</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
-              {callsHistory.map((call, i) => {
-                const cl = getClient(call.clientId);
-                return (
-                  <tr key={i}>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{call.date}</td>
-                    <td>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <Avatar initials={cl?.initials || '??'} size={28} />
-                        <span style={{ fontSize: 13, fontWeight: 600 }}>{cl?.name || call.clientId}</span>
-                      </div>
-                    </td>
-                    <td style={{ fontSize: 12, color: 'var(--muted)' }}>{call.duration}</td>
-                    <td style={{ fontSize: 12 }}>{call.topic}</td>
-                    <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200 }}>
-                      {call.notes || '—'}
-                    </td>
-                    <td>
-                      <Link href={`/clients/${call.clientId}`} className="btn-ghost" style={{ fontSize: 12 }}>
-                        Fiche
-                      </Link>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        history.length === 0 ? (
+          <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', fontSize: 13 }}>
+            Aucun call dans l'historique.
+          </div>
+        ) : (
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Client</th>
+                  <th>Sujet</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                {history.map(call => {
+                  const cl = getClient(call.client_id);
+                  const d = new Date(call.scheduled_at!);
+                  return (
+                    <tr key={call.id}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                        {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </td>
+                      <td>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
+                            {cl?.initials || '??'}
+                          </div>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{cl?.name || '—'}</span>
+                        </div>
+                      </td>
+                      <td style={{ fontSize: 12 }}>{call.topic || '—'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200 }}>{call.notes || '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
     </div>
   );
