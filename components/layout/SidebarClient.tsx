@@ -13,7 +13,6 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/espace/calls', icon: 'phone-call', label: 'Prochain call' },
   { href: '/espace/calendar', icon: 'calendar', label: 'Calendrier' },
   { href: '/espace/resources', icon: 'folder', label: 'Ressources' },
-  { href: '/espace/ai', icon: 'sparkle', label: 'Assistant IA', highlight: true },
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
