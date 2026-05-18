@@ -11,6 +11,7 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/espace/stats', icon: 'bar-chart', label: 'Mes stats' },
   { href: '/espace/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/espace/calls', icon: 'phone-call', label: 'Prochain call' },
+  { href: '/espace/calendar', icon: 'calendar', label: 'Calendrier' },
   { href: '/espace/resources', icon: 'folder', label: 'Ressources' },
   { href: '/espace/ai', icon: 'sparkle', label: 'Assistant IA', highlight: true },
 ];

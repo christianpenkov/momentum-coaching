@@ -10,6 +10,7 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/clients', icon: 'users', label: 'Clients' },
   { href: '/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/calls', icon: 'phone-call', label: 'Calls' },
+  { href: '/calendar', icon: 'calendar', label: 'Calendrier' },
   { href: '/resources', icon: 'folder', label: 'Ressources' },
   { href: '/ai', icon: 'sparkle', label: 'Assistant IA', highlight: true },
 ];
