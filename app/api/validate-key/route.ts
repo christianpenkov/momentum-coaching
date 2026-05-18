@@ -19,8 +19,14 @@ export async function POST(request: NextRequest) {
           }
           return NextResponse.json({ valid: true, label: 'Format webhook valide' });
         }
-        // Valide la clé secrète Stripe en appelant l'API
         const stripe = new Stripe(key, { apiVersion: '2026-04-22.dahlia' });
+        // Les clés restreintes (rk_...) n'ont pas accès à accounts.retrieve
+        // On utilise customers.list qui fonctionne avec tous les types de clés
+        if (key.startsWith('rk_')) {
+          await stripe.customers.list({ limit: 1 });
+          return NextResponse.json({ valid: true, label: 'Clé Stripe restreinte valide' });
+        }
+        // Clé secrète complète (sk_...)
         const account = await stripe.accounts.retrieve('') as { email?: string; id: string };
         const label = account.email || account.id || 'Compte Stripe';
         return NextResponse.json({ valid: true, label });
