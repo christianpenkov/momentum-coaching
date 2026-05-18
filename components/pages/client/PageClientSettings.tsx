@@ -46,6 +46,8 @@ export default function PageClientSettings() {
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [keyError, setKeyError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -75,18 +77,37 @@ export default function PageClientSettings() {
 
   async function saveKey(provider: Provider) {
     if (!profileId || !keyInput.trim()) return;
+    setKeyError(null);
+    setValidating(true);
+
+    const validateRes = await fetch('/api/validate-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ provider, key: keyInput.trim() }),
+    });
+    const validation = await validateRes.json();
+    setValidating(false);
+
+    if (!validation.valid) {
+      setKeyError(validation.error || 'Clé invalide');
+      return;
+    }
+
     setSaving(true);
+    const key = keyInput.trim();
+    const label = validation.label || null;
 
     const { data: existing } = await supabase.from('integrations').select('id').eq('profile_id', profileId).eq('provider', provider).single();
     if (existing) {
-      await supabase.from('integrations').update({ api_key: keyInput.trim(), connected_at: new Date().toISOString() }).eq('id', existing.id);
+      await supabase.from('integrations').update({ api_key: key, account_label: label, connected_at: new Date().toISOString() }).eq('id', existing.id);
     } else {
-      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: keyInput.trim() });
+      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label });
     }
 
     setIntegrations(prev => ({ ...prev, [provider]: true }));
     setEditing(null);
     setKeyInput('');
+    setKeyError(null);
     setSaving(false);
     showToast(`${INTEGRATIONS.find(i => i.provider === provider)?.name} connecté ✓`);
   }
@@ -222,18 +243,23 @@ export default function PageClientSettings() {
                       <input
                         type="password"
                         value={keyInput}
-                        onChange={e => setKeyInput(e.target.value)}
+                        onChange={e => { setKeyInput(e.target.value); setKeyError(null); }}
                         placeholder={cfg.placeholder}
                         autoFocus
-                        style={{ flex: 1, padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none' }}
+                        style={{ flex: 1, padding: '8px 12px', border: `1px solid ${keyError ? '#fca5a5' : 'var(--border)'}`, borderRadius: 8, fontSize: 13, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none' }}
                       />
-                      <button className="btn-primary" style={{ fontSize: 12 }} type="button" disabled={saving || !keyInput.trim()} onClick={() => saveKey(cfg.provider)}>
-                        {saving ? 'Sauvegarde…' : 'Sauvegarder'}
+                      <button className="btn-primary" style={{ fontSize: 12, minWidth: 110 }} type="button" disabled={validating || saving || !keyInput.trim()} onClick={() => saveKey(cfg.provider)}>
+                        {validating ? '⏳ Vérification…' : saving ? 'Sauvegarde…' : 'Connecter'}
                       </button>
-                      <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => setEditing(null)}>Annuler</button>
+                      <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(null); setKeyError(null); }}>Annuler</button>
                     </div>
+                    {keyError && (
+                      <div style={{ fontSize: 12, color: '#dc2626', marginTop: 8, display: 'flex', alignItems: 'center', gap: 6, padding: '7px 10px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fca5a5' }}>
+                        ✗ {keyError}
+                      </div>
+                    )}
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <Icon name="shield" size={12} /> Clé stockée chiffrée — jamais exposée
+                      <Icon name="shield" size={12} /> Clé vérifiée puis stockée chiffrée — jamais exposée
                     </div>
                   </div>
                 )}
