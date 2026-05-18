@@ -21,11 +21,10 @@ export const metadata: Metadata = {
   description: 'Infrastructure de delivery pour coachs premium 1:1',
   icons: {
     icon: [
-      { url: '/favicon.svg', type: 'image/svg+xml' },
-      { url: '/logo-momentum.png', type: 'image/png' },
+      { url: '/favicon-momentum.png', type: 'image/png' },
     ],
-    shortcut: '/favicon.svg',
-    apple: '/logo-momentum.png',
+    shortcut: '/favicon-momentum.png',
+    apple: '/favicon-momentum.png',
   },
 };
 

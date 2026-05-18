@@ -1,9 +1,30 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <!-- Fond carré arrondi gris -->
-  <rect x="2" y="2" width="28" height="28" rx="7" fill="#EBEBEB"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <!-- Pilule haute : diagonale haut-gauche → bas-droite, inclinée ~-30deg, centrée en haut -->
+    <!-- Pilule basse : même angle, décalée vers le bas-droite -->
 
-  <!-- Cercles concentriques target -->
-  <circle cx="16" cy="16" r="9" stroke="#2E2E2E" stroke-width="1.5" fill="none"/>
-  <circle cx="16" cy="16" r="5.5" stroke="#2E2E2E" stroke-width="1.5" fill="none"/>
-  <circle cx="16" cy="16" r="2" fill="#2E2E2E"/>
+    <!-- Masque : la pilule basse cache le bas de la pilule haute (entrelacement) -->
+    <clipPath id="clip-top">
+      <!-- On clip la pilule haute : on retire la zone où la pilule basse passe devant -->
+      <rect x="0" y="0" width="100" height="100"/>
+    </clipPath>
+  </defs>
+
+  <!-- Pilule haute (derrière) -->
+  <g transform="translate(50,44) rotate(-32)">
+    <rect x="-36" y="-11" width="72" height="22" rx="11" fill="#1C6BF0"/>
+  </g>
+
+  <!-- Pilule basse (devant, passe devant la haute au centre) -->
+  <g transform="translate(50,56) rotate(-32)">
+    <rect x="-36" y="-11" width="72" height="22" rx="11" fill="#1C6BF0"/>
+  </g>
+
+  <!-- Découpe blanche : coin haut-droit de la pilule basse passe DEVANT la pilule haute -->
+  <!-- On recouvre la zone de chevauchement avec blanc pour simuler la pilule haute qui passe devant à gauche -->
+  <g transform="translate(50,44) rotate(-32)">
+    <!-- Efface la partie droite de la pilule haute là où la pilule basse la croise -->
+    <rect x="4" y="3" width="32" height="22" rx="0" fill="white"/>
+    <circle cx="4" cy="14" r="11" fill="white"/>
+  </g>
 </svg>
