@@ -36,6 +36,8 @@ export default function PageClientCalls() {
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasCalendly, setHasCalendly] = useState<boolean | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -94,6 +96,33 @@ export default function PageClientCalls() {
 
   const nextCall = upcoming[0];
 
+  async function syncCalendly() {
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const res = await fetch('/api/calendly/sync', { method: 'POST' });
+      const data = await res.json();
+      if (data.ok) {
+        setSyncMsg(data.synced > 0 ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}` : 'Aucun nouveau call trouvé');
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: clientRow } = await supabase.from('clients').select('id').eq('profile_id', user.id).single();
+          if (clientRow) {
+            const { data } = await supabase.from('calls').select('*').eq('client_id', clientRow.id).order('scheduled_at', { ascending: false });
+            setCalls(data || []);
+          }
+        }
+      } else {
+        setSyncMsg(data.error || 'Erreur lors de la synchronisation');
+      }
+    } catch {
+      setSyncMsg('Erreur réseau');
+    }
+    setSyncing(false);
+    setTimeout(() => setSyncMsg(null), 4000);
+  }
+
   if (loading) {
     return (
       <div className="page-content">
@@ -109,6 +138,23 @@ export default function PageClientCalls() {
     <div className="page-content">
       <div className="page-header">
         <h1 className="page-title">Mes calls</h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {syncMsg && (
+            <span style={{ fontSize: 12, color: syncMsg.includes('Erreur') || syncMsg.includes('introuvable') ? 'var(--red)' : 'var(--green)' }}>
+              {syncMsg}
+            </span>
+          )}
+          <button
+            className="btn-ghost"
+            type="button"
+            onClick={syncCalendly}
+            disabled={syncing}
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Icon name="refresh-cw" size={13} />
+            {syncing ? 'Sync…' : 'Synchroniser'}
+          </button>
+        </div>
       </div>
 
       {/* Pas de Calendly connecté */}
