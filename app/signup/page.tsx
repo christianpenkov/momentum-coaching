@@ -49,7 +49,7 @@ function SignupContent() {
       password,
       options: {
         data: { full_name: name.trim() },
-        emailRedirectTo: `${window.location.origin}/auth/callback?next=/espace`,
+        emailRedirectTo: `${window.location.origin}/auth/callback?next=/client`,
       },
     });
 
@@ -78,7 +78,7 @@ function SignupContent() {
         return;
       }
 
-      router.push('/espace');
+      router.push('/client');
     }
     setLoading(false);
   }

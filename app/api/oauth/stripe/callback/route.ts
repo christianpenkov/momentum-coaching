@@ -81,6 +81,6 @@ export async function GET(request: NextRequest) {
 
   // Rediriger vers les réglages avec succès
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  const dest = profile?.role === 'coach' ? '/settings' : '/espace/settings';
+  const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=stripe`);
 }

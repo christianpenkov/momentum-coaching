@@ -165,7 +165,7 @@ export default function PageClientCalls() {
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
             Connecte ton Calendly pour voir tes calls ici automatiquement dès qu'ils sont planifiés.
           </div>
-          <a href="/espace/settings" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <a href="/client/settings" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="link" size={13} /> Connecter Calendly
           </a>
         </div>

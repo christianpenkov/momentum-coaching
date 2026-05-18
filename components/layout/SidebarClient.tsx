@@ -7,16 +7,16 @@ import Icon, { IconName } from '../ui/Icon';
 import Onboarding from '../ui/Onboarding';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
-  { href: '/espace', icon: 'activity', label: 'Mon espace' },
-  { href: '/espace/stats', icon: 'bar-chart', label: 'Mes stats' },
-  { href: '/espace/messages', icon: 'message-circle', label: 'Messages' },
-  { href: '/espace/calls', icon: 'phone-call', label: 'Prochain call' },
-  { href: '/espace/calendar', icon: 'calendar', label: 'Calendrier' },
-  { href: '/espace/resources', icon: 'folder', label: 'Ressources' },
+  { href: '/client', icon: 'activity', label: 'Mon espace' },
+  { href: '/client/stats', icon: 'bar-chart', label: 'Mes stats' },
+  { href: '/client/messages', icon: 'message-circle', label: 'Messages' },
+  { href: '/client/calls', icon: 'phone-call', label: 'Prochain call' },
+  { href: '/client/calendar', icon: 'calendar', label: 'Calendrier' },
+  { href: '/client/resources', icon: 'folder', label: 'Ressources' },
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
-  { href: '/espace/settings', icon: 'settings', label: 'Réglages' },
+  { href: '/client/settings', icon: 'settings', label: 'Réglages' },
 ];
 
 export default function SidebarClient() {
@@ -28,7 +28,7 @@ export default function SidebarClient() {
     <aside className="sidebar">
       <nav className="sidebar-nav">
         {NAV.map(({ href, icon, label, highlight }) => {
-          const active = pathname === href || (href !== '/espace' && pathname.startsWith(href));
+          const active = pathname === href || (href !== '/client' && pathname.startsWith(href));
           return (
             <Link key={href} href={href} className={`nav-item${active ? ' active' : ''}`} style={highlight && !active ? { color: 'var(--accent)' } : undefined}>
               <Icon name={icon} size={16} />

@@ -8,7 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 
 export default function TopBar() {
   const pathname = usePathname();
-  const isCoach = !pathname.startsWith('/espace');
+  const isCoach = !pathname.startsWith('/client');
   const [initials, setInitials] = useState('');
   const [name, setName] = useState('');
 

@@ -118,7 +118,7 @@ export default function PageClientView() {
             <div style={{ textAlign: 'center', padding: '18px 28px', background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', flexShrink: 0 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Prochain call</div>
               <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginBottom: 10 }}>{client.next_call}</div>
-              <Link href="/espace/calls" className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', gap: 5 }}>
+              <Link href="/client/calls" className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', gap: 5 }}>
                 Détails <Icon name="chevR" size={12} />
               </Link>
             </div>
@@ -213,7 +213,7 @@ export default function PageClientView() {
           <div className="card">
             <div className="card-head">
               <div className="card-title">Ressources</div>
-              <Link href="/espace/resources" className="btn-ghost" style={{ fontSize: 12 }}>
+              <Link href="/client/resources" className="btn-ghost" style={{ fontSize: 12 }}>
                 Voir tout <Icon name="chevR" size={12} />
               </Link>
             </div>
@@ -229,7 +229,7 @@ export default function PageClientView() {
                   </div>
                   <div style={{ flex: 1, fontSize: 12, color: 'var(--accent)' }}>{r.title}</div>
                   {r.new && <span className="pill pill-green" style={{ fontSize: 10 }}>Nouveau</span>}
-                  <Link href="/espace/resources" className="btn-ghost" style={{ fontSize: 11, padding: '3px 8px' }}>
+                  <Link href="/client/resources" className="btn-ghost" style={{ fontSize: 11, padding: '3px 8px' }}>
                     <Icon name="external" size={11} />
                   </Link>
                 </div>

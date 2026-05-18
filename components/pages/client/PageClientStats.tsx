@@ -129,7 +129,7 @@ export default function PageClientStats() {
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
               Ajoute ta clé Stripe dans Réglages pour voir ton MRR, tes paiements et tes abonnements en temps réel.
             </div>
-            <a href="/espace/settings" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <a href="/client/settings" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
               <Icon name="link" size={13} /> Connecter Stripe
             </a>
           </div>
@@ -140,7 +140,7 @@ export default function PageClientStats() {
               <div>
                 <div style={{ fontWeight: 600 }}>Erreur Stripe</div>
                 <div style={{ fontSize: 12, marginTop: 2 }}>{stripeError}</div>
-                <a href="/espace/settings" style={{ fontSize: 12, color: '#dc2626', marginTop: 6, display: 'inline-block' }}>
+                <a href="/client/settings" style={{ fontSize: 12, color: '#dc2626', marginTop: 6, display: 'inline-block' }}>
                   Vérifier la clé dans Réglages →
                 </a>
               </div>
@@ -238,7 +238,7 @@ export default function PageClientStats() {
       <div className="card" style={{ padding: '24px', textAlign: 'center', border: '1px dashed var(--border)', background: 'transparent' }}>
         <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
           📊 Stats Instagram, YouTube et Calendly arrivent prochainement.<br />
-          Connecte tes comptes dans <a href="/espace/settings" style={{ color: 'var(--accent)' }}>Réglages</a> pour les activer.
+          Connecte tes comptes dans <a href="/client/settings" style={{ color: 'var(--accent)' }}>Réglages</a> pour les activer.
         </div>
       </div>
     </div>

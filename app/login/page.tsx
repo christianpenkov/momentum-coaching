@@ -37,7 +37,7 @@ export default function LoginPage() {
     if (profile?.role === 'coach') {
       router.push('/dashboard');
     } else {
-      router.push('/espace');
+      router.push('/client');
     }
   }
 

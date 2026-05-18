@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 // Routes protégées — nécessitent une session
-const PROTECTED = ['/dashboard', '/clients', '/calendar', '/calls', '/messages', '/analytics', '/resources', '/settings', '/espace'];
+const PROTECTED = ['/dashboard', '/clients', '/calendar', '/calls', '/messages', '/analytics', '/resources', '/settings', '/client'];
 
 export function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -34,6 +34,6 @@ export const config = {
     '/analytics/:path*',
     '/resources/:path*',
     '/settings/:path*',
-    '/espace/:path*',
+    '/client/:path*',
   ],
 };
