@@ -45,11 +45,8 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         ids.length > 0
           ? supabase.from('tasks').select('*').in('client_id', ids).order('created_at', { ascending: true })
           : { data: [], error: null },
-        ids.length > 0
-          ? supabase.from('calls').select('*').in('client_id', ids)
-              .gte('scheduled_at', new Date().toISOString().split('T')[0])
-              .order('scheduled_at', { ascending: true }).limit(20)
-          : { data: [], error: null },
+        supabase.from('calls').select('*').eq('coach_id', user.id)
+          .order('scheduled_at', { ascending: false }).limit(100),
       ]);
 
       if (metricsRes.error) throw metricsRes.error;
