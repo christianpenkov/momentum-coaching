@@ -47,7 +47,13 @@ export default function AiChat({ systemPrompt, placeholder, welcomeMessage, sugg
         }),
       });
 
-      if (!res.ok || !res.body) throw new Error('Erreur API');
+      if (!res.ok || !res.body) {
+        if (res.status === 400) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || 'Erreur API');
+        }
+        throw new Error('Erreur API');
+      }
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -63,8 +69,9 @@ export default function AiChat({ systemPrompt, placeholder, welcomeMessage, sugg
 
       setMessages(prev => [...prev, { role: 'assistant', content: full }]);
       setStreamingText('');
-    } catch {
-      setMessages(prev => [...prev, { role: 'assistant', content: "Une erreur s'est produite. Vérifiez votre clé API Anthropic dans les variables d'environnement." }]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Une erreur s'est produite.";
+      setMessages(prev => [...prev, { role: 'assistant', content: msg }]);
       setStreamingText('');
     } finally {
       setLoading(false);

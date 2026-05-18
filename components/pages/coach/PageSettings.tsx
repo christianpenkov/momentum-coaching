@@ -18,6 +18,14 @@ const INTEGRATION_CONFIG: {
   oauthPath?: string;
 }[] = [
   {
+    provider: 'anthropic',
+    name: 'Claude IA',
+    icon: 'sparkle',
+    desc: "Clé API Anthropic pour l'assistant IA intégré",
+    mode: 'apikey',
+    placeholder: 'sk-ant-api03-...',
+  },
+  {
     provider: 'stripe',
     name: 'Stripe',
     icon: 'stripe',

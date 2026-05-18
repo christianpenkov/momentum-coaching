@@ -1,9 +1,46 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { createClient } from '@/lib/supabase/server';
 
-const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+async function getAnthropicKey(): Promise<string | null> {
+  try {
+    const supabase = await createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return process.env.ANTHROPIC_API_KEY || null;
+
+    // Find the coach: if the user is a client, find their coach; if coach, use their own integration
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+
+    let coachId = user.id;
+    if (profile?.role === 'client') {
+      const { data: clientRow } = await supabase.from('clients').select('coach_id').eq('profile_id', user.id).single();
+      if (clientRow) coachId = clientRow.coach_id;
+    }
+
+    const { data: integration } = await supabase
+      .from('integrations')
+      .select('api_key')
+      .eq('profile_id', coachId)
+      .eq('provider', 'anthropic')
+      .single();
+
+    return integration?.api_key || process.env.ANTHROPIC_API_KEY || null;
+  } catch {
+    return process.env.ANTHROPIC_API_KEY || null;
+  }
+}
 
 export async function POST(req: Request) {
   const { messages, systemPrompt } = await req.json();
+
+  const apiKey = await getAnthropicKey();
+  if (!apiKey) {
+    return new Response(JSON.stringify({ error: 'Clé API Anthropic non configurée. Ajoutez-la dans Réglages → Intégrations.' }), {
+      status: 400,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
+  const client = new Anthropic({ apiKey });
 
   const stream = await client.messages.stream({
     model: 'claude-sonnet-4-6',

@@ -1,6 +1,6 @@
 export type Role = 'coach' | 'client';
 export type Status = 'green' | 'amber' | 'red';
-export type Provider = 'stripe' | 'calendly' | 'instagram' | 'youtube' | 'shortio';
+export type Provider = 'stripe' | 'calendly' | 'instagram' | 'youtube' | 'shortio' | 'anthropic';
 
 export interface Profile {
   id: string;
