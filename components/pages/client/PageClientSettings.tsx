@@ -11,8 +11,8 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
     provider: 'stripe',
     name: 'Stripe',
     icon: 'dollar-sign',
-    desc: 'Clé restreinte (lecture seule) pour afficher ton MRR et tes paiements',
-    placeholder: 'rk_live_... ou rk_test_...',
+    desc: 'Clé secrète Stripe pour afficher ton MRR, paiements et abonnements',
+    placeholder: 'sk_live_... ou sk_test_...',
   },
   {
     provider: 'calendly',
@@ -196,13 +196,12 @@ export default function PageClientSettings() {
                     {/* Instructions par provider */}
                     {cfg.provider === 'stripe' && (
                       <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ta clé Stripe (2 min) :</div>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ta clé Stripe :</div>
                         <div>1. Va sur →{' '}
                           <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>dashboard.stripe.com/apikeys</a>
                         </div>
-                        <div>2. Clique <strong>"Créer une clé restreinte"</strong></div>
-                        <div>3. Coche uniquement : <strong>Customers (lecture)</strong>, <strong>Charges (lecture)</strong>, <strong>Subscriptions (lecture)</strong></div>
-                        <div>4. Copie la clé générée (<code>rk_live_...</code>) et colle-la ci-dessous</div>
+                        <div>2. Copie ta <strong>Clé secrète</strong> (<code>sk_live_...</code> en prod, <code>sk_test_...</code> en test)</div>
+                        <div>3. Colle-la ci-dessous</div>
                       </div>
                     )}
                     {cfg.provider === 'calendly' && (
@@ -237,7 +236,7 @@ export default function PageClientSettings() {
                     )}
 
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
-                      {cfg.provider === 'stripe' ? 'Clé restreinte Stripe' : `Clé API ${cfg.name}`}
+                      {cfg.provider === 'stripe' ? 'Clé secrète Stripe' : `Clé API ${cfg.name}`}
                     </label>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
