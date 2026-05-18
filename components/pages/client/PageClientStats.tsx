@@ -1,176 +1,244 @@
 'use client';
 
+import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
-import Pill from '@/components/ui/Pill';
 import Icon from '@/components/ui/Icon';
-import { getClient } from '@/lib/data';
+import { createClient } from '@/lib/supabase/client';
 
-const LineChart = dynamic(() => import('@/components/charts/LineChart'), { ssr: false });
-const BarChart = dynamic(() => import('@/components/charts/BarChart'), { ssr: false });
 const AreaChart = dynamic(() => import('@/components/charts/AreaChart'), { ssr: false });
 
-const THOMAS_ID = 'thomas';
-const WEEKS = Array.from({ length: 12 }, (_, i) => `S${i + 1}`);
+interface StripeData {
+  mrr: number;
+  monthlyRevenue: number;
+  activeSubscriptions: number;
+  availableBalance: number;
+  recentPayments: {
+    id: string;
+    amount: number;
+    currency: string;
+    description: string;
+    date: string;
+    status: string;
+  }[];
+}
+
+function KpiCard({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean }) {
+  return (
+    <div className="card" style={{ padding: '18px 20px' }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4, fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{value}</div>
+      {sub && (
+        <div style={{ fontSize: 11, marginTop: 4, color: positive === false ? 'var(--red)' : positive ? 'var(--green)' : 'var(--muted)' }}>
+          {sub}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export default function PageClientStats() {
-  const client = getClient(THOMAS_ID) || getClient('thomas');
-  if (!client) return null;
+  const [stripeData, setStripeData] = useState<StripeData | null>(null);
+  const [stripeError, setStripeError] = useState<string | null>(null);
+  const [stripeLoading, setStripeLoading] = useState(true);
+  const [hasStripeKey, setHasStripeKey] = useState<boolean | null>(null);
 
-  const data = client.weeklyHistory.map((w, i) => ({
-    week: WEEKS[i],
-    ig: w.followersIG,
-    yt: w.followersYT,
-    posts: w.postsCount,
-    views: w.avgViews,
-    videoRetention: w.videoRetention,
-    engagement: w.engagementRate,
-    ctrBioLink: w.ctrBioLink,
-    dms: w.dmsSent,
-    reply: w.dmsReplyRate,
-    closingRate: w.closingRate,
-    noShowRate: w.noShowRate,
-    mrr: w.stripeMRR,
-    calendly: w.calendlyCalls,
-  }));
+  useEffect(() => {
+    async function load() {
+      // Vérifie si la clé Stripe est configurée
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
 
-  const last = client.weeklyHistory[11];
-  const prev = client.weeklyHistory[10];
-  const momentum = client.momentumScore || 0;
+      const { data: integ } = await supabase
+        .from('integrations')
+        .select('id')
+        .eq('profile_id', user.id)
+        .eq('provider', 'stripe')
+        .single();
+
+      if (!integ) {
+        setHasStripeKey(false);
+        setStripeLoading(false);
+        return;
+      }
+
+      setHasStripeKey(true);
+
+      try {
+        const res = await fetch('/api/stripe/client-data');
+        if (res.ok) {
+          const data = await res.json();
+          setStripeData(data);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          setStripeError(err.error || 'Erreur lors du chargement des données Stripe');
+        }
+      } catch {
+        setStripeError('Impossible de contacter Stripe');
+      } finally {
+        setStripeLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  // Prépare les données pour le graphique MRR (historique paiements par mois)
+  const chartData = stripeData?.recentPayments
+    ? Object.entries(
+        stripeData.recentPayments.reduce((acc, p) => {
+          const month = new Date(p.date).toLocaleDateString('fr-FR', { month: 'short' });
+          acc[month] = (acc[month] || 0) + p.amount;
+          return acc;
+        }, {} as Record<string, number>)
+      )
+        .slice(-6)
+        .map(([month, amount]) => ({ month, amount }))
+    : [];
 
   return (
     <div className="page-content">
       <div className="page-header">
         <div>
           <h1 className="page-title">Mes stats</h1>
-          <p className="page-sub">Semaine {client.week} · vue complète de vos données</p>
+          <p className="page-sub">Données en temps réel depuis tes intégrations</p>
         </div>
-        <Pill
-          status={momentum >= 70 ? 'green' : momentum >= 40 ? 'amber' : 'red'}
-          label={`Momentum ${momentum}/100`}
-        />
       </div>
 
-      {/* KPIs */}
-      <div className="grid-4" style={{ marginBottom: 24 }}>
-        {[
-          { label: 'Followers IG', value: last.followersIG.toLocaleString('fr-FR'), delta: `+${last.followersIG - prev.followersIG}`, positive: true },
-          { label: 'Taux de closing', value: `${last.closingRate}%`, delta: last.closingRate > 20 ? 'Bon niveau' : 'À améliorer', positive: last.closingRate > 20 },
-          { label: 'Rétention vidéo', value: `${last.videoRetention}%`, delta: `CTR bio ${last.ctrBioLink}%`, positive: last.videoRetention > 40 },
-          { label: 'MRR', value: `${last.stripeMRR.toLocaleString('fr-FR')} €`, delta: `+${last.stripeMRR - prev.stripeMRR} € vs sem. préc.`, positive: last.stripeMRR > prev.stripeMRR },
-        ].map(({ label, value, delta, positive }) => (
-          <div key={label} className="card" style={{ padding: '16px 20px' }}>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
-            <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{value}</div>
-            <div style={{ fontSize: 11, marginTop: 4, color: positive ? 'var(--green)' : 'var(--red)' }}>{delta}</div>
+      {/* Section Stripe */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="stripe" size={18} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Revenus Stripe</span>
           </div>
-        ))}
-      </div>
-
-      {/* Audience */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-head">
-          <div className="card-title">Croissance audience</div>
-          <div className="card-sub">Tous réseaux · 12 semaines</div>
-        </div>
-        <LineChart
-          data={data}
-          lines={[
-            { key: 'ig', label: 'Instagram', color: '#E1306C' },
-            { key: 'yt', label: 'YouTube', color: '#FF0000' },
-          ]}
-          xKey="week"
-          height={240}
-          formatter={(n) => n.toLocaleString('fr-FR')}
-        />
-      </div>
-
-      <div className="grid-2" style={{ marginBottom: 24 }}>
-        {/* Contenu */}
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title">Contenu & Engagement</div>
-          </div>
-          <BarChart
-            data={data}
-            bars={[{ key: 'posts', label: 'Posts/sem', color: 'var(--accent)' }]}
-            xKey="week"
-            height={140}
-          />
-          <AreaChart
-            data={data}
-            areas={[{ key: 'engagement', label: 'Engagement %', color: 'var(--green)' }]}
-            xKey="week"
-            height={100}
-            formatter={(n) => `${n}%`}
-          />
+          {stripeData && (
+            <span style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <Icon name="refresh-cw" size={11} /> Mis à jour à l'instant
+            </span>
+          )}
         </div>
 
-        {/* DM & Funnel */}
-        <div className="card">
-          <div className="card-head">
-            <div className="card-title">Prospection & Funnel</div>
+        {stripeLoading ? (
+          <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            <Icon name="refresh-cw" size={16} /> Chargement des données Stripe…
           </div>
-          <BarChart
-            data={data}
-            bars={[
-              { key: 'dms', label: 'DM envoyés', color: 'var(--accent)' },
-              { key: 'reply', label: 'Réponse %', color: 'var(--amber)' },
-            ]}
-            xKey="week"
-            height={150}
-          />
-          <div style={{ marginTop: 16, display: 'flex', gap: 12, padding: '12px', background: 'var(--surface-2)', borderRadius: 8 }}>
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{last.dmsSent}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>DM</div>
+        ) : !hasStripeKey ? (
+          <div className="card" style={{ padding: '32px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>💳</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Stripe non connecté</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+              Ajoute ta clé Stripe dans Réglages pour voir ton MRR, tes paiements et tes abonnements en temps réel.
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', color: 'var(--muted)' }}><Icon name="arrowR" size={16} /></div>
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{last.calendlyCalls}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Calls</div>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', color: 'var(--muted)' }}><Icon name="arrowR" size={16} /></div>
-            <div style={{ textAlign: 'center', flex: 1 }}>
-              <div style={{ fontSize: 18, fontWeight: 700, color: 'var(--green)', fontFamily: 'var(--font-mono)' }}>{last.iClosedDeals}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)' }}>Deals</div>
+            <a href="/espace/settings" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="link" size={13} /> Connecter Stripe
+            </a>
+          </div>
+        ) : stripeError ? (
+          <div className="card" style={{ padding: '24px', background: '#fef2f2', border: '1px solid #fca5a5' }}>
+            <div style={{ fontSize: 13, color: '#dc2626', display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="shield" size={14} />
+              <div>
+                <div style={{ fontWeight: 600 }}>Erreur Stripe</div>
+                <div style={{ fontSize: 12, marginTop: 2 }}>{stripeError}</div>
+                <a href="/espace/settings" style={{ fontSize: 12, color: '#dc2626', marginTop: 6, display: 'inline-block' }}>
+                  Vérifier la clé dans Réglages →
+                </a>
+              </div>
             </div>
           </div>
-        </div>
+        ) : stripeData ? (
+          <>
+            {/* KPIs */}
+            <div className="grid-4" style={{ marginBottom: 20 }}>
+              <KpiCard
+                label="MRR"
+                value={`${stripeData.mrr.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`}
+                sub="Revenus mensuels récurrents"
+              />
+              <KpiCard
+                label="Ce mois"
+                value={`${stripeData.monthlyRevenue.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`}
+                sub="Encaissé ce mois"
+                positive={stripeData.monthlyRevenue > 0}
+              />
+              <KpiCard
+                label="Abonnements actifs"
+                value={String(stripeData.activeSubscriptions)}
+                sub={stripeData.activeSubscriptions === 0 ? 'Aucun abonnement actif' : 'Clients actifs'}
+                positive={stripeData.activeSubscriptions > 0}
+              />
+              <KpiCard
+                label="Solde disponible"
+                value={`${stripeData.availableBalance.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} €`}
+                sub="Prêt à virer"
+                positive={stripeData.availableBalance > 0}
+              />
+            </div>
+
+            {/* Graphique paiements récents */}
+            {chartData.length > 0 && (
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div className="card-head">
+                  <div className="card-title">Revenus par mois</div>
+                  <div className="card-sub">Basé sur tes paiements récents</div>
+                </div>
+                <AreaChart
+                  data={chartData}
+                  areas={[{ key: 'amount', label: 'Revenus', color: 'var(--green)' }]}
+                  xKey="month"
+                  height={180}
+                  formatter={(n) => `${n.toLocaleString('fr-FR')} €`}
+                />
+              </div>
+            )}
+
+            {/* Derniers paiements */}
+            {stripeData.recentPayments.length > 0 && (
+              <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+                <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+                  <div className="card-title">Derniers paiements</div>
+                </div>
+                <div style={{ overflowX: 'auto' }}>
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th>Description</th>
+                        <th>Montant</th>
+                        <th>Date</th>
+                        <th>Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {stripeData.recentPayments.map(p => (
+                        <tr key={p.id}>
+                          <td style={{ fontSize: 13, color: 'var(--accent)' }}>{p.description}</td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>
+                            {p.amount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} {p.currency.toUpperCase()}
+                          </td>
+                          <td style={{ fontSize: 12, color: 'var(--muted)' }}>
+                            {new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td>
+                            <span className={`pill pill-${p.status === 'succeeded' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
+                              {p.status === 'succeeded' ? 'Réussi' : p.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+          </>
+        ) : null}
       </div>
 
-      {/* MRR */}
-      <div className="card" style={{ marginBottom: 24 }}>
-        <div className="card-head">
-          <div className="card-title">Revenus Stripe</div>
-          <div className="card-sub">MRR mensuel récurrent sur 12 semaines</div>
-        </div>
-        <AreaChart
-          data={data}
-          areas={[{ key: 'mrr', label: 'MRR', color: 'var(--green)' }]}
-          xKey="week"
-          height={200}
-          formatter={(n) => `${n.toLocaleString('fr-FR')} €`}
-        />
-      </div>
-
-      {/* Score momentum */}
-      <div className="card">
-        <div className="card-head">
-          <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="zap" size={16} /> Score Momentum
-          </div>
-          <Pill status={momentum >= 70 ? 'green' : momentum >= 40 ? 'amber' : 'red'} label={momentum >= 70 ? 'Excellent' : momentum >= 40 ? 'Bon' : 'À améliorer'} size="sm" />
-        </div>
-        <div style={{ marginTop: 16 }}>
-          <div style={{ fontSize: 42, fontWeight: 800, color: momentum >= 70 ? 'var(--green)' : momentum >= 40 ? 'var(--amber)' : 'var(--red)', fontFamily: 'var(--font-mono)' }}>
-            {momentum}<span style={{ fontSize: 20, fontWeight: 400 }}>/100</span>
-          </div>
-          <div className="momentum-bar" style={{ height: 10, borderRadius: 5, marginTop: 12, marginBottom: 20 }}>
-            <div style={{ height: '100%', width: `${momentum}%`, borderRadius: 5, background: momentum >= 70 ? 'var(--green)' : momentum >= 40 ? 'var(--amber)' : 'var(--red)', transition: 'width 0.6s cubic-bezier(0.16,1,0.3,1)' }} />
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Calculé sur votre fréquence de publication ({last.postsCount} posts/sem), engagement ({last.engagementRate}%), activité DM ({last.dmsSent} DM), et progression des tâches.
-          </div>
+      {/* Placeholder autres intégrations */}
+      <div className="card" style={{ padding: '24px', textAlign: 'center', border: '1px dashed var(--border)', background: 'transparent' }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+          📊 Stats Instagram, YouTube et Calendly arrivent prochainement.<br />
+          Connecte tes comptes dans <a href="/espace/settings" style={{ color: 'var(--accent)' }}>Réglages</a> pour les activer.
         </div>
       </div>
     </div>
