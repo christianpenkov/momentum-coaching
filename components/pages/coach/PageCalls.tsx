@@ -89,7 +89,9 @@ export default function PageCalls() {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
             {upcoming.map(call => {
-              const cl = getClient(call.client_id);
+              const cl = getClient(call.client_id || '');
+              const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
+              const initials = cl?.initials || (call.invitee_name ? call.invitee_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?');
               const d = new Date(call.scheduled_at!);
               return (
                 <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
@@ -103,12 +105,17 @@ export default function PageCalls() {
                   </div>
                   <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
                   <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
-                    {cl?.initials || '??'}
+                    {initials}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{cl?.name || '—'}</div>
+                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{displayName}</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{call.topic || 'Call coaching'}</div>
                   </div>
+                  {call.join_url && (
+                    <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      <Icon name="video" size={13} /> Rejoindre
+                    </a>
+                  )}
                   <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
                     {call.ready === 'ready' ? 'Prêt' : 'En attente'}
                   </span>
@@ -137,7 +144,9 @@ export default function PageCalls() {
               </thead>
               <tbody>
                 {history.map(call => {
-                  const cl = getClient(call.client_id);
+                  const cl = getClient(call.client_id || '');
+                  const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
+                  const initials = cl?.initials || (call.invitee_name ? call.invitee_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?');
                   const d = new Date(call.scheduled_at!);
                   return (
                     <tr key={call.id}>
@@ -147,9 +156,9 @@ export default function PageCalls() {
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-                            {cl?.initials || '??'}
+                            {initials}
                           </div>
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>{cl?.name || '—'}</span>
+                          <span style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</span>
                         </div>
                       </td>
                       <td style={{ fontSize: 12 }}>{call.topic || '—'}</td>

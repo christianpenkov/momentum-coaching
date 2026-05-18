@@ -46,9 +46,9 @@ export default function PageCalendar() {
         date: toDateKey(d),
         type: 'call',
         label: call.topic || 'Call coaching',
-        clientName: client?.name || '—',
-        clientInitials: client?.initials || '??',
-        clientId: call.client_id,
+        clientName: client?.name || call.invitee_name || '—',
+        clientInitials: client?.initials || (call.invitee_name ? call.invitee_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?'),
+        clientId: call.client_id || '',
         time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         ready: call.ready,
       });

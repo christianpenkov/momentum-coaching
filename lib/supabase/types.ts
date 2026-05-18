@@ -75,13 +75,19 @@ export interface Message {
 
 export interface Call {
   id: string;
-  client_id: string;
+  client_id: string | null;
+  coach_id: string | null;
   topic: string | null;
   scheduled_at: string | null;
   duration: string | null;
   ready: 'ready' | 'partial' | 'pending';
   notes: string | null;
   calendly_uri: string | null;
+  calendly_event_uuid: string | null;
+  join_url: string | null;
+  status: string | null;
+  invitee_email: string | null;
+  invitee_name: string | null;
   reminder_sent: boolean;
   created_at: string;
 }
