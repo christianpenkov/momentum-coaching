@@ -4,7 +4,9 @@ import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
-import { useClients } from '@/lib/ClientsContext';
+import { useClientSelfData } from '@/lib/supabase/useCoachData';
+import { createClient } from '@/lib/supabase/client';
+import { useCallback } from 'react';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -12,7 +14,7 @@ const PRIORITY_CONFIG = {
   low:    { label: 'Basse',   color: 'var(--green)', bg: '#22c55e20' },
 };
 
-function DeadlineBadge({ deadline, done }: { deadline?: string; done: boolean }) {
+function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
   if (!deadline || done) return null;
   const d = new Date(deadline);
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -39,32 +41,50 @@ function DeadlineBadge({ deadline, done }: { deadline?: string; done: boolean })
   );
 }
 
-const THOMAS_ID = 'thomas';
-
 export default function PageClientView() {
-  const { getClient, toggleTask: ctxToggle } = useClients();
-  const client = getClient(THOMAS_ID);
-  const tasks = client?.plan || [];
+  const { data: client, loading } = useClientSelfData();
+  const supabase = createClient();
 
-  if (!client) return <div className="page-content"><div className="page-title">Client introuvable</div></div>;
+  const toggleTask = useCallback(async (taskId: string, done: boolean) => {
+    await supabase.from('tasks').update({ done }).eq('id', taskId);
+    // Refresh via page reload léger — le hook re-fetche au prochain mount
+    window.location.reload();
+  }, []);
 
-  const last = client.weeklyHistory[11];
-  const doneCount = tasks.filter(t => t.done).length;
-  const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
-
-  function toggleTask(idx: number, checked: boolean) {
-    ctxToggle(THOMAS_ID, idx, checked);
+  if (loading) {
+    return (
+      <div className="page-content">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 13, paddingTop: 60, justifyContent: 'center' }}>
+          <Icon name="refresh-cw" size={16} /> Chargement de ton espace…
+        </div>
+      </div>
+    );
   }
 
-  const unlockedResources = 8;
-  const totalResources = 15;
+  if (!client) {
+    return (
+      <div className="page-content">
+        <div style={{ textAlign: 'center', paddingTop: 60 }}>
+          <div style={{ fontSize: 32, marginBottom: 12 }}>👋</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>Bienvenue sur Momentum</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Ton espace sera disponible dès que ton coach t'aura configuré.</div>
+        </div>
+      </div>
+    );
+  }
+
+  const tasks = client.tasks;
+  const last = client.latestMetrics;
+  const prev = client.prevMetrics;
+  const doneCount = tasks.filter(t => t.done).length;
+  const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
+  const igDelta = last && prev ? last.followers_ig - prev.followers_ig : 0;
 
   return (
     <div className="page-content">
       {/* Header élève */}
       <div style={{ background: 'linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%)', borderRadius: 16, padding: '28px 32px', marginBottom: 24, border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
-          {/* Ring */}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <Ring value={progress} size={96} stroke={8} />
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', pointerEvents: 'none' }}>
@@ -72,33 +92,37 @@ export default function PageClientView() {
               <span style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>progression</span>
             </div>
           </div>
-          {/* Texte principal */}
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: 15, color: 'var(--muted)', marginBottom: 2, fontWeight: 400 }}>Bonjour,</div>
             <h1 style={{ fontSize: 32, fontWeight: 800, color: 'var(--accent)', marginBottom: 6, lineHeight: 1.05 }}>{client.name}</h1>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
-              {client.niche} · Semaine <strong style={{ color: 'var(--accent)' }}>{client.week}</strong> sur votre parcours
+              {client.niche || 'Infopreneur'} · Semaine <strong style={{ color: 'var(--accent)' }}>{client.week}</strong> sur ton parcours
             </div>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 600 }}>
                 🎯 {doneCount}/{tasks.length} tâches
               </span>
-              <span style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 600 }}>
-                📈 {last.followersIG.toLocaleString('fr-FR')} abonnés
-              </span>
-              <span style={{ fontSize: 12, color: 'var(--green)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 700 }}>
-                💰 {last.stripeMRR.toLocaleString('fr-FR')} € MRR
-              </span>
+              {last && (
+                <span style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 600 }}>
+                  📈 {last.followers_ig.toLocaleString('fr-FR')} abonnés IG
+                </span>
+              )}
+              {last && last.stripe_mrr > 0 && (
+                <span style={{ fontSize: 12, color: 'var(--green)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 700 }}>
+                  💰 {last.stripe_mrr.toLocaleString('fr-FR')} € MRR
+                </span>
+              )}
             </div>
           </div>
-          {/* Prochain call */}
-          <div style={{ textAlign: 'center', padding: '18px 28px', background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', flexShrink: 0 }}>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Prochain call</div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginBottom: 10 }}>{client.nextCall || 'Jeudi 14h'}</div>
-            <Link href="/espace/calls" className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', gap: 5 }}>
-              Détails <Icon name="chevR" size={12} />
-            </Link>
-          </div>
+          {client.next_call && (
+            <div style={{ textAlign: 'center', padding: '18px 28px', background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', flexShrink: 0 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Prochain call</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginBottom: 10 }}>{client.next_call}</div>
+              <Link href="/espace/calls" className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', gap: 5 }}>
+                Détails <Icon name="chevR" size={12} />
+              </Link>
+            </div>
+          )}
         </div>
       </div>
 
@@ -112,8 +136,7 @@ export default function PageClientView() {
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
-            {tasks.filter(t => !t.done).map((task, i) => {
-              const idx = tasks.indexOf(task);
+            {tasks.filter(t => !t.done).map((task) => {
               const prio = task.priority ? PRIORITY_CONFIG[task.priority] : null;
               const d = task.deadline ? new Date(task.deadline) : null;
               const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -121,7 +144,7 @@ export default function PageClientView() {
               const overdue = diff !== null && diff < 0;
               return (
                 <div
-                  key={i}
+                  key={task.id}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '10px 14px', borderRadius: 12,
@@ -131,9 +154,9 @@ export default function PageClientView() {
                 >
                   <div
                     className="task-check"
-                    onClick={() => toggleTask(idx, true)}
+                    onClick={() => toggleTask(task.id, true)}
                     role="checkbox" aria-checked={false} tabIndex={0}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTask(idx, true); } }}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleTask(task.id, true); } }}
                     style={{ flexShrink: 0 }}
                   />
                   <div style={{ flex: 1, minWidth: 0 }}>
@@ -148,60 +171,51 @@ export default function PageClientView() {
                       {prio.label}
                     </span>
                   )}
-                  {task.addedBy === 'coach' && (
-                    <span title="Tâche assignée par votre coach" style={{ fontSize: 11, flexShrink: 0 }}>⭐</span>
+                  {task.added_by === 'coach' && (
+                    <span title="Tâche assignée par ton coach" style={{ fontSize: 11, flexShrink: 0 }}>⭐</span>
                   )}
                 </div>
               );
             })}
             {tasks.filter(t => !t.done).length === 0 && (
-              <div style={{ fontSize: 13, color: 'var(--green)', padding: '8px 0' }}>✓ Toutes vos tâches sont terminées !</div>
+              <div style={{ fontSize: 13, color: 'var(--green)', padding: '8px 0' }}>✓ Toutes tes tâches sont terminées !</div>
             )}
             {tasks.filter(t => t.done).length > 0 && (
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>TERMINÉES ({tasks.filter(t => t.done).length})</div>
-                {tasks.filter(t => t.done).map((task, i) => {
-                  const idx = tasks.indexOf(task);
-                  return (
-                    <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px', opacity: 0.5 }}>
-                      <div className="task-check checked" onClick={() => toggleTask(idx, false)} role="checkbox" aria-checked={true} tabIndex={0} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleTask(idx, false); }} style={{ flexShrink: 0 }}>
-                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                      </div>
-                      <span style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'line-through', flex: 1 }}>{task.label}</span>
+                {tasks.filter(t => t.done).map((task) => (
+                  <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px', opacity: 0.5 }}>
+                    <div className="task-check checked" onClick={() => toggleTask(task.id, false)} role="checkbox" aria-checked={true} tabIndex={0}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleTask(task.id, false); }} style={{ flexShrink: 0 }}>
+                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" /></svg>
                     </div>
-                  );
-                })}
+                    <span style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'line-through', flex: 1 }}>{task.label}</span>
+                  </div>
+                ))}
               </div>
             )}
           </div>
         </div>
 
-        {/* Mot du coach + ressources débloquées */}
+        {/* Ressources */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
           <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
             <div className="card-head">
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Icon name="sparkle" size={14} /> Message de votre coach
+                <Icon name="sparkle" size={14} /> Message de ton coach
               </div>
             </div>
             <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--accent)', marginTop: 12, fontStyle: 'italic' }}>
-              "Excellente semaine Thomas ! Ta régularité de publication commence à porter ses fruits. Continue sur cette lancée et n'oublie pas de DM les profils qui ont liké tes 3 derniers posts — c'est là que se cachent tes meilleurs prospects."
+              "Continue sur ta lancée — chaque semaine de régularité est un investissement dans ta croissance. N'hésite pas à déposer tes contenus dans la boîte de dépôt pour qu'on les analyse ensemble."
             </p>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 10 }}>— Marc Laurent · il y a 2h</div>
           </div>
 
           <div className="card">
             <div className="card-head">
-              <div className="card-title">Ressources débloquées</div>
+              <div className="card-title">Ressources</div>
               <Link href="/espace/resources" className="btn-ghost" style={{ fontSize: 12 }}>
                 Voir tout <Icon name="chevR" size={12} />
               </Link>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 16 }}>
-              <div style={{ flex: 1, height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${(unlockedResources / totalResources) * 100}%`, background: 'var(--green)', borderRadius: 4, transition: 'width 0.6s cubic-bezier(0.16,1,0.3,1)' }} />
-              </div>
-              <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', minWidth: 40 }}>{unlockedResources}/{totalResources}</span>
             </div>
             <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
               {[
@@ -226,23 +240,47 @@ export default function PageClientView() {
       </div>
 
       {/* Stats rapides */}
-      <div className="grid-4" style={{ marginTop: 24 }}>
-        {[
-          { label: 'Followers IG', value: last.followersIG.toLocaleString('fr-FR'), sub: `+${last.followersIG - client.weeklyHistory[10].followersIG} cette semaine`, color: '#E1306C' },
-          { label: 'Posts publiés', value: last.postsCount.toString(), sub: `${last.avgViews.toLocaleString('fr-FR')} vues moy.` },
-          { label: 'DM envoyés', value: last.dmsSent.toString(), sub: `${last.dmsReplyRate}% réponse` },
-          { label: 'MRR', value: `${last.stripeMRR.toLocaleString('fr-FR')} €`, sub: 'revenus mensuels', color: 'var(--green)' },
-        ].map(({ label, value, sub, color }) => (
-          <div key={label} className="card kpi-card" style={{ padding: '16px 20px' }}>
-            <div className="kpi-label">{label}</div>
-            <div className="kpi-value" style={color ? { color } : undefined}>{value}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{sub}</div>
-            <div style={{ marginTop: 10 }}>
-              <Sparkbars data={client.weeklyHistory.slice(-8).map(w => w.followersIG)} height={20} width={60} color={color || 'var(--accent)'} />
+      {last && (
+        <div className="grid-4" style={{ marginTop: 24 }}>
+          {[
+            {
+              label: 'Followers IG',
+              value: last.followers_ig.toLocaleString('fr-FR'),
+              sub: igDelta !== 0 ? `${igDelta > 0 ? '+' : ''}${igDelta} cette semaine` : 'Semaine 1',
+              color: '#E1306C',
+              spark: client.weeklyMetrics.slice(-8).map(w => w.followers_ig),
+            },
+            {
+              label: 'Posts publiés',
+              value: last.posts_count.toString(),
+              sub: `${last.avg_views.toLocaleString('fr-FR')} vues moy.`,
+              spark: client.weeklyMetrics.slice(-8).map(w => w.posts_count),
+            },
+            {
+              label: 'DM envoyés',
+              value: last.dms_sent.toString(),
+              sub: `${last.dms_reply_rate}% réponse`,
+              spark: client.weeklyMetrics.slice(-8).map(w => w.dms_sent),
+            },
+            {
+              label: 'MRR',
+              value: `${last.stripe_mrr.toLocaleString('fr-FR')} €`,
+              sub: 'revenus mensuels',
+              color: 'var(--green)',
+              spark: client.weeklyMetrics.slice(-8).map(w => w.stripe_mrr),
+            },
+          ].map(({ label, value, sub, color, spark }) => (
+            <div key={label} className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">{label}</div>
+              <div className="kpi-value" style={color ? { color } : undefined}>{value}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{sub}</div>
+              <div style={{ marginTop: 10 }}>
+                <Sparkbars data={spark} height={20} width={60} color={color || 'var(--accent)'} />
+              </div>
             </div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

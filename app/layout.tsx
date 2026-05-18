@@ -17,12 +17,12 @@ const ibmPlexMono = IBM_Plex_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'ORBIT — Plateforme coaching',
+  title: 'Momentum — Plateforme coaching',
   description: 'Infrastructure de delivery pour coachs premium 1:1',
   icons: {
-    icon: '/favicon.svg',
-    shortcut: '/favicon.svg',
-    apple: '/favicon.svg',
+    icon: '/logo-momentum.png',
+    shortcut: '/logo-momentum.png',
+    apple: '/logo-momentum.png',
   },
 };
 

@@ -48,8 +48,8 @@ const STEPS: OnboardingStep[] = [
     iconColor: 'var(--accent)',
     iconBg: 'rgba(42,42,40,0.07)',
     label: '01 / 07',
-    title: 'Bienvenue sur ORBIT',
-    subtitle: 'Votre espace de suivi coaching personnalisé. En quelques secondes, découvrez tout ce que la plateforme peut faire pour vous.',
+    title: 'Bienvenue sur Momentum',
+    subtitle: 'Ton espace de suivi coaching personnalisé. En quelques secondes, découvre tout ce que la plateforme peut faire pour toi.',
     features: [
       { icon: 'zap',          text: 'Accès instantané à votre plan de la semaine' },
       { icon: 'trending-up',  text: 'Suivez vos progrès en temps réel' },
@@ -77,7 +77,7 @@ const STEPS: OnboardingStep[] = [
     iconBg: 'rgba(181,128,37,0.1)',
     label: '03 / 07',
     title: 'Vos statistiques',
-    subtitle: 'Visualisez vos métriques clés : followers, engagement, revenus. Comprenez d\'un coup d\'œil ce qui fonctionne.',
+    subtitle: 'Suis tes métriques clés : closing, rétention vidéo, CTR lien en bio. Comprends d\'un coup d\'œil ce qui fonctionne.',
     features: [
       { icon: 'trending-up', text: 'Courbes de progression semaine par semaine' },
       { icon: 'target',      text: 'Objectifs et écarts mis en évidence' },
@@ -105,7 +105,7 @@ const STEPS: OnboardingStep[] = [
     iconBg: 'rgba(42,42,40,0.07)',
     label: '05 / 07',
     title: 'Vos ressources exclusives',
-    subtitle: 'Guides, templates, replays de calls — débloqués progressivement par votre coach selon votre avancement.',
+    subtitle: 'Guides, templates, replays de calls — débloqués progressivement par ton coach selon ton avancement.',
     features: [
       { icon: 'lock',     text: 'Contenu débloqué étape par étape' },
       { icon: 'download', text: 'PDF, vidéos et templates téléchargeables' },
@@ -119,7 +119,7 @@ const STEPS: OnboardingStep[] = [
     iconBg: 'rgba(74,127,165,0.1)',
     label: '06 / 07',
     title: 'Activez votre suivi',
-    subtitle: 'Votre coach a besoin de ces données pour vous accompagner au meilleur niveau. Ces accès sont privés, sécurisés, et uniquement visibles par lui.',
+    subtitle: 'Ton coach a besoin de ces données pour t\'accompagner au meilleur niveau. Ces accès sont privés, sécurisés, et uniquement visibles par lui.',
     features: [],
     ctaLabel: 'C\'est parti →',
     isConnect: true,
@@ -130,7 +130,7 @@ const STEPS: OnboardingStep[] = [
     iconBg: 'rgba(63,138,82,0.1)',
     label: '07 / 07',
     title: 'Vous êtes prêt(e) !',
-    subtitle: 'Tout est en place. Votre coach vous attend. Lancez-vous dès maintenant et commencez cette semaine avec élan.',
+    subtitle: 'Tout est en place. Ton coach t\'attend. Lance-toi dès maintenant et commence cette semaine avec élan.',
     features: [
       { icon: 'check', text: 'Profil activé et plan prêt' },
       { icon: 'zap',   text: 'Premier objectif déjà défini' },

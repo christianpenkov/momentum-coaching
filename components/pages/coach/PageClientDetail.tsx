@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
 import Pill from '@/components/ui/Pill';
@@ -45,6 +45,10 @@ export default function PageClientDetail({ id }: Props) {
   const tasks = client?.plan || [];
   const [note, setNote] = useState(client?.privateNotes || '');
   const [modalOpen, setModalOpen] = useState(false);
+  const [depotComment, setDepotComment] = useState('');
+  const [depotFiles, setDepotFiles] = useState<{ name: string; type: string; comment: string }[]>([]);
+  const [depotComments, setDepotComments] = useState<{ file: string; text: string; by: 'coach'; time: string }[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!client) return (
     <div className="page-content">
@@ -306,6 +310,105 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
+      {/* Boîte de dépôt */}
+      <div className="card" style={{ marginTop: 24 }}>
+        <div className="card-head">
+          <div>
+            <div className="card-title">Dépôt de contenus</div>
+            <div className="card-sub">Scripts, vidéos, posts — déposez et commentez directement</div>
+          </div>
+          <button
+            className="btn-primary"
+            type="button"
+            style={{ fontSize: 12, padding: '6px 12px', gap: 5 }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <Icon name="upload" size={12} /> Déposer un fichier
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="video/*,image/*,.pdf,.doc,.docx,.txt"
+            multiple
+            style={{ display: 'none' }}
+            onChange={e => {
+              const files = Array.from(e.target.files || []);
+              setDepotFiles(prev => [
+                ...prev,
+                ...files.map(f => ({ name: f.name, type: f.type.startsWith('video') ? 'Vidéo' : f.type.startsWith('image') ? 'Image' : 'Document', comment: '' })),
+              ]);
+              e.target.value = '';
+            }}
+          />
+        </div>
+
+        {depotFiles.length === 0 ? (
+          <div
+            style={{ marginTop: 16, padding: '32px 20px', border: '2px dashed var(--border)', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: 'var(--muted)', fontSize: 13 }}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <div style={{ marginBottom: 6 }}><Icon name="upload" size={20} color="var(--faint)" /></div>
+            Glisse tes scripts, vidéos ou posts ici, ou clique pour parcourir
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
+            {depotFiles.map((file, i) => {
+              const fileComments = depotComments.filter(c => c.file === file.name);
+              return (
+                <div key={i} style={{ padding: '14px 16px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--accent-soft)', color: 'var(--accent)' }}>{file.type}</span>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>{file.name}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDepotFiles(prev => prev.filter((_, idx) => idx !== i))}
+                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex' }}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  </div>
+
+                  {fileComments.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
+                      {fileComments.map((c, ci) => (
+                        <div key={ci} style={{ padding: '8px 10px', background: '#EEF2FF', borderRadius: 8, borderLeft: '3px solid var(--accent)' }}>
+                          <div style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700, marginBottom: 3 }}>Coach · {c.time}</div>
+                          <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{c.text}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <textarea
+                      placeholder="Laisser un commentaire sur ce contenu…"
+                      value={file.comment}
+                      onChange={e => setDepotFiles(prev => prev.map((f, idx) => idx === i ? { ...f, comment: e.target.value } : f))}
+                      rows={2}
+                      style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', fontSize: 12, color: 'var(--ink)', resize: 'none', fontFamily: 'inherit', outline: 'none', lineHeight: 1.5 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={!file.comment.trim()}
+                      style={{ fontSize: 12, padding: '6px 12px', alignSelf: 'flex-end', opacity: file.comment.trim() ? 1 : 0.4 }}
+                      onClick={() => {
+                        if (!file.comment.trim()) return;
+                        const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+                        setDepotComments(prev => [...prev, { file: file.name, text: file.comment.trim(), by: 'coach', time: now }]);
+                        setDepotFiles(prev => prev.map((f, idx) => idx === i ? { ...f, comment: '' } : f));
+                      }}
+                    >
+                      <Icon name="send" size={12} /> Envoyer
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Stats & tendances sur 12 semaines */}
       <div className="card" style={{ marginTop: 24 }}>
         <div className="card-head">
@@ -321,12 +424,12 @@ export default function PageClientDetail({ id }: Props) {
           {[
             { label: 'Followers Instagram', data: client.weeklyHistory.map(w => w.followersIG), color: '#E1306C', format: (n: number) => n.toLocaleString('fr-FR') },
             { label: 'Posts / semaine', data: client.weeklyHistory.map(w => w.postsCount), color: 'var(--accent)', format: (n: number) => `${n} posts` },
-            { label: 'DM envoyés', data: client.weeklyHistory.map(w => w.dmsSent), color: 'var(--amber)', format: (n: number) => `${n} DM` },
+            { label: 'Taux de closing', data: client.weeklyHistory.map(w => w.closingRate * 10), color: 'var(--green)', format: (_n: number, i: number) => `${client.weeklyHistory[i]?.closingRate ?? 0}%` },
+            { label: 'Taux no-show', data: client.weeklyHistory.map(w => w.noShowRate * 10), color: 'var(--amber)', format: (_n: number, i: number) => `${client.weeklyHistory[i]?.noShowRate ?? 0}%` },
+            { label: 'Rétention vidéo', data: client.weeklyHistory.map(w => w.videoRetention * 10), color: 'var(--accent)', format: (_n: number, i: number) => `${client.weeklyHistory[i]?.videoRetention ?? 0}%` },
+            { label: 'CTR lien en bio', data: client.weeklyHistory.map(w => w.ctrBioLink * 10), color: '#8B5CF6', format: (_n: number, i: number) => `${client.weeklyHistory[i]?.ctrBioLink ?? 0}%` },
             { label: 'MRR Stripe', data: client.weeklyHistory.map(w => w.stripeMRR), color: 'var(--green)', format: (n: number) => `${n.toLocaleString('fr-FR')} €` },
-            { label: 'Vues moyennes', data: client.weeklyHistory.map(w => w.avgViews), color: 'var(--accent)', format: (n: number) => n.toLocaleString('fr-FR') },
-            { label: 'Engagement %', data: client.weeklyHistory.map(w => w.engagementRate * 10), color: '#8B5CF6', format: (_n: number, i: number) => `${client.weeklyHistory[i]?.engagementRate ?? 0}%` },
-            { label: 'Calls Calendly', data: client.weeklyHistory.map(w => w.calendlyCalls), color: '#0A66C2', format: (n: number) => `${n} calls` },
-            { label: 'Deals iClosed', data: client.weeklyHistory.map(w => w.iClosedDeals), color: 'var(--green)', format: (n: number) => `${n} deals` },
+            { label: 'DM envoyés', data: client.weeklyHistory.map(w => w.dmsSent), color: 'var(--muted)', format: (n: number) => `${n} DM` },
           ].map(({ label, data, color, format }) => {
             const last12 = data[11];
             const prev12 = data[10];

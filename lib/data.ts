@@ -1,18 +1,20 @@
-/* ORBIT — Mock data typées */
+/* MOMENTUM — Mock data typées */
 
 export interface WeeklyMetrics {
   week: number;
   followersIG: number;
-  followersTikTok: number;
   followersYT: number;
-  followersLinkedIn: number;
   postsCount: number;
   avgViews: number;
+  videoRetention: number;
   engagementRate: number;
+  ctrBioLink: number;
   dmsSent: number;
   dmsReplyRate: number;
   calendlyCalls: number;
+  noShowRate: number;
   iClosedDeals: number;
+  closingRate: number;
   stripeMRR: number;
 }
 
@@ -107,29 +109,29 @@ function seed(n: number): number {
   return Math.abs(x);
 }
 
-function genHistory(baseIG: number, baseTT: number, baseYT: number, baseLI: number, baseMRR: number, salt: number): WeeklyMetrics[] {
+function genHistory(baseIG: number, baseYT: number, baseMRR: number, salt: number): WeeklyMetrics[] {
   const history: WeeklyMetrics[] = [];
-  let ig = baseIG, tt = baseTT, yt = baseYT, li = baseLI, mrr = baseMRR;
+  let ig = baseIG, yt = baseYT, mrr = baseMRR;
   for (let w = 1; w <= 12; w++) {
     const s = seed(salt * 100 + w);
     const growthIG = 1 + ((s % 1200) - 400) / 10000;
-    const growthTT = 1 + ((seed(s + 1) % 1500) - 300) / 10000;
     const growthYT = 1 + ((seed(s + 2) % 800) - 200) / 10000;
-    const growthLI = 1 + ((seed(s + 3) % 600) - 100) / 10000;
     ig = Math.max(800, Math.round(ig * growthIG));
-    tt = Math.max(0, Math.round(tt * growthTT));
     yt = Math.max(0, Math.round(yt * growthYT));
-    li = Math.max(0, Math.round(li * growthLI));
     const posts = 2 + (s % 5);
     const avgViews = Math.round(800 + (seed(s + 4) % 3000));
+    const videoRetention = parseFloat((28 + (seed(s + 8) % 40)).toFixed(1));
     const eng = parseFloat((2.5 + (seed(s + 5) % 40) / 10).toFixed(1));
+    const ctrBioLink = parseFloat((1.2 + (seed(s + 9) % 60) / 10).toFixed(1));
     const dms = 30 + (s % 120);
     const replyRate = parseFloat((8 + (seed(s + 6) % 22)).toFixed(1));
     const calls = 1 + (s % 3);
-    const deals = Math.random() > 0.6 ? 1 : 0;
+    const noShowRate = parseFloat((5 + (seed(s + 10) % 30)).toFixed(1));
+    const deals = (s % 3) === 0 ? 1 : 0;
+    const closingRate = parseFloat((10 + (seed(s + 11) % 50)).toFixed(1));
     const mrrGrowth = 1 + ((seed(s + 7) % 600) - 100) / 10000;
     mrr = Math.max(0, Math.round(mrr * mrrGrowth));
-    history.push({ week: w, followersIG: ig, followersTikTok: tt, followersYT: yt, followersLinkedIn: li, postsCount: posts, avgViews, engagementRate: eng, dmsSent: dms, dmsReplyRate: replyRate, calendlyCalls: calls, iClosedDeals: deals, stripeMRR: mrr });
+    history.push({ week: w, followersIG: ig, followersYT: yt, postsCount: posts, avgViews, videoRetention, engagementRate: eng, ctrBioLink, dmsSent: dms, dmsReplyRate: replyRate, calendlyCalls: calls, noShowRate, iClosedDeals: deals, closingRate, stripeMRR: mrr });
   }
   return history;
 }
@@ -141,7 +143,7 @@ export const clients: Client[] = [
     week: 8, followers: '12.4k', fdelta: '+1.2%', fdir: 'up', posts: 1, dms: '42dm', mrr: '€2 100',
     status: 'red', statusText: 'Pas ouvert le chat depuis 4j · DM ↓35%',
     clientSince: 56, nextCall: '10:00', momentumScore: 28, iClosedRate: 8, calendlyMonthly: 3,
-    weeklyHistory: genHistory(11000, 4200, 1800, 3100, 2100, 1),
+    weeklyHistory: genHistory(11000, 1800, 2100, 1),
     plan: [
       { label: 'Publier 4 Reels', done: false, meta: '2/4', deadline: '2025-05-16', priority: 'high', addedBy: 'coach' },
       { label: 'Carrousel « erreurs »', done: true, meta: 'fait', priority: 'medium', addedBy: 'coach' },
@@ -166,7 +168,7 @@ export const clients: Client[] = [
     week: 12, followers: '48.1k', fdelta: '+8.4%', fdir: 'up', posts: 5, dms: '156dm', mrr: '€11 400',
     status: 'green', statusText: 'Objectifs semaine atteints',
     clientSince: 84, nextCall: '11:30', momentumScore: 92, iClosedRate: 34, calendlyMonthly: 9,
-    weeklyHistory: genHistory(44000, 18000, 6200, 8400, 11000, 2),
+    weeklyHistory: genHistory(44000, 6200, 11000, 2),
     plan: [
       { label: 'Publier 5 Reels', done: false, meta: '2 / 5' },
       { label: 'Carrousel « métriques »', done: true, meta: 'fait' },
@@ -183,7 +185,7 @@ export const clients: Client[] = [
     week: 3, followers: '3.1k', fdelta: '+2.1%', fdir: 'up', posts: 2, dms: '22dm', mrr: '—',
     status: 'amber', statusText: 'Lent sur module 2 · 1 tâche en retard',
     clientSince: 21, nextCall: 'ven 15h', momentumScore: 45, iClosedRate: 0, calendlyMonthly: 2,
-    weeklyHistory: genHistory(2800, 1100, 0, 1200, 0, 3),
+    weeklyHistory: genHistory(2800, 0, 0, 3),
     plan: [
       { label: 'Finir module 2', done: false, meta: 'en retard' },
       { label: 'Publier 3 posts IG', done: false, meta: '1/3' },
@@ -197,7 +199,7 @@ export const clients: Client[] = [
     week: 6, followers: '21.7k', fdelta: '+5.6%', fdir: 'up', posts: 4, dms: '98dm', mrr: '€4 800',
     status: 'green', statusText: 'Sur la trajectoire',
     clientSince: 42, nextCall: 'lun 10h', momentumScore: 74, iClosedRate: 18, calendlyMonthly: 5,
-    weeklyHistory: genHistory(19500, 7800, 2100, 4200, 4600, 4),
+    weeklyHistory: genHistory(19500, 2100, 4600, 4),
     plan: [
       { label: 'Publier 4 Reels nutrition', done: true, meta: 'fait' },
       { label: 'Envoyer 100 DM', done: false, meta: '98/100' },
@@ -211,7 +213,7 @@ export const clients: Client[] = [
     week: 9, followers: '8.9k', fdelta: '+0.4%', fdir: 'up', posts: 2, dms: '51dm', mrr: '€3 200',
     status: 'amber', statusText: 'Reels en pause depuis 6j',
     clientSince: 63, nextCall: 'jeu 14h', momentumScore: 41, iClosedRate: 12, calendlyMonthly: 4,
-    weeklyHistory: genHistory(8300, 2400, 0, 5100, 3100, 5),
+    weeklyHistory: genHistory(8300, 0, 3100, 5),
     plan: [
       { label: 'Reprendre les Reels (×3)', done: false, meta: '0/3' },
       { label: 'Envoyer 50 DM prospects', done: false, meta: '51/50' },
@@ -225,7 +227,7 @@ export const clients: Client[] = [
     week: 11, followers: '67.3k', fdelta: '+11.2%', fdir: 'up', posts: 6, dms: '210dm', mrr: '€18 900',
     status: 'green', statusText: 'Top performer · à étudier',
     clientSince: 77, nextCall: '14:00', momentumScore: 97, iClosedRate: 41, calendlyMonthly: 12,
-    weeklyHistory: genHistory(60000, 24000, 8800, 14000, 18400, 6),
+    weeklyHistory: genHistory(60000, 8800, 18400, 6),
     plan: [
       { label: 'Scale équipe 2 personnes', done: false, meta: 'en cours' },
       { label: 'Publier 6 posts/semaine', done: true, meta: 'fait' },
@@ -239,7 +241,7 @@ export const clients: Client[] = [
     week: 4, followers: '5.4k', fdelta: '-1.8%', fdir: 'down', posts: 0, dms: '8dm', mrr: '—',
     status: 'red', statusText: 'Aucune publication 9j · risque churn',
     clientSince: 28, nextCall: '15:30', momentumScore: 12, iClosedRate: 0, calendlyMonthly: 1,
-    weeklyHistory: genHistory(5500, 1800, 0, 2100, 0, 7),
+    weeklyHistory: genHistory(5500, 0, 0, 7),
     plan: [
       { label: 'Publier 3 posts minimum', done: false, meta: '0/3' },
       { label: 'Reprendre contact chat', done: false, meta: 'urgent' },
@@ -252,7 +254,7 @@ export const clients: Client[] = [
     week: 7, followers: '19.2k', fdelta: '+4.3%', fdir: 'up', posts: 3, dms: '88dm', mrr: '€3 600',
     status: 'green', statusText: 'Onboarding terminé · à pousser',
     clientSince: 49, nextCall: 'mer 11h', momentumScore: 68, iClosedRate: 16, calendlyMonthly: 5,
-    weeklyHistory: genHistory(17800, 6100, 2400, 7200, 3400, 8),
+    weeklyHistory: genHistory(17800, 2400, 3400, 8),
     plan: [
       { label: 'Brief identité visuelle client', done: true, meta: 'fait' },
       { label: 'Publier 4 posts IG', done: false, meta: '3/4' },
@@ -266,7 +268,7 @@ export const clients: Client[] = [
     week: 2, followers: '1.8k', fdelta: '+12%', fdir: 'up', posts: 3, dms: '34dm', mrr: '—',
     status: 'amber', statusText: 'Démarrage moyen · script DM à revoir',
     clientSince: 14, nextCall: 'ven 16h', momentumScore: 48, iClosedRate: 0, calendlyMonthly: 2,
-    weeklyHistory: genHistory(1600, 800, 0, 400, 0, 9),
+    weeklyHistory: genHistory(1600, 0, 0, 9),
     plan: [
       { label: 'Reécrire script DM', done: false, meta: 'urgent' },
       { label: 'Publier 3 Reels workout', done: false, meta: '3/3' },
@@ -279,7 +281,7 @@ export const clients: Client[] = [
     week: 10, followers: '34.5k', fdelta: '+6.1%', fdir: 'up', posts: 4, dms: '124dm', mrr: '€7 400',
     status: 'green', statusText: 'Cohérente, prête pour scale',
     clientSince: 70, nextCall: '17:00', momentumScore: 83, iClosedRate: 22, calendlyMonthly: 7,
-    weeklyHistory: genHistory(31000, 12000, 4400, 9800, 7000, 10),
+    weeklyHistory: genHistory(31000, 4400, 7000, 10),
     plan: [
       { label: 'Lancement offre accompagnement', done: false, meta: 'S11' },
       { label: 'Publier 4 posts prod', done: true, meta: 'fait' },
@@ -293,7 +295,7 @@ export const clients: Client[] = [
     week: 5, followers: '9.2k', fdelta: '-0.3%', fdir: 'down', posts: 1, dms: '18dm', mrr: '€900',
     status: 'amber', statusText: 'Engagement ↓ · contenu trop niché',
     clientSince: 35, nextCall: 'lun 14h', momentumScore: 38, iClosedRate: 6, calendlyMonthly: 3,
-    weeklyHistory: genHistory(9300, 3800, 2100, 1800, 900, 11),
+    weeklyHistory: genHistory(9300, 2100, 900, 11),
     plan: [
       { label: 'Élargir sujet (finance perso)', done: false, meta: 'à tester' },
       { label: 'Publier 3 posts', done: false, meta: '1/3' },
@@ -306,7 +308,7 @@ export const clients: Client[] = [
     week: 13, followers: '82.4k', fdelta: '+9.7%', fdir: 'up', posts: 5, dms: '198dm', mrr: '€22 100',
     status: 'green', statusText: 'Plafond proche · upsell ?',
     clientSince: 91, nextCall: 'jeu 10h', momentumScore: 94, iClosedRate: 38, calendlyMonthly: 14,
-    weeklyHistory: genHistory(74000, 22000, 7800, 18000, 21000, 12),
+    weeklyHistory: genHistory(74000, 7800, 21000, 12),
     plan: [
       { label: 'Proposition offre mastermind', done: false, meta: 'à préparer' },
       { label: 'Publier 5 posts inspirants', done: true, meta: 'fait' },
@@ -320,7 +322,7 @@ export const clients: Client[] = [
     week: 1, followers: '0.8k', fdelta: '+340%', fdir: 'up', posts: 7, dms: '12dm', mrr: '—',
     status: 'green', statusText: 'Onboarding J+5 · momentum fort',
     clientSince: 5, nextCall: 'mer 15h', momentumScore: 71, iClosedRate: 0, calendlyMonthly: 1,
-    weeklyHistory: genHistory(600, 200, 0, 0, 0, 13),
+    weeklyHistory: genHistory(600, 0, 0, 13),
     plan: [
       { label: 'Définir niche voyage précise', done: true, meta: 'fait' },
       { label: 'Publier 7 posts cette semaine', done: true, meta: 'fait' },
@@ -334,7 +336,7 @@ export const clients: Client[] = [
     week: 8, followers: '11.6k', fdelta: '-2.4%', fdir: 'down', posts: 0, dms: '14dm', mrr: '€2 400',
     status: 'red', statusText: '3 deadlines manquées · intervention',
     clientSince: 56, nextCall: 'appel urgent', momentumScore: 15, iClosedRate: 5, calendlyMonthly: 2,
-    weeklyHistory: genHistory(12000, 3400, 0, 2800, 2500, 14),
+    weeklyHistory: genHistory(12000, 0, 2500, 14),
     plan: [
       { label: 'Call d\'urgence avec Marc', done: false, meta: 'urgent' },
       { label: 'Publier 2 posts minimum', done: false, meta: '0/2' },
@@ -347,7 +349,7 @@ export const clients: Client[] = [
     week: 12, followers: '14.8k', fdelta: '-0.5%', fdir: 'down', posts: 1, dms: '24dm', mrr: '€3 100',
     status: 'amber', statusText: 'Décrochage progressif · call urgent',
     clientSince: 84, nextCall: 'S12', momentumScore: 32, iClosedRate: 9, calendlyMonthly: 3,
-    weeklyHistory: genHistory(15000, 4200, 1100, 6800, 3200, 15),
+    weeklyHistory: genHistory(15000, 1100, 3200, 15),
     plan: [
       { label: 'Analyser le décrochage', done: false, meta: 'S12' },
       { label: 'Reformater l\'offre RH', done: false, meta: 'à discuter' },
@@ -360,7 +362,7 @@ export const clients: Client[] = [
     week: 6, followers: '28.4k', fdelta: '+14%', fdir: 'up', posts: 4, dms: '76dm', mrr: '€5 200',
     status: 'green', statusText: 'Engagement record · pic semaine',
     clientSince: 42, nextCall: 'lun 14h', momentumScore: 89, iClosedRate: 24, calendlyMonthly: 6,
-    weeklyHistory: genHistory(24000, 14000, 5200, 4100, 4900, 16),
+    weeklyHistory: genHistory(24000, 5200, 4900, 16),
     plan: [
       { label: 'Capitaliser sur viral (3 reels)', done: false, meta: '1/3' },
       { label: 'Contacter médias', done: false, meta: 'en cours' },
@@ -373,7 +375,7 @@ export const clients: Client[] = [
     week: 9, followers: '92k', fdelta: '+7.0%', fdir: 'up', posts: 8, dms: '287dm', mrr: '€15 600',
     status: 'green', statusText: 'Trajectoire haute · à packager',
     clientSince: 63, nextCall: 'mer 10h', momentumScore: 91, iClosedRate: 31, calendlyMonthly: 11,
-    weeklyHistory: genHistory(85000, 12000, 78000, 22000, 14800, 17),
+    weeklyHistory: genHistory(85000, 78000, 14800, 17),
     plan: [
       { label: 'Lancer programme YouTube premium', done: false, meta: 'S10' },
       { label: 'Publier 2 vidéos YouTube', done: true, meta: 'fait' },
@@ -387,7 +389,7 @@ export const clients: Client[] = [
     week: 5, followers: '15.1k', fdelta: '+2.4%', fdir: 'up', posts: 3, dms: '67dm', mrr: '€3 100',
     status: 'green', statusText: 'Sur le rythme',
     clientSince: 35, nextCall: 'jeu 11h', momentumScore: 62, iClosedRate: 14, calendlyMonthly: 4,
-    weeklyHistory: genHistory(14200, 5800, 0, 3400, 2900, 18),
+    weeklyHistory: genHistory(14200, 0, 2900, 18),
     plan: [
       { label: 'Publier 3 posts maman/biz', done: true, meta: 'fait' },
       { label: 'Envoyer 70 DM', done: false, meta: '67/70' },
@@ -400,7 +402,7 @@ export const clients: Client[] = [
     week: 3, followers: '2.4k', fdelta: '+8.7%', fdir: 'up', posts: 4, dms: '28dm', mrr: '€700',
     status: 'green', statusText: 'Onboarding actif · structuré',
     clientSince: 21, nextCall: 'lun 16h', momentumScore: 55, iClosedRate: 3, calendlyMonthly: 2,
-    weeklyHistory: genHistory(2100, 600, 0, 1800, 600, 19),
+    weeklyHistory: genHistory(2100, 0, 600, 19),
     plan: [
       { label: 'Portfolio 10 meilleures photos', done: false, meta: '7/10' },
       { label: 'Publier 4 posts immo', done: true, meta: 'fait' },
@@ -413,7 +415,7 @@ export const clients: Client[] = [
     week: 10, followers: '24.8k', fdelta: '+6.8%', fdir: 'up', posts: 5, dms: '142dm', mrr: '€6 800',
     status: 'green', statusText: 'Bonne dynamique',
     clientSince: 70, nextCall: 'mar 14h', momentumScore: 79, iClosedRate: 20, calendlyMonthly: 7,
-    weeklyHistory: genHistory(22400, 8100, 1800, 5200, 6400, 20),
+    weeklyHistory: genHistory(22400, 1800, 6400, 20),
     plan: [
       { label: 'Pack bien-être S10', done: false, meta: 'en cours' },
       { label: 'Publier 5 posts', done: true, meta: 'fait' },
@@ -426,7 +428,7 @@ export const clients: Client[] = [
     week: 11, followers: '41.2k', fdelta: '+5.1%', fdir: 'up', posts: 3, dms: '88dm', mrr: '€9 400',
     status: 'green', statusText: 'Stable, à pousser sur upsell',
     clientSince: 77, nextCall: 'ven 14h', momentumScore: 74, iClosedRate: 28, calendlyMonthly: 8,
-    weeklyHistory: genHistory(38000, 18000, 4200, 6800, 8900, 21),
+    weeklyHistory: genHistory(38000, 4200, 8900, 21),
     plan: [
       { label: 'Préparer upsell formation', done: false, meta: 'S12' },
       { label: 'Publier 3 posts résultats', done: true, meta: 'fait' },
@@ -439,20 +441,20 @@ export const clients: Client[] = [
     week: 2, followers: '1.1k', fdelta: '+21%', fdir: 'up', posts: 6, dms: '24dm', mrr: '—',
     status: 'green', statusText: 'Démarrage fort',
     clientSince: 14, nextCall: 'mer 17h', momentumScore: 66, iClosedRate: 0, calendlyMonthly: 1,
-    weeklyHistory: genHistory(900, 400, 0, 700, 0, 22),
+    weeklyHistory: genHistory(900, 0, 0, 22),
     plan: [
       { label: 'Définir niche dev précise', done: true, meta: 'fait' },
       { label: 'Publier 6 posts code', done: true, meta: 'fait' },
       { label: 'Lancer newsletter dev', done: false, meta: 'S3' },
     ],
-    privateNotes: 'Profil atypique dev/créateur. Fort potentiel sur LinkedIn et YouTube.',
+    privateNotes: 'Profil atypique dev/créateur. Fort potentiel sur Instagram et YouTube.',
   },
   {
     id: 'sarah', initials: 'SL', name: 'Sarah Lambert', niche: 'Wellness',
     week: 4, followers: '4.8k', fdelta: '+5.2%', fdir: 'up', posts: 3, dms: '56dm', mrr: '€1 200',
     status: 'green', statusText: 'Onboarding solide',
     clientSince: 28, nextCall: 'mar 11h', momentumScore: 58, iClosedRate: 8, calendlyMonthly: 3,
-    weeklyHistory: genHistory(4300, 2100, 0, 1400, 1100, 23),
+    weeklyHistory: genHistory(4300, 0, 1100, 23),
     plan: [
       { label: 'Publier 3 posts wellness', done: true, meta: 'fait' },
       { label: 'Envoyer 60 DM', done: false, meta: '56/60' },
@@ -465,7 +467,7 @@ export const clients: Client[] = [
     week: 7, followers: '6.5k', fdelta: '+3.1%', fdir: 'up', posts: 2, dms: '42dm', mrr: '€2 400',
     status: 'amber', statusText: 'À recadrer sur format',
     clientSince: 49, nextCall: 'jeu 16h', momentumScore: 44, iClosedRate: 11, calendlyMonthly: 4,
-    weeklyHistory: genHistory(6000, 2200, 0, 2100, 2200, 24),
+    weeklyHistory: genHistory(6000, 0, 2200, 24),
     plan: [
       { label: 'Tester format Reel résultats', done: false, meta: 'à tester' },
       { label: 'Envoyer 45 DM', done: false, meta: '42/45' },
@@ -533,7 +535,7 @@ export const resources: Resource[] = [
   { id: 'r1', title: 'Module 1 · Fondamentaux personal branding', type: 'Vidéo', desc: 'Les 5 piliers pour construire une audience organique solide en 90 jours.', duration: '24 min', week: 1 },
   { id: 'r2', title: 'Pack 50 hooks IG testés', type: 'Notion', desc: 'Hooks classés par type : émotion, chiffre, question, controverse, storytelling.', week: 1 },
   { id: 'r3', title: 'Script DM haute conversion', type: 'Template', desc: 'Framework problème + chiffre + invitation. Taux de réponse moyen : 22%.', week: 2 },
-  { id: 'r4', title: 'Module 2 · Algorithme et formats', type: 'Vidéo', desc: 'Décryptage de l\'algorithme IG/TikTok 2024 et les formats qui percent vraiment.', duration: '18 min', week: 2 },
+  { id: 'r4', title: 'Module 2 · Algorithme et formats', type: 'Vidéo', desc: 'Décryptage de l\'algorithme Instagram et YouTube 2024 — les formats qui percent vraiment.', duration: '18 min', week: 2 },
   { id: 'r5', title: 'Audit profil IG · Checklist 40 points', type: 'Checklist', desc: 'Vérifier bio, highlights, grille, stories permanentes, et lien en bio.', week: 3 },
   { id: 'r6', title: 'Module 3 · Contenu qui convertit', type: 'Vidéo', desc: 'Comment passer de la croissance followers à la génération de leads qualifiés.', duration: '31 min', week: 3 },
   { id: 'r7', title: 'Brief tournage premium', type: 'Template', desc: 'Préparer un tournage batch en 4h : script, angle, CTA, montage.', week: 4 },

@@ -1,6 +1,7 @@
 'use client';
 
 import { useRouter, usePathname } from 'next/navigation';
+import Image from 'next/image';
 import Icon from '../ui/Icon';
 
 export default function TopBar() {
@@ -11,13 +12,8 @@ export default function TopBar() {
   return (
     <div className="topbar">
       <div className="topbar-brand">
-        <svg width="32" height="32" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg" style={{ flexShrink: 0 }}>
-          <rect x="16" y="16" width="168" height="168" rx="38" fill="#EBEBEB"/>
-          <circle cx="100" cy="100" r="56" stroke="#2E2E2E" strokeWidth="8" fill="none"/>
-          <circle cx="100" cy="100" r="34" stroke="#2E2E2E" strokeWidth="8" fill="none"/>
-          <circle cx="100" cy="100" r="12" fill="#2E2E2E"/>
-        </svg>
-        <span className="topbar-logo">ORBIT</span>
+        <Image src="/logo-momentum.png" alt="Momentum" width={44} height={44} style={{ flexShrink: 0, objectFit: 'contain' }} />
+        <span className="topbar-logo">Momentum</span>
         <span className="topbar-tagline">Plateforme coaching</span>
       </div>
 

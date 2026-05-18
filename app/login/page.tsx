@@ -1,0 +1,120 @@
+'use client';
+
+import { useState } from 'react';
+import Image from 'next/image';
+import { createClient } from '@/lib/supabase/client';
+import { useRouter } from 'next/navigation';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const router = useRouter();
+  const supabase = createClient();
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      setError('Email ou mot de passe incorrect.');
+      setLoading(false);
+      return;
+    }
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('role')
+      .eq('id', data.user.id)
+      .single();
+
+    if (profile?.role === 'coach') {
+      router.push('/dashboard');
+    } else {
+      router.push('/espace');
+    }
+  }
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'var(--bg)',
+    }}>
+      <div style={{
+        width: 400,
+        background: 'var(--surface)',
+        borderRadius: 16,
+        border: '1px solid var(--border)',
+        padding: '48px 40px',
+        boxShadow: 'var(--shadow-elev)',
+      }}>
+        {/* Logo + titre */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 36 }}>
+          <Image src="/logo-momentum.png" alt="Momentum" width={56} height={56} style={{ objectFit: 'contain', marginBottom: 12 }} />
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: 0 }}>Momentum</h1>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>Plateforme coaching</p>
+        </div>
+
+        <form onSubmit={handleLogin} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginBottom: 6 }}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              placeholder="ton@email.fr"
+              required
+              style={{
+                width: '100%', padding: '10px 12px', border: '1px solid var(--border)',
+                borderRadius: 8, fontSize: 14, background: 'var(--surface-2)',
+                color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginBottom: 6 }}>
+              Mot de passe
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="••••••••"
+              required
+              style={{
+                width: '100%', padding: '10px 12px', border: '1px solid var(--border)',
+                borderRadius: 8, fontSize: 14, background: 'var(--surface-2)',
+                color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {error && (
+            <div style={{ fontSize: 13, color: 'var(--red)', padding: '8px 12px', background: 'var(--red-soft)', borderRadius: 8 }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn-primary"
+            style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '12px', fontSize: 14, opacity: loading ? 0.7 : 1 }}
+          >
+            {loading ? 'Connexion…' : 'Se connecter'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}

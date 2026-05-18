@@ -95,12 +95,12 @@ export default function PageBriefing({ id }: Props) {
           <div className="metric-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 14 }}>
             {[
               { label: 'Followers IG', value: last.followersIG.toLocaleString('fr-FR'), delta: `+${followerDelta}`, positive: followerDelta >= 0 },
-              { label: 'TikTok', value: last.followersTikTok.toLocaleString('fr-FR'), delta: `+${last.followersTikTok - prev.followersTikTok}`, positive: true },
-              { label: 'Posts publiés', value: last.postsCount.toString(), delta: `${last.avgViews.toLocaleString('fr-FR')} vues moy.` },
-              { label: 'Engagement', value: `${last.engagementRate}%`, delta: last.engagementRate > 3 ? 'Bon' : 'À améliorer', positive: last.engagementRate > 3 },
+              { label: 'YouTube', value: last.followersYT.toLocaleString('fr-FR'), delta: `+${last.followersYT - prev.followersYT}`, positive: true },
+              { label: 'Taux de closing', value: `${last.closingRate}%`, delta: last.closingRate > 20 ? 'Bon' : 'À améliorer', positive: last.closingRate > 20 },
+              { label: 'Taux no-show', value: `${last.noShowRate}%`, delta: last.noShowRate < 15 ? 'OK' : 'Élevé', positive: last.noShowRate < 15 },
+              { label: 'Rétention vidéo', value: `${last.videoRetention}%`, delta: last.videoRetention > 40 ? 'Bon' : 'À améliorer', positive: last.videoRetention > 40 },
+              { label: 'CTR lien bio', value: `${last.ctrBioLink}%`, delta: 'Short.io', positive: last.ctrBioLink > 2 },
               { label: 'DM envoyés', value: last.dmsSent.toString(), delta: `${last.dmsReplyRate}% réponse`, positive: last.dmsReplyRate > 15 },
-              { label: 'Calls Calendly', value: last.calendlyCalls.toString(), delta: 'ce mois' },
-              { label: 'Deals iClosed', value: last.iClosedDeals.toString(), delta: `${client.iClosedRate || 0}% closing` },
               { label: 'MRR Stripe', value: `${last.stripeMRR.toLocaleString('fr-FR')} €`, delta: `${mrrDelta >= 0 ? '+' : ''}${mrrDelta} €`, positive: mrrDelta >= 0 },
             ].map(({ label, value, delta, positive }) => (
               <div key={label} style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>

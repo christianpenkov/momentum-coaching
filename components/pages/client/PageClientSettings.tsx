@@ -5,9 +5,7 @@ import Icon from '@/components/ui/Icon';
 
 const NETWORKS = [
   { name: 'Instagram', icon: 'instagram', connected: true, account: '@thomas.mrk' },
-  { name: 'TikTok', icon: 'tiktok', connected: true, account: '@thomasmrk' },
   { name: 'YouTube', icon: 'youtube', connected: false, account: null },
-  { name: 'LinkedIn', icon: 'linkedin', connected: false, account: null },
   { name: 'Stripe', icon: 'dollar-sign', connected: true, account: 'thomas@email.fr' },
   { name: 'Calendly', icon: 'calendar', connected: true, account: 'thomasmrk.com/rdv' },
 ];

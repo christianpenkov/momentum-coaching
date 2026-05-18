@@ -23,7 +23,7 @@ function buildMRRTimeline() {
   }));
 }
 
-function buildFollowerTimeline(network: 'followersIG' | 'followersTikTok' | 'followersYT' | 'followersLinkedIn') {
+function buildFollowerTimeline(network: 'followersIG' | 'followersYT') {
   return WEEKS.map((week, wi) => {
     const entry: Record<string, unknown> = { week };
     clients.slice(0, 6).forEach(c => {
@@ -44,7 +44,7 @@ function buildComparativeTable() {
   return clients.slice(0, 12).map(c => {
     const last = c.weeklyHistory[11];
     const first = c.weeklyHistory[0];
-    const totalFollowers = last.followersIG + last.followersTikTok + last.followersYT + last.followersLinkedIn;
+    const totalFollowers = last.followersIG + last.followersYT;
     const growth = first.followersIG > 0 ? Math.round(((last.followersIG - first.followersIG) / first.followersIG) * 100) : 0;
     return {
       ...c,
@@ -64,12 +64,10 @@ const donutData = [
   { label: 'En alerte', value: clients.filter(c => c.status === 'red').length, color: 'var(--red)' },
 ];
 
-type NetworkKey = 'followersIG' | 'followersTikTok' | 'followersYT' | 'followersLinkedIn';
+type NetworkKey = 'followersIG' | 'followersYT';
 const NETWORKS: { key: NetworkKey; label: string }[] = [
   { key: 'followersIG', label: 'Instagram' },
-  { key: 'followersTikTok', label: 'TikTok' },
   { key: 'followersYT', label: 'YouTube' },
-  { key: 'followersLinkedIn', label: 'LinkedIn' },
 ];
 
 export default function PageAnalytics() {
@@ -199,28 +197,43 @@ export default function PageAnalytics() {
       {/* Section 4 — Funnel business */}
       <div className="grid-4" style={{ marginTop: 24 }}>
         <div className="card funnel-card">
-          <div className="funnel-icon"><Icon name="calendar" size={20} /></div>
-          <div className="funnel-label">Calls Calendly</div>
-          <div className="funnel-value">{clients.reduce((s, c) => s + (c.calendlyMonthly || 0), 0)}</div>
-          <div className="funnel-sub">ce mois</div>
-        </div>
-        <div className="card funnel-card">
           <div className="funnel-icon"><Icon name="target" size={20} /></div>
-          <div className="funnel-label">Deals iClosed</div>
+          <div className="funnel-label">Taux de closing</div>
           <div className="funnel-value">{Math.round(clients.reduce((s, c) => s + (c.iClosedRate || 0), 0) / clients.length)}%</div>
-          <div className="funnel-sub">taux closing moy.</div>
+          <div className="funnel-sub">moyenne élèves</div>
         </div>
         <div className="card funnel-card">
-          <div className="funnel-icon"><Icon name="dollar-sign" size={20} /></div>
-          <div className="funnel-label">MRR Stripe</div>
-          <div className="funnel-value">{totalMRR.toLocaleString('fr-FR')} €</div>
-          <div className="funnel-sub">mensuel récurrent</div>
+          <div className="funnel-icon" style={{ color: 'var(--amber)' }}><Icon name="calendar" size={20} /></div>
+          <div className="funnel-label">Taux no-show</div>
+          <div className="funnel-value" style={{ color: 'var(--amber)' }}>
+            {parseFloat((clients.reduce((s, c) => {
+              const avg = c.weeklyHistory.reduce((a, w) => a + w.noShowRate, 0) / 12;
+              return s + avg;
+            }, 0) / clients.length).toFixed(1))}%
+          </div>
+          <div className="funnel-sub">calls manqués moy.</div>
+        </div>
+        <div className="card funnel-card">
+          <div className="funnel-icon" style={{ color: 'var(--accent)' }}><Icon name="eye" size={20} /></div>
+          <div className="funnel-label">Rétention vidéo</div>
+          <div className="funnel-value" style={{ color: 'var(--accent)' }}>
+            {parseFloat((clients.reduce((s, c) => {
+              const avg = c.weeklyHistory.reduce((a, w) => a + w.videoRetention, 0) / 12;
+              return s + avg;
+            }, 0) / clients.length).toFixed(1))}%
+          </div>
+          <div className="funnel-sub">durée vue moy.</div>
         </div>
         <div className="card funnel-card">
           <div className="funnel-icon" style={{ color: 'var(--green)' }}><Icon name="trending-up" size={20} /></div>
-          <div className="funnel-label">Croissance moy.</div>
-          <div className="funnel-value" style={{ color: 'var(--green)' }}>+{avgGrowth}%</div>
-          <div className="funnel-sub">followers sur 12 sem.</div>
+          <div className="funnel-label">CTR lien en bio</div>
+          <div className="funnel-value" style={{ color: 'var(--green)' }}>
+            {parseFloat((clients.reduce((s, c) => {
+              const avg = c.weeklyHistory.reduce((a, w) => a + w.ctrBioLink, 0) / 12;
+              return s + avg;
+            }, 0) / clients.length).toFixed(1))}%
+          </div>
+          <div className="funnel-sub">Short.io · moy.</div>
         </div>
       </div>
 

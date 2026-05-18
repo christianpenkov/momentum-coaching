@@ -22,14 +22,16 @@ export default function PageClientAnalytics({ id }: Props) {
   const data = client.weeklyHistory.map((w, i) => ({
     week: WEEKS[i],
     ig: w.followersIG,
-    tiktok: w.followersTikTok,
     yt: w.followersYT,
-    linkedin: w.followersLinkedIn,
     posts: w.postsCount,
     views: w.avgViews,
+    videoRetention: w.videoRetention,
     engagement: w.engagementRate,
+    ctrBioLink: w.ctrBioLink,
     dms: w.dmsSent,
     reply: w.dmsReplyRate,
+    closingRate: w.closingRate,
+    noShowRate: w.noShowRate,
     mrr: w.stripeMRR,
     calendly: w.calendlyCalls,
     deals: w.iClosedDeals,
@@ -64,9 +66,7 @@ export default function PageClientAnalytics({ id }: Props) {
           data={data}
           lines={[
             { key: 'ig', label: 'Instagram', color: '#E1306C' },
-            { key: 'tiktok', label: 'TikTok', color: '#000000' },
             { key: 'yt', label: 'YouTube', color: '#FF0000' },
-            { key: 'linkedin', label: 'LinkedIn', color: '#0A66C2' },
           ]}
           xKey="week"
           height={240}

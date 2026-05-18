@@ -19,14 +19,16 @@ export default function PageClientStats() {
   const data = client.weeklyHistory.map((w, i) => ({
     week: WEEKS[i],
     ig: w.followersIG,
-    tiktok: w.followersTikTok,
     yt: w.followersYT,
-    linkedin: w.followersLinkedIn,
     posts: w.postsCount,
     views: w.avgViews,
+    videoRetention: w.videoRetention,
     engagement: w.engagementRate,
+    ctrBioLink: w.ctrBioLink,
     dms: w.dmsSent,
     reply: w.dmsReplyRate,
+    closingRate: w.closingRate,
+    noShowRate: w.noShowRate,
     mrr: w.stripeMRR,
     calendly: w.calendlyCalls,
   }));
@@ -52,8 +54,8 @@ export default function PageClientStats() {
       <div className="grid-4" style={{ marginBottom: 24 }}>
         {[
           { label: 'Followers IG', value: last.followersIG.toLocaleString('fr-FR'), delta: `+${last.followersIG - prev.followersIG}`, positive: true },
-          { label: 'Vues moyennes', value: last.avgViews.toLocaleString('fr-FR'), delta: `${last.engagementRate}% engagement`, positive: last.engagementRate > 3 },
-          { label: 'DM envoyés', value: last.dmsSent.toString(), delta: `${last.dmsReplyRate}% réponse`, positive: last.dmsReplyRate > 15 },
+          { label: 'Taux de closing', value: `${last.closingRate}%`, delta: last.closingRate > 20 ? 'Bon niveau' : 'À améliorer', positive: last.closingRate > 20 },
+          { label: 'Rétention vidéo', value: `${last.videoRetention}%`, delta: `CTR bio ${last.ctrBioLink}%`, positive: last.videoRetention > 40 },
           { label: 'MRR', value: `${last.stripeMRR.toLocaleString('fr-FR')} €`, delta: `+${last.stripeMRR - prev.stripeMRR} € vs sem. préc.`, positive: last.stripeMRR > prev.stripeMRR },
         ].map(({ label, value, delta, positive }) => (
           <div key={label} className="card" style={{ padding: '16px 20px' }}>
@@ -74,9 +76,7 @@ export default function PageClientStats() {
           data={data}
           lines={[
             { key: 'ig', label: 'Instagram', color: '#E1306C' },
-            { key: 'tiktok', label: 'TikTok', color: '#2d2d2d' },
             { key: 'yt', label: 'YouTube', color: '#FF0000' },
-            { key: 'linkedin', label: 'LinkedIn', color: '#0A66C2' },
           ]}
           xKey="week"
           height={240}
