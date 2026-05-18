@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 
 type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly';
 
-const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string }[] = [
+const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean }[] = [
   {
     provider: 'stripe',
     name: 'Stripe',
@@ -18,8 +18,9 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
     provider: 'calendly',
     name: 'Calendly',
     icon: 'calendar',
-    desc: 'Token API Calendly pour synchroniser tes calls',
-    placeholder: 'Token Calendly...',
+    desc: 'Connecte ton Calendly pour voir tes calls en temps réel et recevoir les rappels',
+    placeholder: '',
+    oauth: true,
   },
   {
     provider: 'instagram',
@@ -181,9 +182,14 @@ export default function PageClientSettings() {
                   {connected ? (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
-                      <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>Modifier</button>
+                      {!cfg.oauth && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>Modifier</button>}
+                      {cfg.oauth && <a href="/api/oauth/calendly" className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
                       <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
                     </div>
+                  ) : cfg.oauth ? (
+                    <a href="/api/oauth/calendly" className="btn-primary" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                      <Icon name="link" size={13} /> Connecter
+                    </a>
                   ) : (
                     <button className="btn-primary" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                       <Icon name="link" size={13} /> Connecter

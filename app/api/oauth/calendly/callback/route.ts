@@ -85,6 +85,16 @@ export async function GET(request: NextRequest) {
     connected_at: new Date().toISOString(),
   }, { onConflict: 'profile_id,provider' });
 
+  // Enregistre automatiquement le webhook Calendly pour cet utilisateur
+  try {
+    await fetch(`${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/calendly/register-webhook`, {
+      method: 'POST',
+      headers: { Cookie: request.headers.get('cookie') || '' },
+    });
+  } catch {
+    // Non bloquant — le webhook peut être enregistré manuellement si besoin
+  }
+
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/espace/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=calendly`);
