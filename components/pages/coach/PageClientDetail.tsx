@@ -10,6 +10,7 @@ import Icon from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
 import { useClients } from '@/lib/ClientsContext';
 import type { Task } from '@/lib/data';
+import { createClient as createSupabase } from '@/lib/supabase/client';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -44,6 +45,8 @@ export default function PageClientDetail({ id }: Props) {
   const client = getClient(id);
   const tasks = client?.plan || [];
   const [note, setNote] = useState(client?.privateNotes || '');
+  const [noteSaving, setNoteSaving] = useState(false);
+  const [noteSaved, setNoteSaved] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [depotComment, setDepotComment] = useState('');
   const [depotFiles, setDepotFiles] = useState<{ name: string; type: string; comment: string }[]>([]);
@@ -65,6 +68,15 @@ export default function PageClientDetail({ id }: Props) {
 
   function toggleTask(idx: number, checked: boolean) {
     ctxToggle(id, idx, checked);
+  }
+
+  async function saveNote() {
+    setNoteSaving(true);
+    const supabase = createSupabase();
+    await supabase.from('clients').update({ private_notes: note }).eq('id', id);
+    setNoteSaving(false);
+    setNoteSaved(true);
+    setTimeout(() => setNoteSaved(false), 2000);
   }
 
   return (
@@ -294,7 +306,9 @@ export default function PageClientDetail({ id }: Props) {
           />
           <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
             <span style={{ fontSize: 11, color: 'var(--muted)' }}>{note.length} car.</span>
-            <button className="btn-ghost" style={{ fontSize: 12 }} type="button">Sauvegarder</button>
+            <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={saveNote} disabled={noteSaving}>
+              {noteSaved ? '✓ Sauvegardé' : noteSaving ? 'Enregistrement…' : 'Sauvegarder'}
+            </button>
           </div>
           {client.suspens && client.suspens.length > 0 && (
             <div style={{ marginTop: 16, padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, borderLeft: '3px solid var(--amber)' }}>
