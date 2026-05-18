@@ -50,6 +50,7 @@ export default function PageClientSettings() {
   const [validating, setValidating] = useState(false);
   const [keyError, setKeyError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -119,6 +120,15 @@ export default function PageClientSettings() {
     setIntegrations(prev => ({ ...prev, [provider]: false }));
   }
 
+  async function syncCalendly() {
+    setSyncing(true);
+    const res = await fetch('/api/calendly/sync', { method: 'POST' });
+    const data = await res.json();
+    setSyncing(false);
+    if (data.ok) showToast(data.synced > 0 ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''} ✓` : 'Aucun nouveau call trouvé');
+    else showToast(data.error || 'Erreur sync Calendly');
+  }
+
   async function saveProfile() {
     if (!profileId) return;
     const { error } = await supabase.from('profiles')
@@ -184,6 +194,11 @@ export default function PageClientSettings() {
                       <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
                       {!cfg.oauth && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>Modifier</button>}
                       {cfg.oauth && <a href="/api/oauth/calendly" className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
+                      {cfg.provider === 'calendly' && (
+                        <button className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} type="button" onClick={syncCalendly} disabled={syncing}>
+                          <Icon name="refresh-cw" size={12} /> {syncing ? 'Sync…' : 'Sync calls'}
+                        </button>
+                      )}
                       <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
                     </div>
                   ) : cfg.oauth ? (
