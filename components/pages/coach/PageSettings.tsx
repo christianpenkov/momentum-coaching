@@ -72,7 +72,7 @@ export default function PageSettings() {
   const searchParams = useSearchParams();
 
   const [integrations, setIntegrations] = useState<Record<Provider, Integration | null>>({
-    stripe: null, calendly: null, instagram: null, youtube: null, shortio: null,
+    anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null,
   });
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
@@ -110,7 +110,7 @@ export default function PageSettings() {
 
       const { data: integs } = await supabase.from('integrations').select('*').eq('profile_id', user.id);
       if (integs) {
-        const map = { stripe: null, calendly: null, instagram: null, youtube: null, shortio: null } as Record<Provider, Integration | null>;
+        const map = { anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null } as Record<Provider, Integration | null>;
         integs.forEach((i: Integration) => { map[i.provider] = i; });
         setIntegrations(map);
       }
