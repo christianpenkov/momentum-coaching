@@ -88,10 +88,10 @@ export default function PageSettings() {
   const [coachName, setCoachName] = useState('');
   const [email, setEmail] = useState('');
   const [profileId, setProfileId] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
+  const [justSaved, setJustSaved] = useState<Provider | null>(null);
 
   useEffect(() => {
-    // Toast si retour OAuth réussi
     const connected = searchParams.get('connected');
     if (connected) {
       const name = INTEGRATION_CONFIG.find(c => c.provider === connected)?.name || connected;
@@ -102,8 +102,8 @@ export default function PageSettings() {
   }, [searchParams]);
 
   function showToast(msg: string, isError = false) {
-    setToast(msg);
-    setTimeout(() => setToast(null), 4000);
+    setToast({ msg, error: isError });
+    setTimeout(() => setToast(null), 3500);
   }
 
   useEffect(() => {
@@ -137,11 +137,18 @@ export default function PageSettings() {
       await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: keyInput.trim() });
     }
 
-    const { data } = await supabase.from('integrations').select('*').eq('profile_id', profileId).eq('provider', provider).single();
+    const { data, error: fetchErr } = await supabase.from('integrations').select('*').eq('profile_id', profileId).eq('provider', provider).single();
+    if (fetchErr) {
+      setSaving(false);
+      showToast('Erreur de sauvegarde : ' + fetchErr.message, true);
+      return;
+    }
     setIntegrations(prev => ({ ...prev, [provider]: data }));
     setEditing(null);
     setKeyInput('');
     setSaving(false);
+    setJustSaved(provider);
+    setTimeout(() => setJustSaved(null), 2500);
     showToast(`${INTEGRATION_CONFIG.find(c => c.provider === provider)?.name} connecté ✓`);
   }
 
@@ -164,13 +171,17 @@ export default function PageSettings() {
       {/* Toast */}
       {toast && (
         <div style={{
-          position: 'fixed', top: 20, right: 20, zIndex: 9999,
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, padding: '12px 18px', fontSize: 13,
-          color: 'var(--accent)', boxShadow: 'var(--shadow-elev)',
-          display: 'flex', alignItems: 'center', gap: 8,
+          position: 'fixed', top: 24, right: 24, zIndex: 9999,
+          background: toast.error ? '#fef2f2' : '#f0fdf4',
+          border: `1px solid ${toast.error ? '#fca5a5' : '#86efac'}`,
+          borderRadius: 12, padding: '14px 20px', fontSize: 13,
+          color: toast.error ? '#dc2626' : '#16a34a',
+          boxShadow: '0 4px 24px rgba(0,0,0,0.10)',
+          display: 'flex', alignItems: 'center', gap: 10,
+          fontWeight: 600,
+          animation: 'slideIn 0.25s ease',
         }}>
-          <Icon name="check" size={14} /> {toast}
+          <span style={{ fontSize: 16 }}>{toast.error ? '✗' : '✓'}</span> {toast.msg}
         </div>
       )}
 
@@ -210,9 +221,12 @@ export default function PageSettings() {
           {INTEGRATION_CONFIG.map((cfg, i) => {
             const integ = integrations[cfg.provider];
             const isEditing = editing === cfg.provider;
+            const isSaved = justSaved === cfg.provider;
             return (
               <div key={cfg.provider} style={{
                 borderBottom: i < INTEGRATION_CONFIG.length - 1 ? '1px solid var(--border)' : 'none',
+                transition: 'background 0.4s ease',
+                background: isSaved ? '#f0fdf4' : 'transparent',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
                   <Icon name={cfg.icon as any} size={20} color={integ ? 'var(--green)' : 'var(--muted)'} />
