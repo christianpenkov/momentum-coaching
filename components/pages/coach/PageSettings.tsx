@@ -145,8 +145,10 @@ export default function PageSettings() {
 
   async function saveProfile() {
     if (!profileId) return;
-    await supabase.from('profiles').update({ full_name: coachName }).eq('id', profileId);
-    showToast('Profil sauvegardé ✓');
+    const { error } = await supabase.from('profiles')
+      .upsert({ id: profileId, full_name: coachName, role: 'coach' }, { onConflict: 'id' });
+    if (error) showToast('Erreur : ' + error.message, true);
+    else showToast('Profil sauvegardé ✓');
   }
 
   return (
@@ -250,7 +252,33 @@ export default function PageSettings() {
                 {/* Formulaire clé API inline */}
                 {isEditing && cfg.mode === 'apikey' && (
                   <div style={{ padding: '0 20px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', margin: '12px 0 6px' }}>
+                    {cfg.provider === 'stripe' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment récupérer ta clé Stripe :</div>
+                        <div>1. Ouvre ton dashboard Stripe →{' '}
+                          <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>dashboard.stripe.com/apikeys</a>
+                        </div>
+                        <div>2. Copie la <strong>Clé secrète</strong> (<code>sk_live_...</code> en prod, <code>sk_test_...</code> en test)</div>
+                        <div>3. Colle-la ci-dessous</div>
+                      </div>
+                    )}
+                    {cfg.provider === 'anthropic' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment récupérer ta clé Anthropic :</div>
+                        <div>1. Ouvre →{' '}
+                          <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>console.anthropic.com/settings/keys</a>
+                        </div>
+                        <div>2. Clique <strong>Create Key</strong> → copie la clé (<code>sk-ant-...</code>)</div>
+                        <div>3. Colle-la ci-dessous</div>
+                      </div>
+                    )}
+                    {cfg.provider === 'calendly' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Connexion Calendly :</div>
+                        <div>La connexion Calendly se fait via le bouton OAuth ci-dessus.</div>
+                      </div>
+                    )}
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                       Clé API {cfg.name}
                     </label>
                     <div style={{ display: 'flex', gap: 8 }}>

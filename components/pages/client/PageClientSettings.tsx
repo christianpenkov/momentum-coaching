@@ -99,8 +99,10 @@ export default function PageClientSettings() {
 
   async function saveProfile() {
     if (!profileId) return;
-    await supabase.from('profiles').update({ full_name: name }).eq('id', profileId);
-    showToast('Profil sauvegardé ✓');
+    const { error } = await supabase.from('profiles')
+      .upsert({ id: profileId, full_name: name }, { onConflict: 'id' });
+    if (error) showToast('Erreur : ' + error.message);
+    else showToast('Profil sauvegardé ✓');
   }
 
   const inputStyle = { width: '100%', padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const };
@@ -170,14 +172,52 @@ export default function PageClientSettings() {
 
                 {isEditing && (
                   <div style={{ padding: '0 20px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', margin: '12px 0 6px' }}>
-                      {cfg.provider === 'stripe' ? 'Clé restreinte Stripe (lecture seule)' : `Clé API ${cfg.name}`}
-                    </label>
+                    {/* Instructions par provider */}
                     {cfg.provider === 'stripe' && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.5 }}>
-                        Dans ton dashboard Stripe → Développeurs → Clés API → Créer une clé restreinte → coche uniquement les droits lecture.
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ta clé Stripe (2 min) :</div>
+                        <div>1. Va sur →{' '}
+                          <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>dashboard.stripe.com/apikeys</a>
+                        </div>
+                        <div>2. Clique <strong>"Créer une clé restreinte"</strong></div>
+                        <div>3. Coche uniquement : <strong>Customers (lecture)</strong>, <strong>Charges (lecture)</strong>, <strong>Subscriptions (lecture)</strong></div>
+                        <div>4. Copie la clé générée (<code>rk_live_...</code>) et colle-la ci-dessous</div>
                       </div>
                     )}
+                    {cfg.provider === 'calendly' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ton token Calendly :</div>
+                        <div>1. Va sur →{' '}
+                          <a href="https://calendly.com/integrations/api_webhooks" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>calendly.com/integrations/api_webhooks</a>
+                        </div>
+                        <div>2. Clique <strong>"Generate New Token"</strong></div>
+                        <div>3. Copie le token et colle-le ci-dessous</div>
+                      </div>
+                    )}
+                    {cfg.provider === 'instagram' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ton token Instagram :</div>
+                        <div>1. Va sur →{' '}
+                          <a href="https://developers.facebook.com/tools/explorer/" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>developers.facebook.com/tools/explorer</a>
+                        </div>
+                        <div>2. Sélectionne ton app → génère un token avec les permissions <strong>instagram_basic</strong></div>
+                        <div>3. Colle le token ci-dessous</div>
+                      </div>
+                    )}
+                    {cfg.provider === 'youtube' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ta clé YouTube :</div>
+                        <div>1. Va sur →{' '}
+                          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>console.cloud.google.com/apis/credentials</a>
+                        </div>
+                        <div>2. Crée une clé API → active l'API YouTube Data v3</div>
+                        <div>3. Colle la clé (<code>AIza...</code>) ci-dessous</div>
+                      </div>
+                    )}
+
+                    <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                      {cfg.provider === 'stripe' ? 'Clé restreinte Stripe' : `Clé API ${cfg.name}`}
+                    </label>
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
                         type="password"
@@ -193,7 +233,7 @@ export default function PageClientSettings() {
                       <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => setEditing(null)}>Annuler</button>
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
-                      <Icon name="shield" size={12} /> Clé stockée chiffrée — jamais exposée côté client
+                      <Icon name="shield" size={12} /> Clé stockée chiffrée — jamais exposée
                     </div>
                   </div>
                 )}
