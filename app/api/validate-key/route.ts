@@ -26,10 +26,9 @@ export async function POST(request: NextRequest) {
           await stripe.customers.list({ limit: 1 });
           return NextResponse.json({ valid: true, label: 'Clé Stripe restreinte valide' });
         }
-        // Clé secrète complète (sk_...)
-        const account = await stripe.accounts.retrieve('') as { email?: string; id: string };
-        const label = account.email || account.id || 'Compte Stripe';
-        return NextResponse.json({ valid: true, label });
+        // Clé secrète complète (sk_...) — balance.retrieve fonctionne avec toutes les clés secrètes
+        await stripe.balance.retrieve();
+        return NextResponse.json({ valid: true, label: 'Clé Stripe valide' });
       }
 
       case 'anthropic': {
