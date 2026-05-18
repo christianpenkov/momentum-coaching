@@ -1,12 +1,17 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
+  // Si les env vars ne sont pas configurées, laisser passer
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    process.env.NEXT_PUBLIC_SUPABASE_URL,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     {
       cookies: {
         getAll() { return request.cookies.getAll(); },
@@ -25,16 +30,13 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  // Routes publiques
   const publicRoutes = ['/login', '/signup', '/signup/confirm', '/auth/callback'];
   if (publicRoutes.includes(pathname)) return supabaseResponse;
 
-  // Non connecté → login
   if (!user) {
     return NextResponse.redirect(new URL('/login', request.url));
   }
 
-  // Récupérer le rôle
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
@@ -43,12 +45,10 @@ export async function middleware(request: NextRequest) {
 
   const role = profile?.role;
 
-  // Élève qui essaie d'accéder aux routes coach
   if (role === 'client' && !pathname.startsWith('/espace') && pathname !== '/') {
     return NextResponse.redirect(new URL('/espace', request.url));
   }
 
-  // Coach qui essaie d'accéder aux routes élève
   if (role === 'coach' && pathname.startsWith('/espace')) {
     return NextResponse.redirect(new URL('/dashboard', request.url));
   }
