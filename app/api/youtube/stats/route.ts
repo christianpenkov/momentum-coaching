@@ -67,12 +67,28 @@ function getStartDate(daysAgo: number) {
   return d.toISOString().split('T')[0];
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const accessToken = await getFreshToken(user.id);
+  const { searchParams } = new URL(request.url);
+  const profileId = searchParams.get('profileId');
+
+  // Si profileId fourni (coach consultant un client) — vérifier autorisation
+  let targetProfileId = user.id;
+  if (profileId && profileId !== user.id) {
+    const { data: clientRow } = await serviceSupabase
+      .from('clients')
+      .select('id')
+      .eq('profile_id', profileId)
+      .eq('coach_id', user.id)
+      .single();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    targetProfileId = profileId;
+  }
+
+  const accessToken = await getFreshToken(targetProfileId);
   if (!accessToken) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
   const authHeader = { Authorization: `Bearer ${accessToken}` };

@@ -1,17 +1,39 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@/lib/supabase/server';
+import { createClient as createServiceClient } from '@supabase/supabase-js';
 
-export async function GET() {
+const serviceSupabase = createServiceClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+export async function GET(request: Request) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  // Récupère la clé Stripe du client
-  const { data: integration } = await supabase
+  const { searchParams } = new URL(request.url);
+  const profileId = searchParams.get('profileId');
+
+  // Si profileId fourni (coach qui consulte un client) — vérifier que le coach possède ce client
+  let targetProfileId = user.id;
+  if (profileId && profileId !== user.id) {
+    const { data: clientRow } = await serviceSupabase
+      .from('clients')
+      .select('id')
+      .eq('profile_id', profileId)
+      .eq('coach_id', user.id)
+      .single();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    targetProfileId = profileId;
+  }
+
+  // Lire les tokens avec le service role (permet au coach de lire les intégrations du client)
+  const { data: integration } = await serviceSupabase
     .from('integrations')
     .select('api_key')
-    .eq('profile_id', user.id)
+    .eq('profile_id', targetProfileId)
     .eq('provider', 'stripe')
     .single();
 
@@ -22,14 +44,12 @@ export async function GET() {
   try {
     const stripe = new Stripe(integration.api_key, { apiVersion: '2026-04-22.dahlia' });
 
-    // Récupère les données en parallèle
     const [subscriptions, charges, balance] = await Promise.all([
       stripe.subscriptions.list({ limit: 100, status: 'active', expand: ['data.items.data.price'] }),
       stripe.charges.list({ limit: 50 }),
       stripe.balance.retrieve(),
     ]);
 
-    // Calcule le MRR
     let mrr = 0;
     for (const sub of subscriptions.data) {
       for (const item of sub.items.data) {
@@ -37,11 +57,10 @@ export async function GET() {
         const amount = (price.unit_amount || 0) / 100;
         if (price.recurring?.interval === 'year') mrr += amount / 12;
         else if (price.recurring?.interval === 'week') mrr += amount * 4.33;
-        else mrr += amount; // month
+        else mrr += amount;
       }
     }
 
-    // Derniers paiements
     const recentPayments = charges.data
       .filter(c => c.paid && !c.refunded)
       .slice(0, 10)
@@ -54,12 +73,9 @@ export async function GET() {
         status: c.status,
       }));
 
-    // Revenus total du mois en cours
     const startOfMonth = Math.floor(new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime() / 1000);
     const monthlyCharges = charges.data.filter(c => c.paid && !c.refunded && c.created >= startOfMonth);
     const monthlyRevenue = monthlyCharges.reduce((sum, c) => sum + c.amount / 100, 0);
-
-    // Solde disponible
     const availableBalance = balance.available.reduce((sum, b) => sum + b.amount / 100, 0);
 
     return NextResponse.json({
