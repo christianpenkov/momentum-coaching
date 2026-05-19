@@ -84,6 +84,23 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { load(); }, [load]);
 
+  // Realtime : recharge les calls dès qu'un changement arrive sur la table
+  useEffect(() => {
+    const supabase = createClient();
+    const channel = supabase
+      .channel('calls-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => {
+        supabase.auth.getUser().then(({ data: { user } }) => {
+          if (!user) return;
+          supabase.from('calls').select('*').eq('coach_id', user.id)
+            .order('scheduled_at', { ascending: false }).limit(100)
+            .then(({ data }) => { if (data) setCalls(data); });
+        });
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
   const getClient = useCallback((id: string) => clients.find(c => c.id === id), [clients]);
 
   const addTask = useCallback(async (clientId: string, task: Omit<Task, 'id' | 'created_at'>) => {

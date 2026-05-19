@@ -120,38 +120,81 @@ export async function GET() {
   let videos: any[] = [];
 
   if (videoIds.length > 0) {
-    const [detailsRes, analyticsVideosRes] = await Promise.all([
+    const videoIdsStr = videoIds.join(',');
+    const [detailsRes, analyticsVideosRes, ctrRetentionRes] = await Promise.all([
       fetch(
-        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds.join(',')}`,
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIdsStr}`,
         { headers: authHeader }
       ),
+      // Vues + watch time + impressions + CTR par vidéo sur 30j
       fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views&dimensions=video&filters=video==${videoIds.join(',')}&maxResults=20`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,impressions,impressionClickThroughRate,averageViewPercentage&dimensions=video&filters=video==${videoIdsStr}&maxResults=20`,
+        { headers: authHeader }
+      ),
+      // Rétention globale de la chaîne sur 30j (courbe audience par % de la vidéo)
+      fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=audienceWatchRatio&dimensions=elapsedVideoTimeRatio`,
         { headers: authHeader }
       ),
     ]);
 
     const detailsData = await detailsRes.json();
     const analyticsVideosData = await analyticsVideosRes.json();
+    const ctrRetentionData = await ctrRetentionRes.json();
 
-    // Map views 30j par videoId
-    const views30dByVideo: Record<string, number> = {};
+    // Map analytics par videoId : [views, watchTime, impressions, ctr, avgViewPct]
+    const analyticsByVideo: Record<string, { views30d: number; watchTime30d: number; impressions: number; ctr: number; avgViewPct: number }> = {};
     for (const row of analyticsVideosData?.rows || []) {
-      views30dByVideo[row[0]] = row[1] || 0;
+      analyticsByVideo[row[0]] = {
+        views30d: row[1] || 0,
+        watchTime30d: Math.round((row[2] || 0) / 60), // minutes → heures
+        impressions: row[3] || 0,
+        ctr: parseFloat(((row[4] || 0) * 100).toFixed(1)), // ratio → %
+        avgViewPct: parseFloat(((row[5] || 0)).toFixed(1)),
+      };
     }
 
-    videos = (detailsData?.items || []).map((v: any) => ({
-      id: v.id,
-      title: v.snippet?.title,
-      thumbnail: v.snippet?.thumbnails?.medium?.url || v.snippet?.thumbnails?.default?.url,
-      publishedAt: v.snippet?.publishedAt,
-      duration: parseDuration(v.contentDetails?.duration || 'PT0S'),
-      views: parseInt(v.statistics?.viewCount || '0'),
-      likes: parseInt(v.statistics?.likeCount || '0'),
-      comments: parseInt(v.statistics?.commentCount || '0'),
-      views30d: views30dByVideo[v.id] || 0,
-      url: `https://www.youtube.com/watch?v=${v.id}`,
+    // Courbe de rétention globale de la chaîne : [{ratio: 0.05, watchRatio: 0.9}, ...]
+    const retentionCurve = (ctrRetentionData?.rows || []).map((r: any) => ({
+      ratio: parseFloat((r[0] * 100).toFixed(0)), // % de la vidéo écoulé
+      watchRatio: parseFloat((r[1] * 100).toFixed(1)), // % d'audience restante
     }));
+
+    videos = (detailsData?.items || []).map((v: any) => {
+      const a = analyticsByVideo[v.id] || { views30d: 0, watchTime30d: 0, impressions: 0, ctr: 0, avgViewPct: 0 };
+      return {
+        id: v.id,
+        title: v.snippet?.title,
+        thumbnail: v.snippet?.thumbnails?.medium?.url || v.snippet?.thumbnails?.default?.url,
+        publishedAt: v.snippet?.publishedAt,
+        duration: parseDuration(v.contentDetails?.duration || 'PT0S'),
+        views: parseInt(v.statistics?.viewCount || '0'),
+        likes: parseInt(v.statistics?.likeCount || '0'),
+        comments: parseInt(v.statistics?.commentCount || '0'),
+        views30d: a.views30d,
+        watchTime30d: a.watchTime30d,
+        impressions: a.impressions,
+        ctr: a.ctr,
+        avgViewPct: a.avgViewPct,
+        url: `https://www.youtube.com/watch?v=${v.id}`,
+      };
+    });
+
+    return NextResponse.json({
+      channelName: channel.snippet?.title,
+      channelThumbnail: channel.snippet?.thumbnails?.default?.url,
+      subscribers: parseInt(stats?.subscriberCount || '0'),
+      totalViews: parseInt(stats?.viewCount || '0'),
+      videoCount: parseInt(stats?.videoCount || '0'),
+      views30d,
+      watchTime30d: Math.round(watchTime30d / 60),
+      subsGained30d,
+      subsLost30d,
+      netSubs30d: subsGained30d - subsLost30d,
+      chartData,
+      videos,
+      retentionCurve,
+    });
   }
 
   return NextResponse.json({
@@ -166,6 +209,7 @@ export async function GET() {
     subsLost30d,
     netSubs30d: subsGained30d - subsLost30d,
     chartData,
-    videos,
+    videos: [],
+    retentionCurve: [],
   });
 }

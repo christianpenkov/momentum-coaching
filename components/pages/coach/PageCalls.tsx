@@ -1,16 +1,14 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Icon from '@/components/ui/Icon';
-import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import type { Call, Client } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history';
 
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
-  const { calls, clients, loading } = useSupabaseClients();
+  const { calls, clients, loading, refetch } = useSupabaseClients();
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
 
@@ -20,9 +18,14 @@ export default function PageCalls() {
     try {
       const res = await fetch('/api/calendly/sync', { method: 'POST' });
       const data = await res.json();
-      setSyncMsg(data.ok
-        ? (data.synced > 0 ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}` : 'Aucun nouveau call')
-        : (data.error || 'Erreur'));
+      if (data.ok) {
+        await refetch();
+        setSyncMsg(data.synced > 0
+          ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}`
+          : 'Calls à jour');
+      } else {
+        setSyncMsg(data.error || 'Erreur');
+      }
     } catch {
       setSyncMsg('Erreur réseau');
     }

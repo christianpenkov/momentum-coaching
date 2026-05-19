@@ -32,6 +32,10 @@ interface YoutubeVideo {
   likes: number;
   comments: number;
   views30d: number;
+  watchTime30d: number;
+  impressions: number;
+  ctr: number;
+  avgViewPct: number;
   url: string;
 }
 
@@ -48,6 +52,7 @@ interface YoutubeData {
   netSubs30d: number;
   chartData: { date: string; views: number }[];
   videos: YoutubeVideo[];
+  retentionCurve: { ratio: number; watchRatio: number }[];
 }
 
 function KpiCard({ label, value, sub, positive }: { label: string; value: string; sub?: string; positive?: boolean }) {
@@ -309,6 +314,23 @@ export default function PageClientStats() {
               </div>
             )}
 
+            {/* Courbe de rétention globale */}
+            {youtubeData.retentionCurve?.length > 0 && (
+              <div className="card" style={{ marginBottom: 20 }}>
+                <div className="card-head">
+                  <div className="card-title">Rétention audience</div>
+                  <div className="card-sub">% de spectateurs encore présents à chaque instant</div>
+                </div>
+                <AreaChart
+                  data={youtubeData.retentionCurve}
+                  areas={[{ key: 'watchRatio', label: 'Rétention', color: '#ff0000' }]}
+                  xKey="ratio"
+                  height={160}
+                  formatter={(n) => `${n}%`}
+                />
+              </div>
+            )}
+
             {/* Vidéos récentes */}
             {youtubeData.videos.length > 0 && (
               <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -320,11 +342,14 @@ export default function PageClientStats() {
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th style={{ width: 100 }}>Miniature</th>
+                        <th style={{ width: 88 }}>Miniature</th>
                         <th>Titre</th>
                         <th>Durée</th>
                         <th>Vues totales</th>
                         <th>Vues 30j</th>
+                        <th>Impressions</th>
+                        <th>CTR</th>
+                        <th>Rétention moy.</th>
                         <th>Likes</th>
                         <th>Commentaires</th>
                         <th>Date</th>
@@ -335,22 +360,27 @@ export default function PageClientStats() {
                         <tr key={v.id}>
                           <td>
                             <a href={v.url} target="_blank" rel="noopener noreferrer">
-                              <img
-                                src={v.thumbnail}
-                                alt={v.title}
-                                style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 4, display: 'block' }}
-                              />
+                              <img src={v.thumbnail} alt={v.title} style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 4, display: 'block' }} />
                             </a>
                           </td>
-                          <td style={{ fontSize: 12, color: 'var(--accent)', maxWidth: 240 }}>
+                          <td style={{ fontSize: 12, color: 'var(--accent)', maxWidth: 200 }}>
                             <a href={v.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
-                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>{v.title}</div>
+                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{v.title}</div>
                             </a>
                           </td>
                           <td style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{v.duration}</td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>{v.views.toLocaleString('fr-FR')}</td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: v.views30d > 0 ? 'var(--green)' : 'var(--muted)' }}>
                             {v.views30d > 0 ? `+${v.views30d.toLocaleString('fr-FR')}` : '—'}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
+                            {v.impressions > 0 ? v.impressions.toLocaleString('fr-FR') : '—'}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: v.ctr >= 5 ? 'var(--green)' : v.ctr >= 2 ? 'var(--ink)' : v.ctr > 0 ? 'var(--amber)' : 'var(--muted)' }}>
+                            {v.ctr > 0 ? `${v.ctr}%` : '—'}
+                          </td>
+                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: v.avgViewPct >= 50 ? 'var(--green)' : v.avgViewPct >= 30 ? 'var(--ink)' : v.avgViewPct > 0 ? 'var(--amber)' : 'var(--muted)' }}>
+                            {v.avgViewPct > 0 ? `${v.avgViewPct}%` : '—'}
                           </td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{v.likes.toLocaleString('fr-FR')}</td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{v.comments.toLocaleString('fr-FR')}</td>
