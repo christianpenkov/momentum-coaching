@@ -74,13 +74,13 @@ export async function GET(request: Request) {
   // Stats du compte + médias récents en parallèle
   const [accountRes, mediaRes, insightsRes] = await Promise.all([
     fetch(
-      `https://graph.facebook.com/v21.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`
+      `https://graph.instagram.com/v21.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`
     ),
     fetch(
-      `https://graph.facebook.com/v21.0/${igAccountId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=12&access_token=${token}`
+      `https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=12&access_token=${token}`
     ),
     fetch(
-      `https://graph.facebook.com/v21.0/${igAccountId}/insights?metric=reach,impressions,profile_views,follower_count&period=day&since=${Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000)}&until=${Math.floor(Date.now() / 1000)}&access_token=${token}`
+      `https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=reach,impressions,profile_views,follower_count&period=day&since=${Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000)}&until=${Math.floor(Date.now() / 1000)}&access_token=${token}`
     ),
   ]);
 

@@ -35,13 +35,14 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/client/settings?error=instagram_state`);
   }
 
-  // Échange le code contre un token court-terme (Facebook OAuth)
-  const tokenRes = await fetch('https://graph.facebook.com/v21.0/oauth/access_token', {
+  // Échange le code contre un token court-terme (Instagram Business API)
+  const tokenRes = await fetch('https://api.instagram.com/oauth/access_token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
       client_id: process.env.INSTAGRAM_CLIENT_ID!,
       client_secret: process.env.INSTAGRAM_CLIENT_SECRET!,
+      grant_type: 'authorization_code',
       redirect_uri: `${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/oauth/instagram/callback`,
       code,
     }),
@@ -52,26 +53,21 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/client/settings?error=instagram_token`);
   }
 
+  const igAccountId = tokenData.user_id ? String(tokenData.user_id) : null;
+
   // Échange contre un token long-terme (60 jours)
   const longTokenRes = await fetch(
-    `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${process.env.INSTAGRAM_CLIENT_ID}&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&fb_exchange_token=${tokenData.access_token}`
+    `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${tokenData.access_token}`
   );
   const longTokenData = await longTokenRes.json();
   const accessToken = longTokenData.access_token || tokenData.access_token;
-  const expiresIn = longTokenData.expires_in || tokenData.expires_in || null;
+  const expiresIn = longTokenData.expires_in || null;
 
-  // Récupère les pages Facebook puis le compte Instagram Business lié
-  const pagesRes = await fetch(
-    `https://graph.facebook.com/v21.0/me/accounts?fields=id,name,instagram_business_account&access_token=${accessToken}`
-  );
-  const pagesData = await pagesRes.json();
-  const page = pagesData?.data?.find((p: any) => p.instagram_business_account);
-  const igAccountId = page?.instagram_business_account?.id || null;
-
+  // Récupère le username
   let accountLabel: string | null = null;
   if (igAccountId) {
     const igRes = await fetch(
-      `https://graph.facebook.com/v21.0/${igAccountId}?fields=username&access_token=${accessToken}`
+      `https://graph.instagram.com/v21.0/${igAccountId}?fields=username&access_token=${accessToken}`
     );
     const igData = await igRes.json();
     accountLabel = igData.username ? `@${igData.username}` : null;
@@ -94,7 +90,7 @@ export async function GET(request: NextRequest) {
     account_label: accountLabel,
     expires_at: expiresAt,
     connected_at: new Date().toISOString(),
-    metadata: igAccountId ? { ig_account_id: igAccountId, page_id: page?.id } : null,
+    metadata: igAccountId ? { ig_account_id: igAccountId } : null,
   }, { onConflict: 'profile_id,provider' });
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();

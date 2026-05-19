@@ -26,10 +26,10 @@ export async function GET(request: NextRequest) {
   const params = new URLSearchParams({
     client_id: process.env.INSTAGRAM_CLIENT_ID!,
     redirect_uri: `${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/oauth/instagram/callback`,
-    scope: 'pages_show_list,pages_read_engagement,instagram_basic,instagram_manage_insights',
+    scope: 'instagram_business_basic,instagram_business_manage_insights,instagram_business_manage_messages',
     response_type: 'code',
     state,
   });
 
-  return NextResponse.redirect(`https://www.facebook.com/v21.0/dialog/oauth?${params}`);
+  return NextResponse.redirect(`https://www.instagram.com/oauth/authorize?${params}`);
 }
