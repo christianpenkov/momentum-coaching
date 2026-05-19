@@ -115,6 +115,7 @@ export async function POST() {
     const invitees: any[] = (await inviteesRes.json())?.collection || [];
     const inviteeEmail = invitees[0]?.email || null;
     const inviteeName = invitees[0]?.name || null;
+    const questionsAndAnswers = invitees[0]?.questions_and_answers || null;
 
     let clientId: string | null = null;
     if (inviteeEmail) {
@@ -137,6 +138,7 @@ export async function POST() {
       join_url: joinUrl,
       invitee_email: inviteeEmail,
       invitee_name: inviteeName,
+      calendly_qa: questionsAndAnswers,
       status: 'active',
       ready: 'pending',
       reminder_sent: false,

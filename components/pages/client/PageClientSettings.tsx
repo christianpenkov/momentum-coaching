@@ -54,6 +54,12 @@ export default function PageClientSettings() {
   const [toast, setToast] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
 
+  // Lead magnet keywords
+  const [keywords, setKeywords] = useState<{ id: string; keyword: string }[]>([]);
+  const [kwInput, setKwInput] = useState('');
+  const [kwSaving, setKwSaving] = useState(false);
+  const [kwError, setKwError] = useState<string | null>(null);
+
   useEffect(() => {
     async function load() {
       const { data: { user } } = await supabase.auth.getUser();
@@ -70,6 +76,10 @@ export default function PageClientSettings() {
         integs.forEach((i: { provider: string }) => { if (i.provider in map) map[i.provider as Provider] = true; });
         setIntegrations(map);
       }
+
+      const kwRes = await fetch('/api/instagram/keywords');
+      const kwData = await kwRes.json();
+      if (kwData.keywords) setKeywords(kwData.keywords);
     }
     load();
   }, []);
@@ -120,6 +130,32 @@ export default function PageClientSettings() {
     if (!profileId) return;
     await supabase.from('integrations').delete().eq('profile_id', profileId).eq('provider', provider);
     setIntegrations(prev => ({ ...prev, [provider]: false }));
+  }
+
+  async function addKeyword() {
+    const kw = kwInput.trim().toLowerCase();
+    if (!kw) return;
+    setKwError(null);
+    setKwSaving(true);
+    const res = await fetch('/api/instagram/keywords', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ keyword: kw }),
+    });
+    const data = await res.json();
+    setKwSaving(false);
+    if (data.error) { setKwError(data.error); return; }
+    setKeywords(prev => [...prev, data.keyword]);
+    setKwInput('');
+  }
+
+  async function removeKeyword(id: string) {
+    await fetch('/api/instagram/keywords', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    setKeywords(prev => prev.filter(k => k.id !== id));
   }
 
   async function syncCalendly() {
@@ -288,6 +324,64 @@ export default function PageClientSettings() {
               </div>
             );
           })}
+        </div>
+      </div>
+
+      {/* Lead magnet keywords */}
+      <div className="settings-section" style={{ marginTop: 28 }}>
+        <div className="settings-section-title">Mots-clés lead magnet</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+          Quand quelqu'un envoie un de ces mots en DM ou en commentaire, il est automatiquement détecté comme lead.
+        </div>
+        <div className="card">
+          {/* Champ d'ajout */}
+          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+            <input
+              style={{ ...inputStyle, flex: 1 }}
+              value={kwInput}
+              onChange={e => { setKwInput(e.target.value); setKwError(null); }}
+              placeholder="Ex : PROGRAMME, GUIDE, OUI..."
+              onKeyDown={e => { if (e.key === 'Enter') addKeyword(); }}
+            />
+            <button
+              className="btn-primary"
+              style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+              type="button"
+              disabled={kwSaving || !kwInput.trim()}
+              onClick={addKeyword}
+            >
+              {kwSaving ? 'Ajout…' : '+ Ajouter'}
+            </button>
+          </div>
+          {kwError && (
+            <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 12, padding: '7px 10px', background: '#fef2f2', borderRadius: 6, border: '1px solid #fca5a5' }}>
+              {kwError}
+            </div>
+          )}
+          {/* Liste des mots-clés */}
+          {keywords.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center', padding: '16px 0' }}>
+              Aucun mot-clé configuré — ajoute le mot de ton lead magnet
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+              {keywords.map(kw => (
+                <div key={kw.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '5px 10px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 20, fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
+                  {kw.keyword}
+                  <button
+                    type="button"
+                    onClick={() => removeKeyword(kw.id)}
+                    style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 0, lineHeight: 1, fontSize: 14, display: 'flex', alignItems: 'center' }}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 14, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <Icon name="info" size={11} /> Les leads sont détectés toutes les heures. La détection est insensible à la casse.
+          </div>
         </div>
       </div>
 

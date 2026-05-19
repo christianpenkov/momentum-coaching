@@ -53,8 +53,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/client/settings?error=instagram_token`);
   }
 
-  const igAccountId = tokenData.user_id ? String(tokenData.user_id) : null;
-
   // Échange contre un token long-terme (60 jours)
   const longTokenRes = await fetch(
     `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${tokenData.access_token}`
@@ -63,15 +61,13 @@ export async function GET(request: NextRequest) {
   const accessToken = longTokenData.access_token || tokenData.access_token;
   const expiresIn = longTokenData.expires_in || null;
 
-  // Récupère le username
-  let accountLabel: string | null = null;
-  if (igAccountId) {
-    const igRes = await fetch(
-      `https://graph.instagram.com/v21.0/${igAccountId}?fields=username&access_token=${accessToken}`
-    );
-    const igData = await igRes.json();
-    accountLabel = igData.username ? `@${igData.username}` : null;
-  }
+  // Récupère l'ID réel + username via /me (plus fiable que tokenData.user_id)
+  const meRes = await fetch(
+    `https://graph.instagram.com/v21.0/me?fields=id,username&access_token=${accessToken}`
+  );
+  const meData = await meRes.json();
+  const igAccountId = meData.id ? String(meData.id) : (tokenData.user_id ? String(tokenData.user_id) : null);
+  const accountLabel = meData.username ? `@${meData.username}` : null;
 
   const expiresAt = expiresIn
     ? new Date(Date.now() + expiresIn * 1000).toISOString()

@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
   const params = new URLSearchParams({
     client_id: process.env.INSTAGRAM_CLIENT_ID!,
     redirect_uri: `${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/oauth/instagram/callback`,
-    scope: 'instagram_business_basic,instagram_business_manage_insights,instagram_business_manage_messages',
+    scope: 'instagram_business_basic,instagram_business_manage_insights,instagram_business_manage_messages,instagram_business_manage_comments',
     response_type: 'code',
     state,
   });

@@ -93,33 +93,51 @@ export async function GET(request: Request) {
 
   const authHeader = { Authorization: `Bearer ${accessToken}` };
 
-  // Requêtes parallèles : channel + analytics + vidéos récentes (search + details)
-  const [channelRes, analyticsRes, searchRes] = await Promise.all([
-    fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true', {
+  // Étape 1 : channel + analytics 30j + sources trafic + devices + démographie — tout en parallèle
+  const [channelRes, analyticsRes, trafficRes, devicesRes, demoRes, searchTermsRes] = await Promise.all([
+    fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&mine=true', {
       headers: authHeader,
     }),
     fetch(
-      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost&dimensions=day&sort=day`,
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares&dimensions=day&sort=day`,
       { headers: authHeader }
     ),
     fetch(
-      'https://www.googleapis.com/youtube/v3/search?part=id,snippet&forMine=true&type=video&order=date&maxResults=20',
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`,
+      { headers: authHeader }
+    ),
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`,
+      { headers: authHeader }
+    ),
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=viewerPercentage&dimensions=ageGroup,gender`,
+      { headers: authHeader }
+    ),
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`,
       { headers: authHeader }
     ),
   ]);
 
-  const channelData = await channelRes.json();
+  const [channelData, analyticsData, trafficData, devicesData, demoData, searchTermsData] = await Promise.all([
+    channelRes.json(), analyticsRes.json(), trafficRes.json(),
+    devicesRes.json(), demoRes.json(), searchTermsRes.json(),
+  ]);
+
   const channel = channelData?.items?.[0];
   if (!channel) return NextResponse.json({ error: 'Chaîne introuvable' }, { status: 404 });
 
   const stats = channel.statistics;
-  const analyticsData = await analyticsRes.json();
   const rows: any[] = analyticsData?.rows || [];
 
   const views30d = rows.reduce((sum: number, r: any) => sum + (r[1] || 0), 0);
   const watchTime30d = rows.reduce((sum: number, r: any) => sum + (r[2] || 0), 0);
   const subsGained30d = rows.reduce((sum: number, r: any) => sum + (r[3] || 0), 0);
   const subsLost30d = rows.reduce((sum: number, r: any) => sum + (r[4] || 0), 0);
+  const likes30d = rows.reduce((sum: number, r: any) => sum + (r[5] || 0), 0);
+  const comments30d = rows.reduce((sum: number, r: any) => sum + (r[6] || 0), 0);
+  const shares30d = rows.reduce((sum: number, r: any) => sum + (r[7] || 0), 0);
 
   const chartData = rows.map((r: any) => ({
     date: r[0],
@@ -127,71 +145,105 @@ export async function GET(request: Request) {
     watchTime: r[2] || 0,
   }));
 
-  // Récupère les IDs des vidéos pour fetcher leurs stats détaillées
-  const searchData = await searchRes.json();
-  const videoIds: string[] = (searchData?.items || [])
-    .map((item: any) => item.id?.videoId)
-    .filter(Boolean);
+  // Sources de trafic
+  const trafficSources = (trafficData?.rows || []).map((r: any) => ({
+    source: r[0] as string,
+    views: r[1] || 0,
+    watchMinutes: r[2] || 0,
+  }));
+
+  // Appareils
+  const devices = (devicesData?.rows || []).map((r: any) => ({
+    device: r[0] as string,
+    views: r[1] || 0,
+    watchMinutes: r[2] || 0,
+  }));
+
+  // Démographie âge/genre
+  const demographics = (demoData?.rows || []).map((r: any) => ({
+    ageGroup: r[0] as string,
+    gender: r[1] as string,
+    viewerPct: parseFloat((r[2] || 0).toFixed(1)),
+  }));
+
+  // Mots-clés de recherche top 10
+  const searchKeywords = (searchTermsData?.rows || []).map((r: any) => ({
+    term: r[0] as string,
+    views: r[1] || 0,
+  }));
+
+  // Étape 2 : playlist "uploads" pour récupérer TOUTES les vidéos (jusqu'à 50)
+  const uploadsPlaylistId = channel.contentDetails?.relatedPlaylists?.uploads;
+  const videoIds: string[] = [];
+
+  if (uploadsPlaylistId) {
+    const playlistRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?part=contentDetails&playlistId=${uploadsPlaylistId}&maxResults=50`,
+      { headers: authHeader }
+    );
+    const playlistData = await playlistRes.json();
+    for (const item of playlistData?.items || []) {
+      const id = item.contentDetails?.videoId;
+      if (id) videoIds.push(id);
+    }
+  }
 
   let videos: any[] = [];
 
   if (videoIds.length > 0) {
     const videoIdsStr = videoIds.join(',');
-    const [detailsRes, analyticsVideosRes, ctrRetentionRes] = await Promise.all([
+    const [detailsRes, analyticsVideosRes] = await Promise.all([
       fetch(
         `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIdsStr}`,
         { headers: authHeader }
       ),
-      // Vues + watch time + impressions + CTR par vidéo — fenêtre large pour couvrir les vieilles vidéos
+      // Métriques par vidéo ciblées (filtre sur les IDs exacts)
       fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,impressions,impressionClickThroughRate,averageViewPercentage&dimensions=video&maxResults=50`,
-        { headers: authHeader }
-      ),
-      // Rétention globale de la chaîne sur 30j (courbe audience par % de la vidéo)
-      fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=audienceWatchRatio&dimensions=elapsedVideoTimeRatio`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
         { headers: authHeader }
       ),
     ]);
 
     const detailsData = await detailsRes.json();
     const analyticsVideosData = await analyticsVideosRes.json();
-    const ctrRetentionData = await ctrRetentionRes.json();
 
-    // Map analytics par videoId : [views, watchTime, impressions, ctr, avgViewPct]
-    const analyticsByVideo: Record<string, { views30d: number; watchTime30d: number; impressions: number; ctr: number; avgViewPct: number }> = {};
+    // Map analytics par videoId : [video, views, watchTime, avgViewPct, likes, comments, shares]
+    const analyticsByVideo: Record<string, { views30d: number; watchTime30d: number; avgViewPct: number; likes30d: number; comments30d: number; shares30d: number }> = {};
     for (const row of analyticsVideosData?.rows || []) {
       analyticsByVideo[row[0]] = {
         views30d: row[1] || 0,
-        watchTime30d: Math.round((row[2] || 0) / 60), // minutes → heures
-        impressions: row[3] || 0,
-        ctr: parseFloat(((row[4] || 0) * 100).toFixed(1)), // ratio → %
-        avgViewPct: parseFloat(((row[5] || 0)).toFixed(1)),
+        watchTime30d: Math.round((row[2] || 0) / 60),
+        avgViewPct: parseFloat(((row[3] || 0)).toFixed(1)),
+        likes30d: row[4] || 0,
+        comments30d: row[5] || 0,
+        shares30d: row[6] || 0,
       };
     }
 
-    // Courbe de rétention globale de la chaîne : [{ratio: 0.05, watchRatio: 0.9}, ...]
-    const retentionCurve = (ctrRetentionData?.rows || []).map((r: any) => ({
-      ratio: parseFloat((r[0] * 100).toFixed(0)), // % de la vidéo écoulé
-      watchRatio: parseFloat((r[1] * 100).toFixed(1)), // % d'audience restante
-    }));
+    const retentionCurve: any[] = [];
 
     videos = (detailsData?.items || []).map((v: any) => {
-      const a = analyticsByVideo[v.id] || { views30d: 0, watchTime30d: 0, impressions: 0, ctr: 0, avgViewPct: 0 };
+      const a = analyticsByVideo[v.id] || { views30d: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0 };
+      const rawDuration = v.contentDetails?.duration || 'PT0S';
+      const durMatch = rawDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+      const durSecs = (parseInt(durMatch?.[1] || '0') * 3600) + (parseInt(durMatch?.[2] || '0') * 60) + parseInt(durMatch?.[3] || '0');
+      const isShort = durSecs <= 60;
       return {
         id: v.id,
         title: v.snippet?.title,
         thumbnail: v.snippet?.thumbnails?.medium?.url || v.snippet?.thumbnails?.default?.url,
         publishedAt: v.snippet?.publishedAt,
-        duration: parseDuration(v.contentDetails?.duration || 'PT0S'),
+        duration: parseDuration(rawDuration),
+        isShort,
         views: parseInt(v.statistics?.viewCount || '0'),
         likes: parseInt(v.statistics?.likeCount || '0'),
         comments: parseInt(v.statistics?.commentCount || '0'),
         views30d: a.views30d,
         watchTime30d: a.watchTime30d,
-        impressions: a.impressions,
-        ctr: a.ctr,
         avgViewPct: a.avgViewPct,
+        likes30d: a.likes30d,
+        comments30d: a.comments30d,
+        shares30d: a.shares30d,
         url: `https://www.youtube.com/watch?v=${v.id}`,
       };
     });
@@ -202,14 +254,11 @@ export async function GET(request: Request) {
       subscribers: parseInt(stats?.subscriberCount || '0'),
       totalViews: parseInt(stats?.viewCount || '0'),
       videoCount: parseInt(stats?.videoCount || '0'),
-      views30d,
-      watchTime30d: Math.round(watchTime30d / 60),
-      subsGained30d,
-      subsLost30d,
-      netSubs30d: subsGained30d - subsLost30d,
-      chartData,
-      videos,
-      retentionCurve,
+      views30d, watchTime30d: Math.round(watchTime30d / 60),
+      likes30d, comments30d, shares30d,
+      subsGained30d, subsLost30d, netSubs30d: subsGained30d - subsLost30d,
+      chartData, videos, retentionCurve,
+      trafficSources, devices, demographics, searchKeywords,
     });
   }
 
@@ -219,13 +268,10 @@ export async function GET(request: Request) {
     subscribers: parseInt(stats?.subscriberCount || '0'),
     totalViews: parseInt(stats?.viewCount || '0'),
     videoCount: parseInt(stats?.videoCount || '0'),
-    views30d,
-    watchTime30d: Math.round(watchTime30d / 60),
-    subsGained30d,
-    subsLost30d,
-    netSubs30d: subsGained30d - subsLost30d,
-    chartData,
-    videos: [],
-    retentionCurve: [],
+    views30d, watchTime30d: Math.round(watchTime30d / 60),
+    likes30d, comments30d, shares30d,
+    subsGained30d, subsLost30d, netSubs30d: subsGained30d - subsLost30d,
+    chartData, videos: [], retentionCurve: [],
+    trafficSources, devices, demographics, searchKeywords,
   });
 }
