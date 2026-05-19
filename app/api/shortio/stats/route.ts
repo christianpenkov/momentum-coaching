@@ -7,7 +7,7 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-async function getCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string } | null> {
+async function getCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string | number } | null> {
   const { data: integ } = await serviceSupabase
     .from('integrations')
     .select('api_key, metadata')
@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  // Fetch domaine stats 30j + liste des liens en parallèle
+  // Fetch domaine stats last30 + liste des liens en parallèle
   const [domainStatsRes, linksRes] = await Promise.all([
     fetch(`https://api-v2.short.io/statistics/domain/${domainId}?period=last30`, { headers }),
     fetch(`https://api.short.io/api/links?domain_id=${domainId}&limit=150`, { headers }),
@@ -62,96 +62,121 @@ export async function GET(request: Request) {
   ]);
 
   if (!domainStatsRes.ok) {
-    return NextResponse.json({ error: domainStats?.message || domainStats?.error || 'Erreur Short.io', status: domainStatsRes.status, raw: domainStats }, { status: 400 });
+    return NextResponse.json({ error: domainStats?.message || 'Erreur Short.io', raw: domainStats }, { status: 400 });
   }
 
-  // Clics par lien en masse
-  const linkIds = (linksData?.links || []).map((l: any) => l.id).join(',');
-  const clicksPerLinkRes = linkIds
-    ? await fetch(`https://api-v2.short.io/statistics/domain/${domainId}/link_clicks?link_ids=${linkIds}`, { headers })
-    : null;
-  const clicksPerLink: Record<string, number> = clicksPerLinkRes ? await safeJson(clicksPerLinkRes) : {};
+  // Chart domaine : { x: ISO date, y: "nombre_string" }
+  const domainChartRaw: { x: string; y: string }[] = domainStats.clickStatistics?.datasets?.[0]?.data || [];
+  const domainChartData = domainChartRaw.map((pt) => ({
+    date: pt.x.split('T')[0],
+    clicks: Number(pt.y) || 0,
+  }));
 
-  // Stats par lien individuel (top 20 seulement pour éviter le rate limit)
-  const topLinks = (linksData?.links || [])
-    .map((l: any) => ({ ...l, clicks: clicksPerLink[String(l.id)] ?? l.totalClicks ?? 0 }))
-    .sort((a: any, b: any) => b.clicks - a.clicks)
-    .slice(0, 20);
+  // Top pays domaine : { countryName, country, score }
+  const topCountries = (domainStats.country || [])
+    .filter((c: any) => c.score > 0)
+    .slice(0, 8)
+    .map((c: any) => ({ label: c.countryName || c.country || 'Inconnu', code: c.country, value: c.score }));
+
+  // Top referrers domaine : { refhost, score }
+  const topReferrers = (domainStats.referer || [])
+    .filter((r: any) => r.score > 0)
+    .slice(0, 8)
+    .map((r: any) => ({ label: r.refhost || 'Direct', value: r.score }));
+
+  // Top browsers : { browser, score }
+  const topBrowsers = (domainStats.browser || [])
+    .filter((b: any) => b.score > 0)
+    .slice(0, 5)
+    .map((b: any) => ({ label: b.browser, value: b.score }));
+
+  // Top OS : { os, score }
+  const topOs = (domainStats.os || [])
+    .filter((o: any) => o.score > 0)
+    .slice(0, 5)
+    .map((o: any) => ({ label: o.os, value: o.score }));
+
+  // Top social : { social, score }
+  const topSocial = (domainStats.social || [])
+    .filter((s: any) => s.score > 0)
+    .slice(0, 5)
+    .map((s: any) => ({ label: s.social || 'Direct', value: s.score }));
+
+  // Top villes : { name, countryCode, score }
+  const topCities = (domainStats.city || [])
+    .filter((c: any) => c.score > 0)
+    .slice(0, 5)
+    .map((c: any) => ({ label: `${c.name} (${c.countryCode})`, value: c.score }));
+
+  // Stats par lien individuel (top 20)
+  const allLinks: any[] = linksData?.links || [];
+  const totalLinks = Number(linksData?.count ?? allLinks.length);
 
   const linksWithStats = await Promise.all(
-    topLinks.map(async (l: any) => {
+    allLinks.slice(0, 20).map(async (l: any) => {
       try {
         const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${l.id}?period=last30`, { headers });
         const stats = await safeJson(statsRes);
+
+        // Chart par lien : même format { x, y }
+        const chartRaw: { x: string; y: string }[] = stats.clickStatistics?.datasets?.[0]?.data || [];
+        const chartData = chartRaw
+          .filter((pt) => Number(pt.y) > 0)
+          .map((pt) => ({ date: pt.x.split('T')[0], clicks: Number(pt.y) || 0 }));
+
         return {
           id: l.id,
           path: l.path || '',
-          shortUrl: `https://${domain}/${l.path}`,
-          originalUrl: l.originalURL || l.redirectURL || '',
+          shortUrl: l.secureShortURL || l.shortURL || `https://${domain}/${l.path}`,
+          originalUrl: l.originalURL || '',
           title: l.title || l.path || '',
           createdAt: l.createdAt || null,
-          clicks30d: stats.totalClicks ?? l.clicks ?? 0,
-          humanClicks30d: stats.humanClicks ?? 0,
-          clicksChange: stats.clicksChange ?? 0,
-          // Courbe clics/jour
-          chartData: (stats.clickStatistics?.datasets?.[0]?.data || []).map((v: number, i: number) => {
-            const labels = stats.clickStatistics?.labels || [];
-            return { date: labels[i] || `J${i + 1}`, clicks: v };
-          }),
-          // Top pays
-          countries: (stats.countries || []).slice(0, 5).map((c: any) => ({ label: c.country || c.label, value: c.score || c.value || 0 })),
-          // Top referrers
-          referrers: (stats.referer || stats.referrers || []).slice(0, 5).map((r: any) => ({ label: r.referer || r.label || 'Direct', value: r.score || r.value || 0 })),
-          // Browsers
-          browsers: (stats.browsers || []).slice(0, 5).map((b: any) => ({ label: b.browser || b.label, value: b.score || b.value || 0 })),
-          // OS
-          os: (stats.os || []).slice(0, 5).map((o: any) => ({ label: o.os || o.label, value: o.score || o.value || 0 })),
-          // Devices
-          devices: (stats.devices || []).slice(0, 3).map((d: any) => ({ label: d.device || d.label, value: d.score || d.value || 0 })),
+          clicks30d: Number(stats.totalClicks ?? 0),
+          humanClicks30d: Number(stats.humanClicks ?? 0),
+          clicksChange: stats.totalClicksChange !== undefined ? Number(stats.totalClicksChange) : null,
+          chartData,
+          // Par lien : referer avec champ "referer" (pas "refhost")
+          countries: (stats.country || []).filter((c: any) => c.score > 0).slice(0, 5).map((c: any) => ({ label: c.countryName || c.country, value: c.score })),
+          referrers: (stats.referer || []).filter((r: any) => r.score > 0).slice(0, 5).map((r: any) => ({ label: r.referer || 'Direct', value: r.score })),
+          browsers: (stats.browser || []).filter((b: any) => b.score > 0).slice(0, 5).map((b: any) => ({ label: b.browser, value: b.score })),
+          os: (stats.os || []).filter((o: any) => o.score > 0).slice(0, 5).map((o: any) => ({ label: o.os, value: o.score })),
+          social: (stats.social || []).filter((s: any) => s.score > 0).slice(0, 5).map((s: any) => ({ label: s.social || 'Direct', value: s.score })),
+          cities: (stats.city || []).filter((c: any) => c.score > 0).slice(0, 5).map((c: any) => ({ label: `${c.name} (${c.countryCode})`, value: c.score })),
+          utmMedium: (stats.utm_medium || []).filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 5).map((u: any) => ({ label: u.utm_medium, value: u.score })),
+          utmSource: (stats.utm_source || []).filter((u: any) => u.score > 0 && u.utm_source).slice(0, 5).map((u: any) => ({ label: u.utm_source, value: u.score })),
         };
       } catch {
         return {
           id: l.id,
           path: l.path || '',
-          shortUrl: `https://${domain}/${l.path}`,
-          originalUrl: l.originalURL || l.redirectURL || '',
+          shortUrl: l.secureShortURL || l.shortURL || `https://${domain}/${l.path}`,
+          originalUrl: l.originalURL || '',
           title: l.title || l.path || '',
           createdAt: l.createdAt || null,
-          clicks30d: l.clicks ?? 0,
-          humanClicks30d: 0,
-          clicksChange: 0,
-          chartData: [],
-          countries: [],
-          referrers: [],
-          browsers: [],
-          os: [],
-          devices: [],
+          clicks30d: 0, humanClicks30d: 0, clicksChange: null,
+          chartData: [], countries: [], referrers: [], browsers: [], os: [], social: [], cities: [], utmMedium: [], utmSource: [],
         };
       }
     })
   );
 
-  // Courbe domaine clics/jour
-  const domainChartData = (domainStats.clickStatistics?.datasets?.[0]?.data || []).map((v: number, i: number) => {
-    const labels = domainStats.clickStatistics?.labels || [];
-    return { date: labels[i] || `J${i + 1}`, clicks: v };
-  });
+  // Tri par clics décroissant
+  linksWithStats.sort((a, b) => b.clicks30d - a.clicks30d);
 
   return NextResponse.json({
     domain,
-    totalLinks: Number(linksData?.count ?? linksData?.links?.length ?? 0),
-    // Stats domaine 30j
-    clicks30d: Number(domainStats.totalClicks ?? domainStats.clicks ?? 0),
+    totalLinks,
+    clicks30d: Number(domainStats.clicks ?? 0),
     humanClicks30d: Number(domainStats.humanClicks ?? 0),
-    clicksChange: Number(domainStats.clicksChange ?? 0),
-    clicksPerLink30d: Number(domainStats.clicksPerLink ?? domainStats.clicksPerLinkChange ?? 0),
-    // Top pays/referrers domaine
-    topCountries: (domainStats.countries || []).slice(0, 8).map((c: any) => ({ label: c.country || c.label, value: c.score || c.value || 0 })),
-    topReferrers: (domainStats.referer || domainStats.referrers || []).slice(0, 8).map((r: any) => ({ label: r.referer || r.label || 'Direct', value: r.score || r.value || 0 })),
-    topBrowsers: (domainStats.browsers || []).slice(0, 5).map((b: any) => ({ label: b.browser || b.label, value: b.score || b.value || 0 })),
-    topOs: (domainStats.os || []).slice(0, 5).map((o: any) => ({ label: o.os || o.label, value: o.score || o.value || 0 })),
-    topDevices: (domainStats.devices || []).slice(0, 3).map((d: any) => ({ label: d.device || d.label, value: d.score || d.value || 0 })),
+    clicksChange: domainStats.prevClicksChange !== undefined ? Number(domainStats.prevClicksChange) : null,
+    clicksPerLink30d: parseFloat(domainStats.clicksPerLink ?? '0') || 0,
     chartData: domainChartData,
+    topCountries,
+    topReferrers,
+    topBrowsers,
+    topOs,
+    topSocial,
+    topCities,
     links: linksWithStats,
   });
 }
