@@ -62,7 +62,7 @@ export async function GET(request: Request) {
   ]);
 
   if (!domainStatsRes.ok) {
-    return NextResponse.json({ error: domainStats?.message || 'Erreur Short.io' }, { status: 400 });
+    return NextResponse.json({ error: domainStats?.message || domainStats?.error || 'Erreur Short.io', status: domainStatsRes.status, raw: domainStats }, { status: 400 });
   }
 
   // Clics par lien en masse

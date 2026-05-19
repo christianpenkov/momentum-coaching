@@ -81,11 +81,13 @@ export async function POST(request: NextRequest) {
           return NextResponse.json({ valid: false, error: 'Format attendu : APIKEY|||mondomaine.com' });
         }
         // Vérifier l'API key en listant les domaines
+        // Short.io accepte la clé directement dans le header authorization (sans Bearer)
         const domainsRes = await fetch('https://api.short.io/api/domains', {
           headers: { authorization: shortKey, accept: 'application/json' },
         });
         if (!domainsRes.ok) {
-          return NextResponse.json({ valid: false, error: 'Clé API Short.io invalide' });
+          const errBody = await domainsRes.json().catch(() => ({}));
+          return NextResponse.json({ valid: false, error: `Clé API Short.io invalide (${domainsRes.status}) : ${errBody?.message || errBody?.error || JSON.stringify(errBody)}` });
         }
         const domainsData = await domainsRes.json();
         const domains: any[] = Array.isArray(domainsData) ? domainsData : (domainsData.domains || []);
