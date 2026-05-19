@@ -47,6 +47,26 @@ async function getFreshToken(profileId: string): Promise<string | null> {
   return data.access_token;
 }
 
+function parseDuration(iso: string): string {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+  if (!m) return '0:00';
+  const h = parseInt(m[1] || '0');
+  const min = parseInt(m[2] || '0');
+  const sec = parseInt(m[3] || '0');
+  if (h > 0) return `${h}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
+  return `${min}:${String(sec).padStart(2, '0')}`;
+}
+
+function getToday() {
+  return new Date().toISOString().split('T')[0];
+}
+
+function getStartDate(daysAgo: number) {
+  const d = new Date();
+  d.setDate(d.getDate() - daysAgo);
+  return d.toISOString().split('T')[0];
+}
+
 export async function GET() {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -55,37 +75,84 @@ export async function GET() {
   const accessToken = await getFreshToken(user.id);
   if (!accessToken) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
-  const [channelRes, analyticsRes] = await Promise.all([
+  const authHeader = { Authorization: `Bearer ${accessToken}` };
+
+  // Requêtes parallèles : channel + analytics + vidéos récentes (search + details)
+  const [channelRes, analyticsRes, searchRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics&mine=true', {
-      headers: { Authorization: `Bearer ${accessToken}` },
+      headers: authHeader,
     }),
     fetch(
       `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost&dimensions=day&sort=day`,
-      { headers: { Authorization: `Bearer ${accessToken}` } }
+      { headers: authHeader }
+    ),
+    fetch(
+      'https://www.googleapis.com/youtube/v3/search?part=id,snippet&forMine=true&type=video&order=date&maxResults=20',
+      { headers: authHeader }
     ),
   ]);
 
   const channelData = await channelRes.json();
   const channel = channelData?.items?.[0];
-
   if (!channel) return NextResponse.json({ error: 'Chaîne introuvable' }, { status: 404 });
 
   const stats = channel.statistics;
   const analyticsData = await analyticsRes.json();
   const rows: any[] = analyticsData?.rows || [];
 
-  // Calcule les totaux sur 30 jours
   const views30d = rows.reduce((sum: number, r: any) => sum + (r[1] || 0), 0);
   const watchTime30d = rows.reduce((sum: number, r: any) => sum + (r[2] || 0), 0);
   const subsGained30d = rows.reduce((sum: number, r: any) => sum + (r[3] || 0), 0);
   const subsLost30d = rows.reduce((sum: number, r: any) => sum + (r[4] || 0), 0);
 
-  // Données pour graphique (vues par jour)
   const chartData = rows.map((r: any) => ({
     date: r[0],
     views: r[1] || 0,
     watchTime: r[2] || 0,
   }));
+
+  // Récupère les IDs des vidéos pour fetcher leurs stats détaillées
+  const searchData = await searchRes.json();
+  const videoIds: string[] = (searchData?.items || [])
+    .map((item: any) => item.id?.videoId)
+    .filter(Boolean);
+
+  let videos: any[] = [];
+
+  if (videoIds.length > 0) {
+    const [detailsRes, analyticsVideosRes] = await Promise.all([
+      fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIds.join(',')}`,
+        { headers: authHeader }
+      ),
+      fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views&dimensions=video&filters=video==${videoIds.join(',')}&maxResults=20`,
+        { headers: authHeader }
+      ),
+    ]);
+
+    const detailsData = await detailsRes.json();
+    const analyticsVideosData = await analyticsVideosRes.json();
+
+    // Map views 30j par videoId
+    const views30dByVideo: Record<string, number> = {};
+    for (const row of analyticsVideosData?.rows || []) {
+      views30dByVideo[row[0]] = row[1] || 0;
+    }
+
+    videos = (detailsData?.items || []).map((v: any) => ({
+      id: v.id,
+      title: v.snippet?.title,
+      thumbnail: v.snippet?.thumbnails?.medium?.url || v.snippet?.thumbnails?.default?.url,
+      publishedAt: v.snippet?.publishedAt,
+      duration: parseDuration(v.contentDetails?.duration || 'PT0S'),
+      views: parseInt(v.statistics?.viewCount || '0'),
+      likes: parseInt(v.statistics?.likeCount || '0'),
+      comments: parseInt(v.statistics?.commentCount || '0'),
+      views30d: views30dByVideo[v.id] || 0,
+      url: `https://www.youtube.com/watch?v=${v.id}`,
+    }));
+  }
 
   return NextResponse.json({
     channelName: channel.snippet?.title,
@@ -99,15 +166,6 @@ export async function GET() {
     subsLost30d,
     netSubs30d: subsGained30d - subsLost30d,
     chartData,
+    videos,
   });
-}
-
-function getToday() {
-  return new Date().toISOString().split('T')[0];
-}
-
-function getStartDate(daysAgo: number) {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
 }

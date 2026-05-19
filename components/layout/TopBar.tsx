@@ -1,30 +1,16 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import Icon from '../ui/Icon';
-import { createClient } from '@/lib/supabase/client';
+import { useUser } from '@/lib/UserContext';
 
 export default function TopBar() {
   const pathname = usePathname();
   const isCoach = !pathname.startsWith('/client');
-  const [initials, setInitials] = useState('');
-  const [name, setName] = useState('');
-
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
-      const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single();
-      const fullName = profile?.full_name || user.email || '';
-      setName(fullName);
-      const parts = fullName.trim().split(' ');
-      setInitials(parts.length >= 2 ? (parts[0][0] + parts[1][0]).toUpperCase() : fullName.slice(0, 2).toUpperCase());
-    }
-    load();
-  }, []);
+  const { user } = useUser();
+  const initials = user?.initials || '';
+  const name = user?.full_name || user?.email || '';
 
   return (
     <div className="topbar">

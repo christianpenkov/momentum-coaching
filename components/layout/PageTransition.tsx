@@ -1,33 +1,37 @@
 'use client';
 
 import { usePathname } from 'next/navigation';
-import { LazyMotion, domAnimation, m, useReducedMotion } from 'framer-motion';
-
-const variants = {
-  hidden: { opacity: 0, y: 8 },
-  visible: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -4 },
-};
+import { useEffect, useRef, useState } from 'react';
 
 export default function PageTransition({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const reduced = useReducedMotion();
+  const [displayChildren, setDisplayChildren] = useState(children);
+  const [visible, setVisible] = useState(true);
+  const prevPathname = useRef(pathname);
 
-  if (reduced) return <>{children}</>;
+  useEffect(() => {
+    if (pathname !== prevPathname.current) {
+      prevPathname.current = pathname;
+      setVisible(false);
+      const t = setTimeout(() => {
+        setDisplayChildren(children);
+        setVisible(true);
+      }, 80);
+      return () => clearTimeout(t);
+    } else {
+      setDisplayChildren(children);
+    }
+  }, [pathname, children]);
 
   return (
-    <LazyMotion features={domAnimation}>
-      <m.div
-        key={pathname}
-        initial="hidden"
-        animate="visible"
-        exit="exit"
-        variants={variants}
-        transition={{ duration: 0.18, ease: 'easeOut' }}
-        style={{ display: 'contents' }}
-      >
-        {children}
-      </m.div>
-    </LazyMotion>
+    <div
+      style={{
+        opacity: visible ? 1 : 0,
+        transition: visible ? 'opacity 0.15s ease-out' : 'none',
+        display: 'contents',
+      }}
+    >
+      {displayChildren}
+    </div>
   );
 }
