@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client';
 
 interface Msg {
   id: string;
+  client_id?: string;
   text: string;
   sender_id: string;
   created_at: string;
@@ -84,11 +85,22 @@ export default function PageClientMessages() {
   async function sendMessage(text: string) {
     if (!text.trim() || !clientId || !userId) return;
     setInput('');
-    await supabase.from('messages').insert({
+    const optimistic: Msg = {
+      id: `opt-${Date.now()}`,
       client_id: clientId,
       sender_id: userId,
       text: text.trim(),
-    });
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, optimistic]);
+    const { data } = await supabase.from('messages').insert({
+      client_id: clientId,
+      sender_id: userId,
+      text: text.trim(),
+    }).select('id, text, sender_id, created_at').single();
+    if (data) {
+      setMessages(prev => prev.map(m => m.id === optimistic.id ? data : m));
+    }
   }
 
   function formatTime(dateStr: string) {

@@ -46,7 +46,19 @@ export default function PageChat() {
   const sendMessage = useCallback(async (text: string) => {
     if (!text.trim() || !activeId || !userId) return;
     setInput('');
-    await supabase.from('messages').insert({ client_id: activeId, sender_id: userId, text: text.trim(), read: false });
+    const optimistic: Message = {
+      id: `opt-${Date.now()}`,
+      client_id: activeId,
+      sender_id: userId,
+      text: text.trim(),
+      read: false,
+      created_at: new Date().toISOString(),
+    };
+    setMessages(prev => [...prev, optimistic]);
+    const { data } = await supabase.from('messages').insert({ client_id: activeId, sender_id: userId, text: text.trim(), read: false }).select().single();
+    if (data) {
+      setMessages(prev => prev.map(m => m.id === optimistic.id ? (data as Message) : m));
+    }
   }, [activeId, userId]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
