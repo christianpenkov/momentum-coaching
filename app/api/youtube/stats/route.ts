@@ -126,9 +126,9 @@ export async function GET() {
         `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIdsStr}`,
         { headers: authHeader }
       ),
-      // Vues + watch time + impressions + CTR par vidéo sur 90j (sans filtre video — retourne toutes les vidéos actives)
+      // Vues + watch time + impressions + CTR par vidéo — fenêtre large pour couvrir les vieilles vidéos
       fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(90)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,impressions,impressionClickThroughRate,averageViewPercentage&dimensions=video&maxResults=50`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,impressions,impressionClickThroughRate,averageViewPercentage&dimensions=video&maxResults=50`,
         { headers: authHeader }
       ),
       // Rétention globale de la chaîne sur 30j (courbe audience par % de la vidéo)
