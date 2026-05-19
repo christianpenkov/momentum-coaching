@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
@@ -69,6 +69,115 @@ function KpiCard({ label, value, sub, positive }: { label: string; value: string
   );
 }
 
+interface VideoModalProps {
+  video: YoutubeVideo;
+  onClose: () => void;
+}
+
+function VideoModal({ video, onClose }: VideoModalProps) {
+  const [retentionCurve, setRetentionCurve] = useState<{ ratio: number; watchRatio: number }[]>([]);
+  const [retentionLoading, setRetentionLoading] = useState(true);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetch(`/api/youtube/video-retention?videoId=${video.id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.retentionCurve) setRetentionCurve(data.retentionCurve);
+        setRetentionLoading(false);
+      })
+      .catch(() => setRetentionLoading(false));
+  }, [video.id]);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  const stats = [
+    { label: 'Vues totales', value: video.views.toLocaleString('fr-FR') },
+    { label: 'Vues 30j', value: video.views30d > 0 ? `+${video.views30d.toLocaleString('fr-FR')}` : '—' },
+    { label: 'Impressions', value: video.impressions > 0 ? video.impressions.toLocaleString('fr-FR') : '—' },
+    { label: 'CTR', value: video.ctr > 0 ? `${video.ctr}%` : '—' },
+    { label: 'Rétention moy.', value: video.avgViewPct > 0 ? `${video.avgViewPct}%` : '—' },
+    { label: 'Watch time 30j', value: video.watchTime30d > 0 ? `${video.watchTime30d}h` : '—' },
+    { label: 'Likes', value: video.likes.toLocaleString('fr-FR') },
+    { label: 'Commentaires', value: video.comments.toLocaleString('fr-FR') },
+    { label: 'Durée', value: video.duration },
+    { label: 'Publiée le', value: new Date(video.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) },
+  ];
+
+  return (
+    <div
+      ref={overlayRef}
+      onClick={e => { if (e.target === overlayRef.current) onClose(); }}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 1000,
+        background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
+      }}
+    >
+      <div style={{
+        background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border)',
+        width: '100%', maxWidth: 680, maxHeight: '90vh', overflowY: 'auto',
+        display: 'flex', flexDirection: 'column',
+      }}>
+        {/* Header modal */}
+        <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+          <img src={video.thumbnail} alt={video.title} style={{ width: 100, height: 56, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', lineHeight: 1.4, marginBottom: 6 }}>{video.title}</div>
+            <a href={video.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon name="external" size={11} /> Voir sur YouTube
+            </a>
+          </div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, flexShrink: 0 }}>
+            <Icon name="x" size={18} />
+          </button>
+        </div>
+
+        {/* Stats grid */}
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Statistiques</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: 10 }}>
+            {stats.map(s => (
+              <div key={s.label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '10px 14px', border: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, fontWeight: 500 }}>{s.label}</div>
+                <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{s.value}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Courbe de rétention */}
+        <div style={{ padding: '16px 20px' }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+            Courbe de rétention
+          </div>
+          {retentionLoading ? (
+            <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, padding: '24px 0' }}>
+              <Icon name="refresh-cw" size={14} /> Chargement de la courbe…
+            </div>
+          ) : retentionCurve.length > 0 ? (
+            <AreaChart
+              data={retentionCurve}
+              areas={[{ key: 'watchRatio', label: 'Rétention', color: '#ff0000' }]}
+              xKey="ratio"
+              height={160}
+              formatter={(n) => `${n}%`}
+            />
+          ) : (
+            <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 12, padding: '24px 0' }}>
+              Données de rétention non disponibles pour cette vidéo.
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SectionHeader({ icon, title, sub, right }: { icon: string; title: string; sub?: string; right?: React.ReactNode }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
@@ -92,6 +201,7 @@ export default function PageClientStats() {
   const [youtubeData, setYoutubeData] = useState<YoutubeData | null>(null);
   const [hasYoutube, setHasYoutube] = useState<boolean | null>(null);
   const [youtubeLoading, setYoutubeLoading] = useState(true);
+  const [selectedVideo, setSelectedVideo] = useState<YoutubeVideo | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -344,48 +454,40 @@ export default function PageClientStats() {
                       <tr>
                         <th style={{ width: 88 }}>Miniature</th>
                         <th>Titre</th>
-                        <th>Durée</th>
                         <th>Vues totales</th>
-                        <th>Vues 30j</th>
-                        <th>Impressions</th>
                         <th>CTR</th>
                         <th>Rétention moy.</th>
-                        <th>Likes</th>
-                        <th>Commentaires</th>
                         <th>Date</th>
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody>
                       {youtubeData.videos.map(v => (
                         <tr key={v.id}>
                           <td>
-                            <a href={v.url} target="_blank" rel="noopener noreferrer">
-                              <img src={v.thumbnail} alt={v.title} style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 4, display: 'block' }} />
-                            </a>
+                            <img src={v.thumbnail} alt={v.title} style={{ width: 80, height: 45, objectFit: 'cover', borderRadius: 4, display: 'block' }} />
                           </td>
                           <td style={{ fontSize: 12, color: 'var(--accent)', maxWidth: 200 }}>
-                            <a href={v.url} target="_blank" rel="noopener noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>
-                              <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{v.title}</div>
-                            </a>
+                            <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{v.title}</div>
                           </td>
-                          <td style={{ fontSize: 12, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{v.duration}</td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>{v.views.toLocaleString('fr-FR')}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: v.views30d > 0 ? 'var(--green)' : 'var(--muted)' }}>
-                            {v.views30d > 0 ? `+${v.views30d.toLocaleString('fr-FR')}` : '—'}
-                          </td>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
-                            {v.impressions > 0 ? v.impressions.toLocaleString('fr-FR') : '—'}
-                          </td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600, color: v.ctr >= 5 ? 'var(--green)' : v.ctr >= 2 ? 'var(--ink)' : v.ctr > 0 ? 'var(--amber)' : 'var(--muted)' }}>
                             {v.ctr > 0 ? `${v.ctr}%` : '—'}
                           </td>
                           <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: v.avgViewPct >= 50 ? 'var(--green)' : v.avgViewPct >= 30 ? 'var(--ink)' : v.avgViewPct > 0 ? 'var(--amber)' : 'var(--muted)' }}>
                             {v.avgViewPct > 0 ? `${v.avgViewPct}%` : '—'}
                           </td>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{v.likes.toLocaleString('fr-FR')}</td>
-                          <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>{v.comments.toLocaleString('fr-FR')}</td>
                           <td style={{ fontSize: 11, color: 'var(--muted)' }}>
                             {new Date(v.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                          </td>
+                          <td>
+                            <button
+                              onClick={() => setSelectedVideo(v)}
+                              className="btn-ghost"
+                              style={{ fontSize: 11, padding: '4px 10px', display: 'inline-flex', alignItems: 'center', gap: 4, whiteSpace: 'nowrap' }}
+                            >
+                              Détails <Icon name="chevR" size={11} />
+                            </button>
                           </td>
                         </tr>
                       ))}
@@ -394,6 +496,7 @@ export default function PageClientStats() {
                 </div>
               </div>
             )}
+            {selectedVideo && <VideoModal video={selectedVideo} onClose={() => setSelectedVideo(null)} />}
           </>
         ) : (
           <div className="card" style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>

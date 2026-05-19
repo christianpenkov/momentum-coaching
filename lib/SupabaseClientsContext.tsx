@@ -23,6 +23,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
   const [calls, setCalls] = useState<import('@/lib/supabase/types').Call[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const supabase = createClient();
 
   const load = useCallback(async () => {
@@ -31,6 +32,8 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setError('Non authentifié'); setLoading(false); return; }
+
+      setUserId(user.id);
 
       const { data: rawClients, error: cErr } = await supabase
         .from('clients').select('*').eq('coach_id', user.id).order('created_at', { ascending: true });
@@ -51,6 +54,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
 
       if (metricsRes.error) throw metricsRes.error;
       if (tasksRes.error) throw tasksRes.error;
+      if (callsRes.error) throw callsRes.error;
 
       const metricsMap: Record<string, any[]> = {};
       (metricsRes.data || []).forEach((m: any) => {
@@ -72,6 +76,8 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           tasks: tasksMap[c.id] || [],
           latestMetrics: metrics[metrics.length - 1] || null,
           prevMetrics: metrics[metrics.length - 2] || null,
+          resources: [],
+          lastCoachMessage: null,
         };
       }));
       setCalls(callsRes.data || []);
@@ -84,22 +90,20 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Realtime : recharge les calls dès qu'un changement arrive sur la table
+  // Realtime : scoped au userId pour éviter les channels stale après reconnexion
   useEffect(() => {
+    if (!userId) return;
     const supabase = createClient();
     const channel = supabase
-      .channel('calls-realtime')
+      .channel(`calls-realtime-${userId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => {
-        supabase.auth.getUser().then(({ data: { user } }) => {
-          if (!user) return;
-          supabase.from('calls').select('*').eq('coach_id', user.id)
-            .order('scheduled_at', { ascending: false }).limit(100)
-            .then(({ data }) => { if (data) setCalls(data); });
-        });
+        supabase.from('calls').select('*').eq('coach_id', userId)
+          .order('scheduled_at', { ascending: false }).limit(100)
+          .then(({ data }) => { if (data) setCalls(data); });
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [userId]);
 
   const getClient = useCallback((id: string) => clients.find(c => c.id === id), [clients]);
 
