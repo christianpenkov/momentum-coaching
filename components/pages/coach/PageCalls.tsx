@@ -33,10 +33,11 @@ export default function PageCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-  const now = new Date();
-  const upcoming = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) >= now)
+  // On compare par début de journée : un call aujourd'hui reste "à venir" même s'il est déjà passé
+  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  const upcoming = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
-  const history = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) < now)
+  const history = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) < todayStart)
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
   function getClient(clientId: string) {

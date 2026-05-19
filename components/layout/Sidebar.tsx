@@ -3,6 +3,8 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
+import { useUser } from '@/lib/UserContext';
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/dashboard', icon: 'activity', label: 'Aujourd\'hui' },
@@ -21,6 +23,8 @@ const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { user } = useUser();
+  const { clients } = useSupabaseClients();
 
   return (
     <aside className="sidebar">
@@ -48,10 +52,10 @@ export default function Sidebar() {
           );
         })}
         <div className="sidebar-coach-info">
-          <div className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>ML</div>
+          <div className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>{user?.initials || '?'}</div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>Marc Laurent</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Coach · 12 élèves</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{user?.full_name || user?.email || '—'}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Coach · {clients.length} élève{clients.length !== 1 ? 's' : ''}</div>
           </div>
         </div>
       </nav>

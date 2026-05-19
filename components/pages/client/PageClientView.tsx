@@ -199,16 +199,18 @@ export default function PageClientView() {
 
         {/* Ressources */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
-            <div className="card-head">
-              <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <Icon name="sparkle" size={14} /> Message de ton coach
+          {client.lastCoachMessage && (
+            <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
+              <div className="card-head">
+                <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <Icon name="sparkle" size={14} /> Message de ton coach
+                </div>
               </div>
+              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--accent)', marginTop: 12, fontStyle: 'italic' }}>
+                "{client.lastCoachMessage}"
+              </p>
             </div>
-            <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--accent)', marginTop: 12, fontStyle: 'italic' }}>
-              "Continue sur ta lancée — chaque semaine de régularité est un investissement dans ta croissance. N'hésite pas à déposer tes contenus dans la boîte de dépôt pour qu'on les analyse ensemble."
-            </p>
-          </div>
+          )}
 
           <div className="card">
             <div className="card-head">
@@ -218,20 +220,19 @@ export default function PageClientView() {
               </Link>
             </div>
             <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {[
-                { title: 'Script de prospection DM', type: 'template', new: true },
-                { title: 'Masterclass : Closing en DM', type: 'video' },
-                { title: 'Checklist contenu semaine', type: 'pdf' },
-              ].map((r, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {client.resources.length === 0 ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>Aucune ressource publiée pour le moment.</div>
+              ) : client.resources.map((r) => (
+                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon name={r.type === 'video' ? 'play' : r.type === 'pdf' ? 'folder' : 'list'} size={14} />
+                    <Icon name="folder" size={14} />
                   </div>
-                  <div style={{ flex: 1, fontSize: 12, color: 'var(--accent)' }}>{r.title}</div>
-                  {r.new && <span className="pill pill-green" style={{ fontSize: 10 }}>Nouveau</span>}
-                  <Link href="/client/resources" className="btn-ghost" style={{ fontSize: 11, padding: '3px 8px' }}>
-                    <Icon name="external" size={11} />
-                  </Link>
+                  <div style={{ flex: 1, fontSize: 12, color: 'var(--accent)', minWidth: 0 }}>{r.title}</div>
+                  {r.url && (
+                    <a href={r.url} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: 11, padding: '3px 8px' }}>
+                      <Icon name="external" size={11} />
+                    </a>
+                  )}
                 </div>
               ))}
             </div>
