@@ -36,48 +36,63 @@ function KpiCard({ label, value, sub, positive }: { label: string; value: string
   );
 }
 
+interface YoutubeData {
+  channelName: string;
+  subscribers: number;
+  totalViews: number;
+  videoCount: number;
+  views30d: number;
+  watchTime30d: number;
+  netSubs30d: number;
+  chartData: { date: string; views: number }[];
+}
+
 export default function PageClientStats() {
   const [stripeData, setStripeData] = useState<StripeData | null>(null);
   const [stripeError, setStripeError] = useState<string | null>(null);
   const [stripeLoading, setStripeLoading] = useState(true);
   const [hasStripeKey, setHasStripeKey] = useState<boolean | null>(null);
+  const [youtubeData, setYoutubeData] = useState<YoutubeData | null>(null);
+  const [hasYoutube, setHasYoutube] = useState<boolean | null>(null);
+  const [youtubeLoading, setYoutubeLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      // Vérifie si la clé Stripe est configurée
       const supabase = createClient();
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data: integ } = await supabase
+      const { data: integs } = await supabase
         .from('integrations')
-        .select('id')
+        .select('provider')
         .eq('profile_id', user.id)
-        .eq('provider', 'stripe')
-        .single();
+        .in('provider', ['stripe', 'youtube']);
 
-      if (!integ) {
-        setHasStripeKey(false);
-        setStripeLoading(false);
-        return;
+      const hasStripe = integs?.some(i => i.provider === 'stripe') ?? false;
+      const hasYT = integs?.some(i => i.provider === 'youtube') ?? false;
+
+      setHasStripeKey(hasStripe);
+      setHasYoutube(hasYT);
+
+      if (hasStripe) {
+        try {
+          const res = await fetch('/api/stripe/client-data');
+          if (res.ok) setStripeData(await res.json());
+          else {
+            const err = await res.json().catch(() => ({}));
+            setStripeError(err.error || 'Erreur Stripe');
+          }
+        } catch { setStripeError('Impossible de contacter Stripe'); }
       }
+      setStripeLoading(false);
 
-      setHasStripeKey(true);
-
-      try {
-        const res = await fetch('/api/stripe/client-data');
-        if (res.ok) {
-          const data = await res.json();
-          setStripeData(data);
-        } else {
-          const err = await res.json().catch(() => ({}));
-          setStripeError(err.error || 'Erreur lors du chargement des données Stripe');
-        }
-      } catch {
-        setStripeError('Impossible de contacter Stripe');
-      } finally {
-        setStripeLoading(false);
+      if (hasYT) {
+        try {
+          const res = await fetch('/api/youtube/stats');
+          if (res.ok) setYoutubeData(await res.json());
+        } catch {}
       }
+      setYoutubeLoading(false);
     }
     load();
   }, []);
@@ -234,12 +249,42 @@ export default function PageClientStats() {
         ) : null}
       </div>
 
-      {/* Placeholder autres intégrations */}
-      <div className="card" style={{ padding: '24px', textAlign: 'center', border: '1px dashed var(--border)', background: 'transparent' }}>
-        <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-          📊 Stats Instagram, YouTube et Calendly arrivent prochainement.<br />
-          Connecte tes comptes dans <a href="/client/settings" style={{ color: 'var(--accent)' }}>Réglages</a> pour les activer.
+      {/* Section YouTube */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <Icon name="youtube" size={18} />
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>YouTube</span>
+          </div>
         </div>
+
+        {youtubeLoading ? (
+          <div className="card" style={{ padding: '40px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            <Icon name="refresh-cw" size={16} /> Chargement…
+          </div>
+        ) : !hasYoutube ? (
+          <div className="card" style={{ padding: '32px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>▶️</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>YouTube non connecté</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+              Connecte ta chaîne YouTube pour voir tes abonnés, vues et watch time en temps réel.
+            </div>
+            <a href="/client/settings" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="link" size={13} /> Connecter YouTube
+            </a>
+          </div>
+        ) : youtubeData ? (
+          <div className="grid-4">
+            <KpiCard label="Abonnés" value={youtubeData.subscribers.toLocaleString('fr-FR')} sub={youtubeData.channelName} />
+            <KpiCard label="Vues (30j)" value={youtubeData.views30d.toLocaleString('fr-FR')} sub="Derniers 30 jours" positive={youtubeData.views30d > 0} />
+            <KpiCard label="Watch time (30j)" value={`${youtubeData.watchTime30d}h`} sub="Heures regardées" positive={youtubeData.watchTime30d > 0} />
+            <KpiCard label="Abonnés nets (30j)" value={youtubeData.netSubs30d >= 0 ? `+${youtubeData.netSubs30d}` : String(youtubeData.netSubs30d)} sub="Gagnés - perdus" positive={youtubeData.netSubs30d > 0} />
+          </div>
+        ) : (
+          <div className="card" style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            Impossible de charger les stats YouTube. <a href="/client/settings" style={{ color: 'var(--accent)' }}>Reconnecter</a>
+          </div>
+        )}
       </div>
     </div>
   );
