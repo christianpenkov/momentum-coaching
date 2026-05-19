@@ -26,8 +26,9 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
     provider: 'instagram',
     name: 'Instagram',
     icon: 'instagram',
-    desc: 'Token API Instagram pour tes stats de followers et d\'engagement',
-    placeholder: 'Token API Instagram...',
+    desc: 'Connecte ton compte Instagram Business pour tes stats de followers et d\'engagement',
+    placeholder: '',
+    oauth: true,
   },
   {
     provider: 'youtube',
