@@ -33,8 +33,9 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
     provider: 'youtube',
     name: 'YouTube',
     icon: 'youtube',
-    desc: 'Clé API YouTube pour tes stats de chaîne',
-    placeholder: 'AIza...',
+    desc: 'Connecte ta chaîne YouTube pour voir tes stats (vues, abonnés, watch time)',
+    placeholder: '',
+    oauth: true,
   },
 ];
 
@@ -193,7 +194,7 @@ export default function PageClientSettings() {
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
                       {!cfg.oauth && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>Modifier</button>}
-                      {cfg.oauth && <a href="/api/oauth/calendly" className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
+                      {cfg.oauth && <a href={`/api/oauth/${cfg.provider}`} className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
                       {cfg.provider === 'calendly' && (
                         <button className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} type="button" onClick={syncCalendly} disabled={syncing}>
                           <Icon name="refresh-cw" size={12} /> {syncing ? 'Sync…' : 'Sync calls'}
@@ -202,7 +203,7 @@ export default function PageClientSettings() {
                       <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
                     </div>
                   ) : cfg.oauth ? (
-                    <a href="/api/oauth/calendly" className="btn-primary" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <a href={`/api/oauth/${cfg.provider}`} className="btn-primary" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       <Icon name="link" size={13} /> Connecter
                     </a>
                   ) : (
