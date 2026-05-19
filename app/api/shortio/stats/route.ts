@@ -139,12 +139,12 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     domain,
-    totalLinks: linksData?.count ?? (linksData?.links?.length || 0),
+    totalLinks: Number(linksData?.count ?? linksData?.links?.length ?? 0),
     // Stats domaine 30j
-    clicks30d: domainStats.totalClicks ?? 0,
-    humanClicks30d: domainStats.humanClicks ?? 0,
-    clicksChange: domainStats.clicksChange ?? 0,
-    clicksPerLink30d: domainStats.clicksPerLink ?? 0,
+    clicks30d: Number(domainStats.totalClicks ?? domainStats.clicks ?? 0),
+    humanClicks30d: Number(domainStats.humanClicks ?? 0),
+    clicksChange: Number(domainStats.clicksChange ?? 0),
+    clicksPerLink30d: Number(domainStats.clicksPerLink ?? domainStats.clicksPerLinkChange ?? 0),
     // Top pays/referrers domaine
     topCountries: (domainStats.countries || []).slice(0, 8).map((c: any) => ({ label: c.country || c.label, value: c.score || c.value || 0 })),
     topReferrers: (domainStats.referer || domainStats.referrers || []).slice(0, 8).map((r: any) => ({ label: r.referer || r.label || 'Direct', value: r.score || r.value || 0 })),

@@ -1171,7 +1171,7 @@ export default function PageClientStats() {
       )}
 
       {/* ── Short.io ── */}
-      {!shortioLoading && hasShortio && shortioData && (
+      {!shortioLoading && hasShortio && shortioData && shortioData.domain && (
         <div style={{ marginBottom: 32 }}>
           <SectionHeader
             icon="link"
@@ -1181,10 +1181,10 @@ export default function PageClientStats() {
 
           {/* KPIs */}
           <div className="grid-4" style={{ marginBottom: 20 }}>
-            <KpiCard label="Clics 30j" value={shortioData.clicks30d.toLocaleString('fr-FR')} sub="Tous liens confondus" positive={shortioData.clicks30d > 0} />
-            <KpiCard label="Clics humains 30j" value={shortioData.humanClicks30d.toLocaleString('fr-FR')} sub="Sans bots" positive={shortioData.humanClicks30d > 0} />
-            <KpiCard label="Moy. par lien" value={shortioData.clicksPerLink30d > 0 ? shortioData.clicksPerLink30d.toFixed(1) : '—'} sub="Clics / lien actif" />
-            <KpiCard label="Liens actifs" value={shortioData.totalLinks.toLocaleString('fr-FR')} sub="Sur ce domaine" />
+            <KpiCard label="Clics 30j" value={(shortioData.clicks30d ?? 0).toLocaleString('fr-FR')} sub="Tous liens confondus" positive={(shortioData.clicks30d ?? 0) > 0} />
+            <KpiCard label="Clics humains 30j" value={(shortioData.humanClicks30d ?? 0).toLocaleString('fr-FR')} sub="Sans bots" positive={(shortioData.humanClicks30d ?? 0) > 0} />
+            <KpiCard label="Moy. par lien" value={(shortioData.clicksPerLink30d ?? 0) > 0 ? Number(shortioData.clicksPerLink30d).toFixed(1) : '—'} sub="Clics / lien actif" />
+            <KpiCard label="Liens actifs" value={(shortioData.totalLinks ?? 0).toLocaleString('fr-FR')} sub="Sur ce domaine" />
           </div>
 
           {/* Courbe clics/jour */}
