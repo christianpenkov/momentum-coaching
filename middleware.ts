@@ -40,7 +40,7 @@ export async function middleware(request: NextRequest) {
     .single();
 
   const role = profile?.role;
-  const isClientPath = pathname.startsWith('/client');
+  const isClientPath = pathname === '/client' || pathname.startsWith('/client/');
   const isCoachPath = !isClientPath;
 
   // Client essaie d'accéder à l'espace coach → redirige vers /client
