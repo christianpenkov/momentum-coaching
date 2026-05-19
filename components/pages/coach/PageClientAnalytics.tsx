@@ -81,6 +81,9 @@ export default function PageClientAnalytics({ id }: Props) {
   const [hasInstagram, setHasInstagram] = useState<boolean | null>(null);
 
   const [leadsStats, setLeadsStats] = useState<{ dmCount30d: number; commentCount30d: number; total: number } | null>(null);
+  const [shortioData, setShortioData] = useState<any | null>(null);
+  const [shortioLoading, setShortioLoading] = useState(true);
+  const [hasShortio, setHasShortio] = useState<boolean | null>(null);
   const [showAllYt, setShowAllYt] = useState(false);
   const [showAllIg, setShowAllIg] = useState(false);
 
@@ -125,6 +128,16 @@ export default function PageClientAnalytics({ id }: Props) {
       .then(data => {
         if (data) setLeadsStats({ dmCount30d: data.dmCount30d, commentCount30d: data.commentCount30d, total: data.total });
       });
+
+    // Short.io
+    fetch(`/api/shortio/stats?profileId=${profileId}`)
+      .then(r => {
+        if (r.status === 404) { setHasShortio(false); return null; }
+        setHasShortio(true);
+        return r.ok ? r.json() : null;
+      })
+      .then(data => { if (data) setShortioData(data); })
+      .finally(() => setShortioLoading(false));
   }, [profileId]);
 
   if (!client) return (
@@ -445,6 +458,77 @@ export default function PageClientAnalytics({ id }: Props) {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ── Short.io ── */}
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10, marginTop: 24 }}>
+        Short.io — Tracking liens
+      </div>
+      {shortioLoading ? (
+        <div className="card" style={{ padding: '32px 20px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+          <Icon name="refresh-cw" size={14} /> Chargement…
+        </div>
+      ) : !hasShortio || !shortioData ? (
+        <div className="card" style={{ padding: '24px', textAlign: 'center', color: 'var(--muted)', fontSize: 13 }}>
+          Short.io non connecté par le client.
+        </div>
+      ) : (
+        <>
+          <div className="grid-4" style={{ marginBottom: 16 }}>
+            <KpiCard label="Clics 30j" value={shortioData.clicks30d.toLocaleString('fr-FR')} sub="Tous liens" />
+            <KpiCard label="Clics humains 30j" value={shortioData.humanClicks30d.toLocaleString('fr-FR')} sub="Sans bots" />
+            <KpiCard label="Moy. par lien" value={shortioData.clicksPerLink30d > 0 ? shortioData.clicksPerLink30d.toFixed(1) : '—'} sub="Clics / lien actif" />
+            <KpiCard label="Liens actifs" value={shortioData.totalLinks.toLocaleString('fr-FR')} sub={shortioData.domain} />
+          </div>
+
+          {shortioData.chartData?.length > 0 && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div className="card-head">
+                <div className="card-title">Clics par jour</div>
+                <div className="card-sub">30 derniers jours</div>
+              </div>
+              <AreaChart
+                data={shortioData.chartData}
+                areas={[{ key: 'clicks', label: 'Clics', color: 'var(--accent)' }]}
+                xKey="date"
+                height={160}
+                formatter={(n) => n.toLocaleString('fr-FR')}
+              />
+            </div>
+          )}
+
+          {shortioData.links?.length > 0 && (
+            <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="card-title">Top liens</div>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>{shortioData.links.length} liens</span>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr><th>Lien</th><th>Destination</th><th>Clics 30j</th><th>Humains</th><th>Top pays</th></tr>
+                  </thead>
+                  <tbody>
+                    {shortioData.links.map((l: any) => (
+                      <tr key={l.id}>
+                        <td>
+                          <a href={l.shortUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>/{l.path}</a>
+                          {l.title && l.title !== l.path && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{l.title}</div>}
+                        </td>
+                        <td style={{ fontSize: 11, color: 'var(--muted)', maxWidth: 180 }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>{l.originalUrl}</div>
+                        </td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>{l.clicks30d.toLocaleString('fr-FR')}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>{l.humanClicks30d.toLocaleString('fr-FR')}</td>
+                        <td style={{ fontSize: 11, color: 'var(--muted)' }}>{l.countries?.[0]?.label || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </div>
           )}
         </>

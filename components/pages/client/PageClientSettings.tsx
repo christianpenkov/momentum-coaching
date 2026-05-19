@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 
-type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly';
+type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio';
 
 const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean }[] = [
   {
@@ -38,6 +38,13 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
     placeholder: '',
     oauth: true,
   },
+  {
+    provider: 'shortio',
+    name: 'Short.io',
+    icon: 'link',
+    desc: 'Connecte Short.io pour tracker les clics sur tous tes liens courts (bio, DMs, stories…)',
+    placeholder: 'Clé API Short.io',
+  },
 ];
 
 export default function PageClientSettings() {
@@ -45,7 +52,8 @@ export default function PageClientSettings() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false });
+  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false });
+  const [shortDomain, setShortDomain] = useState('');
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -72,7 +80,7 @@ export default function PageClientSettings() {
 
       const { data: integs } = await supabase.from('integrations').select('provider').eq('profile_id', user.id);
       if (integs) {
-        const map = { stripe: false, instagram: false, youtube: false, calendly: false } as Record<Provider, boolean>;
+        const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false } as Record<Provider, boolean>;
         integs.forEach((i: { provider: string }) => { if (i.provider in map) map[i.provider as Provider] = true; });
         setIntegrations(map);
       }
@@ -91,13 +99,18 @@ export default function PageClientSettings() {
 
   async function saveKey(provider: Provider) {
     if (!profileId || !keyInput.trim()) return;
+    if (provider === 'shortio' && !shortDomain.trim()) { setKeyError('Domaine requis'); return; }
     setKeyError(null);
     setValidating(true);
+
+    const keyToValidate = provider === 'shortio'
+      ? `${keyInput.trim()}|||${shortDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '')}`
+      : keyInput.trim();
 
     const validateRes = await fetch('/api/validate-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ provider, key: keyInput.trim() }),
+      body: JSON.stringify({ provider, key: keyToValidate }),
     });
     const validation = await validateRes.json();
     setValidating(false);
@@ -110,17 +123,19 @@ export default function PageClientSettings() {
     setSaving(true);
     const key = keyInput.trim();
     const label = validation.label || null;
+    const metadata = validation.meta || null;
 
     const { data: existing } = await supabase.from('integrations').select('id').eq('profile_id', profileId).eq('provider', provider).single();
     if (existing) {
-      await supabase.from('integrations').update({ api_key: key, account_label: label, connected_at: new Date().toISOString() }).eq('id', existing.id);
+      await supabase.from('integrations').update({ api_key: key, account_label: label, metadata, connected_at: new Date().toISOString() }).eq('id', existing.id);
     } else {
-      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label });
+      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata });
     }
 
     setIntegrations(prev => ({ ...prev, [provider]: true }));
     setEditing(null);
     setKeyInput('');
+    setShortDomain('');
     setKeyError(null);
     setSaving(false);
     showToast(`${INTEGRATIONS.find(i => i.provider === provider)?.name} connecté ✓`);
@@ -294,9 +309,29 @@ export default function PageClientSettings() {
                       </div>
                     )}
 
+                    {cfg.provider === 'shortio' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment connecter Short.io :</div>
+                        <div>1. Va sur →{' '}
+                          <a href="https://app.short.io/settings/integrations/api-key" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>app.short.io/settings/integrations/api-key</a>
+                        </div>
+                        <div>2. Copie ta <strong>clé API secrète</strong></div>
+                        <div>3. Entre ton domaine Short.io (ex : <code>go.tondomaine.com</code>)</div>
+                      </div>
+                    )}
+
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                       {cfg.provider === 'stripe' ? 'Clé secrète Stripe' : `Clé API ${cfg.name}`}
                     </label>
+                    {cfg.provider === 'shortio' && (
+                      <input
+                        type="text"
+                        value={shortDomain}
+                        onChange={e => { setShortDomain(e.target.value); setKeyError(null); }}
+                        placeholder="go.tondomaine.com"
+                        style={{ width: '100%', padding: '8px 12px', border: `1px solid ${keyError ? '#fca5a5' : 'var(--border)'}`, borderRadius: 8, fontSize: 13, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }}
+                      />
+                    )}
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
                         type="password"

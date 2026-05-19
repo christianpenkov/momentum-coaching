@@ -74,6 +74,29 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ valid: true, label: email });
       }
 
+      case 'shortio': {
+        // key format: "apiKey|||domain" — on split pour récupérer les deux
+        const [shortKey, shortDomain] = key.split('|||');
+        if (!shortKey || !shortDomain) {
+          return NextResponse.json({ valid: false, error: 'Format attendu : APIKEY|||mondomaine.com' });
+        }
+        // Vérifier l'API key en listant les domaines
+        const domainsRes = await fetch('https://api.short.io/api/domains', {
+          headers: { authorization: shortKey, accept: 'application/json' },
+        });
+        if (!domainsRes.ok) {
+          return NextResponse.json({ valid: false, error: 'Clé API Short.io invalide' });
+        }
+        const domainsData = await domainsRes.json();
+        const domains: any[] = Array.isArray(domainsData) ? domainsData : (domainsData.domains || []);
+        const matched = domains.find((d: any) => d.hostname === shortDomain || d.hostname === shortDomain.replace(/^https?:\/\//, ''));
+        if (!matched) {
+          const available = domains.map((d: any) => d.hostname).join(', ');
+          return NextResponse.json({ valid: false, error: `Domaine "${shortDomain}" introuvable. Domaines disponibles : ${available || 'aucun'}` });
+        }
+        return NextResponse.json({ valid: true, label: shortDomain, meta: { domain: matched.hostname, domain_id: matched.id } });
+      }
+
       default:
         return NextResponse.json({ valid: true, label: 'Clé enregistrée' });
     }

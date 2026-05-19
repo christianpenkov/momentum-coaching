@@ -222,6 +222,10 @@ export default function PageClientStats() {
   const [showAllIg, setShowAllIg] = useState(false);
   const [leads, setLeads] = useState<any[]>([]);
   const [leadsStats, setLeadsStats] = useState<{ dmCount30d: number; commentCount30d: number } | null>(null);
+  const [shortioData, setShortioData] = useState<any | null>(null);
+  const [shortioLoading, setShortioLoading] = useState(true);
+  const [hasShortio, setHasShortio] = useState<boolean | null>(null);
+  const [selectedLink, setSelectedLink] = useState<any | null>(null);
   const [leadsLoading, setLeadsLoading] = useState(true);
   const [leadsPage, setLeadsPage] = useState(1);
   const [leadsTotal, setLeadsTotal] = useState(0);
@@ -287,6 +291,16 @@ export default function PageClientStats() {
       }
       setIgLoading(false);
       setLeadsLoading(false);
+
+      // Short.io
+      const shortioRes = await fetch('/api/shortio/stats');
+      if (shortioRes.status === 404) { setHasShortio(false); }
+      else if (shortioRes.ok) {
+        const shortioJson = await shortioRes.json();
+        setHasShortio(true);
+        setShortioData(shortioJson);
+      } else { setHasShortio(false); }
+      setShortioLoading(false);
     }
     load();
   }, []);
@@ -1153,6 +1167,224 @@ export default function PageClientStats() {
               )}
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── Short.io ── */}
+      {!shortioLoading && hasShortio && shortioData && (
+        <div style={{ marginBottom: 32 }}>
+          <SectionHeader
+            icon="link"
+            title="Short.io — Tracking des liens"
+            sub={`Domaine : ${shortioData.domain} · ${shortioData.totalLinks} liens`}
+          />
+
+          {/* KPIs */}
+          <div className="grid-4" style={{ marginBottom: 20 }}>
+            <KpiCard label="Clics 30j" value={shortioData.clicks30d.toLocaleString('fr-FR')} sub="Tous liens confondus" positive={shortioData.clicks30d > 0} />
+            <KpiCard label="Clics humains 30j" value={shortioData.humanClicks30d.toLocaleString('fr-FR')} sub="Sans bots" positive={shortioData.humanClicks30d > 0} />
+            <KpiCard label="Moy. par lien" value={shortioData.clicksPerLink30d > 0 ? shortioData.clicksPerLink30d.toFixed(1) : '—'} sub="Clics / lien actif" />
+            <KpiCard label="Liens actifs" value={shortioData.totalLinks.toLocaleString('fr-FR')} sub="Sur ce domaine" />
+          </div>
+
+          {/* Courbe clics/jour */}
+          {shortioData.chartData?.length > 0 && (
+            <div className="card" style={{ marginBottom: 16 }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="card-title">Clics par jour</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)' }}>30 derniers jours</div>
+              </div>
+              <div style={{ padding: '16px 20px' }}>
+                <AreaChart
+                  data={shortioData.chartData}
+                  areas={[{ key: 'clicks', label: 'Clics', color: 'var(--accent)' }]}
+                  xKey="date"
+                  height={160}
+                  formatter={(n) => n.toLocaleString('fr-FR')}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Top pays + referrers */}
+          {(shortioData.topCountries?.length > 0 || shortioData.topReferrers?.length > 0) && (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+              {shortioData.topCountries?.length > 0 && (
+                <div className="card" style={{ padding: '16px 20px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Top pays</div>
+                  {shortioData.topCountries.map((c: any, i: number) => {
+                    const max = shortioData.topCountries[0].value;
+                    return (
+                      <div key={i} style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                          <span style={{ color: 'var(--muted)' }}>{c.label || 'Inconnu'}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{c.value.toLocaleString('fr-FR')}</span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--surface-2)', borderRadius: 2 }}>
+                          <div style={{ height: 4, background: 'var(--accent)', borderRadius: 2, width: `${(c.value / max) * 100}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {shortioData.topReferrers?.length > 0 && (
+                <div className="card" style={{ padding: '16px 20px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Sources de trafic</div>
+                  {shortioData.topReferrers.map((r: any, i: number) => {
+                    const max = shortioData.topReferrers[0].value;
+                    return (
+                      <div key={i} style={{ marginBottom: 8 }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
+                          <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 160 }}>{r.label || 'Direct'}</span>
+                          <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{r.value.toLocaleString('fr-FR')}</span>
+                        </div>
+                        <div style={{ height: 4, background: 'var(--surface-2)', borderRadius: 2 }}>
+                          <div style={{ height: 4, background: '#6b7cde', borderRadius: 2, width: `${(r.value / max) * 100}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Tableau des liens */}
+          {shortioData.links?.length > 0 && (
+            <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)' }}>
+                <div className="card-title">Tous les liens</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Top {shortioData.links.length} par clics — clique pour le détail</div>
+              </div>
+              <div style={{ overflowX: 'auto' }}>
+                <table className="data-table">
+                  <thead>
+                    <tr><th>Lien court</th><th>Destination</th><th>Clics 30j</th><th>Humains</th><th>Date création</th></tr>
+                  </thead>
+                  <tbody>
+                    {shortioData.links.map((l: any) => (
+                      <tr key={l.id} style={{ cursor: 'pointer' }} onClick={() => setSelectedLink(l)}>
+                        <td>
+                          <a href={l.shortUrl} target="_blank" rel="noopener noreferrer" onClick={e => e.stopPropagation()} style={{ color: 'var(--accent)', fontSize: 12, fontWeight: 600, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                            /{l.path} <Icon name="external" size={11} />
+                          </a>
+                          {l.title && l.title !== l.path && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{l.title}</div>}
+                        </td>
+                        <td style={{ fontSize: 11, color: 'var(--muted)', maxWidth: 200 }}>
+                          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{l.originalUrl}</div>
+                        </td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>{l.clicks30d.toLocaleString('fr-FR')}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>{l.humanClicks30d.toLocaleString('fr-FR')}</td>
+                        <td style={{ fontSize: 11, color: 'var(--muted)' }}>
+                          {l.createdAt ? new Date(l.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Modal détail lien */}
+      {selectedLink && (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setSelectedLink(null); }}
+          style={{ position: 'fixed', inset: 0, zIndex: 1000, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        >
+          <div style={{ background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border)', width: '100%', maxWidth: 600, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <div style={{ fontWeight: 700, fontSize: 15 }}>/{selectedLink.path}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 400 }}>{selectedLink.originalUrl}</div>
+              </div>
+              <button type="button" onClick={() => setSelectedLink(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 20, lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ padding: '16px 20px' }}>
+              {/* KPIs */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 10, marginBottom: 20 }}>
+                {[
+                  { label: 'Clics 30j', value: selectedLink.clicks30d.toLocaleString('fr-FR') },
+                  { label: 'Clics humains', value: selectedLink.humanClicks30d.toLocaleString('fr-FR') },
+                  { label: 'Évolution', value: selectedLink.clicksChange !== 0 ? `${selectedLink.clicksChange > 0 ? '+' : ''}${selectedLink.clicksChange}%` : '—' },
+                ].map(s => (
+                  <div key={s.label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '10px 14px', border: '1px solid var(--border)', textAlign: 'center' }}>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, fontWeight: 500 }}>{s.label}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Courbe */}
+              {selectedLink.chartData?.length > 0 && (
+                <div style={{ marginBottom: 16 }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Clics par jour</div>
+                  <AreaChart
+                    data={selectedLink.chartData}
+                    areas={[{ key: 'clicks', label: 'Clics', color: 'var(--accent)' }]}
+                    xKey="date"
+                    height={120}
+                    formatter={(n) => n.toLocaleString('fr-FR')}
+                  />
+                </div>
+              )}
+
+              {/* Pays + Referrers */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+                {selectedLink.countries?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Pays</div>
+                    {selectedLink.countries.map((c: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: 'var(--muted)' }}>{c.label || 'Inconnu'}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{c.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {selectedLink.referrers?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Sources</div>
+                    {selectedLink.referrers.map((r: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 120 }}>{r.label || 'Direct'}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{r.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Devices + OS */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                {selectedLink.devices?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Devices</div>
+                    {selectedLink.devices.map((d: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: 'var(--muted)' }}>{d.label || 'Inconnu'}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{d.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {selectedLink.browsers?.length > 0 && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>Navigateurs</div>
+                    {selectedLink.browsers.map((b: any, i: number) => (
+                      <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
+                        <span style={{ color: 'var(--muted)' }}>{b.label || 'Inconnu'}</span>
+                        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 700 }}>{b.value}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </div>
