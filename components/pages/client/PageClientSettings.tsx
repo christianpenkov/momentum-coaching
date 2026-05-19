@@ -53,7 +53,6 @@ export default function PageClientSettings() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false });
-  const [shortDomain, setShortDomain] = useState('');
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -99,13 +98,10 @@ export default function PageClientSettings() {
 
   async function saveKey(provider: Provider) {
     if (!profileId || !keyInput.trim()) return;
-    if (provider === 'shortio' && !shortDomain.trim()) { setKeyError('Domaine requis'); return; }
     setKeyError(null);
     setValidating(true);
 
-    const keyToValidate = provider === 'shortio'
-      ? `${keyInput.trim()}|||${shortDomain.trim().replace(/^https?:\/\//, '').replace(/\/$/, '')}`
-      : keyInput.trim();
+    const keyToValidate = keyInput.trim();
 
     const validateRes = await fetch('/api/validate-key', {
       method: 'POST',
@@ -135,7 +131,6 @@ export default function PageClientSettings() {
     setIntegrations(prev => ({ ...prev, [provider]: true }));
     setEditing(null);
     setKeyInput('');
-    setShortDomain('');
     setKeyError(null);
     setSaving(false);
     showToast(`${INTEGRATIONS.find(i => i.provider === provider)?.name} connecté ✓`);
@@ -315,23 +310,13 @@ export default function PageClientSettings() {
                         <div>1. Va sur →{' '}
                           <a href="https://app.short.io/settings/integrations/api-key" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>app.short.io/settings/integrations/api-key</a>
                         </div>
-                        <div>2. Copie ta <strong>clé API secrète</strong></div>
-                        <div>3. Entre ton domaine Short.io (ex : <code>go.tondomaine.com</code>)</div>
+                        <div>2. Copie ta <strong>clé API secrète</strong> et colle-la ci-dessous</div>
                       </div>
                     )}
 
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                       {cfg.provider === 'stripe' ? 'Clé secrète Stripe' : `Clé API ${cfg.name}`}
                     </label>
-                    {cfg.provider === 'shortio' && (
-                      <input
-                        type="text"
-                        value={shortDomain}
-                        onChange={e => { setShortDomain(e.target.value); setKeyError(null); }}
-                        placeholder="go.tondomaine.com"
-                        style={{ width: '100%', padding: '8px 12px', border: `1px solid ${keyError ? '#fca5a5' : 'var(--border)'}`, borderRadius: 8, fontSize: 13, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', marginBottom: 8, boxSizing: 'border-box' }}
-                      />
-                    )}
                     <div style={{ display: 'flex', gap: 8 }}>
                       <input
                         type="password"

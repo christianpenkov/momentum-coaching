@@ -75,28 +75,22 @@ export async function POST(request: NextRequest) {
       }
 
       case 'shortio': {
-        // key format: "apiKey|||domain" — on split pour récupérer les deux
-        const [shortKey, shortDomain] = key.split('|||');
-        if (!shortKey || !shortDomain) {
-          return NextResponse.json({ valid: false, error: 'Format attendu : APIKEY|||mondomaine.com' });
-        }
-        // Vérifier l'API key en listant les domaines
-        // Short.io accepte la clé directement dans le header authorization (sans Bearer)
         const domainsRes = await fetch('https://api.short.io/api/domains', {
-          headers: { authorization: shortKey, accept: 'application/json' },
+          headers: { authorization: key, accept: 'application/json' },
         });
         if (!domainsRes.ok) {
           const errBody = await domainsRes.json().catch(() => ({}));
-          return NextResponse.json({ valid: false, error: `Clé API Short.io invalide (${domainsRes.status}) : ${errBody?.message || errBody?.error || JSON.stringify(errBody)}` });
+          return NextResponse.json({ valid: false, error: `Clé API Short.io invalide (${domainsRes.status})${errBody?.message ? ' : ' + errBody.message : ''}` });
         }
         const domainsData = await domainsRes.json();
         const domains: any[] = Array.isArray(domainsData) ? domainsData : (domainsData.domains || []);
-        const matched = domains.find((d: any) => d.hostname === shortDomain || d.hostname === shortDomain.replace(/^https?:\/\//, ''));
-        if (!matched) {
-          const available = domains.map((d: any) => d.hostname).join(', ');
-          return NextResponse.json({ valid: false, error: `Domaine "${shortDomain}" introuvable. Domaines disponibles : ${available || 'aucun'}` });
+        if (domains.length === 0) {
+          return NextResponse.json({ valid: false, error: 'Aucun domaine trouvé sur ce compte Short.io' });
         }
-        return NextResponse.json({ valid: true, label: shortDomain, meta: { domain: matched.hostname, domain_id: matched.id } });
+        // On prend le premier domaine (ou le seul)
+        const first = domains[0];
+        const label = domains.length === 1 ? first.hostname : `${first.hostname} (+${domains.length - 1} autre${domains.length > 2 ? 's' : ''})`;
+        return NextResponse.json({ valid: true, label, meta: { domain: first.hostname, domain_id: first.id, all_domains: domains.map((d: any) => ({ hostname: d.hostname, id: d.id })) } });
       }
 
       default:
