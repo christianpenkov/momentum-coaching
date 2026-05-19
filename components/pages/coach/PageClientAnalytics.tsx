@@ -418,7 +418,7 @@ export default function PageClientAnalytics({ id }: Props) {
                     <tr><th style={{ width: 70 }}>Miniature</th><th>Type</th><th>Reach</th><th>Likes</th><th>Commentaires</th><th>Partages</th><th>Date</th></tr>
                   </thead>
                   <tbody>
-                    {(showAllIg ? igData.posts : igData.posts.slice(0, 10)).map((p: any) => (
+                    {(showAllIg ? igData.posts : igData.posts.slice(0, 5)).map((p: any) => (
                       <tr key={p.id}>
                         <td>
                           {p.thumbnail ? (
@@ -438,7 +438,7 @@ export default function PageClientAnalytics({ id }: Props) {
                   </tbody>
                 </table>
               </div>
-              {igData.posts.length > 10 && (
+              {igData.posts.length > 5 && (
                 <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
                   <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setShowAllIg(v => !v)}>
                     {showAllIg ? `Réduire ↑` : `Voir tous les ${igData.posts.length} posts ↓`}

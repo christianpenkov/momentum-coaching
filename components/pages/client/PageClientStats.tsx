@@ -822,7 +822,7 @@ export default function PageClientStats() {
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>{igData.posts.length} posts</span>
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 12, padding: 16 }}>
-                  {(showAllIg ? igData.posts : igData.posts.slice(0, 6)).map((p: any) => (
+                  {(showAllIg ? igData.posts : igData.posts.slice(0, 5)).map((p: any) => (
                     <div
                       key={p.id}
                       onClick={() => setSelectedPost(p)}
@@ -850,7 +850,7 @@ export default function PageClientStats() {
                     </div>
                   ))}
                 </div>
-                {igData.posts.length > 6 && (
+                {igData.posts.length > 5 && (
                   <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', textAlign: 'center' }}>
                     <button className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setShowAllIg(v => !v)}>
                       {showAllIg ? `Réduire ↑` : `Voir tous les ${igData.posts.length} posts ↓`}
