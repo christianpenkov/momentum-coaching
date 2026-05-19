@@ -1,10 +1,12 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
 import Onboarding from '../ui/Onboarding';
+import { useUser } from '@/lib/UserContext';
+import { createClient } from '@/lib/supabase/client';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/client', icon: 'activity', label: 'Mon espace' },
@@ -22,6 +24,15 @@ const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
 export default function SidebarClient() {
   const pathname = usePathname();
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const { user } = useUser();
+  const [week, setWeek] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const supabase = createClient();
+    supabase.from('clients').select('week').eq('profile_id', user.id).single()
+      .then(({ data }) => { if (data) setWeek(data.week); });
+  }, [user?.id]);
 
   return (
     <>
@@ -59,10 +70,12 @@ export default function SidebarClient() {
           );
         })}
         <div className="sidebar-coach-info">
-          <div className="avatar" style={{ width: 30, height: 30, fontSize: 11, background: 'var(--green)' }}>TM</div>
+          <div className="avatar" style={{ width: 30, height: 30, fontSize: 11, background: 'var(--green)' }}>
+            {user?.initials || '??'}
+          </div>
           <div>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>Thomas M.</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Élève · Semaine 8</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{user?.full_name || '—'}</div>
+            <div style={{ fontSize: 11, color: 'var(--muted)' }}>Élève{week ? ` · Semaine ${week}` : ''}</div>
           </div>
         </div>
       </nav>

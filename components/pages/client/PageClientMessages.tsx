@@ -108,7 +108,7 @@ export default function PageClientMessages() {
   }
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 52px)', overflow: 'hidden', background: 'var(--bg)' }}>
+    <div className="chat-shell" style={{ flexDirection: 'column', background: 'var(--bg)', height: '100%' }}>
       {/* Header */}
       <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)', zIndex: 2 }}>
         <div className="avatar" style={{ width: 38, height: 38, fontSize: 14 }}>{coachInitials}</div>
