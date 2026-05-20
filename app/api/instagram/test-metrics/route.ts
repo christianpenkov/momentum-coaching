@@ -144,6 +144,16 @@ export async function GET() {
     `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=profile_visits&access_token=${token}`
   ) : { _note: 'no reel found' };
 
+  // ── 19. Test : profile_activity sur reel ─────────────────────────────────
+  const media_insights_reel_profile_activity = firstReel ? await safe(
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=profile_activity&access_token=${token}`
+  ) : { _note: 'no reel found' };
+
+  // ── 20. Test : profile_activity + profile_visits combinés sur reel ────────
+  const media_insights_reel_profile_combined = firstReel ? await safe(
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=profile_activity,profile_visits&access_token=${token}`
+  ) : { _note: 'no reel found' };
+
   // ── 19. Stories actives ──────────────────────────────────────────────────
   const stories = await safe(
     `https://graph.instagram.com/v22.0/${igId}/stories?fields=id,media_type,timestamp,like_count,replies&access_token=${token}`
@@ -216,6 +226,8 @@ export async function GET() {
     media_insights_reel_follows,
     media_insights_reel_follows_only,
     media_insights_reel_profile_visits_only,
+    media_insights_reel_profile_activity,
+    media_insights_reel_profile_combined,
 
     // Stories
     stories,
