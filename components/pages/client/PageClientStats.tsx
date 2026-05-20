@@ -935,23 +935,31 @@ export default function PageClientStats() {
                   <div style={{ padding: '16px 20px' }}>
                     <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Statistiques</div>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
-                      {[
-                        { label: 'Vues', value: selectedPost.views > 0 ? selectedPost.views.toLocaleString('fr-FR') : '—' },
-                        { label: 'Reach', value: selectedPost.reach > 0 ? selectedPost.reach.toLocaleString('fr-FR') : '—' },
-                        { label: 'Likes', value: selectedPost.likes.toLocaleString('fr-FR') },
-                        { label: 'Commentaires', value: selectedPost.comments.toLocaleString('fr-FR') },
-                        { label: 'Partages', value: selectedPost.shares > 0 ? selectedPost.shares.toLocaleString('fr-FR') : '—' },
-                        { label: 'Enregistrements', value: selectedPost.saved > 0 ? selectedPost.saved.toLocaleString('fr-FR') : '—' },
-                        { label: 'Interactions', value: selectedPost.totalInteractions > 0 ? selectedPost.totalInteractions.toLocaleString('fr-FR') : '—' },
-                        { label: 'Nouveaux abonnés', value: (selectedPost as any).follows > 0 ? `+${(selectedPost as any).follows}` : '—' },
-                        { label: 'Visites profil', value: (selectedPost as any).profileVisits > 0 ? (selectedPost as any).profileVisits.toLocaleString('fr-FR') : '—' },
-                        ...(selectedPost.type === 'VIDEO' ? [
-                          { label: 'Watch time moy.', value: selectedPost.avgWatchTimeMs > 0 ? `${(selectedPost.avgWatchTimeMs / 1000).toFixed(1)}s` : '—' },
-                          { label: 'Watch time total', value: selectedPost.totalWatchTimeMs > 0 ? `${Math.round(selectedPost.totalWatchTimeMs / 1000)}s` : '—' },
-                          { label: 'Taux de skip', value: selectedPost.skipRate > 0 ? `${selectedPost.skipRate.toFixed(1)}%` : '—' },
-                          { label: 'Complétion', value: selectedPost.completionRate > 0 ? `${selectedPost.completionRate.toFixed(1)}%` : '—' },
-                        ] : []),
-                      ].map(s => (
+                      {(() => {
+                        const p = selectedPost as any;
+                        // fmt : null = pas de données → '—' ; 0 → '0' ; n → formaté
+                        const n = (v: number | null) => v === null ? '—' : v.toLocaleString('fr-FR');
+                        const pct = (v: number | null) => v === null ? '—' : `${v.toFixed(1)}%`;
+                        const s = (v: number | null) => v === null ? '—' : `${(v / 1000).toFixed(1)}s`;
+                        const sRound = (v: number | null) => v === null ? '—' : `${Math.round(v / 1000)}s`;
+                        const plus = (v: number | null) => v === null ? '—' : v > 0 ? `+${v}` : String(v);
+                        return [
+                          { label: 'Vues', value: n(p.views) },
+                          { label: 'Reach', value: n(p.reach) },
+                          { label: 'Likes', value: n(p.likes) },
+                          { label: 'Commentaires', value: n(p.comments) },
+                          { label: 'Partages', value: n(p.shares) },
+                          { label: 'Enregistrements', value: n(p.saved) },
+                          { label: 'Interactions', value: n(p.totalInteractions) },
+                          { label: 'Nouveaux abonnés', value: plus(p.follows) },
+                          { label: 'Visites profil', value: n(p.profileVisits) },
+                          ...(p.type === 'VIDEO' ? [
+                            { label: 'Watch time moy.', value: s(p.avgWatchTimeMs) },
+                            { label: 'Watch time total', value: sRound(p.totalWatchTimeMs) },
+                            { label: 'Taux de skip', value: pct(p.skipRate) },
+                          ] : []),
+                        ];
+                      })().map(s => (
                         <div key={s.label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '10px 14px', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, fontWeight: 500 }}>{s.label}</div>
                           <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{s.value}</div>

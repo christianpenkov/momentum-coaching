@@ -204,6 +204,10 @@ export async function GET(request: Request) {
           } catch { /* métriques reel optionnelles */ }
         }
 
+        // null = métrique non disponible pour ce type de média (≠ 0)
+        const pick = (key: string, fallback?: number) =>
+          key in ins ? ins[key] : (fallback !== undefined ? fallback : null);
+
         return {
           id: p.id,
           caption: p.caption ? p.caption.slice(0, 150) : '',
@@ -211,18 +215,18 @@ export async function GET(request: Request) {
           thumbnail: p.thumbnail_url || p.media_url || null,
           timestamp: p.timestamp,
           permalink: p.permalink,
-          likes: ins['likes'] ?? p.like_count ?? 0,
-          comments: ins['comments'] ?? p.comments_count ?? 0,
-          reach: ins['reach'] ?? 0,
-          saved: ins['saved'] ?? 0,
-          shares: ins['shares'] ?? 0,
-          views: ins['views'] ?? 0,
-          totalInteractions: ins['total_interactions'] ?? 0,
-          follows: ins['follows'] ?? 0,
-          profileVisits: ins['profile_visits'] ?? 0,
-          avgWatchTimeMs: ins['ig_reels_avg_watch_time'] ?? 0,
-          totalWatchTimeMs: ins['ig_reels_video_view_total_time'] ?? 0,
-          skipRate: ins['reels_skip_rate'] ?? 0,
+          likes: pick('likes', p.like_count),
+          comments: pick('comments', p.comments_count),
+          reach: pick('reach'),
+          saved: pick('saved'),
+          shares: pick('shares'),
+          views: pick('views'),
+          totalInteractions: pick('total_interactions'),
+          follows: pick('follows'),
+          profileVisits: pick('profile_visits'),
+          avgWatchTimeMs: pick('ig_reels_avg_watch_time'),
+          totalWatchTimeMs: pick('ig_reels_video_view_total_time'),
+          skipRate: pick('reels_skip_rate'),
         };
       } catch {
         return {
@@ -234,9 +238,9 @@ export async function GET(request: Request) {
           permalink: p.permalink,
           likes: p.like_count ?? 0,
           comments: p.comments_count ?? 0,
-          reach: 0, saved: 0, shares: 0, views: 0,
-          totalInteractions: 0, follows: 0, profileVisits: 0,
-          avgWatchTimeMs: 0, totalWatchTimeMs: 0, skipRate: 0,
+          reach: null, saved: null, shares: null, views: null,
+          totalInteractions: null, follows: null, profileVisits: null,
+          avgWatchTimeMs: null, totalWatchTimeMs: null, skipRate: null,
         };
       }
     })
