@@ -50,7 +50,7 @@ export async function GET() {
 
   // ── 2b. Views breakdown follower_type (viralité organique) ──────────────
   const views_follower_breakdown = await safe(
-    `https://graph.instagram.com/v22.0/${igId}/insights?metric=views&period=day&since=${since}&until=${until}&breakdown=follower_type&access_token=${token}`
+    `https://graph.instagram.com/v22.0/${igId}/insights?metric=views&period=day&since=${since}&until=${until}&breakdown=follow_type&access_token=${token}`
   );
 
   // ── 3. Insights compte — métriques day 90j ──────────────────────────────
