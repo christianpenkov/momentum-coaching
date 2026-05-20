@@ -161,6 +161,20 @@ export async function GET(request: Request) {
     return { date: d.toISOString().split('T')[0], reach: val };
   });
 
+  // Extrait duration_s depuis le token efg encodé dans l'URL media_url
+  // Meta n'expose pas video_duration en champ direct — la durée est dans efg (base64 JSON)
+  const extractDuration = (mediaUrl: string | null | undefined): number | null => {
+    if (!mediaUrl) return null;
+    try {
+      const match = mediaUrl.match(/[?&]efg=([^&]+)/);
+      if (!match) return null;
+      const decoded = JSON.parse(Buffer.from(decodeURIComponent(match[1]), 'base64').toString('utf8'));
+      return typeof decoded.duration_s === 'number' ? decoded.duration_s : null;
+    } catch {
+      return null;
+    }
+  };
+
   // Fetch insights par média en parallèle
   const mediaItems = mediaData?.data || [];
   const mediaWithInsights = await Promise.all(
@@ -224,7 +238,7 @@ export async function GET(request: Request) {
           totalInteractions: pick('total_interactions'),
           follows: pick('follows'),
           profileVisits: pick('profile_visits'),
-          videoDuration: p.video_duration ?? null,
+          videoDuration: extractDuration(p.media_url) ?? p.video_duration ?? null,
           avgWatchTimeMs: pick('ig_reels_avg_watch_time'),
           totalWatchTimeMs: pick('ig_reels_video_view_total_time'),
           skipRate: pick('reels_skip_rate'),
@@ -239,7 +253,7 @@ export async function GET(request: Request) {
           permalink: p.permalink,
           likes: p.like_count ?? 0,
           comments: p.comments_count ?? 0,
-          videoDuration: p.video_duration ?? null,
+          videoDuration: extractDuration(p.media_url) ?? p.video_duration ?? null,
           reach: null, saved: null, shares: null, views: null,
           totalInteractions: null, follows: null, profileVisits: null,
           avgWatchTimeMs: null, totalWatchTimeMs: null, skipRate: null,
