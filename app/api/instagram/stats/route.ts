@@ -181,41 +181,32 @@ export async function GET(request: Request) {
     mediaItems.map(async (p: any) => {
       const isReel = p.media_type === 'VIDEO' || p.media_type === 'REEL';
 
-      // Stratégie : appel de base commun à tous les types, puis appel reel séparé
-      // pour éviter qu'une métrique non supportée fasse échouer tout l'appel
-      const baseMetrics = isReel
-        ? 'likes,comments,reach,saved,shares,views,total_interactions'
-        : 'likes,comments,reach,saved,shares,views,total_interactions,follows,profile_visits';
-      const reelMetrics = 'ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate,follows,profile_visits';
+      // 3 calls indépendants pour éviter qu'une métrique refusée fasse échouer les autres
+      const safeInsights = async (metric: string) => {
+        try {
+          const r = await fetch(`https://graph.instagram.com/v22.0/${p.id}/insights?metric=${metric}&access_token=${token}`);
+          const d = await r.json();
+          if (d?.error || !d?.data) return {};
+          const out: Record<string, number> = {};
+          for (const m of d.data) out[m.name] = m.values?.[0]?.value ?? m.value ?? 0;
+          return out;
+        } catch { return {}; }
+      };
 
       try {
-        const insRes = await fetch(
-          `https://graph.instagram.com/v22.0/${p.id}/insights?metric=${baseMetrics}&access_token=${token}`
-        );
-        const insData = await insRes.json();
-
         const ins: Record<string, number> = {};
 
-        // Si erreur sur l'appel de base, on utilise les compteurs du feed comme fallback
-        if (!insData?.error) {
-          for (const m of insData?.data || []) {
-            ins[m.name] = m.values?.[0]?.value ?? m.value ?? 0;
-          }
-        }
+        // Call 1 : métriques communes à tous les types
+        Object.assign(ins, await safeInsights('likes,comments,reach,saved,shares,views,total_interactions'));
 
-        // Appel séparé pour les métriques reel uniquement si c'est un reel
         if (isReel) {
-          try {
-            const reelRes = await fetch(
-              `https://graph.instagram.com/v22.0/${p.id}/insights?metric=${reelMetrics}&access_token=${token}`
-            );
-            const reelData = await reelRes.json();
-            if (!reelData?.error) {
-              for (const m of reelData?.data || []) {
-                ins[m.name] = m.values?.[0]?.value ?? m.value ?? 0;
-              }
-            }
-          } catch { /* métriques reel optionnelles */ }
+          // Call 2 : watch time + skip rate (métriques reel)
+          Object.assign(ins, await safeInsights('ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate'));
+          // Call 3 : follows + profile_visits (séparé car peut être refusé selon l'app)
+          Object.assign(ins, await safeInsights('follows,profile_visits'));
+        } else {
+          // Pour les images/carousels : follows + profile_visits dans le call de base
+          Object.assign(ins, await safeInsights('follows,profile_visits'));
         }
 
         // null = métrique non disponible pour ce type de média (≠ 0)
