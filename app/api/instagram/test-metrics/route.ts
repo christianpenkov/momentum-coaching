@@ -129,6 +129,21 @@ export async function GET() {
     `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate&access_token=${token}`
   ) : { _note: 'no reel found' };
 
+  // ── 16. Test isolé : follows + profile_visits sur reel ───────────────────
+  const media_insights_reel_follows = firstReel ? await safe(
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=follows,profile_visits&access_token=${token}`
+  ) : { _note: 'no reel found' };
+
+  // ── 17. Test isolé : follows seul sur reel ───────────────────────────────
+  const media_insights_reel_follows_only = firstReel ? await safe(
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=follows&access_token=${token}`
+  ) : { _note: 'no reel found' };
+
+  // ── 18. Test isolé : profile_visits seul sur reel ────────────────────────
+  const media_insights_reel_profile_visits_only = firstReel ? await safe(
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=profile_visits&access_token=${token}`
+  ) : { _note: 'no reel found' };
+
   // ── 19. Stories actives ──────────────────────────────────────────────────
   const stories = await safe(
     `https://graph.instagram.com/v22.0/${igId}/stories?fields=id,media_type,timestamp,like_count,replies&access_token=${token}`
@@ -198,6 +213,9 @@ export async function GET() {
     // Insights reel (reposts/crosspost/completion non supportés)
     media_insights_reel_base,
     media_insights_reel_specific,
+    media_insights_reel_follows,
+    media_insights_reel_follows_only,
+    media_insights_reel_profile_visits_only,
 
     // Stories
     stories,
