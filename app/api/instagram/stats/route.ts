@@ -24,7 +24,7 @@ async function getRefreshedToken(profileId: string): Promise<{ token: string; ig
 
   if (needsRefresh) {
     const res = await fetch(
-      `https://graph.facebook.com/v21.0/oauth/access_token?grant_type=fb_exchange_token&client_id=${process.env.INSTAGRAM_CLIENT_ID}&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&fb_exchange_token=${token}`
+      `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${token}`
     );
     const data = await res.json();
     if (data.access_token) {
@@ -77,7 +77,7 @@ export async function GET(request: Request) {
   const [accountRes, mediaRes, insightsRes, demoRes, activeTimesRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v21.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
     fetch(`https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=100&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=reach,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=reach,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=follower_active_times&period=lifetime&access_token=${token}`),
   ]);
@@ -107,6 +107,8 @@ export async function GET(request: Request) {
   const totalInteractions30d = sum(insightMap['total_interactions'] || []);
   const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []);
   const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
+  const websiteClicks30d = sum(insightMap['website_clicks'] || []);
+  const profileViews30d = sum(insightMap['profile_views'] || []);
 
   // Démographie abonnés
   const demographics: Record<string, any> = {};
@@ -149,7 +151,7 @@ export async function GET(request: Request) {
 
       // Stratégie : appel de base commun à tous les types, puis appel reel séparé
       // pour éviter qu'une métrique non supportée fasse échouer tout l'appel
-      const baseMetrics = 'likes,comments,reach,saved,shares,views,total_interactions';
+      const baseMetrics = 'likes,comments,reach,saved,shares,views,total_interactions,follows,profile_visits';
       const reelMetrics = 'ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate,video_completion_rate';
 
       try {
@@ -196,6 +198,8 @@ export async function GET(request: Request) {
           shares: ins['shares'] ?? 0,
           views: ins['views'] ?? 0,
           totalInteractions: ins['total_interactions'] ?? 0,
+          follows: ins['follows'] ?? 0,
+          profileVisits: ins['profile_visits'] ?? 0,
           avgWatchTimeMs: ins['ig_reels_avg_watch_time'] ?? 0,
           totalWatchTimeMs: ins['ig_reels_video_view_total_time'] ?? 0,
           skipRate: ins['reels_skip_rate'] ?? 0,
@@ -212,7 +216,8 @@ export async function GET(request: Request) {
           likes: p.like_count ?? 0,
           comments: p.comments_count ?? 0,
           reach: 0, saved: 0, shares: 0, views: 0,
-          totalInteractions: 0, avgWatchTimeMs: 0, totalWatchTimeMs: 0, skipRate: 0, completionRate: 0,
+          totalInteractions: 0, follows: 0, profileVisits: 0,
+          avgWatchTimeMs: 0, totalWatchTimeMs: 0, skipRate: 0, completionRate: 0,
         };
       }
     })
@@ -231,6 +236,8 @@ export async function GET(request: Request) {
     totalInteractions30d,
     followsUnfollows30d,
     profileLinksTaps30d,
+    websiteClicks30d,
+    profileViews30d,
     chartData,
     posts: mediaWithInsights,
     demographics,

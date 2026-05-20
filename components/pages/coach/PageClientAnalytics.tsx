@@ -50,8 +50,10 @@ interface IgData {
   totalInteractions30d: number;
   followsUnfollows30d: number;
   profileLinksTaps30d: number;
+  websiteClicks30d: number;
+  profileViews30d: number;
   chartData: { date: string; reach: number }[];
-  posts: { id: string; type: string; thumbnail: string; timestamp: string; permalink: string; likes: number; comments: number; reach: number; saved: number; shares: number; views: number }[];
+  posts: { id: string; type: string; thumbnail: string; timestamp: string; permalink: string; likes: number; comments: number; reach: number; saved: number; shares: number; views: number; follows: number; profileVisits: number }[];
 }
 
 function KpiCard({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
@@ -401,6 +403,8 @@ export default function PageClientAnalytics({ id }: Props) {
             <KpiCard label="Reach 30j" value={igData.reach30d.toLocaleString('fr-FR')} sub="Comptes uniques atteints" />
             <KpiCard label="Nouveaux abonnés 30j" value={`${igData.followsUnfollows30d >= 0 ? '+' : ''}${igData.followsUnfollows30d.toLocaleString('fr-FR')}`} color={igData.followsUnfollows30d >= 0 ? 'var(--green)' : 'var(--red)'} />
             <KpiCard label="Interactions 30j" value={igData.totalInteractions30d.toLocaleString('fr-FR')} sub={`${igData.accountsEngaged30d.toLocaleString('fr-FR')} comptes engagés`} />
+            {igData.websiteClicks30d > 0 && <KpiCard label="Clics lien bio" value={igData.websiteClicks30d.toLocaleString('fr-FR')} />}
+            {igData.profileViews30d > 0 && <KpiCard label="Vues de profil 30j" value={igData.profileViews30d.toLocaleString('fr-FR')} />}
           </div>
 
           {igData.chartData?.length > 0 && (

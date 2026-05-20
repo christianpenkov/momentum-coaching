@@ -744,6 +744,8 @@ export default function PageClientStats() {
               <KpiCard label="Comptes engagés" value={igData.accountsEngaged30d.toLocaleString('fr-FR')} positive={igData.accountsEngaged30d > 0} />
               <KpiCard label="Interactions" value={igData.totalInteractions30d.toLocaleString('fr-FR')} positive={igData.totalInteractions30d > 0} />
               {igData.profileLinksTaps30d > 0 && <KpiCard label="Taps liens profil" value={igData.profileLinksTaps30d.toLocaleString('fr-FR')} positive />}
+              {igData.websiteClicks30d > 0 && <KpiCard label="Clics lien bio" value={igData.websiteClicks30d.toLocaleString('fr-FR')} positive />}
+              {igData.profileViews30d > 0 && <KpiCard label="Vues de profil" value={igData.profileViews30d.toLocaleString('fr-FR')} positive={igData.profileViews30d > 0} />}
             </div>
 
             {/* Graphique reach par jour */}
@@ -916,6 +918,8 @@ export default function PageClientStats() {
                         { label: 'Partages', value: selectedPost.shares > 0 ? selectedPost.shares.toLocaleString('fr-FR') : '—' },
                         { label: 'Enregistrements', value: selectedPost.saved > 0 ? selectedPost.saved.toLocaleString('fr-FR') : '—' },
                         { label: 'Interactions', value: selectedPost.totalInteractions > 0 ? selectedPost.totalInteractions.toLocaleString('fr-FR') : '—' },
+                        { label: 'Nouveaux abonnés', value: (selectedPost as any).follows > 0 ? `+${(selectedPost as any).follows}` : '—' },
+                        { label: 'Visites profil', value: (selectedPost as any).profileVisits > 0 ? (selectedPost as any).profileVisits.toLocaleString('fr-FR') : '—' },
                         ...(selectedPost.type === 'VIDEO' ? [
                           { label: 'Watch time moy.', value: selectedPost.avgWatchTimeMs > 0 ? `${(selectedPost.avgWatchTimeMs / 1000).toFixed(1)}s` : '—' },
                           { label: 'Watch time total', value: selectedPost.totalWatchTimeMs > 0 ? `${Math.round(selectedPost.totalWatchTimeMs / 1000)}s` : '—' },
