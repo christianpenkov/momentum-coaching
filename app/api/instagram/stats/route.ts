@@ -200,12 +200,11 @@ export async function GET(request: Request) {
         Object.assign(ins, await safeInsights('likes,comments,reach,saved,shares,views,total_interactions'));
 
         if (isReel) {
-          // Call 2 : watch time + skip rate (métriques reel)
+          // Call 2 : watch time + skip rate (métriques reel uniquement)
           Object.assign(ins, await safeInsights('ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate'));
-          // Call 3 : follows + profile_visits (séparé car peut être refusé selon l'app)
-          Object.assign(ins, await safeInsights('follows,profile_visits'));
+          // follows + profile_visits non supportés sur les reels (erreur API confirmée)
         } else {
-          // Pour les images/carousels : follows + profile_visits dans le call de base
+          // Pour les images/carousels : follows + profile_visits supportés
           Object.assign(ins, await safeInsights('follows,profile_visits'));
         }
 
