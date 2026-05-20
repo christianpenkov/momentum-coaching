@@ -945,9 +945,14 @@ export default function PageClientStats() {
                         const sRound = (v: number | null) => v === null ? '—' : `${Math.round(v / 1000)}s`;
                         const plus = (v: number | null) => v === null ? '—' : v > 0 ? `+${v}` : String(v);
                         // Métriques funnel calculées
+                        // reachRate : reach du post / abonnés du compte (≠ reach30d qui est global)
                         const reachRate = (p.reach !== null && followers > 0) ? p.reach / followers * 100 : null;
                         const engagementRate = (p.totalInteractions !== null && p.reach > 0) ? p.totalInteractions / p.reach * 100 : null;
                         const savesRate = (p.saved !== null && p.reach > 0) ? p.saved / p.reach * 100 : null;
+                        // completionRate : avgWatchTime / video_duration (disponible via champ video_duration)
+                        const completionRate = (p.avgWatchTimeMs !== null && p.videoDuration > 0)
+                          ? (p.avgWatchTimeMs / 1000) / p.videoDuration * 100
+                          : null;
                         return [
                           { label: 'Vues', value: n(p.views) },
                           { label: 'Reach', value: n(p.reach) },
@@ -965,6 +970,7 @@ export default function PageClientStats() {
                             { label: 'Watch time moy.', value: s(p.avgWatchTimeMs) },
                             { label: 'Watch time total', value: sRound(p.totalWatchTimeMs) },
                             { label: 'Taux de skip', value: pct(p.skipRate) },
+                            { label: 'Complétion', value: pct(completionRate), tip: 'watch time moy. / durée vidéo' },
                           ] : []),
                         ];
                       })().map(s => (

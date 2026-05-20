@@ -76,7 +76,7 @@ export async function GET(request: Request) {
 
   const [accountRes, mediaRes, insightsRes, demoRes, onlineFollowersRes, viewsBreakdownRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=100&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,is_shared_to_feed,video_duration&limit=100&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,views,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=day&since=${since}&until=${until}&access_token=${token}`),
@@ -224,6 +224,7 @@ export async function GET(request: Request) {
           totalInteractions: pick('total_interactions'),
           follows: pick('follows'),
           profileVisits: pick('profile_visits'),
+          videoDuration: p.video_duration ?? null,
           avgWatchTimeMs: pick('ig_reels_avg_watch_time'),
           totalWatchTimeMs: pick('ig_reels_video_view_total_time'),
           skipRate: pick('reels_skip_rate'),
@@ -238,6 +239,7 @@ export async function GET(request: Request) {
           permalink: p.permalink,
           likes: p.like_count ?? 0,
           comments: p.comments_count ?? 0,
+          videoDuration: p.video_duration ?? null,
           reach: null, saved: null, shares: null, views: null,
           totalInteractions: null, follows: null, profileVisits: null,
           avgWatchTimeMs: null, totalWatchTimeMs: null, skipRate: null,
