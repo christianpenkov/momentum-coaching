@@ -40,7 +40,7 @@ export async function GET() {
 
   // ── 1. Profil — tous les champs v22.0 ───────────────────────────────────
   const account = await safe(
-    `https://graph.instagram.com/v22.0/${igId}?fields=id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website,account_type,ig_id&access_token=${token}`
+    `https://graph.instagram.com/v22.0/${igId}?fields=id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography,website,account_type&access_token=${token}`
   );
 
   // ── 2. Insights compte — métriques day 30j (toutes les métriques connues) ─
@@ -89,9 +89,9 @@ export async function GET() {
     `https://graph.instagram.com/v22.0/${igId}/insights?metric=follower_demographics&period=lifetime&breakdown=city&access_token=${token}`
   );
 
-  // ── 10. Heures d'activité abonnés ────────────────────────────────────────
-  const active_times = await safe(
-    `https://graph.instagram.com/v22.0/${igId}/insights?metric=follower_active_times&period=lifetime&access_token=${token}`
+  // ── 10. Abonnés en ligne par heure (remplace follower_active_times) ────────
+  const online_followers = await safe(
+    `https://graph.instagram.com/v22.0/${igId}/insights?metric=online_followers&period=day&since=${since}&until=${until}&access_token=${token}`
   );
 
   // ── 11. Médias — tous les champs disponibles ─────────────────────────────
@@ -113,14 +113,14 @@ export async function GET() {
     `https://graph.instagram.com/v22.0/${firstPost.id}/insights?metric=reposts&access_token=${token}`
   ) : { _note: 'no image/carousel post found' };
 
-  // ── 14. Insights reel — métriques de base ────────────────────────────────
+  // ── 14. Insights reel — métriques de base (follows/profile_visits = IMAGE only) ───
   const media_insights_reel_base = firstReel ? await safe(
-    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=likes,comments,reach,saved,shares,views,total_interactions,follows,profile_visits&access_token=${token}`
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=likes,comments,reach,saved,shares,views,total_interactions&access_token=${token}`
   ) : { _note: 'no reel found' };
 
   // ── 15. Insights reel — métriques spécifiques reel ───────────────────────
   const media_insights_reel_specific = firstReel ? await safe(
-    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate&access_token=${token}`
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate,clips_replays_count,ig_reels_aggregated_all_plays_count&access_token=${token}`
   ) : { _note: 'no reel found' };
 
   // ── 16. Reposts reel (nouveau déc. 2025) ─────────────────────────────────
@@ -199,7 +199,7 @@ export async function GET() {
     demographics_age_gender,
     demographics_country,
     demographics_city,
-    active_times,
+    online_followers,
 
     // Médias
     media_list,

@@ -74,16 +74,16 @@ export async function GET(request: Request) {
 
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  const [accountRes, mediaRes, insightsRes, demoRes, activeTimesRes] = await Promise.all([
-    fetch(`https://graph.instagram.com/v21.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=100&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=reach,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v21.0/${igAccountId}/insights?metric=follower_active_times&period=lifetime&access_token=${token}`),
+  const [accountRes, mediaRes, insightsRes, demoRes, onlineFollowersRes] = await Promise.all([
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=100&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=day&since=${since}&until=${until}&access_token=${token}`),
   ]);
 
-  const [accountData, mediaData, insightsData, demoData, activeTimesData] = await Promise.all([
-    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(demoRes), safeJson(activeTimesRes),
+  const [accountData, mediaData, insightsData, demoData, onlineFollowersData] = await Promise.all([
+    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(demoRes), safeJson(onlineFollowersRes),
   ]);
 
   if (accountData.error) {
@@ -126,11 +126,11 @@ export async function GET(request: Request) {
     }
   }
 
-  // Heures d'activité des abonnés
-  let activeTimes: any = null;
-  for (const metric of activeTimesData?.data || []) {
-    if (metric.name === 'follower_active_times' && metric.total_value) {
-      activeTimes = metric.total_value;
+  // Abonnés en ligne par heure (online_followers period=day)
+  let onlineFollowers: any = null;
+  for (const metric of onlineFollowersData?.data || []) {
+    if (metric.name === 'online_followers' && metric.total_value) {
+      onlineFollowers = metric.total_value;
     }
   }
 
@@ -151,12 +151,14 @@ export async function GET(request: Request) {
 
       // Stratégie : appel de base commun à tous les types, puis appel reel séparé
       // pour éviter qu'une métrique non supportée fasse échouer tout l'appel
-      const baseMetrics = 'likes,comments,reach,saved,shares,views,total_interactions,follows,profile_visits';
-      const reelMetrics = 'ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate,video_completion_rate';
+      const baseMetrics = isReel
+        ? 'likes,comments,reach,saved,shares,views,total_interactions'
+        : 'likes,comments,reach,saved,shares,views,total_interactions,follows,profile_visits';
+      const reelMetrics = 'ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate';
 
       try {
         const insRes = await fetch(
-          `https://graph.instagram.com/v21.0/${p.id}/insights?metric=${baseMetrics}&access_token=${token}`
+          `https://graph.instagram.com/v22.0/${p.id}/insights?metric=${baseMetrics}&access_token=${token}`
         );
         const insData = await insRes.json();
 
@@ -173,7 +175,7 @@ export async function GET(request: Request) {
         if (isReel) {
           try {
             const reelRes = await fetch(
-              `https://graph.instagram.com/v21.0/${p.id}/insights?metric=${reelMetrics}&access_token=${token}`
+              `https://graph.instagram.com/v22.0/${p.id}/insights?metric=${reelMetrics}&access_token=${token}`
             );
             const reelData = await reelRes.json();
             if (!reelData?.error) {
@@ -241,6 +243,6 @@ export async function GET(request: Request) {
     chartData,
     posts: mediaWithInsights,
     demographics,
-    activeTimes,
+    onlineFollowers,
   });
 }
