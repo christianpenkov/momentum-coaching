@@ -937,20 +937,28 @@ export default function PageClientStats() {
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 10 }}>
                       {(() => {
                         const p = selectedPost as any;
+                        const followers = igData.followers;
                         // fmt : null = pas de données → '—' ; 0 → '0' ; n → formaté
                         const n = (v: number | null) => v === null ? '—' : v.toLocaleString('fr-FR');
                         const pct = (v: number | null) => v === null ? '—' : `${v.toFixed(1)}%`;
                         const s = (v: number | null) => v === null ? '—' : `${(v / 1000).toFixed(1)}s`;
                         const sRound = (v: number | null) => v === null ? '—' : `${Math.round(v / 1000)}s`;
                         const plus = (v: number | null) => v === null ? '—' : v > 0 ? `+${v}` : String(v);
+                        // Métriques funnel calculées
+                        const reachRate = (p.reach !== null && followers > 0) ? p.reach / followers * 100 : null;
+                        const engagementRate = (p.totalInteractions !== null && p.reach > 0) ? p.totalInteractions / p.reach * 100 : null;
+                        const savesRate = (p.saved !== null && p.reach > 0) ? p.saved / p.reach * 100 : null;
                         return [
                           { label: 'Vues', value: n(p.views) },
                           { label: 'Reach', value: n(p.reach) },
+                          { label: 'Reach rate', value: pct(reachRate), tip: 'reach / abonnés' },
                           { label: 'Likes', value: n(p.likes) },
                           { label: 'Commentaires', value: n(p.comments) },
                           { label: 'Partages', value: n(p.shares) },
                           { label: 'Enregistrements', value: n(p.saved) },
+                          { label: 'Saves rate', value: pct(savesRate), tip: 'enreg. / reach — >1% = contenu qui convertit' },
                           { label: 'Interactions', value: n(p.totalInteractions) },
+                          { label: 'Eng. rate', value: pct(engagementRate), tip: 'interactions / reach' },
                           { label: 'Nouveaux abonnés', value: plus(p.follows) },
                           { label: 'Visites profil', value: n(p.profileVisits) },
                           ...(p.type === 'VIDEO' ? [
@@ -963,6 +971,7 @@ export default function PageClientStats() {
                         <div key={s.label} style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '10px 14px', border: '1px solid var(--border)' }}>
                           <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, fontWeight: 500 }}>{s.label}</div>
                           <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{s.value}</div>
+                          {(s as any).tip && <div style={{ fontSize: 9, color: 'var(--muted)', marginTop: 3, lineHeight: 1.3 }}>{(s as any).tip}</div>}
                         </div>
                       ))}
                     </div>
