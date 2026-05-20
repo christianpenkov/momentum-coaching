@@ -101,7 +101,7 @@ export async function GET() {
 
   // ── 11. Médias — tous les champs disponibles ─────────────────────────────
   const media_list = await safe(
-    `https://graph.instagram.com/v22.0/${igId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,ig_id,is_shared_to_feed,media_product_type&limit=10&access_token=${token}`
+    `https://graph.instagram.com/v22.0/${igId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,is_shared_to_feed,media_product_type,video_duration&limit=10&access_token=${token}`
   );
 
   const mediaData = media_list as any;
