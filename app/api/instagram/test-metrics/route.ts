@@ -124,23 +124,9 @@ export async function GET() {
   ) : { _note: 'no reel found' };
 
   // ── 15. Insights reel — métriques spécifiques reel ───────────────────────
+  // clips_replays_count + ig_reels_aggregated_all_plays_count : non supportés (confirmé)
   const media_insights_reel_specific = firstReel ? await safe(
-    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate,clips_replays_count,ig_reels_aggregated_all_plays_count&access_token=${token}`
-  ) : { _note: 'no reel found' };
-
-  // ── 16. Reposts reel (nouveau déc. 2025) ─────────────────────────────────
-  const media_insights_reel_reposts = firstReel ? await safe(
-    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=reposts&access_token=${token}`
-  ) : { _note: 'no reel found' };
-
-  // ── 17. Crossposted views reel (nouveau déc. 2025) ───────────────────────
-  const media_insights_reel_crosspost = firstReel ? await safe(
-    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=crossposted_views,facebook_views&access_token=${token}`
-  ) : { _note: 'no reel found' };
-
-  // ── 18. video_completion_rate — test explicite (attendu: erreur) ──────────
-  const media_insights_reel_completion = firstReel ? await safe(
-    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=video_completion_rate&access_token=${token}`
+    `https://graph.instagram.com/v22.0/${firstReel.id}/insights?metric=ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate&access_token=${token}`
   ) : { _note: 'no reel found' };
 
   // ── 19. Stories actives ──────────────────────────────────────────────────
@@ -170,15 +156,11 @@ export async function GET() {
     `https://graph.instagram.com/v22.0/${igId}/tags?fields=id,media_type,timestamp,like_count,comments_count,permalink&limit=5&access_token=${token}`
   );
 
-  // ── 23. Mentions ─────────────────────────────────────────────────────────
-  const mentions = await safe(
-    `https://graph.instagram.com/v22.0/${igId}?fields=mentioned_media.fields(id,media_type,timestamp,caption)&access_token=${token}`
-  );
+  // ── 23. Mentions — champ mentioned_media non supporté en v22.0 ──────────
+  const mentions = { _note: 'mentioned_media field not supported in v22.0' };
 
-  // ── 24. Hashtags récemment recherchés ────────────────────────────────────
-  const hashtags_followed = await safe(
-    `https://graph.instagram.com/v22.0/${igId}/recently_searched_hashtags?access_token=${token}`
-  );
+  // ── 24. Hashtags récemment recherchés — non supporté en v22.0 ────────────
+  const hashtags_followed = { _note: 'recently_searched_hashtags not supported in v22.0' };
 
   return NextResponse.json({
     _test_route: 'SUPPRIMER AVANT LIVRAISON',
@@ -210,16 +192,12 @@ export async function GET() {
     // Médias
     media_list,
 
-    // Insights post
+    // Insights post (reposts non supporté)
     media_insights_post_base,
-    media_insights_post_reposts,
 
-    // Insights reel
+    // Insights reel (reposts/crosspost/completion non supportés)
     media_insights_reel_base,
     media_insights_reel_specific,
-    media_insights_reel_reposts,
-    media_insights_reel_crosspost,
-    media_insights_reel_completion,
 
     // Stories
     stories,
