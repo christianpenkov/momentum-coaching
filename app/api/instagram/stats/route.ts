@@ -183,9 +183,7 @@ export async function GET(request: Request) {
 
       // Stratégie : appel de base commun à tous les types, puis appel reel séparé
       // pour éviter qu'une métrique non supportée fasse échouer tout l'appel
-      const baseMetrics = isReel
-        ? 'likes,comments,reach,saved,shares,views,total_interactions'
-        : 'likes,comments,reach,saved,shares,views,total_interactions,follows,profile_visits';
+      const baseMetrics = 'likes,comments,reach,saved,shares,views,total_interactions,follows,profile_visits';
       const reelMetrics = 'ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate';
 
       try {
