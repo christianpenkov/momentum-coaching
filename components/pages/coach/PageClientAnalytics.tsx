@@ -52,6 +52,8 @@ interface IgData {
   profileLinksTaps30d: number;
   websiteClicks30d: number;
   profileViews30d: number;
+  views30d: number;
+  viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
   chartData: { date: string; reach: number }[];
   posts: { id: string; type: string; thumbnail: string; timestamp: string; permalink: string; likes: number; comments: number; reach: number; saved: number; shares: number; views: number; follows: number; profileVisits: number }[];
 }
@@ -405,6 +407,13 @@ export default function PageClientAnalytics({ id }: Props) {
             <KpiCard label="Interactions 30j" value={igData.totalInteractions30d.toLocaleString('fr-FR')} sub={`${igData.accountsEngaged30d.toLocaleString('fr-FR')} comptes engagés`} />
             {igData.websiteClicks30d > 0 && <KpiCard label="Clics lien bio" value={igData.websiteClicks30d.toLocaleString('fr-FR')} />}
             {igData.profileViews30d > 0 && <KpiCard label="Vues de profil 30j" value={igData.profileViews30d.toLocaleString('fr-FR')} />}
+            {igData.views30d > 0 && <KpiCard label="Vues 30j" value={igData.views30d.toLocaleString('fr-FR')} />}
+            {igData.viewsFollowerBreakdown && (() => {
+              const bd = igData.viewsFollowerBreakdown!;
+              const total = bd.follower + bd.nonFollower;
+              const viralPct = total > 0 ? Math.round((bd.nonFollower / total) * 100) : 0;
+              return <KpiCard label="Part non-abonnés" value={`${viralPct}%`} sub="des vues (viralité)" color={viralPct > 50 ? 'var(--green)' : undefined} />;
+            })()}
           </div>
 
           {igData.chartData?.length > 0 && (

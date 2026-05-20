@@ -746,7 +746,32 @@ export default function PageClientStats() {
               {igData.profileLinksTaps30d > 0 && <KpiCard label="Taps liens profil" value={igData.profileLinksTaps30d.toLocaleString('fr-FR')} positive />}
               {igData.websiteClicks30d > 0 && <KpiCard label="Clics lien bio" value={igData.websiteClicks30d.toLocaleString('fr-FR')} positive />}
               {igData.profileViews30d > 0 && <KpiCard label="Vues de profil" value={igData.profileViews30d.toLocaleString('fr-FR')} positive={igData.profileViews30d > 0} />}
+              {(igData as any).views30d > 0 && <KpiCard label="Vues 30j" value={(igData as any).views30d.toLocaleString('fr-FR')} positive />}
             </div>
+
+            {/* Viralité : part non-abonnés dans les vues */}
+            {(igData as any).viewsFollowerBreakdown && (() => {
+              const bd = (igData as any).viewsFollowerBreakdown;
+              const total = bd.follower + bd.nonFollower;
+              const viralPct = total > 0 ? Math.round((bd.nonFollower / total) * 100) : 0;
+              return (
+                <div className="card" style={{ marginBottom: 20, padding: '16px 20px' }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Viralité organique — vues par type d'audience</div>
+                  <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                    <div style={{ flex: 1, minWidth: 120, background: 'var(--surface-2)', borderRadius: 10, padding: '12px 16px', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>Non-abonnés</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: '#e1306c', fontFamily: 'var(--font-mono)' }}>{viralPct}%</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{bd.nonFollower.toLocaleString('fr-FR')} vues</div>
+                    </div>
+                    <div style={{ flex: 1, minWidth: 120, background: 'var(--surface-2)', borderRadius: 10, padding: '12px 16px', border: '1px solid var(--border)' }}>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>Abonnés</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>{100 - viralPct}%</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)' }}>{bd.follower.toLocaleString('fr-FR')} vues</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
 
             {/* Graphique reach par jour */}
             {igData.chartData?.length > 0 && igData.reach30d > 0 && (

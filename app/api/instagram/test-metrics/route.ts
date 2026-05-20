@@ -45,7 +45,12 @@ export async function GET() {
 
   // ── 2. Insights compte — métriques day 30j (toutes les métriques connues) ─
   const insights_day_30 = await safe(
-    `https://graph.instagram.com/v22.0/${igId}/insights?metric=reach,profile_views,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,follower_count&period=day&since=${since}&until=${until}&access_token=${token}`
+    `https://graph.instagram.com/v22.0/${igId}/insights?metric=reach,views,profile_views,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,follower_count&period=day&since=${since}&until=${until}&access_token=${token}`
+  );
+
+  // ── 2b. Views breakdown follower_type (viralité organique) ──────────────
+  const views_follower_breakdown = await safe(
+    `https://graph.instagram.com/v22.0/${igId}/insights?metric=views&period=day&since=${since}&until=${until}&breakdown=follower_type&access_token=${token}`
   );
 
   // ── 3. Insights compte — métriques day 90j ──────────────────────────────
@@ -188,6 +193,7 @@ export async function GET() {
 
     // Insights compte
     insights_day_30,
+    views_follower_breakdown,
     insights_day_90,
     insights_week,
     insights_month,

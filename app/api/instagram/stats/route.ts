@@ -74,16 +74,17 @@ export async function GET(request: Request) {
 
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  const [accountRes, mediaRes, insightsRes, demoRes, onlineFollowersRes] = await Promise.all([
+  const [accountRes, mediaRes, insightsRes, demoRes, onlineFollowersRes, viewsBreakdownRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=100&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=100&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,views,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&period=day&since=${since}&until=${until}&breakdown=follower_type&access_token=${token}`),
   ]);
 
-  const [accountData, mediaData, insightsData, demoData, onlineFollowersData] = await Promise.all([
-    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(demoRes), safeJson(onlineFollowersRes),
+  const [accountData, mediaData, insightsData, demoData, onlineFollowersData, viewsBreakdownData] = await Promise.all([
+    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(demoRes), safeJson(onlineFollowersRes), safeJson(viewsBreakdownRes),
   ]);
 
   if (accountData.error) {
@@ -109,6 +110,23 @@ export async function GET(request: Request) {
   const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
   const websiteClicks30d = sum(insightMap['website_clicks'] || []);
   const profileViews30d = sum(insightMap['profile_views'] || []);
+  const views30d = sum(insightMap['views'] || []);
+
+  // Views breakdown follower_type : part abonnés vs non-abonnés (viralité)
+  let viewsFollowerBreakdown: { follower: number; nonFollower: number } | null = null;
+  for (const metric of viewsBreakdownData?.data || []) {
+    if (metric.name === 'views' && metric.total_value?.breakdowns) {
+      let follower = 0, nonFollower = 0;
+      for (const bd of metric.total_value.breakdowns) {
+        for (const r of bd.results || []) {
+          const key = r.dimension_values?.[0];
+          if (key === 'FOLLOWER') follower += r.value || 0;
+          else if (key === 'NON_FOLLOWER') nonFollower += r.value || 0;
+        }
+      }
+      if (follower + nonFollower > 0) viewsFollowerBreakdown = { follower, nonFollower };
+    }
+  }
 
   // Démographie abonnés
   const demographics: Record<string, any> = {};
@@ -205,7 +223,6 @@ export async function GET(request: Request) {
           avgWatchTimeMs: ins['ig_reels_avg_watch_time'] ?? 0,
           totalWatchTimeMs: ins['ig_reels_video_view_total_time'] ?? 0,
           skipRate: ins['reels_skip_rate'] ?? 0,
-          completionRate: ins['video_completion_rate'] ?? 0,
         };
       } catch {
         return {
@@ -219,7 +236,7 @@ export async function GET(request: Request) {
           comments: p.comments_count ?? 0,
           reach: 0, saved: 0, shares: 0, views: 0,
           totalInteractions: 0, follows: 0, profileVisits: 0,
-          avgWatchTimeMs: 0, totalWatchTimeMs: 0, skipRate: 0, completionRate: 0,
+          avgWatchTimeMs: 0, totalWatchTimeMs: 0, skipRate: 0,
         };
       }
     })
@@ -240,6 +257,8 @@ export async function GET(request: Request) {
     profileLinksTaps30d,
     websiteClicks30d,
     profileViews30d,
+    views30d,
+    viewsFollowerBreakdown,
     chartData,
     posts: mediaWithInsights,
     demographics,
