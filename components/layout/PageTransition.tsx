@@ -8,8 +8,6 @@ export default function PageTransition({ children }: { children: React.ReactNode
   const [displayChildren, setDisplayChildren] = useState(children);
   const [visible, setVisible] = useState(true);
   const prevPathname = useRef(pathname);
-
-  // Iris wipe : overlay fixe qui part plein écran et le trou s'agrandit
   const overlayRef = useRef<HTMLDivElement>(null);
   const irisPlayed = useRef(false);
 
@@ -32,19 +30,30 @@ export default function PageTransition({ children }: { children: React.ReactNode
       Math.max(oy, window.innerHeight - oy),
     );
 
-    // Rendre visible avant d'animer
     el.style.display = 'block';
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
+        // L'overlay utilise un mask radial : le trou commence à 0px et grandit
+        // Le mask définit ce qui EST visible de l'overlay
+        // circle(0px) = overlay couvre tout (aucun trou)
+        // circle(endRadius) = overlay entièrement transparent (trou couvre tout)
         el.animate(
           [
-            { clipPath: `circle(${endRadius}px at ${ox}px ${oy}px)` },
-            { clipPath: `circle(0px at ${ox}px ${oy}px)` },
+            {
+              // Début : overlay plein, trou = 0px au centre du bouton
+              WebkitMaskImage: `radial-gradient(circle 0px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
+              maskImage: `radial-gradient(circle 0px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
+            },
+            {
+              // Fin : trou couvre tout l'écran, overlay invisible
+              WebkitMaskImage: `radial-gradient(circle ${endRadius}px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
+              maskImage: `radial-gradient(circle ${endRadius}px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
+            },
           ],
           {
             duration: 800,
-            easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
             fill: 'forwards',
           }
         ).onfinish = () => { el.style.display = 'none'; };
@@ -52,7 +61,6 @@ export default function PageTransition({ children }: { children: React.ReactNode
     });
   }, []);
 
-  // Transition fade normale entre pages internes
   useEffect(() => {
     if (pathname !== prevPathname.current) {
       prevPathname.current = pathname;
@@ -69,7 +77,6 @@ export default function PageTransition({ children }: { children: React.ReactNode
 
   return (
     <>
-      {/* Overlay iris : part plein écran, trou se rétrécit vers le bouton */}
       <div
         ref={overlayRef}
         aria-hidden="true"
@@ -82,14 +89,7 @@ export default function PageTransition({ children }: { children: React.ReactNode
           pointerEvents: 'none',
         }}
       />
-
-      <div
-        style={{
-          opacity: visible ? 1 : 0,
-          transition: visible ? 'opacity 0.15s ease-out' : 'none',
-          display: 'contents',
-        }}
-      >
+      <div style={{ opacity: visible ? 1 : 0, transition: visible ? 'opacity 0.15s ease-out' : 'none', display: 'contents' }}>
         {displayChildren}
       </div>
     </>
