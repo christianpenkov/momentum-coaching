@@ -1,9 +1,8 @@
 'use client';
 
-import { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useCallback, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
-interface IrisCoords { x: number; y: number; }
 interface IrisContextValue {
   triggerIris: (destination: string, ox: number, oy: number) => void;
 }
@@ -17,47 +16,55 @@ export function useIris() {
 }
 
 export function IrisProvider({ children }: { children: ReactNode }) {
-  const [coords, setCoords] = useState<IrisCoords | null>(null);
   const router = useRouter();
 
   const triggerIris = useCallback((destination: string, ox: number, oy: number) => {
-    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (typeof window === 'undefined') { router.push(destination); return; }
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { router.push(destination); return; }
+
+    // Fallback sans View Transitions API
+    if (!('startViewTransition' in document)) {
       router.push(destination);
       return;
     }
-    setCoords({ x: ox, y: oy });
-    requestAnimationFrame(() => router.push(destination));
+
+    const endRadius = Math.hypot(
+      Math.max(ox, window.innerWidth - ox),
+      Math.max(oy, window.innerHeight - oy),
+    );
+
+    // startViewTransition : le browser snapshote la page courante,
+    // exécute le callback (navigate), puis anime entre les deux états
+    const transition = (document as any).startViewTransition(() => {
+      router.push(destination);
+    });
+
+    // transition.ready = les pseudo-éléments ::view-transition-* existent
+    transition.ready.then(() => {
+      document.documentElement.animate(
+        {
+          clipPath: [
+            `circle(0px at ${ox}px ${oy}px)`,
+            `circle(${endRadius}px at ${ox}px ${oy}px)`,
+          ],
+        },
+        {
+          duration: 700,
+          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+          pseudoElement: '::view-transition-new(root)',
+        },
+      );
+    });
   }, [router]);
 
   return (
     <IrisContext.Provider value={{ triggerIris }}>
       {children}
-
       <style>{`
-        @keyframes iris-open {
-          from { clip-path: circle(0px     at var(--ox) var(--oy)); }
-          to   { clip-path: circle(200vmax at var(--ox) var(--oy)); }
-        }
-        .iris-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 9999;
-          background: var(--bg);
-          pointer-events: none;
-          will-change: clip-path;
-          animation: iris-open 650ms cubic-bezier(0.22, 1, 0.36, 1) 250ms both;
-        }
+        /* Désactiver l'animation par défaut (crossfade) du View Transitions API */
+        ::view-transition-old(root) { animation: none; }
+        ::view-transition-new(root) { animation: none; }
       `}</style>
-
-      {coords && (
-        <div
-          key={`iris-${coords.x}-${coords.y}`}
-          aria-hidden="true"
-          className="iris-overlay"
-          onAnimationEnd={() => setCoords(null)}
-          style={{ '--ox': `${coords.x}px`, '--oy': `${coords.y}px` } as React.CSSProperties}
-        />
-      )}
     </IrisContext.Provider>
   );
 }
