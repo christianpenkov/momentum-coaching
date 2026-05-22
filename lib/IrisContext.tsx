@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useCallback, useRef, useState, ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
 
 interface IrisContextValue {
@@ -16,45 +16,66 @@ export function useIris() {
 }
 
 export function IrisProvider({ children }: { children: ReactNode }) {
+  const [visible, setVisible] = useState(false);
+  const overlayRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
 
   const triggerIris = useCallback((destination: string, ox: number, oy: number) => {
     if (typeof window === 'undefined') { router.push(destination); return; }
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { router.push(destination); return; }
 
-    // Passe les coordonnées au CSS via des custom properties sur :root
     const endRadius = Math.hypot(
       Math.max(ox, window.innerWidth - ox),
       Math.max(oy, window.innerHeight - oy),
     );
-    document.documentElement.style.setProperty('--iris-ox', `${ox}px`);
-    document.documentElement.style.setProperty('--iris-oy', `${oy}px`);
-    document.documentElement.style.setProperty('--iris-r', `${endRadius}px`);
 
-    // router.push avec transitionTypes pour activer la View Transition React/Next.js
-    router.push(destination, { transition: 'iris-open' } as any);
+    // 1. Montre le div (position fixed, background beige, clip-path = 0px)
+    setVisible(true);
+
+    // 2. Attend que le div soit dans le DOM, puis lance l'animation
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = overlayRef.current;
+        if (!el) { router.push(destination); return; }
+
+        // Web Animations API — aucun conflit avec CSS inline
+        const anim = el.animate(
+          [
+            { clipPath: `circle(0px at ${ox}px ${oy}px)` },
+            { clipPath: `circle(${endRadius}px at ${ox}px ${oy}px)` },
+          ],
+          {
+            duration: 700,
+            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            fill: 'forwards',
+          }
+        );
+
+        // Navigate immédiatement — le dashboard charge sous l'overlay
+        router.push(destination);
+
+        // Retire l'overlay quand l'animation est finie
+        anim.onfinish = () => setVisible(false);
+      });
+    });
   }, [router]);
 
   return (
     <IrisContext.Provider value={{ triggerIris }}>
       {children}
-      <style>{`
-        /* Désactive le crossfade par défaut */
-        ::view-transition-old(root) { animation: none; }
-        /* Anime uniquement la nouvelle page avec le clip-path circulaire */
-        ::view-transition-new(root) {
-          animation: iris-reveal 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
-        }
-        @keyframes iris-reveal {
-          from { clip-path: circle(0px     at var(--iris-ox, 50%) var(--iris-oy, 50%)); }
-          to   { clip-path: circle(var(--iris-r, 200vmax) at var(--iris-ox, 50%) var(--iris-oy, 50%)); }
-        }
-        @media (prefers-reduced-motion: reduce) {
-          ::view-transition-old(root), ::view-transition-new(root) {
-            animation-duration: 0s !important;
-          }
-        }
-      `}</style>
+      {visible && (
+        <div
+          ref={overlayRef}
+          aria-hidden="true"
+          style={{
+            position: 'fixed',
+            inset: 0,
+            zIndex: 9999,
+            background: 'var(--bg)',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
     </IrisContext.Provider>
   );
 }
