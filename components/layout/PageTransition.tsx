@@ -8,10 +8,11 @@ export default function PageTransition({ children }: { children: React.ReactNode
   const [displayChildren, setDisplayChildren] = useState(children);
   const [visible, setVisible] = useState(true);
   const prevPathname = useRef(pathname);
-  const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Iris wipe : overlay fixe qui part plein écran et le trou s'agrandit
+  const overlayRef = useRef<HTMLDivElement>(null);
   const irisPlayed = useRef(false);
 
-  // Iris wipe au premier montage si des coords sont stockées
   useEffect(() => {
     if (irisPlayed.current) return;
     const raw = sessionStorage.getItem('iris-origin');
@@ -22,9 +23,8 @@ export default function PageTransition({ children }: { children: React.ReactNode
     let ox: number, oy: number;
     try { ({ x: ox, y: oy } = JSON.parse(raw)); } catch { return; }
 
-    const el = wrapperRef.current;
+    const el = overlayRef.current;
     if (!el) return;
-
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
 
     const endRadius = Math.hypot(
@@ -32,17 +32,24 @@ export default function PageTransition({ children }: { children: React.ReactNode
       Math.max(oy, window.innerHeight - oy),
     );
 
-    el.animate(
-      [
-        { clipPath: `circle(0px at ${ox}px ${oy}px)` },
-        { clipPath: `circle(${endRadius}px at ${ox}px ${oy}px)` },
-      ],
-      {
-        duration: 700,
-        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-        fill: 'forwards',
-      }
-    );
+    // Rendre visible avant d'animer
+    el.style.display = 'block';
+
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        el.animate(
+          [
+            { clipPath: `circle(${endRadius}px at ${ox}px ${oy}px)` },
+            { clipPath: `circle(0px at ${ox}px ${oy}px)` },
+          ],
+          {
+            duration: 800,
+            easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
+            fill: 'forwards',
+          }
+        ).onfinish = () => { el.style.display = 'none'; };
+      });
+    });
   }, []);
 
   // Transition fade normale entre pages internes
@@ -61,17 +68,30 @@ export default function PageTransition({ children }: { children: React.ReactNode
   }, [pathname, children]);
 
   return (
-    <div
-      ref={wrapperRef}
-      style={{
-        opacity: visible ? 1 : 0,
-        transition: visible ? 'opacity 0.15s ease-out' : 'none',
-        display: 'block',
-        width: '100%',
-        height: '100%',
-      }}
-    >
-      {displayChildren}
-    </div>
+    <>
+      {/* Overlay iris : part plein écran, trou se rétrécit vers le bouton */}
+      <div
+        ref={overlayRef}
+        aria-hidden="true"
+        style={{
+          display: 'none',
+          position: 'fixed',
+          inset: 0,
+          zIndex: 9999,
+          background: '#1a1815',
+          pointerEvents: 'none',
+        }}
+      />
+
+      <div
+        style={{
+          opacity: visible ? 1 : 0,
+          transition: visible ? 'opacity 0.15s ease-out' : 'none',
+          display: 'contents',
+        }}
+      >
+        {displayChildren}
+      </div>
+    </>
   );
 }
