@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
@@ -12,8 +12,30 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'login' | 'reset'>('login');
   const [resetSent, setResetSent] = useState(false);
+  const [irisOrigin, setIrisOrigin] = useState<{ x: number; y: number } | null>(null);
+  const submitRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
   const supabase = createClient();
+
+  const triggerIris = useCallback((destination: string) => {
+    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (prefersReduced) {
+      router.push(destination);
+      return;
+    }
+
+    const btn = submitRef.current;
+    if (!btn) { router.push(destination); return; }
+
+    const rect = btn.getBoundingClientRect();
+    const x = Math.round(rect.left + rect.width / 2);
+    const y = Math.round(rect.top + rect.height / 2);
+
+    setIrisOrigin({ x, y });
+
+    // Push la route à mi-animation — le dashboard se charge pendant que le cercle s'ouvre
+    setTimeout(() => router.push(destination), 480);
+  }, [router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -34,11 +56,7 @@ export default function LoginPage() {
       .eq('id', data.user.id)
       .single();
 
-    if (profile?.role === 'coach') {
-      router.push('/dashboard');
-    } else {
-      router.push('/client');
-    }
+    triggerIris(profile?.role === 'coach' ? '/dashboard' : '/client');
   }
 
   async function handleReset(e: React.FormEvent) {
@@ -74,6 +92,30 @@ export default function LoginPage() {
       justifyContent: 'center',
       background: 'var(--bg)',
     }}>
+
+      {/* ── Iris overlay ── */}
+      {irisOrigin && (
+        <>
+          <style>{`
+            @keyframes iris-open-${irisOrigin.x}-${irisOrigin.y} {
+              from { clip-path: circle(0px at ${irisOrigin.x}px ${irisOrigin.y}px); }
+              to   { clip-path: circle(200vmax at ${irisOrigin.x}px ${irisOrigin.y}px); }
+            }
+          `}</style>
+          <div
+            aria-hidden="true"
+            style={{
+              position: 'fixed',
+              inset: 0,
+              zIndex: 9999,
+              background: 'var(--accent)',
+              animation: `iris-open-${irisOrigin.x}-${irisOrigin.y} 700ms cubic-bezier(0.4, 0, 0.2, 1) forwards`,
+              pointerEvents: 'none',
+              willChange: 'clip-path',
+            }}
+          />
+        </>
+      )}
       <div style={{
         width: 400,
         background: 'var(--surface)',
@@ -126,10 +168,11 @@ export default function LoginPage() {
             )}
 
             <button
+              ref={submitRef}
               type="submit"
               disabled={loading}
               className="btn-primary"
-              style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '12px', fontSize: 14, opacity: loading ? 0.7 : 1 }}
+              style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '12px', fontSize: 14, opacity: loading ? 0.7 : 1, transition: 'opacity .15s' }}
             >
               {loading ? 'Connexion…' : 'Se connecter'}
             </button>
