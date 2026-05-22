@@ -34,26 +34,14 @@ export default function PageTransition({ children }: { children: React.ReactNode
 
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        // L'overlay utilise un mask radial : le trou commence à 0px et grandit
-        // Le mask définit ce qui EST visible de l'overlay
-        // circle(0px) = overlay couvre tout (aucun trou)
-        // circle(endRadius) = overlay entièrement transparent (trou couvre tout)
         el.animate(
           [
-            {
-              // Début : overlay plein, trou = 0px au centre du bouton
-              WebkitMaskImage: `radial-gradient(circle 0px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
-              maskImage: `radial-gradient(circle 0px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
-            },
-            {
-              // Fin : trou couvre tout l'écran, overlay invisible
-              WebkitMaskImage: `radial-gradient(circle ${endRadius}px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
-              maskImage: `radial-gradient(circle ${endRadius}px at ${ox}px ${oy}px, transparent 100%, black 100%)`,
-            },
+            { clipPath: `circle(${endRadius}px at ${ox}px ${oy}px)` },
+            { clipPath: `circle(0px at ${ox}px ${oy}px)` },
           ],
           {
             duration: 800,
-            easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+            easing: 'cubic-bezier(0.4, 0, 0.2, 1)',
             fill: 'forwards',
           }
         ).onfinish = () => { el.style.display = 'none'; };
