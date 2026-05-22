@@ -22,48 +22,38 @@ export function IrisProvider({ children }: { children: ReactNode }) {
     if (typeof window === 'undefined') { router.push(destination); return; }
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { router.push(destination); return; }
 
-    // Fallback sans View Transitions API
-    if (!('startViewTransition' in document)) {
-      router.push(destination);
-      return;
-    }
-
+    // Passe les coordonnées au CSS via des custom properties sur :root
     const endRadius = Math.hypot(
       Math.max(ox, window.innerWidth - ox),
       Math.max(oy, window.innerHeight - oy),
     );
+    document.documentElement.style.setProperty('--iris-ox', `${ox}px`);
+    document.documentElement.style.setProperty('--iris-oy', `${oy}px`);
+    document.documentElement.style.setProperty('--iris-r', `${endRadius}px`);
 
-    // startViewTransition : le browser snapshote la page courante,
-    // exécute le callback (navigate), puis anime entre les deux états
-    const transition = (document as any).startViewTransition(() => {
-      router.push(destination);
-    });
-
-    // transition.ready = les pseudo-éléments ::view-transition-* existent
-    transition.ready.then(() => {
-      document.documentElement.animate(
-        {
-          clipPath: [
-            `circle(0px at ${ox}px ${oy}px)`,
-            `circle(${endRadius}px at ${ox}px ${oy}px)`,
-          ],
-        },
-        {
-          duration: 700,
-          easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
-          pseudoElement: '::view-transition-new(root)',
-        },
-      );
-    });
+    // router.push avec transitionTypes pour activer la View Transition React/Next.js
+    router.push(destination, { transition: 'iris-open' } as any);
   }, [router]);
 
   return (
     <IrisContext.Provider value={{ triggerIris }}>
       {children}
       <style>{`
-        /* Désactiver l'animation par défaut (crossfade) du View Transitions API */
+        /* Désactive le crossfade par défaut */
         ::view-transition-old(root) { animation: none; }
-        ::view-transition-new(root) { animation: none; }
+        /* Anime uniquement la nouvelle page avec le clip-path circulaire */
+        ::view-transition-new(root) {
+          animation: iris-reveal 700ms cubic-bezier(0.22, 1, 0.36, 1) both;
+        }
+        @keyframes iris-reveal {
+          from { clip-path: circle(0px     at var(--iris-ox, 50%) var(--iris-oy, 50%)); }
+          to   { clip-path: circle(var(--iris-r, 200vmax) at var(--iris-ox, 50%) var(--iris-oy, 50%)); }
+        }
+        @media (prefers-reduced-motion: reduce) {
+          ::view-transition-old(root), ::view-transition-new(root) {
+            animation-duration: 0s !important;
+          }
+        }
       `}</style>
     </IrisContext.Provider>
   );
