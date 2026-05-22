@@ -5,9 +5,6 @@ import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 
-// Couleur beige de la transition — correspond au fond clair de la destination
-const IRIS_COLOR = '#F5F0E8';
-
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -15,22 +12,21 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [mode, setMode] = useState<'login' | 'reset'>('login');
   const [resetSent, setResetSent] = useState(false);
-  const [irisState, setIrisState] = useState<'idle' | 'expanding' | 'done'>('idle');
-  const [irisOrigin, setIrisOrigin] = useState({ x: 0, y: 0 });
-  const destinationRef = useRef<string>('');
+
+  // null = pas d'animation, {x,y} = animation en cours
+  const [iris, setIris] = useState<{ x: number; y: number } | null>(null);
+
   const submitRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
   const supabase = createClient();
 
-  // Prefetch les deux destinations dès le mount
   useEffect(() => {
     router.prefetch('/dashboard');
     router.prefetch('/client');
   }, [router]);
 
   const triggerIris = useCallback((destination: string) => {
-    const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    if (prefersReduced) {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       router.push(destination);
       return;
     }
@@ -39,24 +35,16 @@ export default function LoginPage() {
     if (!btn) { router.push(destination); return; }
 
     const rect = btn.getBoundingClientRect();
-    destinationRef.current = destination;
-    setIrisOrigin({
-      x: Math.round(rect.left + rect.width / 2),
-      y: Math.round(rect.top + rect.height / 2),
-    });
-    setIrisState('expanding');
-  }, [router]);
+    const x = Math.round(rect.left + rect.width / 2);
+    const y = Math.round(rect.top + rect.height / 2);
 
-  // Lance router.push quand l'animation est bien engagée
-  useEffect(() => {
-    if (irisState !== 'expanding') return;
-    // On pousse la route à 550ms — le cercle est déjà large, le dashboard
-    // se charge pendant les derniers 150ms de l'animation
-    const t = setTimeout(() => {
-      router.push(destinationRef.current);
-    }, 550);
-    return () => clearTimeout(t);
-  }, [irisState, router]);
+    // 1. Push immédiatement — le dashboard commence à charger
+    router.push(destination);
+
+    // 2. L'overlay dark part ouvert et se referme vers le bouton
+    //    Le dashboard qui charge apparaît progressivement derrière
+    setIris({ x, y });
+  }, [router]);
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
@@ -90,7 +78,7 @@ export default function LoginPage() {
     });
 
     if (error) {
-      setError('Erreur lors de l\'envoi. Vérifiez l\'email.');
+      setError("Erreur lors de l'envoi. Vérifiez l'email.");
       setLoading(false);
       return;
     }
@@ -106,49 +94,35 @@ export default function LoginPage() {
     boxSizing: 'border-box' as const,
   };
 
-  const isAnimating = irisState === 'expanding';
-
   return (
     <>
-      {/* Keyframes injectés une seule fois, origin mis via CSS custom props sur l'élément */}
       <style>{`
-        @keyframes iris-expand {
-          0%   { clip-path: circle(0px at var(--ox) var(--oy)); }
-          100% { clip-path: circle(200vmax at var(--ox) var(--oy)); }
+        @keyframes iris-close {
+          0%   { clip-path: circle(200vmax at var(--ox) var(--oy)); opacity: 1; }
+          85%  { clip-path: circle(0px at var(--ox) var(--oy));    opacity: 1; }
+          100% { clip-path: circle(0px at var(--ox) var(--oy));    opacity: 0; }
         }
       `}</style>
 
-      {/* Fond beige plein — visible dès que l'animation commence, AVANT le cercle
-          Ça élimine le flash dark entre la fin du cercle et le chargement de la page */}
-      {isAnimating && (
+      {/*
+        Overlay dark qui part ouvert (couvre tout) et se referme vers le bouton.
+        Pendant que le cercle se referme, le dashboard qui charge est visible derrière.
+        À la fin : opacity 0 + l'overlay est retiré du DOM par React.
+      */}
+      {iris && (
         <div
           aria-hidden="true"
+          onAnimationEnd={() => setIris(null)}
           style={{
             position: 'fixed',
             inset: 0,
-            zIndex: 9997,
-            background: IRIS_COLOR,
-          }}
-        />
-      )}
-
-      {/* Cercle iris — s'ouvre depuis le bouton, couleur beige identique au fond */}
-      {isAnimating && (
-        <div
-          aria-hidden="true"
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 9998,
-            background: IRIS_COLOR,
-            // Le cercle part du fond dark et révèle le beige dessous
-            // En réalité : le cercle beige s'ouvre sur le fond dark, puis
-            // le fond beige derrière assure la continuité visuelle
-            ['--ox' as any]: `${irisOrigin.x}px`,
-            ['--oy' as any]: `${irisOrigin.y}px`,
-            animation: 'iris-expand 700ms cubic-bezier(0.22, 1, 0.36, 1) forwards',
-            willChange: 'clip-path',
+            zIndex: 9999,
+            background: 'var(--bg)',
             pointerEvents: 'none',
+            willChange: 'clip-path, opacity',
+            ['--ox' as any]: `${iris.x}px`,
+            ['--oy' as any]: `${iris.y}px`,
+            animation: 'iris-close 800ms cubic-bezier(0.4, 0, 0.2, 1) forwards',
           }}
         />
       )}
@@ -159,10 +133,6 @@ export default function LoginPage() {
         alignItems: 'center',
         justifyContent: 'center',
         background: 'var(--bg)',
-        // Pendant l'animation on cache la page login pour ne pas voir
-        // le formulaire derrière le cercle qui s'ouvre
-        opacity: isAnimating ? 0 : 1,
-        transition: isAnimating ? 'none' : 'opacity 0s',
       }}>
         <div style={{
           width: 400,
@@ -172,7 +142,6 @@ export default function LoginPage() {
           padding: '48px 40px',
           boxShadow: 'var(--shadow-elev)',
         }}>
-          {/* Logo + titre */}
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 36 }}>
             <Image src="/logo-momentum.png" alt="Momentum" width={56} height={56} style={{ objectFit: 'contain', marginBottom: 12 }} />
             <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: 0 }}>Momentum</h1>
