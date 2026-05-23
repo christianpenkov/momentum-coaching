@@ -116,6 +116,10 @@ export async function POST() {
     const inviteeEmail = invitees[0]?.email || null;
     const inviteeName = invitees[0]?.name || null;
     const questionsAndAnswers = invitees[0]?.questions_and_answers || null;
+    const tracking = invitees[0]?.tracking || null;
+    const utmSource = tracking?.utm_source || null;
+    const utmMedium = tracking?.utm_medium || null;
+    const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
     let clientId: string | null = null;
     if (inviteeEmail) {
@@ -139,6 +143,7 @@ export async function POST() {
       invitee_email: inviteeEmail,
       invitee_name: inviteeName,
       calendly_qa: questionsAndAnswers,
+      source,
       status: 'active',
       ready: 'pending',
       reminder_sent: false,
