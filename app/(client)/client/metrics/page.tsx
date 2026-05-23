@@ -39,6 +39,7 @@ const TOOLS = [
     endpoints: [
       { label: 'Sync (POST)', url: '/api/calendly/sync', method: 'POST' },
       { label: 'Test métriques exhaustif', url: '/api/calendly/test-metrics', method: 'GET' },
+      { label: 'Activer webhook temps réel (POST)', url: '/api/calendly/register-webhook', method: 'POST' },
     ],
   },
 ];
