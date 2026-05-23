@@ -55,7 +55,11 @@ export async function POST(request: NextRequest) {
       || resource.event_memberships?.[0]?.user_event_url
       || null;
     const inviteeEmail = resource.email || resource.invitee?.email || null;
+    const inviteeName = resource.name || resource.invitee?.name || null;
     const eventName = resource.scheduled_event?.name || resource.event_type_name || 'Call coaching';
+    const utmSource = resource.tracking?.utm_source || null;
+    const utmMedium = resource.tracking?.utm_medium || null;
+    const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
     // Durée en minutes
     let duration: string | null = null;
@@ -117,6 +121,8 @@ export async function POST(request: NextRequest) {
         duration,
         join_url: joinUrl,
         invitee_email: inviteeEmail,
+        invitee_name: inviteeName,
+        source,
         status: 'active',
         ready: 'pending',
         reminder_sent: false,
