@@ -1086,7 +1086,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           { label: 'Abonnés nets', value: `${ig.followsUnfollows30d >= 0 ? '+' : ''}${fmt(ig.followsUnfollows30d)}`, sub: `${period}j`, color: ig.followsUnfollows30d >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
-          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : '—', sub: 'vues non-abonnés', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--muted)', key: viralPct !== null ? 'Viralité' : null },
+          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : '—', sub: 'vues non-abonnés', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--muted)', key: 'Viralité' },
         ].map(s => (
           <div key={s.key} onClick={() => openStatModal(s.key, s.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
