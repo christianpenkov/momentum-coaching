@@ -1,2 +1,2 @@
-import PageClientStats from '@/components/pages/client/PageClientStats';
-export default PageClientStats;
+import PageStatsV2 from '@/components/pages/coach/PageStatsV3';
+export default PageStatsV2;
