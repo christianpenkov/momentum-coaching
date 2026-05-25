@@ -46,14 +46,19 @@ export async function GET(request: Request) {
     try { const r = await fetch(url); return r.json(); } catch (e) { return { fetchError: String(e) }; }
   };
 
-  // 0. /me avec le token directement
+  // 0. /me v22
   const meRes = await safe(
     `https://graph.instagram.com/v22.0/me?fields=id,username,account_type,followers_count&access_token=${token}`
   );
 
-  // 0a. Test échange token long-terme pour voir l'erreur exacte
+  // 0b. /me sans version (doc recommande ça pour Instagram Login)
+  const meNoVersionRes = await safe(
+    `https://graph.instagram.com/me?fields=id,username&access_token=${token}`
+  );
+
+  // 0c. Test échange token long-terme
   const longTokenTestRes = await safe(
-    `https://graph.instagram.com/oauth/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${token}`
+    `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${token}`
   );
 
   // 0b. reach simple pour tester si le compte supporte les insights du tout
@@ -89,6 +94,7 @@ export async function GET(request: Request) {
   return NextResponse.json({
     igAccountId,
     me: meRes,
+    meNoVersion: meNoVersionRes,
     longTokenTest: longTokenTestRes,
     reachTest: reachTestRes,
     followerCount: {
