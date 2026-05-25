@@ -1043,7 +1043,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? ig.followers })), color: IG_COLOR },
     'Vues': { data: mockFromTotal(views_p, 1), color: ACCENT },
     'Interactions posts': { data: mockFromTotal(engaged_p, 2), color: GREEN },
-    'Abonnés nets': { data: mockFromTotal(follows_p, 4), color: follows_p >= 0 ? GREEN : RED },
+    'Abonnés nets': { data: igDays.some(d => d.followerCount != null) ? igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })) : mockFromTotal(follows_p, 4), color: follows_p >= 0 ? GREEN : RED },
     'Clics site web': { data: mockFromTotal(websiteClicks_p, 5), color: BLUE },
     'Vues profil': { data: mockFromTotal(period === 30 ? ig.profileViews30d : Math.round(ig.profileViews30d * ratio), 6), color: BLUE },
     "Taux d'engagement": { data: mockFromTotal(Math.round(engRate * 10) / 10, 7), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
@@ -1127,15 +1127,15 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
                 <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
               </PieChart>
             </ResponsiveContainer>
-          ) : <Empty msg="Seuil minimum non atteint (100+ abonnés requis)" />}
+          ) : <Empty msg="Données non disponibles — Meta masque les tranches avec trop peu d'abonnés (confidentialité)" />}
         </Card>
       </div>
 
 
-      {ig.chartData.some(d => d.followerCount != null) && (
-        <Card title="Abonnés / jour" sub="30 jours — progression">
+      {ig.chartData.some(d => d.followerCount != null && d.followerCount > 0) && (
+        <Card title="Nouveaux abonnés / jour" sub={`${period} jours — delta quotidien`}>
           <ResponsiveContainer width="100%" height={160}>
-            <ReAreaChart data={ig.chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={ACCENT} stopOpacity={0.2} />
@@ -1143,19 +1143,19 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} width={40} />
+              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={[0, 'auto']} width={30} />
               <Tooltip
                 content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return (
                     <div className="chart-tooltip">
                       <div className="chart-tooltip-label">{label}</div>
-                      <div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong><span style={{ color: 'var(--muted)', marginLeft: 4 }}>abonnés</span></div>
+                      <div className="chart-tooltip-row"><strong>+{fmt(payload[0].value as number)}</strong><span style={{ color: 'var(--muted)', marginLeft: 4 }}>nouv. abonnés</span></div>
                     </div>
                   );
                 }}
               />
-              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="followerCount" name="Nouveaux abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         </Card>

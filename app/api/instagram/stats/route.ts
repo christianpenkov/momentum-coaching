@@ -106,7 +106,8 @@ export async function GET(request: Request) {
   const reach30d = sum(insightMap['reach'] || []);
   const accountsEngaged30d = sum(insightMap['accounts_engaged'] || []);
   const totalInteractions30d = sum(insightMap['total_interactions'] || []);
-  const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []);
+  // follows_and_unfollows peut être vide sur certains comptes — on fall back sur follower_count (delta quotidien)
+  const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []) || sum(insightMap['follower_count'] || []);
   const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
   const websiteClicks30d = sum(insightMap['website_clicks'] || []);
   const profileViews30d = sum(insightMap['profile_views'] || []);
@@ -154,7 +155,8 @@ export async function GET(request: Request) {
 
   // Chart reach + followers par jour
   const reachValues = insightMap['reach'] || [];
-  const followerCountValues = insightMap['follower_count'] || [];
+  // follower_count = delta quotidien (nouveaux abonnés), pas le cumulatif
+  const followerDeltaValues = insightMap['follower_count'] || [];
   const today = new Date();
   const chartData = reachValues.map((val: number, i: number) => {
     const d = new Date(today);
@@ -162,7 +164,7 @@ export async function GET(request: Request) {
     return {
       date: d.toISOString().split('T')[0],
       reach: val,
-      followerCount: followerCountValues[i] ?? null,
+      followerCount: followerDeltaValues[i] ?? null,
     };
   });
 
