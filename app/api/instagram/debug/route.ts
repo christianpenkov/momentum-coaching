@@ -12,10 +12,25 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
+  const { searchParams } = new URL(request.url);
+  const profileId = searchParams.get('profileId');
+
+  let targetProfileId = user.id;
+  if (profileId && profileId !== user.id) {
+    const { data: clientRow } = await serviceSupabase
+      .from('clients')
+      .select('id')
+      .eq('profile_id', profileId)
+      .eq('coach_id', user.id)
+      .single();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    targetProfileId = profileId;
+  }
+
   const { data: integ } = await serviceSupabase
     .from('integrations')
     .select('access_token, metadata')
-    .eq('profile_id', user.id)
+    .eq('profile_id', targetProfileId)
     .eq('provider', 'instagram')
     .single();
 
