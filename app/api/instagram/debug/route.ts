@@ -46,6 +46,16 @@ export async function GET(request: Request) {
     try { const r = await fetch(url); return r.json(); } catch (e) { return { fetchError: String(e) }; }
   };
 
+  // 0. /me pour voir les champs du compte (account_type notamment)
+  const meRes = await safe(
+    `https://graph.instagram.com/v22.0/me?fields=id,username,account_type,followers_count&access_token=${token}`
+  );
+
+  // 0b. reach simple pour tester si le compte supporte les insights du tout
+  const reachTestRes = await safe(
+    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=day&since=${since}&until=${until}&access_token=${token}`
+  );
+
   // 1. follower_count jour par jour
   const followerCountRes = await safe(
     `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_count&period=day&since=${since}&until=${until}&access_token=${token}`
@@ -73,6 +83,8 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     igAccountId,
+    me: meRes,
+    reachTest: reachTestRes,
     followerCount: {
       error: followerCountRes?.error || null,
       dataLength: followerCountRes?.data?.length ?? 0,
