@@ -99,7 +99,7 @@ export async function GET(request: Request) {
       headers: authHeader,
     }),
     fetch(
-      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares&dimensions=day&sort=day`,
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`,
       { headers: authHeader }
     ),
     fetch(
@@ -131,6 +131,7 @@ export async function GET(request: Request) {
   const stats = channel.statistics;
   const rows: any[] = analyticsData?.rows || [];
 
+  // colonnes : day(0), views(1), estMinutesWatched(2), subsGained(3), subsLost(4), likes(5), comments(6), shares(7), avgViewDuration(8)
   const views30d = rows.reduce((sum: number, r: any) => sum + (r[1] || 0), 0);
   const watchTime30d = rows.reduce((sum: number, r: any) => sum + (r[2] || 0), 0);
   const subsGained30d = rows.reduce((sum: number, r: any) => sum + (r[3] || 0), 0);
@@ -138,11 +139,21 @@ export async function GET(request: Request) {
   const likes30d = rows.reduce((sum: number, r: any) => sum + (r[5] || 0), 0);
   const comments30d = rows.reduce((sum: number, r: any) => sum + (r[6] || 0), 0);
   const shares30d = rows.reduce((sum: number, r: any) => sum + (r[7] || 0), 0);
+  // avgViewDuration : moyenne pondérée par les vues (col 8), fallback watchTime/views
+  const avgViewDurationWeighted = views30d > 0
+    ? Math.round(rows.reduce((sum: number, r: any) => sum + (r[8] || 0) * (r[1] || 0), 0) / views30d)
+    : 0;
+  const avgViewDurationSec = avgViewDurationWeighted > 0
+    ? avgViewDurationWeighted
+    : (views30d > 0 ? Math.round((watchTime30d * 60) / views30d) : 0);
 
   const chartData = rows.map((r: any) => ({
     date: r[0],
     views: r[1] || 0,
     watchTime: r[2] || 0,
+    subsGained: r[3] || 0,
+    subsLost: r[4] || 0,
+    netSubs: (r[3] || 0) - (r[4] || 0),
   }));
 
   // Sources de trafic
@@ -254,7 +265,7 @@ export async function GET(request: Request) {
       subscribers: parseInt(stats?.subscriberCount || '0'),
       totalViews: parseInt(stats?.viewCount || '0'),
       videoCount: parseInt(stats?.videoCount || '0'),
-      views30d, watchTime30d: Math.round(watchTime30d / 60),
+      views30d, watchTime30d: Math.round(watchTime30d / 60), avgViewDurationSec,
       likes30d, comments30d, shares30d,
       subsGained30d, subsLost30d, netSubs30d: subsGained30d - subsLost30d,
       chartData, videos, retentionCurve,
@@ -268,7 +279,7 @@ export async function GET(request: Request) {
     subscribers: parseInt(stats?.subscriberCount || '0'),
     totalViews: parseInt(stats?.viewCount || '0'),
     videoCount: parseInt(stats?.videoCount || '0'),
-    views30d, watchTime30d: Math.round(watchTime30d / 60),
+    views30d, watchTime30d: Math.round(watchTime30d / 60), avgViewDurationSec,
     likes30d, comments30d, shares30d,
     subsGained30d, subsLost30d, netSubs30d: subsGained30d - subsLost30d,
     chartData, videos: [], retentionCurve: [],
