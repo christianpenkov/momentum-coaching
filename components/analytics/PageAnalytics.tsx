@@ -3049,7 +3049,7 @@ function SectionControls({ period, setPeriod, periodIndex, setPeriodIndex }: {
   );
 }
 
-export default function PageStatsLive({ profileId }: { profileId?: string } = {}) {
+export default function PageAnalytics({ profileId }: { profileId?: string } = {}) {
   const [tab, setTab] = useState(0);
   const [period, setPeriod] = useState<Period>(30);
   const [periodIndex, setPeriodIndex] = useState(0);

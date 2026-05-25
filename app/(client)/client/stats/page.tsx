@@ -1,2 +1,2 @@
-import PageStatsLive from '@/components/pages/coach/PageStatsLive';
-export default PageStatsLive;
+import PageAnalytics from '@/components/analytics/PageAnalytics';
+export default PageAnalytics;
