@@ -58,6 +58,8 @@ export async function GET(request: NextRequest) {
     `https://graph.instagram.com/oauth/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${tokenData.access_token}`
   );
   const longTokenData = await longTokenRes.json();
+  console.log('[IG callback] short token prefix:', tokenData.access_token?.slice(0, 20));
+  console.log('[IG callback] long token response:', JSON.stringify(longTokenData));
   const accessToken = longTokenData.access_token || tokenData.access_token;
   const expiresIn = longTokenData.expires_in || null;
 
@@ -66,6 +68,7 @@ export async function GET(request: NextRequest) {
     `https://graph.instagram.com/v22.0/me?fields=id,username,account_type&access_token=${accessToken}`
   );
   const meData = await meRes.json();
+  console.log('[IG callback] /me response:', JSON.stringify(meData));
   const igAccountId = meData.id ? String(meData.id) : (tokenData.user_id ? String(tokenData.user_id) : null);
   const accountLabel = meData.username ? `@${meData.username}` : null;
 
