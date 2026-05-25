@@ -80,8 +80,8 @@ export async function GET(request: Request) {
   const retentionData = await retentionRes.json();
 
   const retentionCurve = (retentionData?.rows || []).map((r: any) => ({
-    ratio: parseFloat((r[0] * 100).toFixed(0)),
-    watchRatio: parseFloat((r[1] * 100).toFixed(1)),
+    ratio: r[0],
+    watchRatio: r[1],
   }));
 
   return NextResponse.json({ videoId, retentionCurve });
