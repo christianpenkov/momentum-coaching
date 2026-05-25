@@ -1071,8 +1071,6 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     }));
   }
 
-  const demoPieData = (ig.demographics?.age || []).slice(0, 6).map(d => ({ name: d.label, value: d.value }));
-
   return (
     <div className="stack">
       {/* Ligne 1 — 6 stats audience */}
@@ -1112,34 +1110,17 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
         ))}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Reach par jour" sub="30 jours">
-          <AreaChart data={ig.chartData} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} />
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+        <Card title="Reach par jour" sub={`${period} jours`}>
+          <AreaChart data={igDays} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} />
         </Card>
-        <Card title="Âge des abonnés">
-          {demoPieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={demoPieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={2}>
-                  {demoPieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: any) => `${v} abonnés`} />
-                <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : <Empty msg="Données non disponibles — Meta masque les tranches avec trop peu d'abonnés (confidentialité)" />}
-        </Card>
-      </div>
-
-
-      {ig.chartData.some(d => d.followerCount != null && d.followerCount > 0) && (
         <Card title="Nouveaux abonnés / jour" sub={`${period} jours — delta quotidien`}>
-          <ResponsiveContainer width="100%" height={160}>
+          <ResponsiveContainer width="100%" height={200}>
             <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={ACCENT} stopOpacity={0.2} />
-                  <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
+                  <stop offset="5%" stopColor={GREEN} stopOpacity={0.2} />
+                  <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
@@ -1155,11 +1136,11 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
                   );
                 }}
               />
-              <Area type="monotone" dataKey="followerCount" name="Nouveaux abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="followerCount" name="Nouveaux abonnés" stroke={GREEN} strokeWidth={2} fill="url(#grad-ig-subs)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         </Card>
-      )}
+      </div>
 
       {heatmapRows.length > 0 && (
         <Card title="Abonnés en ligne" sub="Heure × Jour de la semaine">
