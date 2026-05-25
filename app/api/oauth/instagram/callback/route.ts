@@ -53,17 +53,17 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/client/settings?error=instagram_token`);
   }
 
-  // Échange contre un token long-terme (60 jours)
+  // Échange contre un token long-terme (60 jours) — Instagram API with Instagram Login
   const longTokenRes = await fetch(
-    `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${tokenData.access_token}`
+    `https://graph.instagram.com/oauth/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${tokenData.access_token}`
   );
   const longTokenData = await longTokenRes.json();
   const accessToken = longTokenData.access_token || tokenData.access_token;
   const expiresIn = longTokenData.expires_in || null;
 
-  // Récupère l'ID réel + username via /me (plus fiable que tokenData.user_id)
+  // Récupère l'ID réel + username via /me
   const meRes = await fetch(
-    `https://graph.instagram.com/v21.0/me?fields=id,username&access_token=${accessToken}`
+    `https://graph.instagram.com/v22.0/me?fields=id,username,account_type&access_token=${accessToken}`
   );
   const meData = await meRes.json();
   const igAccountId = meData.id ? String(meData.id) : (tokenData.user_id ? String(tokenData.user_id) : null);
