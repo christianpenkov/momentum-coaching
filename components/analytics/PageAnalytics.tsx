@@ -1562,9 +1562,13 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
             </div>
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
-              ? <AreaChart data={retention.map(p => ({ x: `${Math.round(p.ratio * 100)}%`, pct: Math.round(p.watchRatio * 100) }))}
-                areas={[{ key: 'pct', label: 'Viewers restants (%)', color: GREEN }]}
-                xKey="x" height={160} formatter={(v: number) => `${v}%`} />
+              ? (() => {
+                  const step = Math.max(1, Math.floor(retention.length / 10));
+                  const sampled = retention.filter((_, i) => i % step === 0 || i === retention.length - 1);
+                  return <AreaChart data={sampled.map(p => ({ x: `${Math.round(p.ratio * 100)}%`, pct: Math.round(p.watchRatio * 100) }))}
+                    areas={[{ key: 'pct', label: 'Viewers restants', color: GREEN }]}
+                    xKey="x" height={160} formatter={(v: number) => `${v}%`} />;
+                })()
               : <Empty msg="Rétention non disponible pour cette vidéo" />}
             <a href={selectedVideo.url} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: RED, textDecoration: 'none', fontWeight: 600 }}>
               Voir sur YouTube →
