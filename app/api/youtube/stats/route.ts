@@ -210,7 +210,7 @@ export async function GET(request: Request) {
       ),
       // Métriques par vidéo ciblées (filtre sur les IDs exacts)
       fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
         { headers: authHeader }
       ),
     ]);

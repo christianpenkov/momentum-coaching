@@ -152,13 +152,18 @@ export async function GET(request: Request) {
     }
   }
 
-  // Chart reach par jour
+  // Chart reach + followers par jour
   const reachValues = insightMap['reach'] || [];
+  const followerCountValues = insightMap['follower_count'] || [];
   const today = new Date();
   const chartData = reachValues.map((val: number, i: number) => {
     const d = new Date(today);
     d.setDate(d.getDate() - (reachValues.length - 1 - i));
-    return { date: d.toISOString().split('T')[0], reach: val };
+    return {
+      date: d.toISOString().split('T')[0],
+      reach: val,
+      followerCount: followerCountValues[i] ?? null,
+    };
   });
 
   // Extrait duration_s depuis le token efg encodé dans l'URL media_url

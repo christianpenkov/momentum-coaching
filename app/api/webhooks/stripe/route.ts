@@ -77,8 +77,12 @@ export async function POST(request: NextRequest) {
   const payload = await request.text();
   const signature = request.headers.get('stripe-signature') || '';
 
-  // Vérifier la signature Stripe
-  if (STRIPE_WEBHOOK_SECRET && !verifyStripeSignature(payload, signature, STRIPE_WEBHOOK_SECRET)) {
+  // Vérifier la signature Stripe — obligatoire
+  if (!STRIPE_WEBHOOK_SECRET) {
+    console.error('STRIPE_WEBHOOK_SECRET non configuré');
+    return NextResponse.json({ error: 'Webhook non configuré' }, { status: 500 });
+  }
+  if (!verifyStripeSignature(payload, signature, STRIPE_WEBHOOK_SECRET)) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 

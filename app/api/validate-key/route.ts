@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Stripe from 'stripe';
+import { createClient } from '@/lib/supabase/server';
 
 export async function POST(request: NextRequest) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ valid: false, error: 'Non authentifié' }, { status: 401 });
+
   const { provider, key } = await request.json();
 
   if (!provider || !key) {

@@ -1005,23 +1005,35 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
 
 function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
+  const [postsModal, setPostsModal] = useState(false);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
 
   if (!ig) return <Empty msg="Connecte ton compte Instagram pour voir les stats." />;
 
-  const engRate = pct(ig.totalInteractions30d, ig.reach30d);
-  const reachRate = pct(ig.reach30d, ig.followers);
+  // Recalcul des agrégats depuis chartData pour supporter period=7
+  const igDays = ig.chartData.slice(-period);
+  const reachPeriod = igDays.reduce((s, d) => s + d.reach, 0);
+  // Pour les métriques sans données jour/jour, on approxime par ratio si period=7
+  const ratio = period === 30 ? 1 : reachPeriod > 0 && ig.reach30d > 0 ? Math.min(1, reachPeriod / ig.reach30d) : period / 30;
+  const views_p = period === 30 ? ig.views30d : Math.round(ig.views30d * ratio);
+  const engaged_p = period === 30 ? ig.accountsEngaged30d : Math.round(ig.accountsEngaged30d * ratio);
+  const follows_p = period === 30 ? ig.followsUnfollows30d : Math.round(ig.followsUnfollows30d * ratio);
+  const websiteClicks_p = period === 30 ? ig.websiteClicks30d : Math.round(ig.websiteClicks30d * ratio);
+
+  const engRate = pct(engaged_p, reachPeriod);
+  const reachRate = pct(reachPeriod, ig.followers);
   const viralPct = ig.viewsFollowerBreakdown
     ? pct(ig.viewsFollowerBreakdown.nonFollower, ig.viewsFollowerBreakdown.follower + ig.viewsFollowerBreakdown.nonFollower)
     : null;
 
-  // Génère données jour par jour à partir du chartData ou mock cohérent
-  const igDays = ig.chartData.slice(-period);
+  // Posts publiés dans la période
+  const cutoffTs = new Date(Date.now() - period * 86400000);
+  const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= cutoffTs);
   const mockFromTotal = (total: number, seed: number) => {
     if (total === 0) return igDays.map(d => ({ date: d.date, v: 0 }));
     const pts = igDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
-    const sum = pts.reduce((a, b) => a + b, 0);
-    let vals = pts.map(p => Math.round((p / sum) * total));
+    const s = pts.reduce((a, b) => a + b, 0);
+    let vals = pts.map(p => Math.round((p / s) * total));
     vals[vals.length - 1] += total - vals.reduce((a, b) => a + b, 0);
     return igDays.map((d, i) => ({ date: d.date, v: vals[i] }));
   };
@@ -1029,11 +1041,11 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
   const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Reach': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? ig.followers })), color: IG_COLOR },
-    'Vues': { data: mockFromTotal(ig.views30d, 1), color: ACCENT },
-    'Interactions posts': { data: mockFromTotal(ig.accountsEngaged30d, 2), color: GREEN },
-    'Abonnés nets': { data: mockFromTotal(ig.followsUnfollows30d, 4), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
-    'Clics site web': { data: mockFromTotal(ig.websiteClicks30d, 5), color: BLUE },
-    'Vues profil': { data: mockFromTotal(ig.profileViews30d, 6), color: BLUE },
+    'Vues': { data: mockFromTotal(views_p, 1), color: ACCENT },
+    'Interactions posts': { data: mockFromTotal(engaged_p, 2), color: GREEN },
+    'Abonnés nets': { data: mockFromTotal(follows_p, 4), color: follows_p >= 0 ? GREEN : RED },
+    'Clics site web': { data: mockFromTotal(websiteClicks_p, 5), color: BLUE },
+    'Vues profil': { data: mockFromTotal(period === 30 ? ig.profileViews30d : Math.round(ig.profileViews30d * ratio), 6), color: BLUE },
     "Taux d'engagement": { data: mockFromTotal(Math.round(engRate * 10) / 10, 7), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Reach rate': { data: mockFromTotal(Math.round(reachRate * 10) / 10, 8), color: ACCENT, unit: '%' },
     'Viralité': { data: mockFromTotal(viralPct ? Math.round(viralPct * 10) / 10 : 0, 9), color: viralPct && viralPct > 50 ? GREEN : AMBER, unit: '%' },
@@ -1063,16 +1075,17 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
   return (
     <div className="stack">
-      {/* Ligne 1 — 5 stats audience */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+      {/* Ligne 1 — 6 stats audience */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés' },
-          { label: 'Reach 30j', value: fmt(ig.reach30d), sub: `${period}j`, color: 'var(--ink)', key: 'Reach' },
-          { label: 'Vues 30j', value: fmt(ig.views30d), sub: `${period}j`, color: 'var(--ink)', key: 'Vues' },
-          { label: 'Interactions posts', value: fmt(ig.accountsEngaged30d), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
-          { label: 'Clics site web', value: fmt(ig.websiteClicks30d), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
+          { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés', onClick: () => openStatModal('Abonnés', fmt(ig.followers)) },
+          { label: `Reach ${period}j`, value: fmt(reachPeriod), sub: `${period} derniers jours`, color: 'var(--ink)', key: 'Reach', onClick: () => openStatModal('Reach', fmt(reachPeriod)) },
+          { label: `Vues ${period}j`, value: fmt(views_p), sub: `${period} derniers jours`, color: 'var(--ink)', key: 'Vues', onClick: () => openStatModal('Vues', fmt(views_p)) },
+          { label: 'Interactions posts', value: fmt(engaged_p), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts', onClick: () => openStatModal('Interactions posts', fmt(engaged_p)) },
+          { label: 'Clics site web', value: fmt(websiteClicks_p), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web', onClick: () => openStatModal('Clics site web', fmt(websiteClicks_p)) },
+          { label: `Posts publiés`, value: fmt(postsInPeriod.length), sub: `${period}j`, color: 'var(--ink)', key: 'posts', onClick: () => setPostsModal(true) },
         ].map(s => (
-          <div key={s.key} onClick={() => openStatModal(s.key, s.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
+          <div key={s.key} onClick={s.onClick} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{s.label}</div>
@@ -1084,7 +1097,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
       {/* Ligne 2 — 4 stats performance */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés nets', value: `${ig.followsUnfollows30d >= 0 ? '+' : ''}${fmt(ig.followsUnfollows30d)}`, sub: `${period}j`, color: ig.followsUnfollows30d >= 0 ? GREEN : RED, key: 'Abonnés nets' },
+          { label: 'Abonnés nets', value: `${follows_p >= 0 ? '+' : ''}${fmt(follows_p)}`, sub: `${period}j`, color: follows_p >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
           { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : '—', sub: 'vues non-abonnés', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--muted)', key: 'Viralité' },
@@ -1291,6 +1304,53 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           </div>
         </div>
       )}
+
+      {/* Modal posts publiés */}
+      {postsModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setPostsModal(false)}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, maxWidth: 560, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Posts publiés — {period}j</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{postsInPeriod.length} publication{postsInPeriod.length !== 1 ? 's' : ''}</div>
+              </div>
+              <button onClick={() => setPostsModal(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
+            </div>
+            {postsInPeriod.length === 0 ? (
+              <Empty msg={`Aucun post publié sur les ${period} derniers jours`} />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {postsInPeriod.map(p => (
+                  <a key={p.id} href={p.permalink} target="_blank" rel="noreferrer" style={{ display: 'flex', gap: 12, textDecoration: 'none', color: 'inherit', padding: '10px 12px', borderRadius: 10, background: 'var(--surface-2)', transition: 'background .15s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'var(--surface-2)'}>
+                    {p.thumbnail ? (
+                      <img src={p.thumbnail} alt="" style={{ width: 52, height: 52, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+                    ) : (
+                      <div style={{ width: 52, height: 52, borderRadius: 8, background: 'var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, flexShrink: 0 }}>📷</div>
+                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>
+                        {new Date(p.timestamp).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' })} · {p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image'}
+                      </div>
+                      <div style={{ fontSize: 12, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)', lineHeight: 1.4 }}>
+                        {p.caption || '(sans légende)'}
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, marginTop: 4, fontSize: 11, color: 'var(--muted)' }}>
+                        {p.views != null && <span>👁 {fmt(p.views)}</span>}
+                        {p.likes != null && <span>♥ {fmt(p.likes)}</span>}
+                        {p.comments != null && <span>💬 {fmt(p.comments)}</span>}
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1302,6 +1362,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
+  const [videosModal, setVideosModal] = useState(false);
 
   const loadRetention = useCallback(async (videoId: string, publishedAt?: string) => {
     setLoadingRetention(true);
@@ -1316,10 +1377,26 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
 
   if (!yt) return <Empty msg="Connecte ton compte YouTube pour voir les stats." />;
 
-  const conversionRate = yt.views30d > 0 ? ((yt.subsGained30d / yt.views30d) * 100).toFixed(3) : '0';
-  const watchTimeH = Math.round(yt.watchTime30d / 60);
-
   const ytDays = yt.chartData.slice(-period);
+
+  // Recalcul des agrégats depuis chartData pour supporter period=7
+  const views_p = ytDays.reduce((s, d) => s + d.views, 0);
+  const watchTime_p = ytDays.reduce((s, d) => s + d.watchTime, 0);
+  const subsGained_p = ytDays.reduce((s, d) => s + (d.subsGained ?? 0), 0);
+  const subsLost_p = ytDays.reduce((s, d) => s + (d.subsLost ?? 0), 0);
+  const netSubs_p = subsGained_p - subsLost_p;
+  // Pour likes/comments/shares pas de données jour/jour → ratio approximatif
+  const ratio = period === 30 ? 1 : yt.views30d > 0 && views_p > 0 ? Math.min(1, views_p / yt.views30d) : period / 30;
+  const likes_p = period === 30 ? yt.likes30d : Math.round(yt.likes30d * ratio);
+  const comments_p = period === 30 ? yt.comments30d : Math.round(yt.comments30d * ratio);
+  const shares_p = period === 30 ? yt.shares30d : Math.round(yt.shares30d * ratio);
+
+  const conversionRate = views_p > 0 ? ((subsGained_p / views_p) * 100).toFixed(3) : '0';
+  const watchTimeH = Math.round(watchTime_p / 60);
+
+  // Vidéos publiées dans la période
+  const cutoffTs = new Date(Date.now() - period * 86400000);
+  const videosInPeriod = yt.videos.filter(v => new Date(v.publishedAt) >= cutoffTs);
   const mockFromTotalYT = (total: number, seed: number) => {
     if (total === 0) return ytDays.map(d => ({ date: d.date, v: 0 }));
     const pts = ytDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
@@ -1330,18 +1407,18 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
   };
 
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
-    'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: d.views })), color: RED },
-    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
-    'Watch time moyen':   { data: mockFromTotalYT(yt.avgViewDurationSec ?? 0, 5), color: AMBER, unit: 's' },
-    'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: d.subsGained ?? 0 })), color: GREEN },
-    'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: d.subsLost ?? 0 })), color: RED },
-    'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: d.netSubs ?? 0 })), color: yt.netSubs30d >= 0 ? GREEN : RED },
-    'Likes':              { data: mockFromTotalYT(yt.likes30d, 1), color: ACCENT },
-    'Commentaires':       { data: mockFromTotalYT(yt.comments30d, 2), color: BLUE },
-    'Partages':           { data: mockFromTotalYT(yt.shares30d, 3), color: GREEN },
-    'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: ACCENT, unit: '%' },
-    'Abonnés YT':         { data: mockFromTotalYT(yt.subscribers, 6), color: RED },
-    'Vues all-time':      { data: mockFromTotalYT(yt.totalViews, 7), color: RED },
+    [`Vues ${period}j`]:    { data: ytDays.map(d => ({ date: d.date, v: d.views })), color: RED },
+    'Watch time':           { data: ytDays.map(d => ({ date: d.date, v: Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
+    'Watch time moyen':     { data: mockFromTotalYT(yt.avgViewDurationSec ?? 0, 5), color: AMBER, unit: 's' },
+    'Subs gagnés':          { data: ytDays.map(d => ({ date: d.date, v: d.subsGained ?? 0 })), color: GREEN },
+    'Subs perdus':          { data: ytDays.map(d => ({ date: d.date, v: d.subsLost ?? 0 })), color: RED },
+    'Subs nets':            { data: ytDays.map(d => ({ date: d.date, v: d.netSubs ?? 0 })), color: netSubs_p >= 0 ? GREEN : RED },
+    'Likes':                { data: mockFromTotalYT(likes_p, 1), color: ACCENT },
+    'Commentaires':         { data: mockFromTotalYT(comments_p, 2), color: BLUE },
+    'Partages':             { data: mockFromTotalYT(shares_p, 3), color: GREEN },
+    'Conv. vue→sub':        { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: ACCENT, unit: '%' },
+    'Abonnés YT':           { data: mockFromTotalYT(yt.subscribers, 6), color: RED },
+    'Vues all-time':        { data: mockFromTotalYT(yt.totalViews, 7), color: RED },
   };
 
   const openStatModal = (label: string, value: string) => {
@@ -1362,15 +1439,15 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
       {/* Ligne 1 — audience & portée */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
         {[
-          { label: 'Abonnés', value: fmt(yt.subscribers), sub: 'total', color: 'var(--ink)', key: 'Abonnés YT' },
-          { label: 'Subs nets 30j', value: `${yt.netSubs30d >= 0 ? '+' : ''}${fmt(yt.netSubs30d)}`, sub: `+${fmt(yt.subsGained30d)} / -${fmt(yt.subsLost30d)}`, color: yt.netSubs30d >= 0 ? GREEN : RED, key: 'Subs nets' },
-          { label: 'Vues all-time', value: fmt(yt.totalViews), sub: 'depuis le début', color: 'var(--ink)', key: 'Vues all-time' },
-          { label: 'Vidéos', value: fmt(yt.videoCount), sub: 'publiées', color: 'var(--ink)', key: null },
-          { label: `Vues ${period}j`, value: fmt(yt.views30d), sub: `${period} derniers jours`, color: 'var(--ink)', key: 'Vues 30j' },
-          { label: 'Conv. vue→sub', value: `${conversionRate}%`, sub: 'subs gagnés / vues', color: 'var(--ink)', key: 'Conv. vue→sub' },
+          { label: 'Abonnés', value: fmt(yt.subscribers), sub: 'total', color: 'var(--ink)', onClick: () => openStatModal('Abonnés YT', fmt(yt.subscribers)) },
+          { label: `Subs nets ${period}j`, value: `${netSubs_p >= 0 ? '+' : ''}${fmt(netSubs_p)}`, sub: `+${fmt(subsGained_p)} / -${fmt(subsLost_p)}`, color: netSubs_p >= 0 ? GREEN : RED, onClick: () => openStatModal('Subs nets', `${netSubs_p >= 0 ? '+' : ''}${fmt(netSubs_p)}`) },
+          { label: 'Vues all-time', value: fmt(yt.totalViews), sub: 'depuis le début', color: 'var(--ink)', onClick: () => openStatModal('Vues all-time', fmt(yt.totalViews)) },
+          { label: 'Vidéos publiées', value: fmt(yt.videoCount), sub: `dont ${videosInPeriod.length} sur ${period}j`, color: 'var(--ink)', onClick: () => setVideosModal(true) },
+          { label: `Vues ${period}j`, value: fmt(views_p), sub: `${period} derniers jours`, color: 'var(--ink)', onClick: () => openStatModal(`Vues ${period}j`, fmt(views_p)) },
+          { label: 'Conv. vue→sub', value: `${conversionRate}%`, sub: 'subs gagnés / vues', color: 'var(--ink)', onClick: () => openStatModal('Conv. vue→sub', `${conversionRate}%`) },
         ].map(s => (
-          <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
-            onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
+          <div key={s.label} onClick={s.onClick} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{s.label}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 4 }}>{s.value}</div>
@@ -1381,11 +1458,11 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
       {/* Ligne 2 — engagement & watch time */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: `Watch time ${period}j`, value: `${watchTimeH}h`, sub: `${Math.round(watchTimeH * 60 / 1000)}k min au total`, color: AMBER, key: 'Watch time' },
+          { label: `Watch time ${period}j`, value: `${watchTimeH}h`, sub: `${Math.round(watchTime_p / 1000)}k min au total`, color: AMBER, key: 'Watch time' },
           { label: 'Watch time moyen / vue', value: yt.avgViewDurationSec ? `${Math.floor(yt.avgViewDurationSec / 60)}m${String(yt.avgViewDurationSec % 60).padStart(2, '0')}s` : '—', sub: 'durée moyenne par vue', color: 'var(--ink)', key: 'Watch time moyen' },
-          { label: 'Likes 30j', value: fmt(yt.likes30d), sub: `${period}j`, color: 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires 30j', value: fmt(yt.comments30d), sub: `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages 30j', value: fmt(yt.shares30d), sub: `${period}j`, color: 'var(--ink)', key: 'Partages' },
+          { label: `Likes ${period}j`, value: fmt(likes_p), sub: `${period}j`, color: 'var(--ink)', key: 'Likes' },
+          { label: `Commentaires ${period}j`, value: fmt(comments_p), sub: `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
+          { label: `Partages ${period}j`, value: fmt(shares_p), sub: `${period}j`, color: 'var(--ink)', key: 'Partages' },
         ].map(s => (
           <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
@@ -1495,6 +1572,47 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
           {yt.searchKeywords.length === 0 && <Empty msg="Pas encore de données de recherche" />}
         </Card>
       </div>
+
+      {/* Modal vidéos publiées */}
+      {videosModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => setVideosModal(false)}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, maxWidth: 600, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+              <div>
+                <div style={{ fontSize: 15, fontWeight: 700 }}>Vidéos publiées — {period}j</div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{videosInPeriod.length} vidéo{videosInPeriod.length !== 1 ? 's' : ''} sur les {period} derniers jours</div>
+              </div>
+              <button onClick={() => setVideosModal(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
+            </div>
+            {videosInPeriod.length === 0 ? (
+              <Empty msg={`Aucune vidéo publiée sur les ${period} derniers jours`} />
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {videosInPeriod.map(v => (
+                  <a key={v.id} href={v.url} target="_blank" rel="noreferrer" style={{ display: 'flex', gap: 12, textDecoration: 'none', color: 'inherit', padding: '10px 12px', borderRadius: 10, background: 'var(--surface-2)', transition: 'background .15s' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--border)'}
+                    onMouseLeave={e => e.currentTarget.style.background = 'var(--surface-2)'}>
+                    <img src={v.thumbnail} alt="" style={{ width: 80, height: 46, objectFit: 'cover', borderRadius: 6, flexShrink: 0 }} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink)', marginBottom: 4 }}>{v.title}</div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
+                        {new Date(v.publishedAt).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short', year: '2-digit' })} · {v.isShort ? 'Short' : 'Vidéo'} · {v.duration}
+                      </div>
+                      <div style={{ display: 'flex', gap: 12, fontSize: 11, color: 'var(--muted)' }}>
+                        <span>👁 {fmt(v.views)} vues</span>
+                        <span>♥ {fmt(v.likes)}</span>
+                        {v.views30d > 0 && <span style={{ color: GREEN }}>+{fmt(v.views30d)} / 30j</span>}
+                      </div>
+                    </div>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Modal stat YT */}
       {statModal && (
