@@ -1544,11 +1544,12 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
               </div>
               <button onClick={() => { setSelectedVideo(null); setRetention(null); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 ['Vues totales', fmt(selectedVideo.views)],
                 ['Vues 30j', `+${fmt(selectedVideo.views30d)}`],
                 ['Watch time 30j', `${selectedVideo.watchTime30d}min`],
+                ['Watch time moy / vue', selectedVideo.views30d > 0 ? `${Math.floor(selectedVideo.watchTime30d / selectedVideo.views30d)}m${String(Math.round((selectedVideo.watchTime30d / selectedVideo.views30d % 1) * 60)).padStart(2, '0')}s` : '—'],
                 ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
                 ['Likes', fmt(selectedVideo.likes)],
                 ['Commentaires', fmt(selectedVideo.comments)],
