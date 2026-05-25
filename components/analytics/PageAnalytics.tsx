@@ -1303,10 +1303,11 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
 
-  const loadRetention = useCallback(async (videoId: string) => {
+  const loadRetention = useCallback(async (videoId: string, publishedAt?: string) => {
     setLoadingRetention(true);
     try {
-      const r = await fetch(`/api/youtube/video-retention?videoId=${videoId}`);
+      const q = publishedAt ? `?videoId=${videoId}&publishedAt=${encodeURIComponent(publishedAt)}` : `?videoId=${videoId}`;
+      const r = await fetch(`/api/youtube/video-retention${q}`);
       const d = await r.json();
       setRetention(d.retentionCurve || []);
     } catch { setRetention([]); }
@@ -1445,7 +1446,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
           </thead>
           <tbody>
             {yt.videos.map(v => (
-              <tr key={v.id} onClick={() => { setSelectedVideo(v); loadRetention(v.id); }}
+              <tr key={v.id} onClick={() => { setSelectedVideo(v); loadRetention(v.id, v.publishedAt); }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
