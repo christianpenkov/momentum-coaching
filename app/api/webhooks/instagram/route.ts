@@ -161,37 +161,27 @@ export async function POST(request: Request) {
         console.log(`[IG Webhook] DM1 envoyé — message_id: ${dm1Data.message_id}`);
         pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername, text: '👋 Voici ton lead magnet gratuit : [lien]' });
 
-        // Envoie la question d'ouverture (DM 2)
+        // Envoie la question d'ouverture (DM 2) — via ig_user_id directement
         if (commenterId) {
-          const convRes = await fetch(
-            `https://graph.instagram.com/v21.0/${igAccountId}/conversations?user_id=${commenterId}&fields=id&access_token=${access_token}`
-          );
-          const convData = await convRes.json();
-          const conversationId = convData?.data?.[0]?.id;
-
-          if (conversationId) {
-            const dm2Res = await fetch(
-              `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  recipient: { conversation_id: conversationId },
-                  message: { text: "C'est quoi ton objectif principal en ce moment ? 🎯" },
-                  access_token,
-                }),
-              }
-            );
-            const dm2Data = await dm2Res.json();
-            if (dm2Data.error) {
-              console.error(`[IG Webhook] Erreur DM2 :`, dm2Data.error);
-              pushEvent({ type: 'dm2_error', error: dm2Data.error, commenterUsername });
-            } else {
-              console.log(`[IG Webhook] DM2 envoyé — message_id: ${dm2Data.message_id}`);
-              pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, commenterUsername, text: "C'est quoi ton objectif principal en ce moment ? 🎯" });
+          const dm2Res = await fetch(
+            `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipient: { id: commenterId },
+                message: { text: "C'est quoi ton objectif principal en ce moment ? 🎯" },
+                access_token,
+              }),
             }
+          );
+          const dm2Data = await dm2Res.json();
+          if (dm2Data.error) {
+            console.error(`[IG Webhook] Erreur DM2 :`, dm2Data.error);
+            pushEvent({ type: 'dm2_error', error: dm2Data.error, commenterUsername });
           } else {
-            pushEvent({ type: 'dm2_skipped', reason: 'conversation_id non trouvé', commenterUsername });
+            console.log(`[IG Webhook] DM2 envoyé — message_id: ${dm2Data.message_id}`);
+            pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, commenterUsername, text: "C'est quoi ton objectif principal en ce moment ? 🎯" });
           }
         }
       }
