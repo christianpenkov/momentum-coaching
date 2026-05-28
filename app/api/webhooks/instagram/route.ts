@@ -89,11 +89,12 @@ export async function POST(request: Request) {
         .single();
 
       if (!integ) {
-        console.warn(`[IG Webhook] Aucun profil trouvé pour ig_account_id ${igAccountId}`);
+        pushEvent({ type: 'error', reason: 'profil_non_trouve', igAccountId });
         continue;
       }
 
       const { profile_id, access_token } = integ;
+      pushEvent({ type: 'debug_profile_found', profile_id });
 
       // Récupère les mots-clés configurés pour ce profil
       const { data: keywordRows } = await serviceSupabase
@@ -102,11 +103,17 @@ export async function POST(request: Request) {
         .eq('profile_id', profile_id);
 
       const keywords = (keywordRows || []).map((r: any) => r.keyword.toLowerCase());
-      if (keywords.length === 0) continue;
+      pushEvent({ type: 'debug_keywords', keywords, commentText, commentTextLower: commentText.toLowerCase() });
+
+      if (keywords.length === 0) {
+        pushEvent({ type: 'error', reason: 'aucun_mot_cle_configure', profile_id });
+        continue;
+      }
 
       // Vérifie si le commentaire contient un mot-clé
       const text = commentText.toLowerCase();
       const matchedKeyword = keywords.find((kw: string) => text.includes(kw));
+      pushEvent({ type: 'debug_keyword_check', text, keywords, matchedKeyword: matchedKeyword || null });
       if (!matchedKeyword) continue;
 
       console.log(`[IG Webhook] Mot-clé "${matchedKeyword}" détecté — @${commenterUsername} sur media ${mediaId}`);
