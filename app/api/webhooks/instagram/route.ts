@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
+import { pushEvent } from '@/app/api/instagram/webhook-stream/route';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -76,6 +77,9 @@ export async function POST(request: Request) {
 
       if (!commentId || !commentText) continue;
 
+      // Log temps réel — event brut reçu
+      pushEvent({ type: 'comment_received', commentId, commentText, commenterUsername, mediaId, timestamp });
+
       // Trouve le profil qui possède ce compte IG
       const { data: integ } = await serviceSupabase
         .from('integrations')
@@ -106,6 +110,7 @@ export async function POST(request: Request) {
       if (!matchedKeyword) continue;
 
       console.log(`[IG Webhook] Mot-clé "${matchedKeyword}" détecté — @${commenterUsername} sur media ${mediaId}`);
+      pushEvent({ type: 'keyword_matched', keyword: matchedKeyword, commenterUsername, mediaId });
 
       // Vérifie si ce lead existe déjà (anti-doublon)
       const { data: existing } = await serviceSupabase
@@ -120,6 +125,7 @@ export async function POST(request: Request) {
 
       if (existing) {
         console.log(`[IG Webhook] Lead déjà existant — skip`);
+        pushEvent({ type: 'duplicate_skipped', commenterUsername, keyword: matchedKeyword });
         continue;
       }
 
@@ -142,9 +148,11 @@ export async function POST(request: Request) {
 
       if (dm1Data.error) {
         console.error(`[IG Webhook] Erreur DM1 :`, dm1Data.error);
+        pushEvent({ type: 'dm1_error', error: dm1Data.error, commenterUsername });
       } else {
         leadMagnetSent = true;
         console.log(`[IG Webhook] DM1 envoyé — message_id: ${dm1Data.message_id}`);
+        pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername, text: '👋 Voici ton lead magnet gratuit : [lien]' });
 
         // Envoie la question d'ouverture (DM 2)
         if (commenterId) {
@@ -170,9 +178,13 @@ export async function POST(request: Request) {
             const dm2Data = await dm2Res.json();
             if (dm2Data.error) {
               console.error(`[IG Webhook] Erreur DM2 :`, dm2Data.error);
+              pushEvent({ type: 'dm2_error', error: dm2Data.error, commenterUsername });
             } else {
               console.log(`[IG Webhook] DM2 envoyé — message_id: ${dm2Data.message_id}`);
+              pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, commenterUsername, text: "C'est quoi ton objectif principal en ce moment ? 🎯" });
             }
+          } else {
+            pushEvent({ type: 'dm2_skipped', reason: 'conversation_id non trouvé', commenterUsername });
           }
         }
       }
@@ -194,6 +206,7 @@ export async function POST(request: Request) {
         });
 
       console.log(`[IG Webhook] Lead stocké — @${commenterUsername}, mot-clé: ${matchedKeyword}`);
+      pushEvent({ type: 'lead_stored', commenterUsername, keyword: matchedKeyword, leadMagnetSent });
     }
   }
 
