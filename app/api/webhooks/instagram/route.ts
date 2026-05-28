@@ -11,6 +11,45 @@ const serviceSupabase = createClient(
 const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN!;
 const APP_SECRET = process.env.INSTAGRAM_CLIENT_SECRET!;
 
+// Génère un lien Short.io avec UTM pour tracker la source exacte
+async function generateShortLink(profileId: string, igUsername: string, mediaId: string, calendlyUrl: string): Promise<string | null> {
+  const { data: shortio } = await serviceSupabase
+    .from('integrations')
+    .select('api_key, metadata')
+    .eq('profile_id', profileId)
+    .eq('provider', 'shortio')
+    .single();
+
+  if (!shortio?.api_key) return null;
+
+  const domain = (shortio.metadata as any)?.domain;
+  if (!domain) return null;
+
+  // UTM uniques par personne + par post
+  const slug = `${igUsername}_${mediaId}`.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 50);
+  const destUrl = new URL(calendlyUrl);
+  destUrl.searchParams.set('utm_source', 'ig');
+  destUrl.searchParams.set('utm_medium', 'dm');
+  destUrl.searchParams.set('utm_campaign', slug);
+
+  const res = await fetch('https://api.short.io/links', {
+    method: 'POST',
+    headers: {
+      authorization: shortio.api_key,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      domain,
+      originalURL: destUrl.toString(),
+      title: `DM — @${igUsername}`,
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) return null;
+  return data.secureShortURL || data.shortURL || null;
+}
+
 // Vérifie la signature Meta pour sécuriser le webhook
 function verifySignature(body: string, signature: string | null): boolean {
   if (!signature || !APP_SECRET) return false;
@@ -138,7 +177,22 @@ export async function POST(request: Request) {
 
       let leadMagnetSent = false;
 
-      // Envoie le private reply (DM 1 — lead magnet)
+      // Récupère l'URL Calendly depuis les métadonnées Calendly du profil
+      const { data: calendlyInteg } = await serviceSupabase
+        .from('integrations')
+        .select('metadata')
+        .eq('profile_id', profile_id)
+        .eq('provider', 'calendly')
+        .single();
+
+      const calendlyUrl = (calendlyInteg?.metadata as any)?.scheduling_url || 'https://calendly.com/christianpenkov/30min';
+
+      // Génère le lien Short.io avec UTM unique par personne + par post
+      const shortLink = await generateShortLink(profile_id, commenterUsername || commenterId || 'inconnu', mediaId || commentId, calendlyUrl);
+      const dmLinkText = shortLink || calendlyUrl;
+      pushEvent({ type: 'debug_shortlink', shortLink, calendlyUrl, dmLinkText });
+
+      // Envoie le private reply (DM 1 — lien Calendly tracké)
       const dm1Res = await fetch(
         `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
         {
@@ -146,7 +200,7 @@ export async function POST(request: Request) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             recipient: { comment_id: commentId },
-            message: { text: '👋 Voici ton lead magnet gratuit : [lien] — profites-en bien !' },
+            message: { text: `👋 Voici le lien pour réserver ton appel : ${dmLinkText}` },
             access_token,
           }),
         }
@@ -159,7 +213,7 @@ export async function POST(request: Request) {
       } else {
         leadMagnetSent = true;
         console.log(`[IG Webhook] DM1 envoyé — message_id: ${dm1Data.message_id}`);
-        pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername, text: '👋 Voici ton lead magnet gratuit : [lien]' });
+        pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername, shortLink, text: `👋 Voici le lien pour réserver ton appel : ${dmLinkText}` });
 
         // Envoie la question d'ouverture (DM 2) — via ig_user_id directement
         if (commenterId) {
@@ -200,6 +254,7 @@ export async function POST(request: Request) {
           keyword_matched: matchedKeyword,
           detected_at: timestamp,
           lead_magnet_sent: leadMagnetSent,
+          tracking_link: shortLink || null,
         });
 
       console.log(`[IG Webhook] Lead stocké — @${commenterUsername}, mot-clé: ${matchedKeyword}`);
