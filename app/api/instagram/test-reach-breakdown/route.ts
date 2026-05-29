@@ -74,5 +74,26 @@ export async function GET() {
     results.push(postResult);
   }
 
-  return NextResponse.json({ igAccountId, postsTestedCount: results.length, results });
+  // Test 5 : views au niveau canal avec breakdown follow_type + media_product_type
+  const since = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
+  const until = Math.floor(Date.now() / 1000);
+
+  const accountTests: any = {};
+
+  const r5 = await fetch(
+    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&metric_type=total_value&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`
+  );
+  accountTests.views_follow_type_media_product = await r5.json();
+
+  const r6 = await fetch(
+    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`
+  );
+  accountTests.views_follow_type_no_metric_type = await r6.json();
+
+  const r7 = await fetch(
+    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`
+  );
+  accountTests.views_follow_type_only = await r7.json();
+
+  return NextResponse.json({ igAccountId, postsTestedCount: results.length, results, accountLevelTests: accountTests });
 }
