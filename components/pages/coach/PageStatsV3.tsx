@@ -826,21 +826,59 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
   });
   const visibleContent = showAllContent ? sortedContent : sortedContent.slice(0, 5);
 
+  const totalPosts = (ig?.mediaCount || 0) + (yt?.videoCount || 0);
+  const ytShorts = yt?.videos.filter(v => v.isShort).length || 0;
+  const ytLongform = yt?.videos.filter(v => !v.isShort).length || 0;
+
   return (
     <div className="stack">
 
-      {/* ── BLOC 1 : KPIs ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(9, 1fr)', gap: 10 }}>
+      {/* ── BLOC 0 : Compteur publications totales ── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
+        <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalPosts)}</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>publications au total</div>
+        <div style={{ width: 1, height: 28, background: 'var(--border)', margin: '0 4px' }} />
+        <div style={{ display: 'flex', align: 'center', gap: 16 }}>
+          {ig && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: IG_COLOR, display: 'inline-block' }} />
+              <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{fmt(ig.mediaCount)}</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Instagram</span>
+            </div>
+          )}
+          {yt && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: YT_COLOR, display: 'inline-block' }} />
+              <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{fmt(yt.videoCount)}</span>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>YouTube</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── BLOC 1 : KPIs — 2 lignes de 5 ── */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
           { label: 'Abonnés IG', value: fmt(ig?.followers || 0), sub: 'total', color: IG_COLOR },
           { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
           { label: 'Clics lien', value: fmt(shortioClicks), sub: `${period}j — vers Calendly`, color: BLUE },
           { label: 'Calls bookés', value: fmt(callsBookes), sub: `${period}j`, color: 'var(--ink)' as string },
           { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
+        ].map((item, i) => (
+          <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
+            <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
+          </div>
+        ))}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+        {[
           { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
           { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call honoré', color: GREEN },
           { label: 'Revenue', value: fmtEur(mrr || totalRev), sub: `${period}j`, color: GREEN },
+          { label: 'MRR', value: fmtEur(mrr), sub: 'mensuel récurrent', color: mrr > 0 ? GREEN : 'var(--muted)' },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
@@ -1062,6 +1100,13 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
   return (
     <div className="stack">
+      {/* Compteur publications IG */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: IG_COLOR, display: 'inline-block' }} />
+        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>{fmt(ig.mediaCount)}</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>publications Instagram au total</span>
+      </div>
+
       {/* Ligne 1 — 5 stats audience */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
@@ -1355,8 +1400,24 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
 
   const deviceData = yt.devices.map(d => ({ name: d.device.toLowerCase(), views: d.views }));
 
+  const ytShortsCount = yt.videos.filter(v => v.isShort).length;
+  const ytLongCount = yt.videos.filter(v => !v.isShort).length;
+
   return (
     <div className="stack">
+      {/* Compteur publications YT */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
+        <span style={{ width: 8, height: 8, borderRadius: '50%', background: YT_COLOR, display: 'inline-block' }} />
+        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>{fmt(yt.videoCount)}</span>
+        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>vidéos YouTube au total</span>
+        <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmt(ytShortsCount)}</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Shorts</span>
+        <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
+        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmt(ytLongCount)}</span>
+        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Vidéos longues</span>
+      </div>
+
       {/* Ligne 1 — audience & portée */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
         {[
@@ -1449,7 +1510,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
                 <td style={{ padding: '10px' }}>
-                  <img src={v.thumbnail} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4 }} />
+                  {v.thumbnail ? <img src={v.thumbnail} alt="" style={{ width: 56, height: 32, objectFit: 'cover', borderRadius: 4 }} /> : <div style={{ width: 56, height: 32, borderRadius: 4, background: 'var(--surface-2)' }} />}
                 </td>
                 <td style={{ padding: '10px', maxWidth: 200 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</div>
@@ -1535,7 +1596,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, maxWidth: 600, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}
             onClick={e => e.stopPropagation()}>
             <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
-              <img src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} />
+              {selectedVideo.thumbnail ? <img src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} /> : <div style={{ width: 120, height: 68, borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0 }} />}
               <div>
                 <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, marginBottom: 4 }}>{selectedVideo.title}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(selectedVideo.publishedAt).toLocaleDateString('fr-FR', { dateStyle: 'long' })} · {selectedVideo.duration} · {selectedVideo.isShort ? 'Short' : 'Vidéo'}</div>
@@ -2643,13 +2704,231 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
 
 // ─── TAB 6 : Short.io ─────────────────────────────────────────────────────────
 
-function TabShortio({ shortio, period }: { shortio: ShortioStats | null; period: Period }) {
+interface ShortDomain { id: string | number; hostname: string; }
+
+interface MockLead {
+  igUserId: string;
+  igUsername: string;
+  igAvatar?: string;
+  postId: string;
+  postTitle: string;
+  postType: 'IG' | 'YT';
+  commentedAt: string;
+  keyword: string;
+  leadMagnetSent: boolean;
+}
+
+interface DestinationLink {
+  id: string;
+  label: string;
+  url: string;
+  type: 'calendly' | 'leadmagnet' | 'other';
+}
+
+// Mock leads commentaires — en prod ces données viennent de la table `leads`
+const MOCK_LEADS: MockLead[] = [
+  { igUserId: 'ig_001', igUsername: 'thomas.biz',       postId: '1',  postTitle: 'Comment j\'ai closé 3 clients en 1 semaine',         postType: 'IG', commentedAt: new Date(Date.now() - 8*86400000).toISOString(),  keyword: 'COACHING',   leadMagnetSent: true },
+  { igUserId: 'ig_002', igUsername: 'sarah.mindset',    postId: '2',  postTitle: 'Le mindset qui m\'a tout changé',                    postType: 'IG', commentedAt: new Date(Date.now() - 5*86400000).toISOString(),  keyword: 'GUIDE',      leadMagnetSent: true },
+  { igUserId: 'ig_003', igUsername: 'lucas_b_officiel', postId: 'v1', postTitle: 'Comment créer une offre à 3000€ irrésistible',       postType: 'YT', commentedAt: new Date(Date.now() - 3*86400000).toISOString(),  keyword: 'COACHING',   leadMagnetSent: true },
+  { igUserId: 'ig_004', igUsername: 'emma.dev',         postId: '5',  postTitle: 'Témoignage client — de 0 à 5k€/mois en 3 mois',     postType: 'IG', commentedAt: new Date(Date.now() - 11*86400000).toISOString(), keyword: 'PROGRAMME',  leadMagnetSent: true },
+  { igUserId: 'ig_005', igUsername: 'mehdi_academy',    postId: 'v2', postTitle: 'Tunnel de vente Instagram — tuto complet 2025',      postType: 'YT', commentedAt: new Date(Date.now() - 14*86400000).toISOString(), keyword: 'COACHING',   leadMagnetSent: true },
+  { igUserId: 'ig_006', igUsername: 'julie_coaching',   postId: '1',  postTitle: 'Comment j\'ai closé 3 clients en 1 semaine',         postType: 'IG', commentedAt: new Date(Date.now() - 2*86400000).toISOString(),  keyword: 'CHECKLIST',  leadMagnetSent: false },
+  { igUserId: 'ig_007', igUsername: 'alex.freedom',     postId: '5',  postTitle: 'Témoignage client — de 0 à 5k€/mois en 3 mois',     postType: 'IG', commentedAt: new Date(Date.now() - 6*86400000).toISOString(),  keyword: 'PROGRAMME',  leadMagnetSent: true },
+  { igUserId: 'ig_008', igUsername: 'chloe_success',    postId: 'v3', postTitle: 'Script DM qui converti #shorts',                    postType: 'YT', commentedAt: new Date(Date.now() - 4*86400000).toISOString(),  keyword: 'GUIDE',      leadMagnetSent: true },
+  { igUserId: 'ig_009', igUsername: 'romain.sales',     postId: '6',  postTitle: 'Pourquoi tu rates tes calls de vente',               postType: 'IG', commentedAt: new Date(Date.now() - 9*86400000).toISOString(),  keyword: 'COACHING',   leadMagnetSent: true },
+  { igUserId: 'ig_010', igUsername: 'inès_entreprise',  postId: 'v4', postTitle: 'Ma méthode pour closer 80% de mes calls',            postType: 'YT', commentedAt: new Date(Date.now() - 7*86400000).toISOString(),  keyword: 'CHECKLIST',  leadMagnetSent: false },
+];
+
+// Mock destinations — en prod ces données viennent de la config de l'élève
+const MOCK_DESTINATIONS: DestinationLink[] = [
+  { id: 'dest_1', label: 'Appel découverte 30min', url: 'https://calendly.com/quennel/discovery', type: 'calendly' },
+  { id: 'dest_2', label: 'Appel stratégie 60min', url: 'https://calendly.com/quennel/strategy', type: 'calendly' },
+  { id: 'dest_3', label: 'Lead magnet — Checklist closing', url: 'https://quennel.com/checklist-closing', type: 'leadmagnet' },
+  { id: 'dest_4', label: 'Lead magnet — Guide tunnel de vente', url: 'https://quennel.com/guide-tunnel', type: 'leadmagnet' },
+];
+
+function TabShortio({ shortio, ig, yt, profileId, period }: {
+  shortio: ShortioStats | null;
+  ig: IGStats | null;
+  yt: YTStats | null;
+  profileId?: string;
+  period: Period;
+}) {
   const [selectedLink, setSelectedLink] = useState<ShortioLink | null>(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [domains, setDomains] = useState<ShortDomain[]>([]);
+  const [domainsLoading, setDomainsLoading] = useState(false);
+
+  // modal state
+  const [createMode, setCreateMode] = useState<'lead' | 'manual'>('lead');
+  const [selectedDomain, setSelectedDomain] = useState<ShortDomain | null>(null);
+  const [selectedLead, setSelectedLead] = useState<MockLead | null>(null);
+  const [leadSearch, setLeadSearch] = useState('');
+  const [selectedDest, setSelectedDest] = useState<DestinationLink>(MOCK_DESTINATIONS[0]);
+  const [manualUsername, setManualUsername] = useState('');
+  const [manualPostId, setManualPostId] = useState('');
+  const [customPath, setCustomPath] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createdLink, setCreatedLink] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const resetModal = () => {
+    setCreatedLink(null); setCreateError(null);
+    setSelectedLead(null); setLeadSearch('');
+    setManualUsername(''); setManualPostId(''); setCustomPath('');
+    setCreateMode('lead');
+    setSelectedDest(MOCK_DESTINATIONS[0]);
+  };
+
+  const openCreate = async () => {
+    resetModal();
+    setShowCreate(true);
+    if (domains.length > 0) return;
+    setDomainsLoading(true);
+    try {
+      const url = profileId ? `/api/shortio/domains?profileId=${profileId}` : '/api/shortio/domains';
+      const res = await fetch(url);
+      const data = await res.json();
+      // En mode mock on simule le domaine
+      const list: ShortDomain[] = data.domains?.length ? data.domains : [{ id: 'mock', hostname: 'qnl.link' }];
+      setDomains(list);
+      if (list.length > 0) setSelectedDomain(list[0]);
+    } catch {
+      setDomains([{ id: 'mock', hostname: 'qnl.link' }]);
+      setSelectedDomain({ id: 'mock', hostname: 'qnl.link' });
+    } finally {
+      setDomainsLoading(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!selectedDomain) return;
+    if (createMode === 'lead' && !selectedLead) return;
+    if (createMode === 'manual' && !manualUsername.trim()) return;
+
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const igId = createMode === 'lead' ? selectedLead!.igUserId : `manual-${manualUsername.trim().replace(/\s+/g, '-')}`;
+      const postId = createMode === 'lead' ? selectedLead!.postId : (manualPostId || 'unknown');
+      const slug = customPath.trim() || (createMode === 'lead'
+        ? selectedLead!.igUsername.replace(/[^a-z0-9]/gi, '-').toLowerCase()
+        : manualUsername.trim().replace(/[^a-z0-9]/gi, '-').toLowerCase());
+
+      const res = await fetch('/api/shortio/links', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          profileId,
+          domainId: selectedDomain.hostname,
+          originalUrl: selectedDest.url,
+          title: `${selectedDest.label} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
+          utmSource: selectedDomain.hostname,
+          utmMedium: 'dm',
+          utmCampaign: `lead-${igId}`,
+          utmContent: postId,
+          path: slug,
+        }),
+      });
+      const data = await res.json();
+      // En mode mock on simule le résultat
+      setCreatedLink(data.shortUrl || `${selectedDomain.hostname}/${slug}`);
+    } catch (e: any) {
+      setCreateError(e.message || 'Erreur lors de la création');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const copyLink = () => {
+    if (!createdLink) return;
+    navigator.clipboard.writeText(createdLink);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const filteredLeads = MOCK_LEADS.filter(l =>
+    !leadSearch || l.igUsername.toLowerCase().includes(leadSearch.toLowerCase()) || l.postTitle.toLowerCase().includes(leadSearch.toLowerCase())
+  );
+
+  const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 
   if (!shortio) return <Empty msg="Connecte ton compte Short.io pour voir les stats." />;
 
+  const bioLinks    = shortio.links.filter((l: any) => l.linkType === 'bio');
+  const postLinks   = shortio.links.filter((l: any) => l.linkType === 'post');
+  const prospectLinks = shortio.links.filter((l: any) => l.linkType === 'prospect');
+
+  const igPosts = ig?.posts || [];
+  const ytVideos = yt?.videos || [];
+
+  // Retrouver thumbnail/type du contenu source d'un lien post
+  const getPostMeta = (l: any) => {
+    if (l.postPlatform === 'IG') {
+      const p = igPosts.find(p => p.id === l.postId);
+      return { thumbnail: p?.thumbnail || null, type: p?.type === 'VIDEO' ? 'Reel' : p?.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', label: 'IG' };
+    }
+    const v = ytVideos.find(v => v.id === l.postId);
+    return { thumbnail: v?.thumbnail || null, type: v?.isShort ? 'Short' : 'Vidéo', label: 'YT' };
+  };
+
+  // Tableau consolidé par vidéo — toutes les vidéos avec au moins une activité business
+  const allPostIds = Array.from(new Set([
+    ...postLinks.map((l: any) => l.postId + '|' + l.postPlatform),
+    ...prospectLinks.map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
+    ...MOCK_LEADS.filter(lead => lead.leadMagnetSent).map(lead => lead.postId + '|' + lead.postType),
+  ]));
+
+  const consolidatedRows = allPostIds.map(key => {
+    const [postId, platform] = key.split('|');
+    const descLink = postLinks.find((l: any) => l.postId === postId);
+    const dmLinks = prospectLinks.filter((l: any) => l.postId === postId);
+    const leads = MOCK_LEADS.filter(lead => lead.postId === postId);
+    const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
+    const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
+    const title = igPost?.caption || ytVideo?.title || descLink?.title || postId;
+    const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
+    const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo?.isShort ? 'Short' : 'Vidéo');
+
+    const clicsDesc = descLink?.humanClicks30d || 0;
+    const clicsDM = dmLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+    const leadsCount = leads.length;
+    const lmCount = leads.filter(l => l.leadMagnetSent).length;
+    const dmCount = dmLinks.length;
+    const callsCount = dmLinks.filter((l: any) => l.callBooked).length;
+    const closedCount = dmLinks.filter((l: any) => l.dealClosed === true).length;
+    const revenue = dmLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+
+    return { postId, platform, title, thumbnail, type, descLink, dmLinks, leadsCount, lmCount, dmCount, clicsDesc, clicsDM, callsCount, closedCount, revenue };
+  }).sort((a, b) => (b.clicsDesc + b.clicsDM + b.revenue) - (a.clicsDesc + a.clicsDM + a.revenue));
+
+  // Insight prospects
+  const prospectsWithCall = prospectLinks.filter((l: any) => l.callBooked);
+  const prospectsConverted = prospectLinks.filter((l: any) => l.dealClosed);
+  const prospectRevenue = prospectLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+  const convRate = prospectLinks.length > 0 ? Math.round((prospectsWithCall.length / prospectLinks.length) * 100) : 0;
+  const avgDelayLinks = prospectLinks.filter((l: any) => l.clickToCallDays != null);
+  const avgDelay = avgDelayLinks.length > 0
+    ? Math.round(avgDelayLinks.reduce((s: number, l: any) => s + l.clickToCallDays, 0) / avgDelayLinks.length * 10) / 10
+    : null;
+
+  const topRef = (l: ShortioLink) => l.referrers?.[0]?.label || '—';
+
+  const SectionHeader = ({ title, sub, action }: { title: string; sub: string; action?: React.ReactNode }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div>
+        <div style={{ fontSize: 13, fontWeight: 700 }}>{title}</div>
+        <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>
+      </div>
+      {action}
+    </div>
+  );
+
   return (
     <div className="stack">
+
+      {/* Stats globales */}
       <StatGrid>
         <Stat label="Domaine" value={shortio.domain} />
         <Stat label="Liens actifs" value={fmt(shortio.totalLinks)} />
@@ -2659,68 +2938,211 @@ function TabShortio({ shortio, period }: { shortio: ShortioStats | null; period:
         <Stat label="Moy. / lien" value={fmt(shortio.clicksPerLink30d, 1)} />
       </StatGrid>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Clics par jour" sub="30 jours">
-          <AreaChart data={shortio.chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={200} />
-        </Card>
-        <Card title="Top referrers">
-          {shortio.topReferrers.map((r, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.label || 'Direct'}</div>
-              <div style={{ fontSize: 11, fontWeight: 600 }}>{fmt(r.value)}</div>
+      {/* Insight prospects */}
+      {prospectLinks.length > 0 && (
+        <div style={{ background: BLUE + '10', border: `1px solid ${BLUE}28`, borderRadius: 12, padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 18 }}>📊</div>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', marginBottom: 2 }}>
+              {prospectLinks.length} liens prospects · {prospectsWithCall.length} calls bookés
+              {prospectsWithCall.length > 0 && <span style={{ color: BLUE, marginLeft: 6, fontWeight: 600 }}>({convRate}%)</span>}
             </div>
-          ))}
-        </Card>
-      </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              {prospectsConverted.length > 0 && <span>{prospectsConverted.length} deal{prospectsConverted.length > 1 ? 's' : ''} closé{prospectsConverted.length > 1 ? 's' : ''} · <strong style={{ color: GREEN }}>{fmtEur(prospectRevenue)}</strong></span>}
+              {avgDelay !== null && <span>Délai moyen clic → call : <strong>{avgDelay}j</strong></span>}
+            </div>
+          </div>
+        </div>
+      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18 }}>
-        {[
-          { title: 'Top pays', data: shortio.topCountries },
-          { title: 'Top réseaux sociaux', data: shortio.topSocial },
-          { title: 'Top navigateurs', data: shortio.topBrowsers },
-        ].map(({ title, data }, i) => (
-          <Card key={i} title={title}>
-            {data.slice(0, 5).map((d, j) => (
-              <div key={j} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', flex: 1 }}>{d.label}</div>
-                <div style={{ flex: 2, height: 5, background: 'var(--border)', borderRadius: 3 }}>
-                  <div style={{ height: 5, width: `${pct(d.value, data[0]?.value || 1)}%`, background: BLUE, borderRadius: 3 }} />
-                </div>
-                <div style={{ fontSize: 11, fontWeight: 600, width: 30, textAlign: 'right' }}>{fmt(d.value)}</div>
-              </div>
-            ))}
-          </Card>
-        ))}
-      </div>
-
-      <Card title="Liens" sub="Top 20 — clic pour détail">
-        <table className="table" style={{ width: '100%' }}>
-          <thead>
-            <tr>
-              {['Lien court', 'Destination', 'Clics 30j', 'Humains', 'Variation', 'Créé le'].map((h, i) => (
-                <th key={i} style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '8px 10px' }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {shortio.links.map((l, i) => (
-              <tr key={i} onClick={() => setSelectedLink(l)} style={{ cursor: 'pointer', borderTop: '1px solid var(--border-soft)' }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-                onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                <td style={{ padding: '10px', fontSize: 12, fontWeight: 600, color: BLUE }}>/{l.path}</td>
-                <td style={{ padding: '10px', fontSize: 11, color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{l.originalUrl}</td>
-                <td style={{ padding: '10px', fontSize: 13, fontWeight: 700 }}>{fmt(l.clicks30d)}</td>
-                <td style={{ padding: '10px', fontSize: 12 }}>{fmt(l.humanClicks30d)}</td>
-                <td style={{ padding: '10px', fontSize: 12, color: l.clicksChange !== null ? (l.clicksChange >= 0 ? GREEN : RED) : 'var(--muted)', fontWeight: 600 }}>
-                  {l.clicksChange !== null ? `${l.clicksChange >= 0 ? '+' : ''}${fmtPct(l.clicksChange)}` : '—'}
-                </td>
-                <td style={{ padding: '10px', fontSize: 11, color: 'var(--muted)' }}>{new Date(l.createdAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      {/* Graphique global */}
+      <Card title="Clics par jour" sub="30 jours — tous liens confondus">
+        <AreaChart data={shortio.chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={180} />
       </Card>
 
+      {/* ── Section 1 : Bios ── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+        <SectionHeader title="Liens bio" sub="Un lien fixe par plateforme — toujours dans la bio" />
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          {bioLinks.map((l: any, i: number) => (
+            <div key={i} onClick={() => setSelectedLink(l)} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', cursor: 'pointer', transition: 'background .12s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+              onMouseLeave={e => (e.currentTarget.style.background = '')}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <span style={{ fontSize: 20 }}>{l.bioType === 'instagram' ? '📸' : '▶️'}</span>
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700 }}>{l.bioType === 'instagram' ? 'Bio Instagram' : 'Bio YouTube'}</div>
+                  <div style={{ fontSize: 11, color: BLUE }}>{l.shortUrl}</div>
+                </div>
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+                {[
+                  { label: 'Clics 30j', value: fmt(l.humanClicks30d) },
+                  { label: 'Top source', value: topRef(l) },
+                  { label: 'Variation', value: l.clicksChange !== null ? `${l.clicksChange >= 0 ? '+' : ''}${fmtPct(l.clicksChange)}` : '—', color: l.clicksChange !== null ? (l.clicksChange >= 0 ? GREEN : RED) : 'var(--muted)' },
+                ].map((s, j) => (
+                  <div key={j}>
+                    <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 2 }}>{s.label}</div>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: (s as any).color || 'var(--ink)' }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ── Section 2 : Vue consolidée par contenu ── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+        <SectionHeader
+          title="Performance par contenu"
+          sub={`${consolidatedRows.length} contenus avec activité business — funnel complet`}
+          action={
+            <button onClick={openCreate} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', background: BLUE, color: '#fff', border: 'none', transition: 'opacity .15s' }}
+              onMouseEnter={e => (e.currentTarget.style.opacity = '.85')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+              + Générer un lien
+            </button>
+          }
+        />
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
+            <thead>
+              <tr>
+                {[
+                  { label: '', align: 'left' },
+                  { label: 'Contenu', align: 'left' },
+                  { label: 'Lien desc.', align: 'left' },
+                  { label: 'Clics desc.', align: 'right' },
+                  { label: 'Leads', align: 'right' },
+                  { label: 'LM envoyés', align: 'right' },
+                  { label: 'DM trackés', align: 'right' },
+                  { label: 'Clics DM', align: 'right' },
+                  { label: 'Calls', align: 'right' },
+                  { label: 'Closés', align: 'right' },
+                  { label: 'Revenue', align: 'right' },
+                ].map((h, i) => (
+                  <th key={i} style={{ textAlign: h.align as any, fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {consolidatedRows.map((row, i) => {
+                const platformColor = row.platform === 'IG' ? ACCENT : RED;
+                return (
+                  <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}
+                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                    onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                    {/* Thumbnail */}
+                    <td style={{ padding: '8px 10px', width: 40 }}>
+                      {row.thumbnail
+                        ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                        : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : '▶️'}</div>}
+                    </td>
+                    {/* Titre + badge plateforme */}
+                    <td style={{ padding: '8px 10px', maxWidth: 200 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
+                      <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
+                    </td>
+                    {/* Lien description */}
+                    <td style={{ padding: '8px 10px', fontSize: 11, color: row.descLink ? BLUE : 'var(--faint)', whiteSpace: 'nowrap' }}>
+                      {row.descLink ? `/${row.descLink.path}` : '—'}
+                    </td>
+                    {/* Clics desc */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>
+                      {row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}
+                    </td>
+                    {/* Leads (commentaires keyword) */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.leadsCount > 0 ? 700 : 400, color: row.leadsCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>
+                      {row.leadsCount > 0 ? row.leadsCount : '—'}
+                    </td>
+                    {/* Lead magnets envoyés */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmCount > 0 ? 700 : 400, color: row.lmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>
+                      {row.lmCount > 0 ? row.lmCount : '—'}
+                    </td>
+                    {/* DM trackés (liens prospects générés) */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>
+                      {row.dmCount > 0 ? row.dmCount : '—'}
+                    </td>
+                    {/* Clics DM */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDM > 0 ? 700 : 400, color: row.clicsDM > 0 ? 'var(--ink)' : 'var(--faint)' }}>
+                      {row.clicsDM > 0 ? fmt(row.clicsDM) : '—'}
+                    </td>
+                    {/* Calls */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                      {row.callsCount > 0
+                        ? <span style={{ fontSize: 12, fontWeight: 700, color: GREEN }}>{row.callsCount}</span>
+                        : <span style={{ fontSize: 11, color: 'var(--faint)' }}>—</span>}
+                    </td>
+                    {/* Closés */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right' }}>
+                      {row.closedCount > 0
+                        ? <span style={{ fontSize: 12, fontWeight: 700, color: GREEN }}>{row.closedCount}</span>
+                        : <span style={{ fontSize: 11, color: 'var(--faint)' }}>—</span>}
+                    </td>
+                    {/* Revenue */}
+                    <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>
+                      {row.revenue > 0 ? fmtEur(row.revenue) : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Section 3 : Prospects DM ── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+        <SectionHeader
+          title="Liens prospects · DM"
+          sub="Un lien unique par prospect envoyé en DM — tracking complet"
+        />
+        {prospectLinks.length === 0
+          ? <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucun lien prospect créé.</div>
+          : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Prospect', 'Contenu source', 'Lien', 'Clics', 'Délai', 'Call', 'Closé', 'Revenue'].map((h, i) => (
+                    <th key={i} style={{ textAlign: i >= 3 ? 'right' : 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {prospectLinks.map((l: any, i: number) => {
+                  const sourcePost = [...igPosts.map(p => ({ id: p.id, title: p.caption?.slice(0, 30), platform: 'IG' })), ...ytVideos.map(v => ({ id: v.id, title: v.title.slice(0, 30), platform: 'YT' }))]
+                    .find(p => p.id === l.postId);
+                  return (
+                    <tr key={i} onClick={() => setSelectedLink(l)} style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                      <td style={{ padding: '9px 10px', fontSize: 12, fontWeight: 700 }}>@{l.igUsername}</td>
+                      <td style={{ padding: '9px 10px', fontSize: 11, color: 'var(--muted)', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {sourcePost ? <><span style={{ fontSize: 9, fontWeight: 700, color: sourcePost.platform === 'IG' ? ACCENT : RED, background: (sourcePost.platform === 'IG' ? ACCENT : RED) + '18', borderRadius: 3, padding: '1px 4px', marginRight: 4 }}>{sourcePost.platform}</span>{sourcePost.title}…</> : '—'}
+                      </td>
+                      <td style={{ padding: '9px 10px', fontSize: 11, color: BLUE }}>/{l.path}</td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(l.humanClicks30d)}</td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right', fontSize: 12, color: 'var(--muted)' }}>{l.clickToCallDays != null ? `${l.clickToCallDays}j` : '—'}</td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right' }}>
+                        {l.callBooked ? <span style={{ fontSize: 10, fontWeight: 600, color: GREEN, background: GREEN + '18', borderRadius: 4, padding: '2px 6px' }}>Oui</span> : <span style={{ fontSize: 11, color: 'var(--faint)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right' }}>
+                        {l.dealClosed === true ? <span style={{ fontSize: 10, fontWeight: 600, color: GREEN, background: GREEN + '18', borderRadius: 4, padding: '2px 6px' }}>Closé</span>
+                          : l.dealClosed === false ? <span style={{ fontSize: 10, fontWeight: 600, color: RED, background: RED + '12', borderRadius: 4, padding: '2px 6px' }}>Non</span>
+                          : <span style={{ fontSize: 11, color: 'var(--faint)' }}>—</span>}
+                      </td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: l.revenue ? GREEN : 'var(--faint)' }}>
+                        {l.revenue ? fmtEur(l.revenue) : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+      </div>
+
+      {/* Modal détail lien */}
       {selectedLink && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setSelectedLink(null)}>
@@ -2734,24 +3156,238 @@ function TabShortio({ shortio, period }: { shortio: ShortioStats | null; period:
               <button onClick={() => setSelectedLink(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
             <AreaChart data={selectedLink.chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={140} />
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 16 }}>
-              {[
-                { title: 'Pays', data: selectedLink.countries },
-                { title: 'Referrers', data: selectedLink.referrers },
-                { title: 'UTM Source', data: selectedLink.utmSource },
-                { title: 'UTM Medium', data: selectedLink.utmMedium },
-              ].map(({ title, data }, i) => (
-                <div key={i}>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6 }}>{title}</div>
-                  {data.slice(0, 5).map((d, j) => (
-                    <div key={j} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>
-                      <span>{d.label || '—'}</span><span style={{ fontWeight: 600, color: 'var(--ink)' }}>{fmt(d.value)}</span>
+            <div style={{ marginTop: 16, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Clics humains 30j</div>
+                <div style={{ fontSize: 28, fontWeight: 800, color: BLUE }}>{fmt(selectedLink.humanClicks30d)}</div>
+              </div>
+              {selectedLink.referrers.length > 0 && (
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Sources</div>
+                  {selectedLink.referrers.slice(0, 4).map((r, i) => (
+                    <div key={i} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, marginBottom: 4 }}>
+                      <span style={{ color: 'var(--muted)' }}>{r.label || 'Direct'}</span>
+                      <span style={{ fontWeight: 600 }}>{fmt(r.value)}</span>
                     </div>
                   ))}
-                  {data.length === 0 && <div style={{ fontSize: 11, color: 'var(--faint)' }}>—</div>}
                 </div>
-              ))}
+              )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal création lien */}
+      {showCreate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => { setShowCreate(false); resetModal(); }}>
+          <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.2)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>Générer un lien tracké</div>
+              <button onClick={() => { setShowCreate(false); resetModal(); }} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
+            </div>
+
+            {createdLink ? (
+              /* ── Résultat ── */
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Lien créé — copie et envoie en DM</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: BLUE, wordBreak: 'break-all' }}>{createdLink}</span>
+                  <button onClick={copyLink} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none', background: copied ? GREEN : BLUE, color: '#fff', transition: 'background .2s', flexShrink: 0 }}>
+                    {copied ? 'Copié !' : 'Copier'}
+                  </button>
+                </div>
+                {createMode === 'lead' && selectedLead && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>@{selectedLead.igUsername}</span> · via <span style={{ fontWeight: 600 }}>{selectedLead.postTitle.slice(0, 40)}…</span> · mot-clé <span style={{ fontWeight: 600 }}>#{selectedLead.keyword}</span>
+                  </div>
+                )}
+                <button onClick={resetModal} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--ink)' }}>
+                  Générer un autre lien
+                </button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+                {/* ── Toggle mode ── */}
+                <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+                  {(['lead', 'manual'] as const).map(mode => (
+                    <button key={mode} onClick={() => setCreateMode(mode)} style={{
+                      flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+                      background: createMode === mode ? 'var(--surface)' : 'transparent',
+                      color: createMode === mode ? 'var(--ink)' : 'var(--muted)',
+                      boxShadow: createMode === mode ? '0 1px 3px rgba(0,0,0,.07)' : 'none',
+                      transition: 'all .15s',
+                    }}>
+                      {mode === 'lead' ? 'Depuis un commentaire' : 'Prospect manuel'}
+                    </button>
+                  ))}
+                </div>
+
+                {/* ── Mode : depuis un commentaire ── */}
+                {createMode === 'lead' && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>
+                      Sélectionne le prospect
+                      <span style={{ fontWeight: 400, marginLeft: 6 }}>({MOCK_LEADS.length} leads en attente)</span>
+                    </div>
+                    <input
+                      type="text"
+                      value={leadSearch}
+                      onChange={e => setLeadSearch(e.target.value)}
+                      placeholder="Recherche par pseudo ou vidéo..."
+                      style={{ width: '100%', padding: '8px 12px', fontSize: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box', marginBottom: 8 }}
+                    />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
+                      {filteredLeads.map(lead => (
+                        <div
+                          key={lead.igUserId}
+                          onClick={() => setSelectedLead(lead)}
+                          style={{
+                            padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                            border: `1px solid ${selectedLead?.igUserId === lead.igUserId ? BLUE : 'var(--border)'}`,
+                            background: selectedLead?.igUserId === lead.igUserId ? BLUE + '0e' : 'var(--surface)',
+                            transition: 'all .12s',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>@{lead.igUsername}</span>
+                                <span style={{ fontSize: 10, fontWeight: 600, color: lead.leadMagnetSent ? GREEN : AMBER, background: (lead.leadMagnetSent ? GREEN : AMBER) + '18', borderRadius: 4, padding: '1px 5px' }}>
+                                  {lead.leadMagnetSent ? 'LM envoyé' : 'En attente'}
+                                </span>
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                <span style={{ background: lead.postType === 'IG' ? ACCENT + '18' : RED + '12', color: lead.postType === 'IG' ? ACCENT : RED, fontWeight: 600, borderRadius: 3, padding: '1px 4px', marginRight: 5, fontSize: 10 }}>{lead.postType}</span>
+                                {lead.postTitle.slice(0, 38)}{lead.postTitle.length > 38 ? '…' : ''}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{daysSince(lead.commentedAt)}j</div>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: BLUE, marginTop: 2 }}>#{lead.keyword}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {filteredLeads.length === 0 && <div style={{ fontSize: 12, color: 'var(--faint)', padding: 12 }}>Aucun lead trouvé</div>}
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Mode : prospect manuel ── */}
+                {createMode === 'manual' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Pseudo Instagram</div>
+                      <input
+                        type="text"
+                        value={manualUsername}
+                        onChange={e => setManualUsername(e.target.value.replace(/^@/, ''))}
+                        placeholder="thomas.biz"
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>
+                        Contenu source <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span>
+                      </div>
+                      <select
+                        value={manualPostId}
+                        onChange={e => setManualPostId(e.target.value)}
+                        style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
+                      >
+                        <option value="">— Sans attribution —</option>
+                        {(ig?.posts || []).map(p => <option key={p.id} value={p.id}>IG · {p.caption?.slice(0, 50)}</option>)}
+                        {(yt?.videos || []).map(v => <option key={v.id} value={v.id}>YT · {v.title.slice(0, 50)}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── Destination ── */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Destination</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {MOCK_DESTINATIONS.map(dest => (
+                      <div
+                        key={dest.id}
+                        onClick={() => setSelectedDest(dest)}
+                        style={{
+                          padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
+                          border: `1px solid ${selectedDest.id === dest.id ? BLUE : 'var(--border)'}`,
+                          background: selectedDest.id === dest.id ? BLUE + '0e' : 'transparent',
+                          display: 'flex', alignItems: 'center', gap: 10, transition: 'all .12s',
+                        }}
+                      >
+                        <span style={{ fontSize: 14 }}>{dest.type === 'calendly' ? '📅' : dest.type === 'leadmagnet' ? '📄' : '🔗'}</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>{dest.label}</div>
+                          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 1 }}>{dest.url}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* ── Domaine ── */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Domaine Short.io</div>
+                  {domainsLoading ? (
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>Chargement...</div>
+                  ) : (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      {(domains.length ? domains : [{ id: 'mock', hostname: 'qnl.link' }]).map(d => (
+                        <button key={String(d.id)} onClick={() => setSelectedDomain(d)} style={{
+                          padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                          border: `1px solid ${selectedDomain?.id === d.id ? BLUE : 'var(--border)'}`,
+                          background: selectedDomain?.id === d.id ? BLUE + '15' : 'transparent',
+                          color: selectedDomain?.id === d.id ? BLUE : 'var(--ink)',
+                        }}>{d.hostname}</button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* ── Chemin optionnel ── */}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>
+                    Chemin <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel — auto-généré)</span>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                    <span style={{ padding: '8px 10px', fontSize: 12, color: 'var(--muted)', background: 'var(--surface-2)', borderRight: '1px solid var(--border)', whiteSpace: 'nowrap' }}>
+                      {(selectedDomain?.hostname || 'qnl.link')}/
+                    </span>
+                    <input
+                      type="text"
+                      value={customPath}
+                      onChange={e => setCustomPath(e.target.value.replace(/\s+/g, '-').toLowerCase())}
+                      placeholder={createMode === 'lead' && selectedLead ? selectedLead.igUsername.toLowerCase() : 'pseudo-instagram'}
+                      style={{ flex: 1, padding: '8px 12px', fontSize: 13, border: 'none', background: 'var(--surface)', color: 'var(--ink)', outline: 'none' }}
+                    />
+                  </div>
+                </div>
+
+                {createError && (
+                  <div style={{ fontSize: 12, color: RED, background: RED + '12', borderRadius: 6, padding: '8px 12px' }}>{createError}</div>
+                )}
+
+                <button
+                  onClick={handleCreate}
+                  disabled={creating || !selectedDomain || (createMode === 'lead' ? !selectedLead : !manualUsername.trim())}
+                  style={{
+                    padding: '11px', fontSize: 13, fontWeight: 700, borderRadius: 8,
+                    cursor: creating || !selectedDomain || (createMode === 'lead' ? !selectedLead : !manualUsername.trim()) ? 'not-allowed' : 'pointer',
+                    border: 'none', background: BLUE, color: '#fff',
+                    opacity: creating || !selectedDomain || (createMode === 'lead' ? !selectedLead : !manualUsername.trim()) ? 0.5 : 1,
+                    transition: 'opacity .15s',
+                  }}
+                >
+                  {creating ? 'Création...' : 'Générer le lien'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2813,7 +3449,7 @@ const MOCK_IG: IGStats = {
 };
 
 const MOCK_YT: YTStats = {
-  channelName: 'Quennel Coaching', channelThumbnail: '', subscribers: 8240,
+  channelName: 'Quennel Coaching', channelThumbnail: null as any, subscribers: 8240,
   totalViews: 1240000, videoCount: 64,
   views30d: 48200, watchTime30d: 241000, likes30d: 1840, comments30d: 312,
   shares30d: 480, subsGained30d: 284, subsLost30d: 38, netSubs30d: 246,
@@ -2915,23 +3551,1240 @@ const MOCK_CALLS: CallRecord[] = [
 // IG : 7 actifs (2 no-show, 3 closés, 2 pas closés) | YT : 4 actifs (2 closés, 2 pas closés)
 // c13 (Thomas Renard rebooké) est lié à c1 — ne pas compter en double dans les bookés
 
+const mkLink = (id: number, path: string, url: string, title: string, daysAgo: number, clicks: number, change: number | null, refs: string[], linkType: string, extra: Record<string, any> = {}) => ({
+  id, path, shortUrl: `qnl.link/${path}`, originalUrl: url, title,
+  createdAt: new Date(Date.now() - daysAgo * 86400000).toISOString(),
+  clicks30d: clicks, humanClicks30d: Math.round(clicks * 0.91), clicksChange: change,
+  chartData: makeDays(30, Math.round(clicks / 30), Math.round(clicks / 60)).map(d => ({ date: d.date, clicks: d.value })),
+  countries: [{ label: 'France', value: Math.round(clicks * 0.72) }],
+  referrers: refs.map((r, i) => ({ label: r, value: Math.round(clicks * [0.55, 0.25, 0.12, 0.08][i] || clicks * 0.05) })),
+  browsers: [], os: [], social: [], cities: [], utmMedium: [], utmSource: [],
+  linkType, ...extra,
+});
+
 const MOCK_SHORTIO: ShortioStats = {
-  domain: 'qnl.link', totalLinks: 14, clicks30d: 418, humanClicks30d: 374,
-  clicksChange: 12.4, clicksPerLink30d: 29.9,
-  chartData: makeDays(30, 14, 7).map(d => ({ date: d.date, clicks: d.value })),
-  topCountries: [{ label: 'France', value: 284 }, { label: 'Belgique', value: 52 }, { label: 'Suisse', value: 28 }, { label: 'Canada', value: 18 }, { label: 'Maroc', value: 12 }],
-  topReferrers: [{ label: 'instagram.com', value: 218 }, { label: 'Direct', value: 98 }, { label: 'youtube.com', value: 42 }, { label: 't.co', value: 22 }, { label: 'linktr.ee', value: 14 }],
-  topBrowsers: [{ label: 'Chrome', value: 214 }, { label: 'Safari', value: 128 }, { label: 'Firefox', value: 42 }, { label: 'Edge', value: 18 }],
-  topOs: [{ label: 'Android', value: 178 }, { label: 'iOS', value: 148 }, { label: 'Windows', value: 62 }, { label: 'macOS', value: 24 }],
-  topSocial: [{ label: 'Instagram', value: 218 }, { label: 'Twitter/X', value: 42 }, { label: 'Facebook', value: 18 }, { label: 'LinkedIn', value: 12 }],
-  topCities: [{ label: 'Paris', value: 92 }, { label: 'Lyon', value: 34 }, { label: 'Marseille', value: 26 }, { label: 'Bruxelles', value: 22 }, { label: 'Genève', value: 16 }],
+  domain: 'qnl.link', totalLinks: 18, clicks30d: 1184, humanClicks30d: 1076,
+  clicksChange: 18.2, clicksPerLink30d: 65.8,
+  chartData: makeDays(30, 38, 14).map(d => ({ date: d.date, clicks: d.value })),
+  topCountries: [{ label: 'France', value: 824 }, { label: 'Belgique', value: 142 }, { label: 'Suisse', value: 78 }, { label: 'Canada', value: 48 }, { label: 'Maroc', value: 32 }],
+  topReferrers: [{ label: 'instagram.com', value: 618 }, { label: 'Direct', value: 248 }, { label: 'youtube.com', value: 142 }, { label: 't.co', value: 42 }, { label: 'linktr.ee', value: 26 }],
+  topBrowsers: [], topOs: [], topSocial: [], topCities: [],
   links: [
-    { id: 1, path: 'appel', shortUrl: 'qnl.link/appel', originalUrl: 'https://calendly.com/quennel/discovery', title: 'Réserver un appel', createdAt: new Date(Date.now() - 45*86400000).toISOString(), clicks30d: 162, humanClicks30d: 148, clicksChange: 24.6, chartData: makeDays(30, 5, 3).map(d => ({ date: d.date, clicks: d.value })), countries: [{ label: 'France', value: 108 }], referrers: [{ label: 'instagram.com', value: 92 }], browsers: [{ label: 'Safari', value: 78 }], os: [{ label: 'iOS', value: 84 }], social: [{ label: 'Instagram', value: 92 }], cities: [{ label: 'Paris', value: 42 }], utmMedium: [], utmSource: [] },
-    { id: 2, path: 'coaching', shortUrl: 'qnl.link/coaching', originalUrl: 'https://quennel.com/coaching', title: 'Page Coaching', createdAt: new Date(Date.now() - 60*86400000).toISOString(), clicks30d: 124, humanClicks30d: 112, clicksChange: 8.4, chartData: makeDays(30, 4, 2).map(d => ({ date: d.date, clicks: d.value })), countries: [{ label: 'France', value: 84 }], referrers: [{ label: 'instagram.com', value: 68 }], browsers: [{ label: 'Chrome', value: 72 }], os: [{ label: 'Android', value: 64 }], social: [{ label: 'Instagram', value: 68 }], cities: [{ label: 'Paris', value: 32 }], utmMedium: [], utmSource: [] },
-    { id: 3, path: 'yt', shortUrl: 'qnl.link/yt', originalUrl: 'https://youtube.com/@quennel', title: 'Chaîne YouTube', createdAt: new Date(Date.now() - 30*86400000).toISOString(), clicks30d: 82, humanClicks30d: 72, clicksChange: 6.2, chartData: makeDays(30, 3, 2).map(d => ({ date: d.date, clicks: d.value })), countries: [{ label: 'France', value: 54 }], referrers: [{ label: 'instagram.com', value: 38 }], browsers: [{ label: 'Chrome', value: 44 }], os: [{ label: 'Android', value: 38 }], social: [{ label: 'Instagram', value: 38 }], cities: [{ label: 'Paris', value: 22 }], utmMedium: [], utmSource: [] },
-    { id: 4, path: 'temoignages', shortUrl: 'qnl.link/temoignages', originalUrl: 'https://quennel.com/resultats', title: 'Témoignages clients', createdAt: new Date(Date.now() - 20*86400000).toISOString(), clicks30d: 50, humanClicks30d: 42, clicksChange: -3.8, chartData: makeDays(30, 2, 1).map(d => ({ date: d.date, clicks: d.value })), countries: [{ label: 'France', value: 34 }], referrers: [{ label: 'Direct', value: 22 }], browsers: [{ label: 'Chrome', value: 28 }], os: [{ label: 'Android', value: 24 }], social: [{ label: 'Instagram', value: 18 }], cities: [{ label: 'Paris', value: 12 }], utmMedium: [], utmSource: [] },
+    // ── Bios fixes ──
+    mkLink(1, 'ig', 'https://calendly.com/quennel/discovery', 'Bio Instagram', 90, 284, 12.4, ['instagram.com', 'Direct', 'linktr.ee'], 'bio', { bioType: 'instagram' }),
+    mkLink(2, 'yt-bio', 'https://calendly.com/quennel/discovery', 'Bio YouTube', 90, 148, 8.2, ['youtube.com', 'Direct', 'google.com'], 'bio', { bioType: 'youtube' }),
+    // ── Posts IG ──
+    mkLink(20, 'r-closer-3-clients', 'https://calendly.com/quennel/discovery', 'Comment j\'ai closé 3 clients en 1 semaine 🔥', 2, 182, 34.1, ['instagram.com', 'Direct'], 'post', { postId: '1', postPlatform: 'IG', postType: 'Reel' }),
+    mkLink(21, 'r-mindset', 'https://calendly.com/quennel/discovery', 'Le mindset qui m\'a tout changé', 5, 214, 28.6, ['instagram.com', 'Direct'], 'post', { postId: '2', postPlatform: 'IG', postType: 'Reel' }),
+    mkLink(22, 'r-3-erreurs', 'https://calendly.com/quennel/discovery', '3 erreurs qui tuent ton business en ligne', 9, 98, -4.2, ['instagram.com', 'Direct'], 'post', { postId: '3', postPlatform: 'IG', postType: 'Reel' }),
+    mkLink(23, 'r-routine', 'https://calendly.com/quennel/discovery', 'Routine matinale pour entrepreneurs', 12, 42, 2.1, ['instagram.com', 'Direct'], 'post', { postId: '4', postPlatform: 'IG', postType: 'Image' }),
+    mkLink(24, 'r-temoignage', 'https://calendly.com/quennel/discovery', 'Témoignage client — de 0 à 5k€/mois en 3 mois', 16, 312, 52.4, ['instagram.com', 'Direct'], 'post', { postId: '5', postPlatform: 'IG', postType: 'Reel' }),
+    mkLink(25, 'r-calls-vente', 'https://calendly.com/quennel/discovery', 'Pourquoi tu rates tes calls de vente', 20, 124, 8.8, ['instagram.com', 'Direct'], 'post', { postId: '6', postPlatform: 'IG', postType: 'Reel' }),
+    // ── Vidéos YT ──
+    mkLink(30, 'yt-offre-3000', 'https://calendly.com/quennel/discovery', 'Comment créer une offre à 3000€ irrésistible', 8, 148, 22.4, ['youtube.com', 'Direct', 'google.com'], 'post', { postId: 'v1', postPlatform: 'YT', postType: 'Vidéo' }),
+    mkLink(31, 'yt-tunnel', 'https://calendly.com/quennel/discovery', 'Tunnel de vente Instagram — tuto complet 2025', 22, 96, 6.1, ['youtube.com', 'Direct', 'google.com'], 'post', { postId: 'v2', postPlatform: 'YT', postType: 'Vidéo' }),
+    mkLink(32, 'yt-script-dm', 'https://calendly.com/quennel/discovery', 'Script DM qui converti #shorts', 4, 284, 84.2, ['youtube.com', 'instagram.com', 'Direct'], 'post', { postId: 'v3', postPlatform: 'YT', postType: 'Short' }),
+    mkLink(33, 'yt-closer-80', 'https://calendly.com/quennel/discovery', 'Ma méthode pour closer 80% de mes calls', 35, 62, -2.4, ['youtube.com', 'Direct'], 'post', { postId: 'v4', postPlatform: 'YT', postType: 'Vidéo' }),
+    mkLink(34, 'yt-mindset', 'https://calendly.com/quennel/discovery', 'Mindset millionnaire — 5 habitudes', 48, 38, 1.2, ['youtube.com', 'Direct'], 'post', { postId: 'v5', postPlatform: 'YT', postType: 'Vidéo' }),
+    // ── Prospects DM ──
+    // Via bio IG
+    mkLink(15, 'bio-prospect-1', 'https://calendly.com/quennel/discovery', 'Calendly — @marc.digital', 18, 5, null, ['Direct'], 'prospect', { igUsername: 'marc.digital', igUserId: 'ig_011', postId: 'bio-ig', clickToCallDays: 1, callBooked: true, dealClosed: true, revenue: 2400, dmType: 'organic' }),
+    mkLink(16, 'bio-prospect-2', 'https://calendly.com/quennel/discovery', 'Calendly — @nadia.coach', 12, 3, null, ['Direct'], 'prospect', { igUsername: 'nadia.coach', igUserId: 'ig_012', postId: 'bio-ig', clickToCallDays: 4, callBooked: true, dealClosed: false, dmType: 'organic' }),
+    // Via bio YT
+    mkLink(17, 'bio-yt-prospect', 'https://calendly.com/quennel/discovery', 'Calendly — @pierre_entrepreneur', 25, 4, null, ['Direct'], 'prospect', { igUsername: 'pierre_entrepreneur', igUserId: 'ig_013', postId: 'bio-yt', clickToCallDays: 3, callBooked: true, dealClosed: true, revenue: 1500, dmType: 'organic' }),
+    // Contenus IG
+    mkLink(10, 'thomas-biz', 'https://calendly.com/quennel/discovery', 'Calendly — @thomas.biz', 8, 4, null, ['Direct'], 'prospect', { igUsername: 'thomas.biz', igUserId: 'ig_001', postId: '1', clickToCallDays: 3, dmType: null }),
+    mkLink(11, 'sarah-mindset', 'https://calendly.com/quennel/discovery', 'Calendly — @sarah.mindset', 14, 3, null, ['Direct'], 'prospect', { igUsername: 'sarah.mindset', igUserId: 'ig_002', postId: '2', clickToCallDays: 5, callBooked: true, dealClosed: true, revenue: 1200, dmType: 'organic' }),
+    mkLink(40, 'romain-sales', 'https://calendly.com/quennel/discovery', 'Calendly — @romain.sales', 9, 5, null, ['Direct'], 'prospect', { igUsername: 'romain.sales', igUserId: 'ig_009', postId: '6', clickToCallDays: 2, callBooked: true, dealClosed: true, revenue: 900, dmType: 'cold' }),
+    mkLink(41, 'alex-freedom', 'https://calendly.com/quennel/discovery', 'Calendly — @alex.freedom', 6, 2, null, ['Direct'], 'prospect', { igUsername: 'alex.freedom', igUserId: 'ig_007', postId: '5', clickToCallDays: 7, callBooked: true, dealClosed: true, revenue: 1600, dmType: 'organic' }),
+    mkLink(42, 'lea-growth', 'https://calendly.com/quennel/discovery', 'Calendly — @lea.growth', 15, 3, null, ['Direct'], 'prospect', { igUsername: 'lea.growth', igUserId: 'ig_014', postId: '3', clickToCallDays: 4, callBooked: true, dealClosed: false, dmType: 'cold' }),
+    mkLink(43, 'oscar-biz', 'https://calendly.com/quennel/discovery', 'Calendly — @oscar.biz', 20, 4, null, ['Direct'], 'prospect', { igUsername: 'oscar.biz', igUserId: 'ig_015', postId: '4', clickToCallDays: null, dmType: 'cold' }),
+    // Contenus YT
+    mkLink(12, 'kevin-laurent', 'https://calendly.com/quennel/discovery', 'Calendly — @kevin_laurent', 22, 6, null, ['Direct'], 'prospect', { igUsername: 'kevin_laurent', igUserId: 'ig_003', postId: 'v1', clickToCallDays: 2, callBooked: true, dealClosed: true, revenue: 1800, dmType: 'cold' }),
+    mkLink(13, 'mehdi-academy', 'https://calendly.com/quennel/discovery', 'Calendly — @mehdi_academy', 11, 2, null, ['Direct'], 'prospect', { igUsername: 'mehdi_academy', igUserId: 'ig_005', postId: 'v2', clickToCallDays: 6, callBooked: true, dealClosed: false, dmType: 'cold' }),
+    mkLink(14, 'emma-dev', 'https://calendly.com/quennel/discovery', 'Calendly — @emma.dev', 4, 1, null, ['Direct'], 'prospect', { igUsername: 'emma.dev', igUserId: 'ig_004', postId: '5', clickToCallDays: null, dmType: 'organic' }),
+    mkLink(44, 'chloe-success', 'https://calendly.com/quennel/discovery', 'Calendly — @chloe_success', 4, 3, null, ['Direct'], 'prospect', { igUsername: 'chloe_success', igUserId: 'ig_008', postId: 'v3', clickToCallDays: 3, callBooked: true, dealClosed: true, revenue: 2100, dmType: 'organic' }),
+    mkLink(45, 'ines-entreprise', 'https://calendly.com/quennel/discovery', 'Calendly — @inès_entreprise', 7, 2, null, ['Direct'], 'prospect', { igUsername: 'inès_entreprise', igUserId: 'ig_010', postId: 'v4', clickToCallDays: 5, callBooked: true, dealClosed: false, dmType: 'cold' }),
+    mkLink(46, 'fabien-mindset', 'https://calendly.com/quennel/discovery', 'Calendly — @fabien.mindset', 19, 4, null, ['Direct'], 'prospect', { igUsername: 'fabien.mindset', igUserId: 'ig_016', postId: 'v5', clickToCallDays: 2, callBooked: true, dealClosed: true, revenue: 1200, dmType: 'cold' }),
   ],
-};
+} as any;
+
+// ── TabShortioB ──────────────────────────────────────────────────────────────
+
+type ShortPeriod = 7 | 30;
+type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
+
+function TabShortioB({ shortio, ig, yt, profileId }: {
+  shortio: ShortioStats | null;
+  ig: IGStats | null;
+  yt: YTStats | null;
+  profileId?: string;
+}) {
+  const [sPeriod, setSPeriod] = useState<ShortPeriod>(30);
+  const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
+  const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
+  const [prospectFilter, setProspectFilter] = useState<ProspectStatus>('all');
+  const [showCreate, setShowCreate] = useState(false);
+  // Tableau contenu : tri
+  type SortKey = 'clicsDesc' | 'lmDetectes' | 'dmCount' | 'callsBooked' | 'callsHonored' | 'closed' | 'revenue' | 'vuesParCall';
+  const [sortKey, setSortKey] = useState<SortKey>('revenue');
+  const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
+  // Tableau breakdown par source : tri
+  type BdSortKey = 'default' | 'clics' | 'booked' | 'honored' | 'closed' | 'revenue';
+  const [bdSortKey, setBdSortKey] = useState<BdSortKey>('default');
+  const [bdSortDir, setBdSortDir] = useState<'desc' | 'asc'>('desc');
+  const toggleBdSort = (key: BdSortKey) => {
+    if (bdSortKey === key) setBdSortDir(d => d === 'desc' ? 'asc' : 'desc');
+    else { setBdSortKey(key); setBdSortDir('desc'); }
+  };
+  // Tableau : filtres
+  const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all');
+  const [filterHas, setFilterHas] = useState<Set<SortKey>>(new Set());
+  const [filterSearch, setFilterSearch] = useState('');
+  // Modal détail contenu
+  const [detailModal, setDetailModal] = useState<any | null>(null);
+  const [domains, setDomains] = useState<ShortDomain[]>([]);
+  const [createMode, setCreateMode] = useState<'lead' | 'manual'>('lead');
+  const [selectedDomain, setSelectedDomain] = useState<ShortDomain | null>(null);
+  const [selectedLead, setSelectedLead] = useState<MockLead | null>(null);
+  const [leadSearch, setLeadSearch] = useState('');
+  const [selectedDest, setSelectedDest] = useState<DestinationLink>(MOCK_DESTINATIONS[0]);
+  const [manualUsername, setManualUsername] = useState('');
+  const [manualPostId, setManualPostId] = useState('');
+  const [customPath, setCustomPath] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [createdLink, setCreatedLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+  const [isColdDM, setIsColdDM] = useState(false);
+  const [detectedDmType, setDetectedDmType] = useState<'cold' | 'organic' | null>(null);
+
+  const resetModal = () => {
+    setCreatedLink(null); setSelectedLead(null); setLeadSearch('');
+    setIsColdDM(false); setDetectedDmType(null);
+    setManualUsername(''); setManualPostId(''); setCustomPath('');
+    setCreateMode('lead'); setSelectedDest(MOCK_DESTINATIONS[0]);
+  };
+
+  const openCreate = async () => {
+    resetModal(); setShowCreate(true);
+    if (domains.length > 0) return;
+    try {
+      const url = profileId ? `/api/shortio/domains?profileId=${profileId}` : '/api/shortio/domains';
+      const res = await fetch(url);
+      const data = await res.json();
+      const list: ShortDomain[] = data.domains?.length ? data.domains : [{ id: 'mock', hostname: 'qnl.link' }];
+      setDomains(list);
+      if (list.length > 0) setSelectedDomain(list[0]);
+    } catch {
+      const fallback = { id: 'mock', hostname: 'qnl.link' };
+      setDomains([fallback]); setSelectedDomain(fallback);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!selectedDomain) return;
+    if (createMode === 'lead' && !selectedLead) return;
+    if (createMode === 'manual' && !manualUsername.trim()) return;
+    setCreating(true);
+    try {
+      const igId = createMode === 'lead' ? selectedLead!.igUserId : `manual-${manualUsername.trim().replace(/\s+/g, '-')}`;
+      const postId = createMode === 'lead' ? selectedLead!.postId : (manualPostId || 'unknown');
+      const slug = customPath.trim() || (createMode === 'lead'
+        ? selectedLead!.igUsername.replace(/[^a-z0-9]/gi, '-').toLowerCase()
+        : manualUsername.trim().replace(/[^a-z0-9]/gi, '-').toLowerCase());
+      const res = await fetch('/api/shortio/links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ profileId, domainId: selectedDomain.hostname, originalUrl: selectedDest.url,
+          title: `${selectedDest.label} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
+          utmSource: selectedDomain.hostname, utmMedium: 'dm', utmCampaign: `lead-${igId}`, utmContent: postId, path: slug }),
+      });
+      const data = await res.json();
+      setCreatedLink(data.shortUrl || `${selectedDomain.hostname}/${slug}`);
+    } catch (e: any) {
+      setCreatedLink(`qnl.link/${customPath || manualUsername || selectedLead?.igUsername || 'lien'}`);
+    } finally { setCreating(false); }
+  };
+
+  const copyLink = () => { if (!createdLink) return; navigator.clipboard.writeText(createdLink); setCopied(true); setTimeout(() => setCopied(false), 2000); };
+  const filteredLeads = MOCK_LEADS.filter(l => !leadSearch || l.igUsername.toLowerCase().includes(leadSearch.toLowerCase()) || l.postTitle.toLowerCase().includes(leadSearch.toLowerCase()));
+  const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
+
+  if (!shortio) return <Empty msg="Connecte ton compte Short.io pour voir les stats." />;
+
+  const igPosts = ig?.posts || [];
+  const ytVideos = yt?.videos || [];
+
+  const bioLinks    = shortio.links.filter((l: any) => l.linkType === 'bio');
+  const postLinks   = shortio.links.filter((l: any) => l.linkType === 'post');
+  const prospectLinks = shortio.links.filter((l: any) => l.linkType === 'prospect');
+
+  // ── Section 0 : KPIs ──
+  const totalClics = shortio.humanClicks30d;
+  const dmLinks = prospectLinks.length;
+  const dmClics = prospectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+  const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
+  const lmEnvoyes = MOCK_LEADS.filter(l => l.leadMagnetSent).length;
+  // Liens Calendly envoyés depuis une conv LM = prospects dont le lead a reçu le LM
+  const lmCalendlyLinks = prospectLinks.filter((l: any) => {
+    const lead = MOCK_LEADS.find(ml => ml.igUserId === l.igUserId);
+    return lead?.leadMagnetSent;
+  }).length;
+  const callsFromLM = prospectLinks.filter((l: any) => {
+    const lead = MOCK_LEADS.find(ml => ml.igUserId === l.igUserId);
+    return lead?.leadMagnetSent && l.callBooked;
+  }).length;
+  const tauxLMCalendly = lmEnvoyes > 0 ? Math.round((lmCalendlyLinks / lmEnvoyes) * 100) : 0;
+  const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
+  const callsTotal = prospectLinks.filter((l: any) => l.callBooked).length;
+
+  // ── Graphique filtré ──
+  const chartData = shortio.chartData.map((d, i) => {
+    if (chartFilter === 'bio') {
+      const val = bioLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
+      return { date: d.date, clicks: val };
+    }
+    if (chartFilter === 'dm') {
+      const val = prospectLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
+      return { date: d.date, clicks: val };
+    }
+    if (chartFilter === 'content') {
+      const val = postLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
+      return { date: d.date, clicks: val };
+    }
+    return d;
+  });
+
+  // ── Section 2 : tableau consolidé par contenu ──
+  const allPostIds = Array.from(new Set([
+    ...postLinks.map((l: any) => l.postId + '|' + l.postPlatform),
+    ...prospectLinks.map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
+    ...MOCK_LEADS.filter(lead => lead.leadMagnetSent).map(lead => lead.postId + '|' + lead.postType),
+  ]));
+
+  const consolidatedRows = allPostIds.map(key => {
+    const [postId, platform] = key.split('|');
+    const descLink = postLinks.find((l: any) => l.postId === postId);
+    const dmProspects = prospectLinks.filter((l: any) => l.postId === postId);
+    const leads = MOCK_LEADS.filter(lead => lead.postId === postId);
+    const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
+    const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
+    const title = igPost?.caption || ytVideo?.title || descLink?.title || postId;
+    const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
+    const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo?.isShort ? 'Short' : 'Vidéo');
+    const views = igPost?.views || ytVideo?.views30d || 0;
+
+    const clicsDesc = descLink?.humanClicks30d || 0;
+    const lmDetectes = leads.length;
+    const lmSent = leads.filter(l => l.leadMagnetSent).length;
+    const dmCount = dmProspects.length;
+    const callsBooked = dmProspects.filter((l: any) => l.callBooked).length;
+    const callsHonored = callsBooked; // mock : tous honorés pour simplifier
+    const closed = dmProspects.filter((l: any) => l.dealClosed === true).length;
+    const revenue = dmProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+    const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
+
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, vuesParCall };
+  }).sort((a, b) => b.revenue - a.revenue || (b.clicsDesc + b.dmCount) - (a.clicsDesc + a.dmCount));
+
+  // ── Section 3 : pipeline prospects ──
+  const getProspectStatus = (l: any): ProspectStatus => {
+    if (l.dealClosed === true) return 'closed';
+    if (l.no_show) return 'noshow';
+    if (l.callBooked) return 'booked';
+    if ((l.humanClicks30d || 0) > 0) return 'pending';
+    return 'pending';
+  };
+
+  const statusLabel: Record<ProspectStatus, string> = {
+    all: 'Tous', pending: 'En attente de clic', booked: 'Call booké', closed: 'Closés', noshow: 'No-show',
+  };
+  const statusColor: Record<string, string> = {
+    closed: GREEN, booked: BLUE, pending: AMBER, noshow: RED,
+  };
+
+  const filteredProspects = prospectLinks.filter((l: any) => {
+    const st = getProspectStatus(l);
+    const matchFilter = prospectFilter === 'all' || st === prospectFilter;
+    const matchContent = !selectedContentId || l.postId === selectedContentId;
+    return matchFilter && matchContent;
+  });
+
+  const topRef = (l: ShortioLink) => l.referrers?.[0]?.label || '—';
+
+  const SectionHead = ({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) => (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700 }}>{title}</div>
+        {sub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{sub}</div>}
+      </div>
+      {action}
+    </div>
+  );
+
+  const selectedContentTitle = selectedContentId
+    ? consolidatedRows.find(r => r.postId === selectedContentId)?.title?.slice(0, 35)
+    : null;
+
+  return (
+    <div className="stack">
+
+      {/* ── Bouton global fixe ── */}
+      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
+        <button onClick={openCreate} style={{ padding: '9px 18px', fontSize: 13, fontWeight: 600, borderRadius: 9, cursor: 'pointer', background: BLUE, color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(107,124,222,.35)', transition: 'opacity .15s' }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = '.85')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+          + Générer un lien
+        </button>
+      </div>
+
+      {/* ── Section 0 : Stats globales ── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+        <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" action={
+          <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+            {([7, 30] as ShortPeriod[]).map(p => (
+              <button key={p} onClick={() => setSPeriod(p)} style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: 'pointer', border: 'none', background: sPeriod === p ? 'var(--surface)' : 'transparent', color: sPeriod === p ? 'var(--ink)' : 'var(--faint)', transition: 'all .15s' }}>{p}j</button>
+            ))}
+          </div>
+        } />
+        {(() => {
+          // Clics sur les sources "actives" (DM + LM) — où l'élève a la main
+          const activeLinks = prospectLinks; // tous les liens DM + LM
+          const activeClics = activeLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const activeLiens = activeLinks.length + lmEnvoyes; // liens envoyés = prospects DM + LM envoyés
+          const tauxActivation = activeLiens > 0 ? Math.round((activeClics / activeLiens) * 100) : 0;
+          const tauxActColor = tauxActivation >= 50 ? GREEN : tauxActivation >= 25 ? AMBER : RED;
+
+          return (
+            <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'stretch' }}>
+
+              {/* 1 — Clics totaux */}
+              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Clics totaux</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalClics)}</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>volume global, tous liens</div>
+                {shortio.clicksChange !== null && <div style={{ fontSize: 10, fontWeight: 600, color: shortio.clicksChange >= 0 ? GREEN : RED, marginTop: 3 }}>{shortio.clicksChange >= 0 ? '+' : ''}{fmtPct(shortio.clicksChange)}</div>}
+              </div>
+
+              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+
+              {/* 2 — Liens envoyés */}
+              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Liens envoyés Calendly</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(activeLiens)}</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>activité commerciale brute</div>
+              </div>
+
+              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+
+              {/* 3 — Taux d'activation */}
+              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxActivation}%</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>clics / liens envoyés — DM + LM</div>
+              </div>
+
+              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+
+              {/* 4 — Calls bookés depuis liens */}
+              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Calls bookés</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>résultat final du tracking</div>
+              </div>
+
+            </div>
+          );
+        })()}
+
+        {/* Toggle graphique */}
+        <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+          {([['all', 'Tous les clics'], ['dm', 'DM uniquement'], ['content', 'Contenu uniquement'], ['bio', 'Bio uniquement']] as const).map(([k, label]) => (
+            <button key={k} onClick={() => setChartFilter(k)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${chartFilter === k ? BLUE : 'var(--border)'}`, background: chartFilter === k ? BLUE + '12' : 'transparent', color: chartFilter === k ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <AreaChart data={chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+
+        {/* ── Tableau breakdown par source ── */}
+        {(() => {
+          const bioIG = bioLinks.find((l: any) => l.bioType === 'instagram');
+          const bioYT = bioLinks.find((l: any) => l.bioType === 'youtube');
+          const igContentLinks = postLinks.filter((l: any) => l.postPlatform === 'IG');
+          const ytContentLinks = postLinks.filter((l: any) => l.postPlatform === 'YT');
+          const igRows = consolidatedRows.filter(r => r.platform === 'IG');
+          const ytRows = consolidatedRows.filter(r => r.platform === 'YT');
+
+          // Prospects qui viennent directement des bios (pas d'un post spécifique)
+          const bioIGProspects = prospectLinks.filter((l: any) => l.postId === 'bio-ig');
+          const bioYTProspects = prospectLinks.filter((l: any) => l.postId === 'bio-yt');
+          const bioIGBooked = bioIGProspects.filter((l: any) => l.callBooked).length;
+          const bioIGHonored = bioIGBooked;
+          const bioIGClosed = bioIGProspects.filter((l: any) => l.dealClosed === true).length;
+          const bioIGRevenue = bioIGProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          const bioYTBooked = bioYTProspects.filter((l: any) => l.callBooked).length;
+          const bioYTHonored = bioYTBooked;
+          const bioYTClosed = bioYTProspects.filter((l: any) => l.dealClosed === true).length;
+          const bioYTRevenue = bioYTProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+
+          const isLMProspect = (l: any) => {
+            const lead = MOCK_LEADS.find(ml => ml.igUserId === l.igUserId);
+            return !!lead?.leadMagnetSent;
+          };
+          const dmDirectLinks = prospectLinks.filter((l: any) => !isLMProspect(l));
+          const lmProspectLinks = prospectLinks.filter((l: any) => isLMProspect(l));
+
+          // Cold DM = coach a initié (dmType === 'cold') ou non détecté (null) parmi les DM directs
+          const coldDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'cold' || l.dmType == null);
+          const organicDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'organic');
+
+          const coldBooked = coldDMLinks.filter((l: any) => l.callBooked).length;
+          const coldHonored = coldBooked;
+          const coldClosed = coldDMLinks.filter((l: any) => l.dealClosed === true).length;
+          const coldRevenue = coldDMLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          const coldClics = coldDMLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+
+          const organicBooked = organicDMLinks.filter((l: any) => l.callBooked).length;
+          const organicHonored = organicBooked;
+          const organicClosed = organicDMLinks.filter((l: any) => l.dealClosed === true).length;
+          const organicRevenue = organicDMLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          const organicClics = organicDMLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+
+          const lmBooked = lmProspectLinks.filter((l: any) => l.callBooked).length;
+          const lmHonored = lmBooked;
+          const lmClosed = lmProspectLinks.filter((l: any) => l.dealClosed === true).length;
+          const lmRevenue = lmProspectLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+
+          const igContentClics = igContentLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const igContentBooked = igRows.reduce((s, r) => s + r.callsBooked, 0);
+          const igContentHonored = igRows.reduce((s, r) => s + r.callsHonored, 0);
+          const igContentClosed = igRows.reduce((s, r) => s + r.closed, 0);
+          const igContentRevenue = igRows.reduce((s, r) => s + r.revenue, 0);
+
+          const ytContentClics = ytContentLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const ytContentBooked = ytRows.reduce((s, r) => s + r.callsBooked, 0);
+          const ytContentHonored = ytRows.reduce((s, r) => s + r.callsHonored, 0);
+          const ytContentClosed = ytRows.reduce((s, r) => s + r.closed, 0);
+          const ytContentRevenue = ytRows.reduce((s, r) => s + r.revenue, 0);
+
+          type SourceRow = {
+            label: string; labelSuffix?: React.ReactNode; badge: string; badgeColor: string;
+            liens: number | null;     // nb de liens envoyés (LM/DM uniquement)
+            liensLabel: string | null; // ex: "LM envoyés", "liens DM"
+            clics: number | null;
+            isContentType: boolean;
+            booked: number; honored: number; closed: number; revenue: number;
+          };
+          // Icônes directionnelles style WhatsApp
+          const ArrowOut = () => (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ display: 'inline', marginLeft: 3, verticalAlign: 'middle' }}>
+              <path d="M2 9L9 2M9 2H4.5M9 2V6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          );
+          const ArrowIn = () => (
+            <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ display: 'inline', marginLeft: 3, verticalAlign: 'middle' }}>
+              <path d="M9 2L2 9M2 9H6.5M2 9V4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          );
+          const rows: SourceRow[] = [
+            { label: 'Bio IG', badge: 'IG', badgeColor: '#E1306C', liens: null, liensLabel: null, clics: bioIG?.humanClicks30d ?? null, booked: bioIGBooked, honored: bioIGHonored, closed: bioIGClosed, revenue: bioIGRevenue, isContentType: true },
+            { label: 'Bio YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: bioYT?.humanClicks30d ?? null, booked: bioYTBooked, honored: bioYTHonored, closed: bioYTClosed, revenue: bioYTRevenue, isContentType: true },
+            { label: 'Lien contenu IG', badge: 'IG', badgeColor: '#E1306C', liens: null, liensLabel: null, clics: igContentClics, booked: igContentBooked, honored: igContentHonored, closed: igContentClosed, revenue: igContentRevenue, isContentType: true },
+            { label: 'Lien contenu YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: ytContentClics, booked: ytContentBooked, honored: ytContentHonored, closed: ytContentClosed, revenue: ytContentRevenue, isContentType: true },
+            { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0), booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
+            { label: 'Cold DM', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (sortant <ArrowOut />)</span>, badge: 'DM', badgeColor: BLUE, liens: coldDMLinks.length, liensLabel: 'liens envoyés', clics: coldDMLinks.length > 0 ? coldClics : null, booked: coldBooked, honored: coldHonored, closed: coldClosed, revenue: coldRevenue, isContentType: false },
+            { label: 'DM organique', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (entrant <ArrowIn />)</span>, badge: 'DM', badgeColor: '#10B981', liens: organicDMLinks.length, liensLabel: 'conversations', clics: organicDMLinks.length > 0 ? organicClics : null, booked: organicBooked, honored: organicHonored, closed: organicClosed, revenue: organicRevenue, isContentType: false },
+          ];
+
+          const totBooked = rows.reduce((s, r) => s + r.booked, 0);
+          const totHonored = rows.reduce((s, r) => s + r.honored, 0);
+          const totClosed = rows.reduce((s, r) => s + r.closed, 0);
+          const totRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+
+          const tauxBadge = (num: number, den: number, isContent: boolean) => {
+            if (den === 0) return null;
+            const pct = Math.round((num / den) * 100);
+            let color: string;
+            if (isContent) {
+              color = pct >= 2 ? GREEN : pct >= 1 ? AMBER : RED;
+            } else {
+              color = pct >= 50 ? GREEN : pct >= 25 ? AMBER : RED;
+            }
+            return { pct, color };
+          };
+          const tauxHonoréBadge = (honored: number, booked: number) => {
+            if (booked === 0) return null;
+            const pct = Math.round((honored / booked) * 100);
+            const color = pct >= 75 ? GREEN : pct >= 50 ? AMBER : RED;
+            return { pct, color };
+          };
+          const tauxClosedBadge = (closed: number, honored: number) => {
+            if (honored === 0) return null;
+            const pct = Math.round((closed / honored) * 100);
+            const color = pct >= 50 ? GREEN : pct >= 25 ? AMBER : RED;
+            return { pct, color };
+          };
+
+          const TH = ({ children, right }: { children: React.ReactNode; right?: boolean }) => (
+            <th style={{ padding: '7px 10px', textAlign: right ? 'right' : 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{children}</th>
+          );
+          const TD = ({ children, right, faint }: { children: React.ReactNode; right?: boolean; faint?: boolean }) => (
+            <td style={{ padding: '8px 10px', textAlign: right ? 'right' : 'left', fontSize: 12, color: faint ? 'var(--faint)' : 'var(--ink)', verticalAlign: 'middle' }}>{children}</td>
+          );
+          const RateBadge = ({ pct, color }: { pct: number; color: string }) => (
+            <span style={{ fontSize: 10, fontWeight: 700, color, background: color + '18', borderRadius: 4, padding: '1px 5px', marginLeft: 4, whiteSpace: 'nowrap' }}>{pct}%</span>
+          );
+
+          // Tri des rows (la ligne Total est toujours en bas)
+          const sortedRows = bdSortKey === 'default' ? rows : [...rows].sort((a, b) => {
+            let va = 0, vb = 0;
+            if (bdSortKey === 'clics')   { va = a.clics ?? -1; vb = b.clics ?? -1; }
+            if (bdSortKey === 'booked')  { va = a.booked;  vb = b.booked; }
+            if (bdSortKey === 'honored') { va = a.honored; vb = b.honored; }
+            if (bdSortKey === 'closed')  { va = a.closed;  vb = b.closed; }
+            if (bdSortKey === 'revenue') { va = a.revenue; vb = b.revenue; }
+            return bdSortDir === 'desc' ? vb - va : va - vb;
+          });
+
+          const sortLabels: Record<BdSortKey, string> = {
+            default: 'Ordre par défaut', clics: 'Clics / Liens', booked: 'Calls bookés',
+            honored: 'Calls honorés', closed: 'Closés', revenue: 'Revenue',
+          };
+
+          return (
+            <div style={{ marginTop: 20, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+              <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div>
+                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--ink)' }}>Breakdown par source</span>
+                  <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--muted)', marginLeft: 8 }}>— vers Calendly</span>
+                </div>
+                {/* Sélecteur de tri */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ fontSize: 10, color: 'var(--faint)' }}>Trier par</span>
+                  <div style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                    <select
+                      value={bdSortKey}
+                      onChange={e => { setBdSortKey(e.target.value as BdSortKey); setBdSortDir('desc'); }}
+                      style={{ fontSize: 11, fontWeight: 600, color: bdSortKey !== 'default' ? BLUE : 'var(--muted)', background: 'var(--surface)', border: `1px solid ${bdSortKey !== 'default' ? BLUE + '40' : 'var(--border)'}`, borderRadius: 6, padding: '3px 8px', cursor: 'pointer', appearance: 'none', paddingRight: 20 }}
+                    >
+                      {(Object.keys(sortLabels) as BdSortKey[]).map(k => (
+                        <option key={k} value={k}>{sortLabels[k]}</option>
+                      ))}
+                    </select>
+                    <span style={{ position: 'absolute', right: 6, fontSize: 9, color: 'var(--faint)', pointerEvents: 'none' }}>▾</span>
+                  </div>
+                  {bdSortKey !== 'default' && (
+                    <button
+                      onClick={() => setBdSortDir(d => d === 'desc' ? 'asc' : 'desc')}
+                      style={{ fontSize: 11, fontWeight: 700, color: BLUE, background: BLUE + '12', border: 'none', borderRadius: 6, padding: '3px 8px', cursor: 'pointer', minWidth: 28, textAlign: 'center' }}
+                    >
+                      {bdSortDir === 'desc' ? '↓' : '↑'}
+                    </button>
+                  )}
+                </div>
+              </div>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ background: 'var(--surface-2)' }}>
+                    <TH>Source</TH>
+                    <TH right>Clics / Liens</TH>
+                    <TH right>Calls bookés</TH>
+                    <TH right>Calls honorés</TH>
+                    <TH right>Closés</TH>
+                    <TH right>Revenue</TH>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sortedRows.map((row, i) => {
+                    const bkTaux = row.clics !== null ? tauxBadge(row.booked, row.clics, row.isContentType) : null;
+                    const honTaux = tauxHonoréBadge(row.honored, row.booked);
+                    const clsTaux = tauxClosedBadge(row.closed, row.honored);
+                    return (
+                      <tr key={i} style={{ borderBottom: '1px solid var(--border)', background: i % 2 === 0 ? 'transparent' : 'var(--surface-2)' }}>
+                        <TD>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
+                            <span style={{ fontSize: 10, fontWeight: 700, color: '#fff', background: row.badgeColor, borderRadius: 4, padding: '2px 6px', flexShrink: 0 }}>{row.badge}</span>
+                            <span style={{ fontSize: 12, fontWeight: 600 }}>{row.label}{row.labelSuffix}</span>
+                          </div>
+                        </TD>
+                        <TD right>
+                          {row.liens !== null ? (
+                            // LM / Cold DM / DM organique : 2 lignes + taux
+                            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2 }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                <span style={{ fontWeight: 700 }}>{fmt(row.liens)}</span>
+                                <span style={{ fontSize: 10, color: 'var(--muted)' }}>{row.liensLabel}</span>
+                              </div>
+                              {row.clics !== null ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                                  <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{fmt(row.clics)}</span>
+                                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>clics</span>
+                                  {row.liens > 0 && (() => {
+                                    const pct = Math.round((row.clics / row.liens) * 100);
+                                    const color = pct >= 50 ? GREEN : pct >= 25 ? AMBER : RED;
+                                    return <span style={{ fontSize: 10, fontWeight: 700, color, background: color + '18', borderRadius: 4, padding: '1px 5px' }}>{pct}%</span>;
+                                  })()}
+                                </div>
+                              ) : <span style={{ fontSize: 10, color: 'var(--faint)' }}>— clics</span>}
+                            </div>
+                          ) : row.clics !== null ? (
+                            // Bio / contenu : juste les clics
+                            <span style={{ fontWeight: 700 }}>{fmt(row.clics)}</span>
+                          ) : (
+                            <span style={{ color: 'var(--faint)' }}>—</span>
+                          )}
+                        </TD>
+                        <TD right>
+                          {row.booked > 0
+                            ? <><span style={{ fontWeight: 700 }}>{row.booked}</span>{bkTaux && <RateBadge pct={bkTaux.pct} color={bkTaux.color} />}</>
+                            : <span style={{ color: 'var(--faint)' }}>—</span>}
+                        </TD>
+                        <TD right>
+                          {row.honored > 0
+                            ? <><span style={{ fontWeight: 700 }}>{row.honored}</span>{honTaux && <RateBadge pct={honTaux.pct} color={honTaux.color} />}</>
+                            : <span style={{ color: 'var(--faint)' }}>—</span>}
+                        </TD>
+                        <TD right>
+                          {row.closed > 0
+                            ? <><span style={{ fontWeight: 700 }}>{row.closed}</span>{clsTaux && <RateBadge pct={clsTaux.pct} color={clsTaux.color} />}</>
+                            : <span style={{ color: 'var(--faint)' }}>—</span>}
+                        </TD>
+                        <TD right>
+                          {row.revenue > 0
+                            ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(row.revenue)}</span>
+                            : <span style={{ color: 'var(--faint)' }}>—</span>}
+                        </TD>
+                      </tr>
+                    );
+                  })}
+                  {/* Total row */}
+                  <tr style={{ background: 'var(--surface-2)', borderTop: '2px solid var(--border)' }}>
+                    <td style={{ padding: '9px 10px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>Total</td>
+                    <TD right><span style={{ color: 'var(--muted)' }}>—</span></TD>
+                    <TD right><span style={{ fontWeight: 800 }}>{totBooked > 0 ? totBooked : <span style={{ color: 'var(--faint)' }}>—</span>}</span></TD>
+                    <TD right><span style={{ fontWeight: 800 }}>{totHonored > 0 ? totHonored : <span style={{ color: 'var(--faint)' }}>—</span>}</span></TD>
+                    <TD right><span style={{ fontWeight: 800 }}>{totClosed > 0 ? totClosed : <span style={{ color: 'var(--faint)' }}>—</span>}</span></TD>
+                    <TD right>{totRevenue > 0 ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(totRevenue)}</span> : <span style={{ color: 'var(--faint)' }}>—</span>}</TD>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          );
+        })()}
+      </div>
+
+      {/* ── Section 2 : Performance par contenu ── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+        <SectionHead title="Performance par contenu" sub={`${consolidatedRows.length} contenus avec activité business`} />
+
+        {/* Barre de filtres */}
+        <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center', marginBottom: 14, paddingBottom: 14, borderBottom: '1px solid var(--border)' }}>
+          {/* Zone 1 : plateforme */}
+          <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
+            {(['all', 'IG', 'YT'] as const).map(p => (
+              <button key={p} onClick={() => setFilterPlatform(p)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: 'pointer', border: 'none', background: filterPlatform === p ? 'var(--surface)' : 'transparent', color: filterPlatform === p ? 'var(--ink)' : 'var(--faint)', transition: 'all .15s' }}>
+                {p === 'all' ? 'Tous' : p}
+              </button>
+            ))}
+          </div>
+          {/* Zone 2 : "au moins 1" */}
+          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+            {([
+              ['clicsDesc', '1 clic desc.'],
+              ['lmDetectes', '1 commentaire LM'],
+              ['dmCount', '1 lien DM'],
+              ['callsBooked', '1 call booké'],
+              ['callsHonored', '1 call honoré'],
+              ['closed', '1 closé'],
+            ] as [SortKey, string][]).map(([key, label]) => {
+              const active = filterHas.has(key);
+              return (
+                <button key={key} onClick={() => {
+                  const next = new Set(filterHas);
+                  active ? next.delete(key) : next.add(key);
+                  setFilterHas(next);
+                }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${active ? BLUE : 'var(--border)'}`, background: active ? BLUE + '12' : 'transparent', color: active ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          {/* Zone 3 : recherche */}
+          <input
+            type="text" value={filterSearch} onChange={e => setFilterSearch(e.target.value)}
+            placeholder="Recherche par titre…"
+            style={{ flex: 1, minWidth: 160, padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }}
+          />
+        </div>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
+            <thead>
+              <tr>
+                {/* Thumbnail */}
+                <th style={{ width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
+                {/* Contenu — pas de tri */}
+                <th style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
+                {([
+                  ['clicsDesc',    'Clics desc.'],
+                  ['lmDetectes',   'Commentaires LM'],
+                  ['dmCount',      'Liens DM'],
+                  ['callsBooked',  'Calls bookés'],
+                  ['callsHonored', 'Calls honorés'],
+                  ['closed',       'Closés'],
+                  ['revenue',      'Revenue'],
+                  ['vuesParCall',  'Vues / Call'],
+                ] as [SortKey, string][]).map(([key, label]) => {
+                  const active = sortKey === key;
+                  return (
+                    <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
+                      style={{ textAlign: 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+                      {label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+                    </th>
+                  );
+                })}
+              </tr>
+            </thead>
+            <tbody>
+              {consolidatedRows
+                .filter(row => {
+                  if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
+                  if (filterSearch && !row.title.toLowerCase().includes(filterSearch.toLowerCase())) return false;
+                  for (const k of filterHas) {
+                    const val = row[k as keyof typeof row];
+                    if (!val || val === 0) return false;
+                  }
+                  return true;
+                })
+                .sort((a, b) => {
+                  const av = (a[sortKey as keyof typeof a] as number) || 0;
+                  const bv = (b[sortKey as keyof typeof b] as number) || 0;
+                  return sortDir === 'desc' ? bv - av : av - bv;
+                })
+                .map((row, i) => {
+                  const platformColor = row.platform === 'IG' ? ACCENT : RED;
+                  const isSelected = selectedContentId === row.postId;
+                  return (
+                    <tr key={i}
+                      onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); }}
+                      style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
+                      onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                      onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
+                      <td style={{ padding: '8px 10px', width: 40 }}>
+                        {row.thumbnail
+                          ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                          : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : '▶️'}</div>}
+                      </td>
+                      <td style={{ padding: '8px 10px', maxWidth: 200 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
+                        <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
+                      </td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* ── Modal détail contenu ── */}
+      {detailModal && (() => {
+        const row = detailModal;
+        const igPost = igPosts.find(p => p.id === row.postId);
+        const ytVideo = ytVideos.find(v => v.id === row.postId);
+        const platformColor = row.platform === 'IG' ? ACCENT : RED;
+        const pubDate = igPost?.timestamp || ytVideo?.publishedAt;
+        const pubDateStr = pubDate ? new Date(pubDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null;
+
+        // Seuils couleurs funnel
+        const convColor = (rate: number, threshold: number) => rate >= threshold ? GREEN : rate >= threshold * 0.6 ? AMBER : RED;
+
+        // Funnel lien contenu
+        const f1_clics = row.clicsDesc;
+        const f1_calls = row.callsBooked; // simplification mock
+        const f1_honored = row.callsHonored;
+        const f1_closed = row.closed;
+        const f1_revenue = row.revenue;
+        const r1_clicCall = f1_clics > 0 ? Math.round((f1_calls / f1_clics) * 100) : null;
+        const r1_callHon = f1_calls > 0 ? Math.round((f1_honored / f1_calls) * 100) : null;
+        const r1_honClosed = f1_honored > 0 ? Math.round((f1_closed / f1_honored) * 100) : null;
+
+        // Funnel lead magnet
+        const f2_comments = row.lmDetectes;
+        const f2_sent = row.lmSent;
+        const f2_calls = row.callsBooked; // mock : même calls
+        const f2_honored = row.callsHonored;
+        const f2_closed = row.closed;
+        const f2_revenue = row.revenue;
+        const r2_sentComm = f2_comments > 0 ? Math.round((f2_sent / f2_comments) * 100) : null;
+        const r2_callSent = f2_sent > 0 ? Math.round((f2_calls / f2_sent) * 100) : null;
+        const r2_callHon = f2_calls > 0 ? Math.round((f2_honored / f2_calls) * 100) : null;
+        const r2_honClosed = f2_honored > 0 ? Math.round((f2_closed / f2_honored) * 100) : null;
+
+        // Rétention YT — 11 points calqués sur la vraie courbe YouTube Studio
+        // Chute brutale 100→22 entre 1% et 11%, puis décroissance exponentielle douce
+        const retentionData = row.platform === 'YT' ? [
+          { pct: '1%',   viewers: 100 },
+          { pct: '11%',  viewers: 22 },
+          { pct: '21%',  viewers: 14 },
+          { pct: '31%',  viewers: 10 },
+          { pct: '41%',  viewers: 8 },
+          { pct: '51%',  viewers: 6 },
+          { pct: '61%',  viewers: 5 },
+          { pct: '71%',  viewers: 4 },
+          { pct: '81%',  viewers: 5 },
+          { pct: '91%',  viewers: 4 },
+          { pct: '100%', viewers: 3 },
+        ] : null;
+
+        // Prospects DM liés
+        const linkedProspects = prospectLinks.filter((l: any) => l.postId === row.postId);
+        const statusMap2: Record<string, string> = { closed: 'Closé', booked: 'Call booké', pending: 'En attente', noshow: 'No-show' };
+
+        const FunnelStep = ({ label, value, rate, rateThreshold, isFirst }: { label: string; value: number | null; rate: number | null; rateThreshold?: number; isFirst?: boolean }) => (
+          <div>
+            {!isFirst && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '4px 0' }}>
+                <div style={{ fontSize: 14, color: 'var(--faint)' }}>↓</div>
+                {rate !== null && rateThreshold !== undefined && (
+                  <span style={{ fontSize: 10, fontWeight: 700, color: convColor(rate, rateThreshold), background: convColor(rate, rateThreshold) + '18', borderRadius: 4, padding: '1px 6px' }}>{rate}%</span>
+                )}
+              </div>
+            )}
+            <div style={{ background: 'var(--surface-2)', borderRadius: 7, padding: '8px 12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: 'var(--muted)' }}>{label}</span>
+              <span style={{ fontSize: 14, fontWeight: 800, color: value ? 'var(--ink)' : 'var(--faint)' }}>{value != null && value > 0 ? (label === 'Revenue' ? fmtEur(value) : value) : '—'}</span>
+            </div>
+          </div>
+        );
+
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+            onClick={() => { setDetailModal(null); setSelectedContentId(null); }}>
+            <div style={{ background: 'var(--surface)', borderRadius: 16, maxWidth: 780, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,.25)' }}
+              onClick={e => e.stopPropagation()}>
+
+              {/* Header modal */}
+              <div style={{ padding: '22px 26px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
+                <div style={{ width: 56, height: 56, borderRadius: 10, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
+                  {row.thumbnail ? <img src={row.thumbnail} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10 }} /> : (row.platform === 'IG' ? '📷' : '▶️')}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, lineHeight: 1.3 }}>{row.title}</div>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 7px' }}>{row.platform} · {row.type}</span>
+                    {pubDateStr && <span style={{ fontSize: 11, color: 'var(--faint)' }}>Publié le {pubDateStr}</span>}
+                  </div>
+                </div>
+                <button onClick={() => { setDetailModal(null); setSelectedContentId(null); }} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', flexShrink: 0, lineHeight: 1, padding: 4 }}>×</button>
+              </div>
+
+              <div style={{ padding: '20px 26px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+
+                {/* Bloc 1 : Performances réseau */}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>Performances réseau</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: 10 }}>
+                    {row.platform === 'IG' && igPost && (() => {
+                      const isImage = igPost.type === 'IMAGE';
+                      const metrics = [
+                        [isImage ? 'Impressions' : 'Vues', isImage ? igPost.reach : igPost.views],
+                        ['Likes', igPost.likes], ['Commentaires', igPost.comments],
+                        ['Partages', igPost.shares], ['Reach', igPost.reach],
+                        ...(!isImage ? [['Sauvegardes', igPost.saved]] as [string, number | null][] : [['Sauvegardes', igPost.saved]] as [string, number | null][]),
+                        ...(!isImage && igPost.avgWatchTimeMs ? [['Watch time moy.', `${(igPost.avgWatchTimeMs / 1000).toFixed(1)}s`]] as [string, any][] : []),
+                        ...(!isImage && igPost.skipRate != null ? [['Skip rate', `${Math.round(igPost.skipRate * 100)}%`]] as [string, any][] : []),
+                      ];
+                      return metrics.map(([label, val], i) => (
+                        <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>{val != null ? (typeof val === 'number' ? fmt(val) : val) : '—'}</div>
+                        </div>
+                      ));
+                    })()}
+                    {row.platform === 'YT' && ytVideo && (() => {
+                      const metrics: [string, any][] = [
+                        ['Vues', ytVideo.views], ['Likes', ytVideo.likes], ['Commentaires', ytVideo.comments],
+                        ['Partages', ytVideo.shares30d], ['Watch time moy.', `${Math.round((ytVideo.watchTime30d / (ytVideo.views30d || 1)) / 60)}min`],
+                        ['% vu moy.', `${ytVideo.avgViewPct}%`], ['CTR miniature', '4,2%'],
+                      ];
+                      return metrics.map(([label, val], i) => (
+                        <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
+                          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
+                          <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>{val != null ? val : '—'}</div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+
+                  {/* Courbe rétention YT */}
+                  {retentionData && (() => {
+                    const W = 400; const H = 80;
+                    const n = retentionData.length - 1;
+                    const pts = retentionData.map((d, i) => ({ x: (i / n) * W, y: H - (d.viewers / 100) * H }));
+                    const linePts = pts.map(p => `${p.x},${p.y}`).join(' ');
+                    // fill sous la courbe : path fermé vers le bas
+                    const fillPath = `M${pts[0].x},${pts[0].y} ` + pts.slice(1).map(p => `L${p.x},${p.y}`).join(' ') + ` L${pts[n].x},${H} L${pts[0].x},${H} Z`;
+                    return (
+                      <div style={{ marginTop: 14 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 8 }}>Courbe de rétention</div>
+                        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '14px 16px 10px', border: '1px solid var(--border)' }}>
+                          <div style={{ position: 'relative' }}>
+                            {/* Lignes de grille horizontales */}
+                            <svg width="100%" viewBox={`0 0 ${W} ${H + 4}`} preserveAspectRatio="none" style={{ display: 'block', height: 90 }}>
+                              {[100, 50, 25, 0].map(v => (
+                                <line key={v} x1="0" y1={H - (v / 100) * H} x2={W} y2={H - (v / 100) * H}
+                                  stroke="var(--border)" strokeWidth="0.8" opacity="0.7" />
+                              ))}
+                              {/* Fill sous courbe */}
+                              <path d={fillPath} fill={GREEN} opacity="0.12" />
+                              {/* Courbe principale */}
+                              <polyline points={linePts} fill="none" stroke={GREEN} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+                            </svg>
+                            {/* Labels Y */}
+                            <div style={{ position: 'absolute', top: 0, left: 0, height: 90, display: 'flex', flexDirection: 'column', justifyContent: 'space-between', pointerEvents: 'none' }}>
+                              {[100, 50, 25, 0].map(v => (
+                                <div key={v} style={{ fontSize: 8, color: 'var(--faint)', lineHeight: 1 }}>{v}</div>
+                              ))}
+                            </div>
+                          </div>
+                          {/* Labels X */}
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 4, paddingLeft: 14 }}>
+                            {retentionData.map((d, i) => (
+                              <div key={i} style={{ fontSize: 8, color: 'var(--faint)', textAlign: 'center' }}>{d.pct}</div>
+                            ))}
+                          </div>
+                        </div>
+                        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--muted)', textAlign: 'center' }}>
+                          <a href={ytVideo?.url} target="_blank" rel="noopener noreferrer" style={{ color: RED, fontWeight: 700, textDecoration: 'none' }}>Voir sur YouTube →</a>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+                {/* Bloc 2 : Performance business */}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>Performance business</div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1px 1fr', gap: 0 }}>
+                    {/* Colonne gauche : lien description */}
+                    <div style={{ paddingRight: 20 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: BLUE, marginBottom: 12 }}>📎 Via lien description</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                        <FunnelStep label="Clics" value={f1_clics} rate={null} isFirst />
+                        <FunnelStep label="Calls bookés" value={f1_calls} rate={r1_clicCall} rateThreshold={25} />
+                        <FunnelStep label="Calls honorés" value={f1_honored} rate={r1_callHon} rateThreshold={75} />
+                        <FunnelStep label="Closés" value={f1_closed} rate={r1_honClosed} rateThreshold={50} />
+                        <FunnelStep label="Revenue" value={f1_revenue} rate={null} />
+                      </div>
+                    </div>
+                    {/* Divider */}
+                    <div style={{ background: 'var(--border)', margin: '0 0' }} />
+                    {/* Colonne droite : lead magnet */}
+                    <div style={{ paddingLeft: 20 }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: AMBER, marginBottom: 12 }}>📄 Via lead magnet</div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+                        <FunnelStep label="Commentaires détectés" value={f2_comments} rate={null} isFirst />
+                        <FunnelStep label="LM envoyés" value={f2_sent} rate={r2_sentComm} rateThreshold={80} />
+                        <FunnelStep label="Calls bookés" value={f2_calls} rate={r2_callSent} rateThreshold={20} />
+                        <FunnelStep label="Calls honorés" value={f2_honored} rate={r2_callHon} rateThreshold={75} />
+                        <FunnelStep label="Closés" value={f2_closed} rate={r2_honClosed} rateThreshold={50} />
+                        <FunnelStep label="Revenue" value={f2_revenue} rate={null} />
+                      </div>
+                    </div>
+                  </div>
+                  {/* Total combiné */}
+                  <div style={{ marginTop: 14, padding: '12px 16px', background: 'var(--surface-2)', borderRadius: 9, display: 'flex', justifyContent: 'center', gap: 40, alignItems: 'center' }}>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Calls totaux</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked || '—'}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Closés</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed || '—'}</div>
+                    </div>
+                    <div style={{ textAlign: 'center' }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Revenue total</div>
+                      <div style={{ fontSize: 22, fontWeight: 800, color: row.revenue > 0 ? GREEN : 'var(--faint)' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Bloc 3 : Prospects DM liés */}
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 12 }}>Prospects DM liés à ce contenu</div>
+                  {linkedProspects.length === 0
+                    ? <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucun lien DM généré depuis ce contenu.</div>
+                    : (
+                      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                        <thead>
+                          <tr>
+                            {['Prospect', 'Canal', 'Lien créé', 'Statut', 'Revenue'].map((h, i) => (
+                              <th key={i} style={{ textAlign: i >= 3 ? 'right' : 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {linkedProspects.map((l: any, i: number) => {
+                            const lead = MOCK_LEADS.find(ml => ml.igUserId === l.igUserId);
+                            const canal = lead?.leadMagnetSent ? 'LM' : (l.dmType === 'organic' ? 'DM organique' : 'Cold DM');
+                            const canalColor2 = lead?.leadMagnetSent ? AMBER : (l.dmType === 'organic' ? '#10B981' : BLUE);
+                            const st = getProspectStatus(l);
+                            const daysAgo2 = Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000);
+                            return (
+                              <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}
+                                onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                                onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                                <td style={{ padding: '9px 10px', fontSize: 12, fontWeight: 700 }}>@{l.igUsername}</td>
+                                <td style={{ padding: '9px 10px' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: canalColor2, background: canalColor2 + '18', borderRadius: 4, padding: '2px 6px' }}>{canal}</span>
+                                </td>
+                                <td style={{ padding: '9px 10px', fontSize: 11, color: 'var(--muted)' }}>il y a {daysAgo2}j</td>
+                                <td style={{ padding: '9px 10px', textAlign: 'right' }}>
+                                  <span style={{ fontSize: 10, fontWeight: 700, color: statusColor[st] || 'var(--muted)', background: (statusColor[st] || 'var(--muted)') + '18', borderRadius: 4, padding: '2px 7px' }}>{statusMap2[st]}</span>
+                                </td>
+                                <td style={{ padding: '9px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: l.revenue ? GREEN : 'var(--faint)' }}>{l.revenue ? fmtEur(l.revenue) : '—'}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+
+      {/* ── Section 3 : Pipeline prospects DM ── */}
+      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+        <SectionHead
+          title="Pipeline prospects DM"
+          sub="Un lien par prospect — du clic au closing"
+          action={
+            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
+              {selectedContentId && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: BLUE, background: BLUE + '12', borderRadius: 6, padding: '4px 10px' }}>
+                  Filtré par : {selectedContentTitle}…
+                  <button onClick={() => { setSelectedContentId(null); setDetailModal(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: BLUE, lineHeight: 1, padding: 0, marginLeft: 2 }}>×</button>
+                </div>
+              )}
+              {(['all', 'pending', 'booked', 'closed', 'noshow'] as ProspectStatus[]).map(f => (
+                <button key={f} onClick={() => setProspectFilter(f)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${prospectFilter === f ? BLUE : 'var(--border)'}`, background: prospectFilter === f ? BLUE + '12' : 'transparent', color: prospectFilter === f ? BLUE : 'var(--muted)', transition: 'all .12s', whiteSpace: 'nowrap' }}>
+                  {statusLabel[f]}
+                </button>
+              ))}
+            </div>
+          }
+        />
+        {filteredProspects.length === 0
+          ? <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucun prospect correspondant.</div>
+          : (
+            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+              <thead>
+                <tr>
+                  {['Prospect', 'Contenu source', 'Canal', 'Lien créé', 'Statut', 'Revenue'].map((h, i) => (
+                    <th key={i} style={{ textAlign: i >= 4 ? 'right' : 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...filteredProspects].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((l: any, i: number) => {
+                  const sourcePost = [...igPosts.map(p => ({ id: p.id, title: p.caption?.slice(0, 28), platform: 'IG' })), ...ytVideos.map(v => ({ id: v.id, title: v.title.slice(0, 28), platform: 'YT' }))]
+                    .find(p => p.id === l.postId);
+                  const lead = MOCK_LEADS.find(ml => ml.igUserId === l.igUserId);
+                  const canal = lead?.leadMagnetSent ? 'LM' : (l.dmType === 'organic' ? 'DM organique' : 'Cold DM');
+                  const canalColor = lead?.leadMagnetSent ? AMBER : (l.dmType === 'organic' ? '#10B981' : BLUE);
+                  const st = getProspectStatus(l);
+                  const statusMap: Record<string, string> = { closed: 'Closé', booked: 'Call booké', pending: 'En attente', noshow: 'No-show' };
+                  const daysAgo = Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000);
+                  return (
+                    <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+                      onMouseLeave={e => (e.currentTarget.style.background = '')}>
+                      <td style={{ padding: '9px 10px', fontSize: 12, fontWeight: 700 }}>@{l.igUsername}</td>
+                      <td style={{ padding: '9px 10px', fontSize: 11, color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {sourcePost
+                          ? <><span style={{ fontSize: 9, fontWeight: 700, color: sourcePost.platform === 'IG' ? ACCENT : RED, background: (sourcePost.platform === 'IG' ? ACCENT : RED) + '18', borderRadius: 3, padding: '1px 4px', marginRight: 4 }}>{sourcePost.platform}</span>{sourcePost.title}…</>
+                          : '—'}
+                      </td>
+                      <td style={{ padding: '9px 10px' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: canalColor, background: canalColor + '18', borderRadius: 4, padding: '2px 6px' }}>{canal}</span>
+                      </td>
+                      <td style={{ padding: '9px 10px', fontSize: 11, color: 'var(--muted)' }}>il y a {daysAgo}j</td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: statusColor[st] || 'var(--muted)', background: (statusColor[st] || 'var(--muted)') + '18', borderRadius: 4, padding: '2px 7px' }}>{statusMap[st]}</span>
+                      </td>
+                      <td style={{ padding: '9px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: l.revenue ? GREEN : 'var(--faint)' }}>{l.revenue ? fmtEur(l.revenue) : '—'}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+      </div>
+
+      {/* ── Modal création lien ── */}
+      {showCreate && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          onClick={() => { setShowCreate(false); resetModal(); }}>
+          <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.2)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>Générer un lien tracké</div>
+              <button onClick={() => { setShowCreate(false); resetModal(); }} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
+            </div>
+            {createdLink ? (
+              <div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Lien créé — copie et envoie en DM</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
+                  <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: BLUE, wordBreak: 'break-all' }}>{createdLink}</span>
+                  <button onClick={copyLink} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none', background: copied ? GREEN : BLUE, color: '#fff', transition: 'background .2s', flexShrink: 0 }}>{copied ? 'Copié !' : 'Copier'}</button>
+                </div>
+                {createMode === 'lead' && selectedLead && (
+                  <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
+                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>@{selectedLead.igUsername}</span> · via <span style={{ fontWeight: 600 }}>{selectedLead.postTitle.slice(0, 40)}…</span> · mot-clé <span style={{ fontWeight: 600 }}>#{selectedLead.keyword}</span>
+                  </div>
+                )}
+                <button onClick={resetModal} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--ink)' }}>Générer un autre lien</button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+                  {(['lead', 'manual'] as const).map(mode => (
+                    <button key={mode} onClick={() => setCreateMode(mode)} style={{ flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none', background: createMode === mode ? 'var(--surface)' : 'transparent', color: createMode === mode ? 'var(--ink)' : 'var(--muted)', boxShadow: createMode === mode ? '0 1px 3px rgba(0,0,0,.07)' : 'none', transition: 'all .15s' }}>
+                      {mode === 'lead' ? 'Depuis un commentaire' : 'Prospect manuel'}
+                    </button>
+                  ))}
+                </div>
+                {createMode === 'lead' && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Sélectionne le prospect <span style={{ fontWeight: 400 }}>({MOCK_LEADS.length} leads)</span></div>
+                    <input type="text" value={leadSearch} onChange={e => setLeadSearch(e.target.value)} placeholder="Recherche par pseudo ou vidéo..." style={{ width: '100%', padding: '8px 12px', fontSize: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box', marginBottom: 8 }} />
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
+                      {filteredLeads.map(lead => (
+                        <div key={lead.igUserId} onClick={() => setSelectedLead(lead)} style={{ padding: '10px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${selectedLead?.igUserId === lead.igUserId ? BLUE : 'var(--border)'}`, background: selectedLead?.igUserId === lead.igUserId ? BLUE + '0e' : 'var(--surface)', transition: 'all .12s' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                                <span style={{ fontSize: 13, fontWeight: 700 }}>@{lead.igUsername}</span>
+                                <span style={{ fontSize: 10, fontWeight: 600, color: lead.leadMagnetSent ? GREEN : AMBER, background: (lead.leadMagnetSent ? GREEN : AMBER) + '18', borderRadius: 4, padding: '1px 5px' }}>{lead.leadMagnetSent ? 'LM envoyé' : 'En attente'}</span>
+                              </div>
+                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                                <span style={{ background: lead.postType === 'IG' ? ACCENT + '18' : RED + '12', color: lead.postType === 'IG' ? ACCENT : RED, fontWeight: 600, borderRadius: 3, padding: '1px 4px', marginRight: 5, fontSize: 10 }}>{lead.postType}</span>
+                                {lead.postTitle.slice(0, 38)}{lead.postTitle.length > 38 ? '…' : ''}
+                              </div>
+                            </div>
+                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{daysSince(lead.commentedAt)}j</div>
+                              <div style={{ fontSize: 10, fontWeight: 600, color: BLUE, marginTop: 2 }}>#{lead.keyword}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                      {filteredLeads.length === 0 && <div style={{ fontSize: 12, color: 'var(--faint)', padding: 12 }}>Aucun lead trouvé</div>}
+                    </div>
+                  </div>
+                )}
+                {createMode === 'manual' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Pseudo Instagram</div>
+                      <input type="text" value={manualUsername} onChange={e => setManualUsername(e.target.value.replace(/^@/, ''))} placeholder="thomas.biz" style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Contenu source <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span></div>
+                      <select value={manualPostId} onChange={e => setManualPostId(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}>
+                        <option value="">— Sans attribution —</option>
+                        {(ig?.posts || []).map(p => <option key={p.id} value={p.id}>IG · {p.caption?.slice(0, 50)}</option>)}
+                        {(yt?.videos || []).map(v => <option key={v.id} value={v.id}>YT · {v.title.slice(0, 50)}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                )}
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Destination</div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                    {MOCK_DESTINATIONS.map(dest => (
+                      <div key={dest.id} onClick={() => setSelectedDest(dest)} style={{ padding: '9px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${selectedDest.id === dest.id ? BLUE : 'var(--border)'}`, background: selectedDest.id === dest.id ? BLUE + '0e' : 'transparent', display: 'flex', alignItems: 'center', gap: 10, transition: 'all .12s' }}>
+                        <span style={{ fontSize: 14 }}>{dest.type === 'calendly' ? '📅' : '📄'}</span>
+                        <div>
+                          <div style={{ fontSize: 12, fontWeight: 600 }}>{dest.label}</div>
+                          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 1 }}>{dest.url}</div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {/* Toggle Cold DM */}
+                <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isColdDM ? 12 : 0 }}>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 700 }}>
+                        Cold DM
+                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ display: 'inline', marginLeft: 5, verticalAlign: 'middle', color: BLUE }}>
+                          <path d="M2 9L9 2M9 2H4.5M9 2V6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                        </svg>
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Tu as initié la conversation</div>
+                    </div>
+                    <button onClick={() => { setIsColdDM(!isColdDM); setDetectedDmType(null); }} style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: isColdDM ? BLUE : 'var(--border)', position: 'relative', transition: 'background .2s', flexShrink: 0 }}>
+                      <span style={{ position: 'absolute', top: 3, left: isColdDM ? 19 : 3, width: 16, height: 16, borderRadius: 8, background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
+                    </button>
+                  </div>
+                  {isColdDM && (
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Pseudo Instagram du prospect</div>
+                      <div style={{ display: 'flex', gap: 8 }}>
+                        <input
+                          type="text"
+                          placeholder="@thomas.biz"
+                          style={{ flex: 1, padding: '8px 12px', fontSize: 13, borderRadius: 8, border: `1px solid var(--border)`, background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
+                          onChange={() => setDetectedDmType(null)}
+                        />
+                        <button
+                          onClick={() => {
+                            // Mock : simule la détection API
+                            setTimeout(() => setDetectedDmType('cold'), 600);
+                          }}
+                          style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: 'none', background: 'var(--surface-2)', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+                          Détecter
+                        </button>
+                      </div>
+                      {detectedDmType && (
+                        <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: detectedDmType === 'cold' ? BLUE : '#10B981', background: (detectedDmType === 'cold' ? BLUE : '#10B981') + '12', borderRadius: 6, padding: '6px 10px' }}>
+                          {detectedDmType === 'cold'
+                            ? '↗ Cold DM confirmé — tu as initié la conversation'
+                            : '↙ DM organique — le prospect a écrit en premier'}
+                        </div>
+                      )}
+                      {!detectedDmType && (
+                        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--faint)' }}>Si la conversation n'est pas trouvée, le lien sera tagué Cold DM par défaut.</div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                <button onClick={handleCreate} disabled={creating || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')} style={{ width: '100%', padding: '11px', fontSize: 13, fontWeight: 700, borderRadius: 9, cursor: 'pointer', border: 'none', background: BLUE, color: '#fff', opacity: (creating || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')) ? 0.5 : 1, transition: 'opacity .15s' }}>
+                  {creating ? 'Création…' : 'Créer le lien tracké'}
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ── Pill flottant haut-droit (onglet A) ──────────────────────────────────────
 function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen }: {
@@ -3068,7 +4921,7 @@ export default function PageStatsV2() {
     setLoading(false);
   }, []);
 
-  const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Revenus', 'Short.io'];
+  const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Revenus', 'Short.io (A)', 'Business micro'];
 
   return (
     <div className="page-content">
@@ -3108,7 +4961,8 @@ export default function PageStatsV2() {
           {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} />}
           {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} />}
-          {tab === 6 && <TabShortio shortio={shortio} period={period} />}
+          {tab === 6 && <TabShortio shortio={shortio} ig={ig} yt={yt} period={period} />}
+          {tab === 7 && <TabShortioB shortio={shortio} ig={ig} yt={yt} />}
         </>
       )}
     </div>
