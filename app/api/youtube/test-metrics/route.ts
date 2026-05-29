@@ -202,14 +202,14 @@ export async function GET(request: Request) {
   };
 
   // 15 — Reporting API : créer le job channel_reach_basic si pas encore existant
-  const existingJob = jobsData.jobs?.find((j: any) => j.reportTypeId === 'channel_reach_basic');
+  const existingJob = jobsData.jobs?.find((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
   if (!existingJob && !jobsData.error) {
     const createJobRes = await fetch(
       'https://youtubereporting.googleapis.com/v1/jobs',
       {
         method: 'POST',
         headers: { ...h, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ reportTypeId: 'channel_reach_basic', name: 'Momentum CTR Job' }),
+        body: JSON.stringify({ reportTypeId: 'channel_reach_basic_a1', name: 'Momentum CTR Job' }),
       }
     );
     const createJobData = await createJobRes.json();
