@@ -61,9 +61,9 @@ const INTEGRATION_CONFIG: {
     provider: 'youtube',
     name: 'YouTube',
     icon: 'youtube',
-    desc: 'Abonnés, vues, rétention vidéo',
-    mode: 'apikey',
-    placeholder: 'AIza...',
+    desc: 'Abonnés, vues, analytics — connexion sécurisée via Google',
+    mode: 'oauth',
+    oauthPath: '/api/oauth/youtube',
   },
   {
     provider: 'shortio',
@@ -331,6 +331,36 @@ export default function PageSettings() {
                       <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
                         <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Connexion Calendly :</div>
                         <div>La connexion Calendly se fait via le bouton OAuth ci-dessus.</div>
+                      </div>
+                    )}
+                    {cfg.provider === 'youtube' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment récupérer ta clé API YouTube :</div>
+                        <div>1. Ouvre →{' '}
+                          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>console.cloud.google.com/apis/credentials</a>
+                        </div>
+                        <div>2. Crée un projet si tu n'en as pas, puis active <strong>YouTube Data API v3</strong></div>
+                        <div>3. Clique <strong>"Créer des identifiants"</strong> → <strong>"Clé API"</strong></div>
+                        <div>4. Copie la clé (<code>AIza...</code>) et colle-la ci-dessous</div>
+                        <div style={{ marginTop: 6, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, color: 'var(--muted)', fontSize: 11 }}>
+                          ⚠️ La clé API donne accès aux stats publiques (vues, abonnés). Pour les analytics avancées (rétention, sources de trafic), la connexion OAuth est nécessaire — contacte le support.
+                        </div>
+                      </div>
+                    )}
+                    {cfg.provider === 'shortio' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment récupérer ta clé API Short.io :</div>
+                        <div>1. Ouvre →{' '}
+                          <a href="https://app.short.io/settings/api-key" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>app.short.io/settings/api-key</a>
+                        </div>
+                        <div>2. Clique <strong>"Create API Key"</strong> → sélectionne ton domaine</div>
+                        <div>3. Copie la clé et colle-la ci-dessous</div>
+                      </div>
+                    )}
+                    {cfg.provider === 'instagram' && (
+                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Connexion Instagram :</div>
+                        <div>Le token Instagram est généré automatiquement via la connexion OAuth dans les réglages de compte. Si tu ne l'as pas encore, utilise le bouton <strong>"Connecter Instagram"</strong> depuis la page Analytics.</div>
                       </div>
                     )}
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>

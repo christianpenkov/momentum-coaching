@@ -153,5 +153,43 @@ export async function GET(request: Request) {
     items: d.items?.map((p: any) => ({ id: p.id, title: p.snippet?.title, videoCount: p.contentDetails?.itemCount })),
   }));
 
+  // 11 — TEST CTR : impressionClickThroughRate (Analytics API scope standard)
+  const ctrRes = await fetch(
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=impressions,impressionClickThroughRate&dimensions=day&sort=day`,
+    { headers: h }
+  );
+  const ctrData = await ctrRes.json();
+  results.ctr_standard = {
+    note: 'impressionClickThroughRate via Analytics API — scope yt-analytics.readonly',
+    error: ctrData.error || null,
+    columnHeaders: ctrData.columnHeaders,
+    rows: ctrData.rows?.slice(0, 3),
+  };
+
+  // 12 — TEST CTR par vidéo (méthode alternative suggérée par l'IA)
+  const ctrVideoRes = await fetch(
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=videoThumbnailImpressions,videoThumbnailImpressionsClickRate&dimensions=video&maxResults=5`,
+    { headers: h }
+  );
+  const ctrVideoData = await ctrVideoRes.json();
+  results.ctr_video_method = {
+    note: 'videoThumbnailImpressionsClickRate — méthode alternative (IA)',
+    error: ctrVideoData.error || null,
+    columnHeaders: ctrVideoData.columnHeaders,
+    rows: ctrVideoData.rows?.slice(0, 3),
+  };
+
+  // 13 — TEST CTR via Reporting API (autre méthode suggérée)
+  const reportingRes = await fetch(
+    'https://youtubereporting.googleapis.com/v1/reportTypes',
+    { headers: h }
+  );
+  const reportingData = await reportingRes.json();
+  results.reporting_api = {
+    note: 'Reporting API — liste des types de rapports disponibles',
+    error: reportingData.error || null,
+    reportTypes: reportingData.reportTypes?.map((r: any) => r.id),
+  };
+
   return NextResponse.json(results, { status: 200 });
 }

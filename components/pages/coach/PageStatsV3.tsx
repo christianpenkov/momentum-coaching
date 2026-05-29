@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import AreaChart from '@/components/charts/AreaChart';
 import BarChart from '@/components/charts/BarChart';
 import Heatmap from '@/components/charts/Heatmap';
@@ -9,6 +10,20 @@ import {
   ResponsiveContainer, Legend, PieChart, Pie, Cell,
   AreaChart as ReAreaChart, Area,
 } from 'recharts';
+
+// ─── Portal Modal ─────────────────────────────────────────────────────────────
+function ModalOverlay({ children, onClose, maxWidth = 760 }: { children: React.ReactNode; onClose: () => void; maxWidth?: number }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  if (!mounted) return null;
+  return createPortal(
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+      onClick={onClose}>
+      <div style={{ width: '100%', maxWidth }} onClick={e => e.stopPropagation()}>{children}</div>
+    </div>,
+    document.body
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -674,7 +689,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(c.totalViews)}</td>
                   )}
                   {contentSort === 'watchTime' && (<>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(c.watchTime)} min</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{c.watchTime >= 60 ? `${Math.round(c.watchTime / 60)}h` : `${c.watchTime} min`}</td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, color: 'var(--muted)' }}>{c.avgWatchTimeMin !== null ? `${c.avgWatchTimeMin} min` : '—'}</td>
                   </>)}
                   {contentSort === 'calls' && (<>
@@ -827,58 +842,57 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
   const visibleContent = showAllContent ? sortedContent : sortedContent.slice(0, 5);
 
   const totalPosts = (ig?.mediaCount || 0) + (yt?.videoCount || 0);
-  const ytShorts = yt?.videos.filter(v => v.isShort).length || 0;
-  const ytLongform = yt?.videos.filter(v => !v.isShort).length || 0;
 
   return (
     <div className="stack">
 
-      {/* ── BLOC 0 : Compteur publications totales ── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 20px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-        <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalPosts)}</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>publications au total</div>
-        <div style={{ width: 1, height: 28, background: 'var(--border)', margin: '0 4px' }} />
-        <div style={{ display: 'flex', align: 'center', gap: 16 }}>
-          {ig && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: IG_COLOR, display: 'inline-block' }} />
-              <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{fmt(ig.mediaCount)}</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>Instagram</span>
-            </div>
-          )}
-          {yt && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: YT_COLOR, display: 'inline-block' }} />
-              <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)' }}>{fmt(yt.videoCount)}</span>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>YouTube</span>
-            </div>
-          )}
-        </div>
-      </div>
-
       {/* ── BLOC 1 : KPIs — 2 lignes de 5 ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-        {[
+        {([
           { label: 'Abonnés IG', value: fmt(ig?.followers || 0), sub: 'total', color: IG_COLOR },
           { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
+          null, // carte Publications custom
           { label: 'Clics lien', value: fmt(shortioClicks), sub: `${period}j — vers Calendly`, color: BLUE },
           { label: 'Calls bookés', value: fmt(callsBookes), sub: `${period}j`, color: 'var(--ink)' as string },
-          { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
-        ].map((item, i) => (
-          <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
-            <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
-          </div>
-        ))}
+        ] as const).map((item, i) => {
+          if (item === null) return (
+            <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <span>Total Publications</span>
+                <span style={{ fontWeight: 500, color: 'var(--faint)' }}>{period}j</span>
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 8 }}>{fmt(totalPosts)}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: IG_COLOR, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ig?.mediaCount || 0)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>IG</span>
+                </div>
+                <div style={{ width: 1, height: 12, background: 'var(--border)', flexShrink: 0 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: YT_COLOR, flexShrink: 0 }} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(yt?.videoCount || 0)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>YT</span>
+                </div>
+              </div>
+            </div>
+          );
+          return (
+            <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
+              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
+            </div>
+          );
+        })}
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
+          { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
           { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
           { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call honoré', color: GREEN },
           { label: 'Revenue', value: fmtEur(mrr || totalRev), sub: `${period}j`, color: GREEN },
-          { label: 'MRR', value: fmtEur(mrr), sub: 'mensuel récurrent', color: mrr > 0 ? GREEN : 'var(--muted)' },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
@@ -988,7 +1002,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(c.totalViews)}</td>
                   )}
                   {contentSort === 'watchTime' && (<>
-                    <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(c.watchTime)} min</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{c.watchTime >= 60 ? `${Math.round(c.watchTime / 60)}h` : `${c.watchTime} min`}</td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, color: 'var(--muted)' }}>{c.avgWatchTimeMin !== null ? `${c.avgWatchTimeMin} min` : '—'}</td>
                   </>)}
                   {contentSort === 'calls' && (<>
@@ -1064,6 +1078,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
   };
 
   const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
+    'Publications': { data: mockFromTotal(ig.mediaCount, 10), color: IG_COLOR },
     'Reach': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? ig.followers })), color: IG_COLOR },
     'Vues': { data: mockFromTotal(ig.views30d, 1), color: ACCENT },
@@ -1100,24 +1115,17 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
   return (
     <div className="stack">
-      {/* Compteur publications IG */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: IG_COLOR, display: 'inline-block' }} />
-        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>{fmt(ig.mediaCount)}</span>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>publications Instagram au total</span>
-      </div>
-
       {/* Ligne 1 — 5 stats audience */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
           { label: 'Abonnés', value: fmt(ig.followers), sub: 'total', color: 'var(--ink)', key: 'Abonnés' },
+          { label: 'Publications', value: fmt(ig.mediaCount), sub: `${period}j`, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach 30j', value: fmt(ig.reach30d), sub: `${period}j`, color: 'var(--ink)', key: 'Reach' },
           { label: 'Vues 30j', value: fmt(ig.views30d), sub: `${period}j`, color: 'var(--ink)', key: 'Vues' },
           { label: 'Interactions posts', value: fmt(ig.accountsEngaged30d), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
-          { label: 'Clics site web', value: fmt(ig.websiteClicks30d), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
         ].map(s => (
-          <div key={s.key} onClick={() => openStatModal(s.key, s.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+          <div key={s.key ?? s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
+            onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{s.label}</div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 4 }}>{s.value}</div>
@@ -1125,9 +1133,10 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           </div>
         ))}
       </div>
-      {/* Ligne 2 — 4 stats performance */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
+      {/* Ligne 2 — 5 stats performance */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
+          { label: 'Clics site web', value: fmt(ig.websiteClicks30d), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
           { label: 'Abonnés nets', value: `${ig.followsUnfollows30d >= 0 ? '+' : ''}${fmt(ig.followsUnfollows30d)}`, sub: `${period}j`, color: ig.followsUnfollows30d >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
@@ -1235,10 +1244,8 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
       {/* Modal stat IG */}
       {statModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onClick={() => setStatModal(null)}>
-          <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
-            onClick={e => e.stopPropagation()}>
+        <ModalOverlay onClose={() => setStatModal(null)}>
+          <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{statModal.label}</div>
@@ -1265,14 +1272,12 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
               </ReAreaChart>
             </ResponsiveContainer>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {selectedPost && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={() => setSelectedPost(null)}>
-          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, maxWidth: 500, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}
-            onClick={e => e.stopPropagation()}>
+        <ModalOverlay onClose={() => setSelectedPost(null)} maxWidth={520}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{new Date(selectedPost.timestamp).toLocaleDateString('fr-FR', { dateStyle: 'long' })}</div>
@@ -1333,7 +1338,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
               Voir sur Instagram →
             </a>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );
@@ -1345,7 +1350,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
-  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
+  const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string; data2?: { date: string; v: number }[]; label2?: string; color2?: string } | null>(null);
 
   const loadRetention = useCallback(async (videoId: string) => {
     setLoadingRetention(true);
@@ -1360,6 +1365,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
   if (!yt) return <Empty msg="Connecte ton compte YouTube pour voir les stats." />;
 
   const conversionRate = yt.views30d > 0 ? ((yt.subsGained30d / yt.views30d) * 100).toFixed(3) : '0';
+  const viewsPerSub = yt.subsGained30d > 0 ? Math.round(yt.views30d / yt.subsGained30d) : null;
   const watchTimeH = Math.round(yt.watchTime30d / 60);
 
   const ytDays = yt.chartData.slice(-period);
@@ -1372,10 +1378,33 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
     return ytDays.map((d, i) => ({ date: d.date, v: vals[i] }));
   };
 
+  const ytShortsCount = yt.videos.filter(v => v.isShort).length;
+  const ytLongCount = yt.videos.filter(v => !v.isShort).length;
+
+  const fmtSec = (sec: number) => sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`;
+
+  const shortsVideos = yt.videos.filter(v => v.isShort);
+  const longVideos = yt.videos.filter(v => !v.isShort);
+  const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + v.views30d, 0) > 0
+    ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d, 0) / shortsVideos.reduce((s,v) => s + v.views30d, 0))
+    : null;
+  const avgWatchLong = longVideos.length > 0 && longVideos.reduce((s,v) => s + v.views30d, 0) > 0
+    ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d, 0) / longVideos.reduce((s,v) => s + v.views30d, 0))
+    : null;
+
+  const mockAroundAvgYT = (avg: number, seed: number, variancePct = 0.2) => {
+    if (!avg) return ytDays.map(d => ({ date: d.date, v: 0 }));
+    return ytDays.map((_, i) => ({
+      date: ytDays[i].date,
+      v: Math.round(avg * (1 + Math.sin(i * 1.7 + seed) * variancePct)),
+    }));
+  };
+
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
+    'Vidéos publiées':    { data: mockFromTotalYT(yt.videoCount, 11), color: YT_COLOR },
     'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: d.views })), color: RED },
     'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
-    'Watch time moyen':   { data: mockFromTotalYT(yt.avgViewDurationSec ?? 0, 5), color: AMBER, unit: 's' },
+    'Watch time moyen':   { data: mockFromTotalYT(avgWatchShorts ?? 0, 5), color: '#f43f5e', unit: 's' },
     'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: d.subsGained ?? 0 })), color: GREEN },
     'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: d.subsLost ?? 0 })), color: RED },
     'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: d.netSubs ?? 0 })), color: yt.netSubs30d >= 0 ? GREEN : RED },
@@ -1390,7 +1419,23 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
   const openStatModal = (label: string, value: string) => {
     const s = ytStatSeries[label];
     if (!s) return;
-    setStatModal({ label, value, color: s.color, data: s.data, unit: s.unit });
+    if (label === 'Watch time moyen') {
+      setStatModal({
+        label: 'Watch time moyen / vue', value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
+        color: '#e8a838', data: mockAroundAvgYT(avgWatchShorts ?? 45, 5),
+        label2: 'Vidéos longues', data2: mockAroundAvgYT(avgWatchLong ?? 480, 6), color2: '#64748b',
+        unit: 's',
+      });
+      return;
+    }
+    if (label === 'Vidéos publiées') {
+      setStatModal({
+        label, value, color: '#e8a838', data: mockFromTotalYT(ytShortsCount, 12),
+        label2: 'Vidéos longues', data2: mockFromTotalYT(ytLongCount, 13), color2: '#64748b',
+      });
+    } else {
+      setStatModal({ label, value, color: s.color, data: s.data, unit: s.unit });
+    }
   };
 
   const trafficData = yt.trafficSources.slice(0, 8).map(s => ({
@@ -1400,60 +1445,81 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
 
   const deviceData = yt.devices.map(d => ({ name: d.device.toLowerCase(), views: d.views }));
 
-  const ytShortsCount = yt.videos.filter(v => v.isShort).length;
-  const ytLongCount = yt.videos.filter(v => !v.isShort).length;
-
   return (
     <div className="stack">
-      {/* Compteur publications YT */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12 }}>
-        <span style={{ width: 8, height: 8, borderRadius: '50%', background: YT_COLOR, display: 'inline-block' }} />
-        <span style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)' }}>{fmt(yt.videoCount)}</span>
-        <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>vidéos YouTube au total</span>
-        <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmt(ytShortsCount)}</span>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Shorts</span>
-        <div style={{ width: 1, height: 22, background: 'var(--border)', margin: '0 4px' }} />
-        <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmt(ytLongCount)}</span>
-        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Vidéos longues</span>
-      </div>
-
       {/* Ligne 1 — audience & portée */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: 10 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
           { label: 'Abonnés', value: fmt(yt.subscribers), sub: 'total', color: 'var(--ink)', key: 'Abonnés YT' },
+          { label: 'Vidéos publiées', value: fmt(yt.videoCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
           { label: 'Subs nets 30j', value: `${yt.netSubs30d >= 0 ? '+' : ''}${fmt(yt.netSubs30d)}`, sub: `+${fmt(yt.subsGained30d)} / -${fmt(yt.subsLost30d)}`, color: yt.netSubs30d >= 0 ? GREEN : RED, key: 'Subs nets' },
-          { label: 'Vues all-time', value: fmt(yt.totalViews), sub: 'depuis le début', color: 'var(--ink)', key: 'Vues all-time' },
-          { label: 'Vidéos', value: fmt(yt.videoCount), sub: 'publiées', color: 'var(--ink)', key: null },
           { label: `Vues ${period}j`, value: fmt(yt.views30d), sub: `${period} derniers jours`, color: 'var(--ink)', key: 'Vues 30j' },
-          { label: 'Conv. vue→sub', value: `${conversionRate}%`, sub: 'subs gagnés / vues', color: 'var(--ink)', key: 'Conv. vue→sub' },
+          { label: 'Vues / sub gagné', value: viewsPerSub !== null ? fmt(viewsPerSub) : '—', sub: 'vues pour +1 abonné', color: 'var(--ink)', key: 'Conv. vue→sub' },
         ].map(s => (
           <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{s.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 4 }}>{s.value}</div>
-            <div style={{ fontSize: 10, color: 'var(--faint)' }}>{s.sub}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 4 }}>{s.value}</div>
+            {s.label === 'Vidéos publiées' ? (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ytShortsCount)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--ink)', whiteSpace: 'nowrap' }}>Shorts</span>
+                </div>
+                <div style={{ width: 1, height: 12, background: 'var(--border)', flexShrink: 0 }} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ytLongCount)}</span>
+                  <span style={{ fontSize: 10, color: 'var(--ink)', whiteSpace: 'nowrap' }}>Longues</span>
+                </div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{s.sub}</div>
+            )}
           </div>
         ))}
       </div>
       {/* Ligne 2 — engagement & watch time */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: `Watch time ${period}j`, value: `${watchTimeH}h`, sub: `${Math.round(watchTimeH * 60 / 1000)}k min au total`, color: AMBER, key: 'Watch time' },
-          { label: 'Watch time moyen / vue', value: yt.avgViewDurationSec ? `${Math.floor(yt.avgViewDurationSec / 60)}m${String(yt.avgViewDurationSec % 60).padStart(2, '0')}s` : '—', sub: 'durée moyenne par vue', color: 'var(--ink)', key: 'Watch time moyen' },
+          { label: `Watch time ${period}j`, value: `${watchTimeH}h`, sub: `${Math.round(watchTimeH / 1000)}k h au total`, color: AMBER, key: 'Watch time' },
+          null, // carte Watch time moyen custom
           { label: 'Likes 30j', value: fmt(yt.likes30d), sub: `${period}j`, color: 'var(--ink)', key: 'Likes' },
           { label: 'Commentaires 30j', value: fmt(yt.comments30d), sub: `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
           { label: 'Partages 30j', value: fmt(yt.shares30d), sub: `${period}j`, color: 'var(--ink)', key: 'Partages' },
-        ].map(s => (
-          <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
-            onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{s.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 4 }}>{s.value}</div>
-            <div style={{ fontSize: 10, color: 'var(--faint)' }}>{s.sub}</div>
-          </div>
-        ))}
+        ].map((s, i) => {
+          if (s === null) return (
+            <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 10 }}>Watch time moyen / vue</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#f43f5e', flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>Shorts</span>
+                  </div>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—'}</span>
+                </div>
+                <div style={{ width: 1, height: 32, background: 'var(--border)', flexShrink: 0 }} />
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: YT_COLOR, flexShrink: 0 }} />
+                    <span style={{ fontSize: 10, color: 'var(--muted)' }}>Vidéos longues</span>
+                  </div>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{avgWatchLong !== null ? fmtSec(avgWatchLong) : '—'}</span>
+                </div>
+              </div>
+            </div>
+          );
+          return (
+            <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
+              onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}>
+              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{s.label}</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: 4 }}>{s.value}</div>
+              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{s.sub}</div>
+            </div>
+          );
+        })}
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
@@ -1557,10 +1623,8 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
 
       {/* Modal stat YT */}
       {statModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
-          onClick={() => setStatModal(null)}>
-          <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
-            onClick={e => e.stopPropagation()}>
+        <ModalOverlay onClose={() => setStatModal(null)}>
+          <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{statModal.label}</div>
@@ -1568,33 +1632,96 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
               </div>
               <button onClick={() => setStatModal(null)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
-            <div style={{ fontSize: 36, fontWeight: 800, color: statModal.color, marginBottom: 20 }}>{statModal.value}</div>
-            <ResponsiveContainer width="100%" height={220}>
-              <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="grad-yt-stat-modal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
-                <Tooltip content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
-                }} />
-                <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-yt-stat-modal)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
-              </ReAreaChart>
-            </ResponsiveContainer>
+            {statModal.data2 ? (() => {
+              const color1 = statModal.color;
+              const color2 = statModal.color2 || '#64748b';
+              const isWatchTime = statModal.label.includes('Watch time');
+              const merged = statModal.data.map((d, i) => ({
+                date: d.date,
+                shorts: d.v,
+                longues: statModal.data2![i]?.v ?? 0,
+              }));
+              const formatVal = (v: number) => isWatchTime ? fmtSec(v) : fmt(v);
+              const val1 = isWatchTime ? (avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—') : `${fmt(ytShortsCount)}`;
+              const val2 = isWatchTime ? (avgWatchLong !== null ? fmtSec(avgWatchLong) : '—') : `${fmt(ytLongCount)}`;
+              return (
+                <>
+                  <div style={{ display: 'flex', gap: 32, marginBottom: 20 }}>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color1 }} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Shorts</span>
+                      </div>
+                      <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)' }}>{val1}</span>
+                    </div>
+                    <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                        <span style={{ width: 8, height: 8, borderRadius: '50%', background: color2 }} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{statModal.label2 || 'Vidéos longues'}</span>
+                      </div>
+                      <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)' }}>{val2}</span>
+                    </div>
+                  </div>
+                  <ResponsiveContainer width="100%" height={220}>
+                    <ReAreaChart data={merged} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                      <defs>
+                        <linearGradient id="grad-yt-shorts" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={color1} stopOpacity={0.15} />
+                          <stop offset="95%" stopColor={color1} stopOpacity={0} />
+                        </linearGradient>
+                        <linearGradient id="grad-yt-longues" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="5%" stopColor={color2} stopOpacity={0.15} />
+                          <stop offset="95%" stopColor={color2} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                      <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={isWatchTime ? 50 : 36} tickFormatter={(v: number) => isWatchTime ? fmtSec(v) : fmt(v)} />
+                      <Tooltip content={({ active, payload, label }) => {
+                        if (!active || !payload?.length) return null;
+                        return (
+                          <div className="chart-tooltip">
+                            <div className="chart-tooltip-label">{label}</div>
+                            {payload.map((p: any, i: number) => (
+                              <div key={i} className="chart-tooltip-row" style={{ color: p.color }}>
+                                <span>{p.name}</span><strong style={{ marginLeft: 8 }}>{formatVal(p.value)}</strong>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      }} />
+                      <Area type="monotone" dataKey="shorts" name="Shorts" stroke={color1} strokeWidth={2} fill="url(#grad-yt-shorts)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: color1 }} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="longues" name="Vidéos longues" stroke={color2} strokeWidth={2} fill="url(#grad-yt-longues)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: color2 }} isAnimationActive={false} />
+                    </ReAreaChart>
+                  </ResponsiveContainer>
+                </>
+              );
+            })() : (
+              <ResponsiveContainer width="100%" height={220}>
+                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="grad-yt-stat-modal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
+                      <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
+                  <Tooltip content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
+                  }} />
+                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-yt-stat-modal)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
+                </ReAreaChart>
+              </ResponsiveContainer>
+            )}
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {selectedVideo && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={() => { setSelectedVideo(null); setRetention(null); }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, maxWidth: 600, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}
-            onClick={e => e.stopPropagation()}>
+        <ModalOverlay onClose={() => { setSelectedVideo(null); setRetention(null); }} maxWidth={640}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
               {selectedVideo.thumbnail ? <img src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} /> : <div style={{ width: 120, height: 68, borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0 }} />}
               <div>
@@ -1607,7 +1734,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
               {[
                 ['Vues totales', fmt(selectedVideo.views)],
                 ['Vues 30j', `+${fmt(selectedVideo.views30d)}`],
-                ['Watch time 30j', `${selectedVideo.watchTime30d}min`],
+                ['Watch time 30j', selectedVideo.watchTime30d >= 3600 ? `${Math.round(selectedVideo.watchTime30d / 3600)}h` : `${Math.round(selectedVideo.watchTime30d / 60)}min`],
                 ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
                 ['Likes', fmt(selectedVideo.likes)],
                 ['Commentaires', fmt(selectedVideo.comments)],
@@ -1630,7 +1757,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
               Voir sur YouTube →
             </a>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );
@@ -1966,7 +2093,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
             {/* Modale graphe au clic */}
             {expandedHero !== null && (
               <div
-                style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+                style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
                 onClick={() => setExpandedHero(null)}
               >
                 <div
@@ -2121,7 +2248,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
       {/* Modal efficacité */}
       {expandedEff && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onClick={() => { setExpandedEff(null); onModalChange?.(false); }}>
           <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
             onClick={e => e.stopPropagation()}>
@@ -2424,7 +2551,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio }: { msgs: IGMes
         </div>
 
         {expandedHero !== null && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
             onClick={() => { setExpandedHero(null); setHeroSnapshot(null); }}>
             <div style={{ background: 'var(--surface)', borderRadius: 16, padding: '32px 36px 28px', width: '100%', maxWidth: 780, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
               onClick={e => e.stopPropagation()}>
@@ -2516,7 +2643,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio }: { msgs: IGMes
 
       {/* Modal efficacité */}
       {expandedEff && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onClick={() => setExpandedEff(null)}>
           <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
             onClick={e => e.stopPropagation()}>
@@ -3144,7 +3271,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
 
       {/* Modal détail lien */}
       {selectedLink && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setSelectedLink(null)}>
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, maxWidth: 540, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}
             onClick={e => e.stopPropagation()}>
@@ -3179,7 +3306,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
 
       {/* Modal création lien */}
       {showCreate && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => { setShowCreate(false); resetModal(); }}>
           <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.2)' }}
             onClick={e => e.stopPropagation()}>
@@ -3463,9 +3590,13 @@ const MOCK_YT: YTStats = {
   videos: [
     { id: 'v1', title: 'Comment créer une offre à 3000€ irrésistible', thumbnail: '', publishedAt: new Date(Date.now() - 8*86400000).toISOString(), duration: '18:42', isShort: false, views: 12400, likes: 487, comments: 84, views30d: 9800, watchTime30d: 84000, avgViewPct: 62, url: '#', likes30d: 320, comments30d: 54, shares30d: 42 },
     { id: 'v2', title: 'Tunnel de vente Instagram — tuto complet 2025', thumbnail: '', publishedAt: new Date(Date.now() - 22*86400000).toISOString(), duration: '24:18', isShort: false, views: 28600, likes: 1240, comments: 198, views30d: 7200, watchTime30d: 62000, avgViewPct: 58, url: '#', likes30d: 480, comments30d: 72, shares30d: 98 },
-    { id: 'v3', title: 'Script DM qui converti #shorts', thumbnail: '', publishedAt: new Date(Date.now() - 4*86400000).toISOString(), duration: '0:58', isShort: true, views: 84200, likes: 3800, comments: 412, views30d: 72000, watchTime30d: 41760, avgViewPct: 48, url: '#', likes30d: 2840, comments30d: 312, shares30d: 580 },
+    { id: 'v3', title: 'Script DM qui converti #shorts', thumbnail: '', publishedAt: new Date(Date.now() - 4*86400000).toISOString(), duration: '0:58', isShort: true, views: 84200, likes: 3800, comments: 412, views30d: 72000, watchTime30d: 2592000, avgViewPct: 48, url: '#', likes30d: 2840, comments30d: 312, shares30d: 580 },
     { id: 'v4', title: 'Ma méthode pour closer 80% de mes calls', thumbnail: '', publishedAt: new Date(Date.now() - 35*86400000).toISOString(), duration: '31:04', isShort: false, views: 18400, likes: 780, comments: 124, views30d: 4100, watchTime30d: 38000, avgViewPct: 71, url: '#', likes30d: 180, comments30d: 28, shares30d: 24 },
     { id: 'v5', title: 'Mindset millionnaire — 5 habitudes', thumbnail: '', publishedAt: new Date(Date.now() - 48*86400000).toISOString(), duration: '14:22', isShort: false, views: 9800, likes: 342, comments: 58, views30d: 2400, watchTime30d: 18000, avgViewPct: 54, url: '#', likes30d: 120, comments30d: 18, shares30d: 14 },
+    // 19 Shorts supplémentaires (total 20 Shorts)
+    ...Array.from({ length: 19 }, (_, i) => { const v30 = Math.round(1200 + Math.sin(i*1.7)*800); return { id: `vs${i+1}`, title: `Short ${i+1} #shorts`, thumbnail: '', publishedAt: new Date(Date.now() - (60+i*14)*86400000).toISOString(), duration: '0:45', isShort: true, views: Math.round(8000 + Math.sin(i*2.1)*6000), likes: Math.round(320 + i*40), comments: Math.round(18 + i*8), views30d: v30, watchTime30d: Math.round(v30 * 36), avgViewPct: Math.round(44 + Math.sin(i)*8), url: '#', likes30d: Math.round(80 + i*20), comments30d: Math.round(8 + i*3), shares30d: Math.round(12 + i*6) }; }),
+    // 40 vidéos longues supplémentaires (total 44 longues)
+    ...Array.from({ length: 40 }, (_, i) => ({ id: `vl${i+1}`, title: `Vidéo ${i+1} — stratégie business`, thumbnail: '', publishedAt: new Date(Date.now() - (90+i*7)*86400000).toISOString(), duration: `${12+Math.round(Math.sin(i)*8)}:${String(Math.round(Math.abs(Math.sin(i*1.3))*59)).padStart(2,'0')}`, isShort: false, views: Math.round(3000 + Math.sin(i*1.9)*2500), likes: Math.round(120 + i*15), comments: Math.round(14 + i*4), views30d: Math.round(400 + Math.sin(i*2.3)*350), watchTime30d: Math.round(4200 + Math.sin(i*1.7)*2800), avgViewPct: Math.round(52 + Math.sin(i*1.1)*12), url: '#', likes30d: Math.round(40 + i*8), comments30d: Math.round(6 + i*2), shares30d: Math.round(4 + i*2) })),
   ],
   trafficSources: [
     { source: 'YT_SEARCH', views: 18400, watchMinutes: 92000 },
@@ -3740,15 +3871,25 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
   // ── Graphique filtré ──
   const chartData = shortio.chartData.map((d, i) => {
     if (chartFilter === 'bio') {
-      const val = bioLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
-      return { date: d.date, clicks: val };
+      const igBioLinks = bioLinks.filter((l: any) => l.bioType === 'instagram');
+      const ytBioLinks = bioLinks.filter((l: any) => l.bioType === 'youtube');
+      return {
+        date: d.date,
+        ig: igBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
+        yt: ytBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
+      };
+    }
+    if (chartFilter === 'content') {
+      const igPostLinks = postLinks.filter((l: any) => l.postPlatform === 'IG');
+      const ytPostLinks = postLinks.filter((l: any) => l.postPlatform === 'YT');
+      return {
+        date: d.date,
+        ig: igPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
+        yt: ytPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
+      };
     }
     if (chartFilter === 'dm') {
       const val = prospectLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
-      return { date: d.date, clicks: val };
-    }
-    if (chartFilter === 'content') {
-      const val = postLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
       return { date: d.date, clicks: val };
     }
     return d;
@@ -3903,7 +4044,41 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
             </button>
           ))}
         </div>
-        <AreaChart data={chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+        {(chartFilter === 'content' || chartFilter === 'bio') ? (
+          <ResponsiveContainer width="100%" height={160}>
+            <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#1E3A8A" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#1E3A8A" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-chart-yt" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#F97316" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#F97316" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} />
+              <Tooltip content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="chart-tooltip">
+                    <div className="chart-tooltip-label">{label}</div>
+                    {payload.map((p: any, i: number) => (
+                      <div key={i} className="chart-tooltip-row" style={{ color: p.color }}>
+                        <span>{p.name}</span><strong style={{ marginLeft: 8 }}>{fmt(p.value)}</strong>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }} />
+              <Area type="monotone" dataKey="ig" name="Instagram" stroke="#1E3A8A" strokeWidth={2} fill="url(#grad-chart-ig)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#1E3A8A' }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="yt" name="YouTube" stroke="#F97316" strokeWidth={2} fill="url(#grad-chart-yt)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#F97316' }} isAnimationActive={false} />
+            </ReAreaChart>
+          </ResponsiveContainer>
+        ) : (
+          <AreaChart data={chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+        )}
 
         {/* ── Tableau breakdown par source ── */}
         {(() => {
@@ -4189,12 +4364,12 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
           {/* Zone 2 : "au moins 1" */}
           <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
             {([
-              ['clicsDesc', '1 clic desc.'],
-              ['lmDetectes', '1 commentaire LM'],
-              ['dmCount', '1 lien DM'],
-              ['callsBooked', '1 call booké'],
-              ['callsHonored', '1 call honoré'],
-              ['closed', '1 closé'],
+              ['clicsDesc', 'min. 1 clic desc.'],
+              ['lmDetectes', 'min. 1 commentaire LM'],
+              ['dmCount', 'min. 1 lien DM'],
+              ['callsBooked', 'min. 1 call booké'],
+              ['callsHonored', 'min. 1 call honoré'],
+              ['closed', 'min. 1 closé'],
             ] as [SortKey, string][]).map(([key, label]) => {
               const active = filterHas.has(key);
               return (
@@ -4366,7 +4541,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
         );
 
         return (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
             onClick={() => { setDetailModal(null); setSelectedContentId(null); }}>
             <div style={{ background: 'var(--surface)', borderRadius: 16, maxWidth: 780, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,.25)' }}
               onClick={e => e.stopPropagation()}>
@@ -4412,7 +4587,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                     {row.platform === 'YT' && ytVideo && (() => {
                       const metrics: [string, any][] = [
                         ['Vues', ytVideo.views], ['Likes', ytVideo.likes], ['Commentaires', ytVideo.comments],
-                        ['Partages', ytVideo.shares30d], ['Watch time moy.', `${Math.round((ytVideo.watchTime30d / (ytVideo.views30d || 1)) / 60)}min`],
+                        ['Partages', ytVideo.shares30d], ['Watch time moy.', (() => { const sec = Math.round(ytVideo.watchTime30d / (ytVideo.views30d || 1)); return sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`; })()],
                         ['% vu moy.', `${ytVideo.avgViewPct}%`], ['CTR miniature', '4,2%'],
                       ];
                       return metrics.map(([label, val], i) => (
@@ -4635,7 +4810,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
 
       {/* ── Modal création lien ── */}
       {showCreate && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => { setShowCreate(false); resetModal(); }}>
           <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.2)' }}
             onClick={e => e.stopPropagation()}>
