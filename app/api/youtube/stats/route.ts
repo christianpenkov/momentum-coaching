@@ -210,7 +210,7 @@ export async function GET(request: Request) {
       ),
       // Métriques par vidéo ciblées (filtre sur les IDs exacts)
       fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares,subscribersGained&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
         { headers: authHeader }
       ),
     ]);
@@ -219,7 +219,7 @@ export async function GET(request: Request) {
     const analyticsVideosData = await analyticsVideosRes.json();
 
     // Map analytics par videoId : [video, views, watchTime, avgViewPct, likes, comments, shares]
-    const analyticsByVideo: Record<string, { views30d: number; watchTime30d: number; avgViewPct: number; likes30d: number; comments30d: number; shares30d: number }> = {};
+    const analyticsByVideo: Record<string, { views30d: number; watchTime30d: number; avgViewPct: number; likes30d: number; comments30d: number; shares30d: number; subsGained30d: number }> = {};
     for (const row of analyticsVideosData?.rows || []) {
       analyticsByVideo[row[0]] = {
         views30d: row[1] || 0,
@@ -228,13 +228,14 @@ export async function GET(request: Request) {
         likes30d: row[4] || 0,
         comments30d: row[5] || 0,
         shares30d: row[6] || 0,
+        subsGained30d: row[7] || 0,
       };
     }
 
     const retentionCurve: any[] = [];
 
     videos = (detailsData?.items || []).map((v: any) => {
-      const a = analyticsByVideo[v.id] || { views30d: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0 };
+      const a = analyticsByVideo[v.id] || { views30d: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0, subsGained30d: 0 };
       const rawDuration = v.contentDetails?.duration || 'PT0S';
       const durMatch = rawDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       const durSecs = (parseInt(durMatch?.[1] || '0') * 3600) + (parseInt(durMatch?.[2] || '0') * 60) + parseInt(durMatch?.[3] || '0');
@@ -255,6 +256,8 @@ export async function GET(request: Request) {
         likes30d: a.likes30d,
         comments30d: a.comments30d,
         shares30d: a.shares30d,
+        subsGained30d: a.subsGained30d,
+        ctr: null, // Alimenté via Reporting API (channel_reach_basic_a1) — disponible ~24h après connexion
         url: `https://www.youtube.com/watch?v=${v.id}`,
       };
     });
