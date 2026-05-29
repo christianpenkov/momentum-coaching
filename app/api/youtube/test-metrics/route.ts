@@ -153,6 +153,19 @@ export async function GET(request: Request) {
     items: d.items?.map((p: any) => ({ id: p.id, title: p.snippet?.title, videoCount: p.contentDetails?.itemCount })),
   }));
 
+  // 11b — TEST abonnés gagnés par vidéo
+  const subsVideoRes = await fetch(
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,subscribersGained,subscribersLost&dimensions=video&sort=-subscribersGained&maxResults=10`,
+    { headers: h }
+  );
+  const subsVideoData = await subsVideoRes.json();
+  results.subs_by_video = {
+    note: 'subscribersGained par vidéo — dimensions=video',
+    error: subsVideoData.error || null,
+    columnHeaders: subsVideoData.columnHeaders,
+    rows: subsVideoData.rows?.slice(0, 5),
+  };
+
   // 11 — TEST CTR : impressionClickThroughRate (Analytics API scope standard)
   const ctrRes = await fetch(
     `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=impressions,impressionClickThroughRate&dimensions=day&sort=day`,
