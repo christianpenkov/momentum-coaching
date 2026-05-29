@@ -112,7 +112,6 @@ function VideoModal({ video, onClose }: VideoModalProps) {
     { label: 'Rétention moy.', value: video.avgViewPct > 0 ? `${video.avgViewPct}%` : '—' },
     { label: 'CTR miniature', value: video.ctr !== null && video.ctr !== undefined ? `${(video.ctr * 100).toFixed(1)}%` : '—' },
     { label: 'Watch time 30j', value: video.watchTime30d > 0 ? `${video.watchTime30d}h` : '—' },
-    { label: 'Abonnés gagnés 30j', value: video.subsGained30d > 0 ? `+${video.subsGained30d}` : '—' },
     { label: 'Likes (total)', value: video.likes.toLocaleString('fr-FR') },
     { label: 'Likes 30j', value: video.likes30d > 0 ? `+${video.likes30d.toLocaleString('fr-FR')}` : '—' },
     { label: 'Commentaires (total)', value: video.comments.toLocaleString('fr-FR') },
