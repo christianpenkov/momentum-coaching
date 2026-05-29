@@ -179,17 +179,64 @@ export async function GET(request: Request) {
     rows: ctrVideoData.rows?.slice(0, 3),
   };
 
-  // 13 — TEST CTR via Reporting API (autre méthode suggérée)
-  const reportingRes = await fetch(
+  // 13 — Reporting API : liste des types de rapports disponibles
+  const reportTypesRes = await fetch(
     'https://youtubereporting.googleapis.com/v1/reportTypes',
     { headers: h }
   );
-  const reportingData = await reportingRes.json();
-  results.reporting_api = {
-    note: 'Reporting API — liste des types de rapports disponibles',
-    error: reportingData.error || null,
-    reportTypes: reportingData.reportTypes?.map((r: any) => r.id),
+  const reportTypesData = await reportTypesRes.json();
+  results.reporting_report_types = {
+    error: reportTypesData.error || null,
+    reportTypes: reportTypesData.reportTypes?.map((r: any) => r.id),
   };
+
+  // 14 — Reporting API : liste des jobs existants
+  const jobsRes = await fetch(
+    'https://youtubereporting.googleapis.com/v1/jobs',
+    { headers: h }
+  );
+  const jobsData = await jobsRes.json();
+  results.reporting_jobs = {
+    error: jobsData.error || null,
+    jobs: jobsData.jobs,
+  };
+
+  // 15 — Reporting API : créer le job channel_reach_basic si pas encore existant
+  const existingJob = jobsData.jobs?.find((j: any) => j.reportTypeId === 'channel_reach_basic');
+  if (!existingJob && !jobsData.error) {
+    const createJobRes = await fetch(
+      'https://youtubereporting.googleapis.com/v1/jobs',
+      {
+        method: 'POST',
+        headers: { ...h, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reportTypeId: 'channel_reach_basic', name: 'Momentum CTR Job' }),
+      }
+    );
+    const createJobData = await createJobRes.json();
+    results.reporting_job_created = {
+      note: 'Job channel_reach_basic créé — les données arriveront dans ~24h',
+      error: createJobData.error || null,
+      job: createJobData,
+    };
+  } else {
+    results.reporting_job_status = {
+      note: existingJob ? 'Job déjà existant' : 'Impossible de créer le job (erreur jobs)',
+      job: existingJob || null,
+    };
+  }
+
+  // 16 — Reporting API : récupère les rapports disponibles si job existant
+  if (existingJob?.id) {
+    const reportsRes = await fetch(
+      `https://youtubereporting.googleapis.com/v1/jobs/${existingJob.id}/reports`,
+      { headers: h }
+    );
+    const reportsData = await reportsRes.json();
+    results.reporting_reports = {
+      error: reportsData.error || null,
+      reports: reportsData.reports?.slice(0, 3),
+    };
+  }
 
   return NextResponse.json(results, { status: 200 });
 }
