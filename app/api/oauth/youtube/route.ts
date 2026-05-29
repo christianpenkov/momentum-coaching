@@ -30,6 +30,7 @@ export async function GET(request: NextRequest) {
     scope: [
       'https://www.googleapis.com/auth/youtube.readonly',
       'https://www.googleapis.com/auth/yt-analytics.readonly',
+      'https://www.googleapis.com/auth/yt-analytics-monetary.readonly',
     ].join(' '),
     access_type: 'offline',
     prompt: 'consent',

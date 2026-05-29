@@ -203,22 +203,37 @@ export async function GET(request: Request) {
 
   if (videoIds.length > 0) {
     const videoIdsStr = videoIds.join(',');
-    const [detailsRes, analyticsVideosRes] = await Promise.all([
+    const [detailsRes, analyticsVideosRes, subsAllTimeRes] = await Promise.all([
       fetch(
         `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIdsStr}`,
         { headers: authHeader }
       ),
-      // Métriques par vidéo ciblées (filtre sur les IDs exacts)
+      // Métriques contenu all-time par vidéo (perf contenu, pas business)
       fetch(
-        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares,subscribersGained&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares,subscribersGained&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
+        { headers: authHeader }
+      ),
+      // Abonnés gagnés all-time par vidéo (sans filtre pour avoir toutes les vidéos)
+      fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,subscribersGained,subscribersLost&dimensions=video&maxResults=50`,
         { headers: authHeader }
       ),
     ]);
 
     const detailsData = await detailsRes.json();
     const analyticsVideosData = await analyticsVideosRes.json();
+    const subsAllTimeData = await subsAllTimeRes.json();
 
-    // Map analytics par videoId : [video, views, watchTime, avgViewPct, likes, comments, shares]
+    // Map abonnés all-time par videoId
+    const subsAllTimeByVideo: Record<string, { subsGainedTotal: number; subsLostTotal: number }> = {};
+    for (const row of subsAllTimeData?.rows || []) {
+      subsAllTimeByVideo[row[0]] = {
+        subsGainedTotal: row[2] || 0,
+        subsLostTotal: row[3] || 0,
+      };
+    }
+
+    // Map analytics 30j par videoId
     const analyticsByVideo: Record<string, { views30d: number; watchTime30d: number; avgViewPct: number; likes30d: number; comments30d: number; shares30d: number; subsGained30d: number }> = {};
     for (const row of analyticsVideosData?.rows || []) {
       analyticsByVideo[row[0]] = {
@@ -236,6 +251,7 @@ export async function GET(request: Request) {
 
     videos = (detailsData?.items || []).map((v: any) => {
       const a = analyticsByVideo[v.id] || { views30d: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0, subsGained30d: 0 };
+      const st = subsAllTimeByVideo[v.id] || { subsGainedTotal: 0, subsLostTotal: 0 };
       const rawDuration = v.contentDetails?.duration || 'PT0S';
       const durMatch = rawDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
       const durSecs = (parseInt(durMatch?.[1] || '0') * 3600) + (parseInt(durMatch?.[2] || '0') * 60) + parseInt(durMatch?.[3] || '0');
@@ -257,6 +273,8 @@ export async function GET(request: Request) {
         comments30d: a.comments30d,
         shares30d: a.shares30d,
         subsGained30d: a.subsGained30d,
+        subsGainedTotal: st.subsGainedTotal,
+        subsLostTotal: st.subsLostTotal,
         ctr: null, // Alimenté via Reporting API (channel_reach_basic_a1) — disponible ~24h après connexion
         url: `https://www.youtube.com/watch?v=${v.id}`,
       };

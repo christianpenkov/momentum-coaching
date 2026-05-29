@@ -39,6 +39,8 @@ interface YoutubeVideo {
   comments30d: number;
   shares30d: number;
   subsGained30d: number;
+  subsGainedTotal: number;
+  subsLostTotal: number;
   ctr: number | null;
   url: string;
 }
@@ -106,16 +108,20 @@ function VideoModal({ video, onClose }: VideoModalProps) {
     return () => document.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  const convScore = video.views > 0 && video.subsGainedTotal > 0
+    ? ((video.subsGainedTotal / video.views) * 100).toFixed(2)
+    : null;
+
   const stats = [
     { label: 'Vues totales', value: video.views.toLocaleString('fr-FR') },
-    { label: 'Vues 30j', value: video.views30d > 0 ? `+${video.views30d.toLocaleString('fr-FR')}` : '—' },
     { label: 'Rétention moy.', value: video.avgViewPct > 0 ? `${video.avgViewPct}%` : '—' },
     { label: 'CTR miniature', value: video.ctr !== null && video.ctr !== undefined ? `${(video.ctr * 100).toFixed(1)}%` : '—' },
-    { label: 'Watch time 30j', value: video.watchTime30d > 0 ? `${video.watchTime30d}h` : '—' },
-    { label: 'Likes (total)', value: video.likes.toLocaleString('fr-FR') },
+    { label: 'Abonnés gagnés', value: video.subsGainedTotal > 0 ? `+${video.subsGainedTotal}` : '—' },
+    { label: 'Score conversion', value: convScore ? `${convScore}%` : '—' },
+    { label: 'Likes', value: video.likes.toLocaleString('fr-FR') },
+    { label: 'Commentaires', value: video.comments.toLocaleString('fr-FR') },
+    { label: 'Vues 30j', value: video.views30d > 0 ? `+${video.views30d.toLocaleString('fr-FR')}` : '—' },
     { label: 'Likes 30j', value: video.likes30d > 0 ? `+${video.likes30d.toLocaleString('fr-FR')}` : '—' },
-    { label: 'Commentaires (total)', value: video.comments.toLocaleString('fr-FR') },
-    { label: 'Commentaires 30j', value: video.comments30d > 0 ? `+${video.comments30d.toLocaleString('fr-FR')}` : '—' },
     { label: 'Partages 30j', value: video.shares30d > 0 ? `+${video.shares30d.toLocaleString('fr-FR')}` : '—' },
     { label: 'Durée', value: video.duration },
     { label: 'Publiée le', value: new Date(video.publishedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) },
