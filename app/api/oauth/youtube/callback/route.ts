@@ -80,6 +80,33 @@ export async function GET(request: NextRequest) {
     connected_at: new Date().toISOString(),
   }, { onConflict: 'profile_id,provider' });
 
+  // Crée automatiquement le job Reporting API pour le CTR (channel_reach_basic_a1)
+  // — données disponibles ~24h après, puis quotidiennement
+  try {
+    const existingJobsRes = await fetch(
+      'https://youtubereporting.googleapis.com/v1/jobs',
+      { headers: { Authorization: `Bearer ${tokenData.access_token}` } }
+    );
+    const existingJobsData = await existingJobsRes.json();
+    const alreadyExists = existingJobsData.jobs?.some((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
+
+    if (!alreadyExists) {
+      await fetch('https://youtubereporting.googleapis.com/v1/jobs', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${tokenData.access_token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          reportTypeId: 'channel_reach_basic_a1',
+          name: 'Momentum CTR Job',
+        }),
+      });
+    }
+  } catch {
+    // Non bloquant — le job peut être créé plus tard manuellement
+  }
+
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=youtube`);
