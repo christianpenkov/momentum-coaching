@@ -20,6 +20,23 @@ function slugify(s: string) {
   return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
+async function callShortio(payload: Record<string, any>): Promise<{ shortUrl: string }> {
+  const res = await fetch('/api/shortio/links', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const ct = res.headers.get('content-type') || '';
+  if (!ct.includes('application/json')) {
+    throw new Error(`Erreur serveur (${res.status}) — vérifie que la clé Short.io est configurée dans Réglages`);
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    if (data.error === 'no_token') throw new Error('Clé Short.io non configurée — va dans Réglages pour la connecter');
+    throw new Error(data.error || 'Erreur Short.io');
+  }
+  return { shortUrl: data.shortUrl };
+}
+
 function typeBadgeColor(t: LinkType) {
   if (t === 'calendly_prospect') return BLUE;
   if (t === 'bio') return PURPLE;
@@ -145,22 +162,15 @@ function SectionParametres({ profileId, domains, onCalendlyChange }: {
     setLoading(true); setError(null);
     try {
       const path = `bio-${platform === 'instagram' ? 'ig' : 'yt'}`;
-      const res = await fetch('/api/shortio/links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          profileId,
-          domainId: domain,
-          originalUrl: calendlyUrl.trim(),
-          title: `Bio ${platform === 'instagram' ? 'Instagram' : 'YouTube'}`,
-          utmSource: domain,
-          utmMedium: 'bio',
-          utmCampaign: `bio-${platform}`,
-          path,
-        }),
+      const { shortUrl } = await callShortio({
+        profileId, domainId: domain,
+        originalUrl: calendlyUrl.trim(),
+        title: `Bio ${platform === 'instagram' ? 'Instagram' : 'YouTube'}`,
+        utmSource: domain, utmMedium: 'bio',
+        utmCampaign: `bio-${platform}`,
+        path,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur Short.io');
-      setResult(data.shortUrl);
+      setResult(shortUrl);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   };
@@ -248,7 +258,7 @@ function CopyBtn({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
   const copy = () => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   return (
-    <button onClick={copy} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${copied ? 'transparent' : 'var(--border)'}`, background: copied ? GREEN : 'var(--surface)', color: copied ? '#fff' : 'var(--ink)', cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap' }}>
+    <button onClick={copy} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${copied ? 'transparent' : 'var(--border)'}`, background: copied ? GREEN : 'var(--surface)', color: copied ? '#fff' : 'var(--ink)', cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap' } as React.CSSProperties}>
       {copied ? 'Copié !' : 'Copier'}
     </button>
   );
@@ -275,21 +285,16 @@ function SectionCalendlyProspect({ domains, profileId, posts, calendlyUrl }: {
     try {
       const usernameSlug = slugify(username);
       const path = customPath || usernameSlug;
-      const res = await fetch('/api/shortio/links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          profileId, domainId: domain,
-          originalUrl: calendlyUrl.trim(),
-          title: `Calendly — @${username}`,
-          utmSource: domain, utmMedium: 'dm',
-          utmCampaign: `prospect-${usernameSlug}`,
-          utmContent: postId || undefined,
-          path,
-        }),
+      const { shortUrl } = await callShortio({
+        profileId, domainId: domain,
+        originalUrl: calendlyUrl.trim(),
+        title: `Calendly — @${username}`,
+        utmSource: domain, utmMedium: 'dm',
+        utmCampaign: `prospect-${usernameSlug}`,
+        utmContent: postId || undefined,
+        path,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur');
-      setResult(data.shortUrl);
+      setResult(shortUrl);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   };
@@ -363,19 +368,14 @@ function SectionDescription({ domains, profileId, posts, calendlyUrl }: {
     setLoading(true); setError(null);
     try {
       const path = customPath || `desc-${slugify(selectedPost?.caption.slice(0, 20) || postId)}`;
-      const res = await fetch('/api/shortio/links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          profileId, domainId: domain,
-          originalUrl: destUrl,
-          title: `Description — ${selectedPost?.caption.slice(0, 40) || postId}`,
-          utmSource: domain, utmMedium: 'description',
-          utmCampaign: destType, utmContent: postId, path,
-        }),
+      const { shortUrl } = await callShortio({
+        profileId, domainId: domain,
+        originalUrl: destUrl,
+        title: `Description — ${selectedPost?.caption.slice(0, 40) || postId}`,
+        utmSource: domain, utmMedium: 'description',
+        utmCampaign: destType, utmContent: postId, path,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur');
-      setResult(data.shortUrl);
+      setResult(shortUrl);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   };
@@ -457,20 +457,15 @@ function SectionLeadMagnet({ domains, profileId, posts }: {
     setLoading(true); setError(null);
     try {
       const path = customPath || `lm-${slugify(lmName || keyword)}`;
-      const res = await fetch('/api/shortio/links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          profileId, domainId: domain,
-          originalUrl: lmUrl.trim(),
-          title: `Lead magnet — ${lmName || keyword}`,
-          utmSource: domain, utmMedium: 'leadmagnet',
-          utmCampaign: `lm-${slugify(keyword)}`,
-          utmContent: postId || undefined, path,
-        }),
+      const { shortUrl } = await callShortio({
+        profileId, domainId: domain,
+        originalUrl: lmUrl.trim(),
+        title: `Lead magnet — ${lmName || keyword}`,
+        utmSource: domain, utmMedium: 'leadmagnet',
+        utmCampaign: `lm-${slugify(keyword)}`,
+        utmContent: postId || undefined, path,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erreur');
-      setResult(data.shortUrl);
+      setResult(shortUrl);
     } catch (e: any) { setError(e.message); }
     finally { setLoading(false); }
   };
