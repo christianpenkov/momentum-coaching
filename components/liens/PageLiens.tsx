@@ -113,9 +113,10 @@ function CopiedLink({ url, onReset }: { url: string; onReset: () => void }) {
 
 // ─── Section Paramètres (Calendly + liens bio auto) ───────────────────────────
 
-function SectionParametres({ profileId, domains, onCalendlyChange }: {
+function SectionParametres({ profileId, domains, domainsLoaded, onCalendlyChange }: {
   profileId: string;
   domains: ShortDomain[];
+  domainsLoaded: boolean;
   onCalendlyChange: (url: string) => void;
 }) {
   const [calendlyUrl, setCalendlyUrl] = useState('');
@@ -126,7 +127,8 @@ function SectionParametres({ profileId, domains, onCalendlyChange }: {
   const [generatingIg, setGeneratingIg] = useState(false);
   const [generatingYt, setGeneratingYt] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const domain = domains[0]?.hostname || 'qnl.link';
+  const domain = domains[0]?.hostname || '';
+  const canGenerate = domainsLoaded && !!domain;
 
   // Charger le lien Calendly sauvegardé
   useEffect(() => {
@@ -221,9 +223,9 @@ function SectionParametres({ profileId, domains, onCalendlyChange }: {
             </div>
             {bioIgResult
               ? <CopyBtn url={bioIgResult} />
-              : <button onClick={() => generateBio('instagram', setBioIgResult, setGeneratingIg)} disabled={generatingIg || !isCalendlyValid}
-                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: PURPLE, color: '#fff', cursor: !isCalendlyValid || generatingIg ? 'not-allowed' : 'pointer', opacity: !isCalendlyValid || generatingIg ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-                  {generatingIg ? '...' : 'Générer'}
+              : <button onClick={() => generateBio('instagram', setBioIgResult, setGeneratingIg)} disabled={generatingIg || !isCalendlyValid || !canGenerate}
+                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: PURPLE, color: '#fff', cursor: !isCalendlyValid || !canGenerate || generatingIg ? 'not-allowed' : 'pointer', opacity: !isCalendlyValid || !canGenerate || generatingIg ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                  {!canGenerate ? '...' : generatingIg ? '...' : 'Générer'}
                 </button>}
           </div>
 
@@ -238,14 +240,17 @@ function SectionParametres({ profileId, domains, onCalendlyChange }: {
             </div>
             {bioYtResult
               ? <CopyBtn url={bioYtResult} />
-              : <button onClick={() => generateBio('youtube', setBioYtResult, setGeneratingYt)} disabled={generatingYt || !isCalendlyValid}
-                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: PURPLE, color: '#fff', cursor: !isCalendlyValid || generatingYt ? 'not-allowed' : 'pointer', opacity: !isCalendlyValid || generatingYt ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+              : <button onClick={() => generateBio('youtube', setBioYtResult, setGeneratingYt)} disabled={generatingYt || !isCalendlyValid || !canGenerate}
+                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: PURPLE, color: '#fff', cursor: !isCalendlyValid || !canGenerate || generatingYt ? 'not-allowed' : 'pointer', opacity: !isCalendlyValid || !canGenerate || generatingYt ? 0.5 : 1, whiteSpace: 'nowrap' }}>
                   {generatingYt ? '...' : 'Générer'}
                 </button>}
           </div>
 
         </div>
-        {!isCalendlyValid && (
+        {!canGenerate && domainsLoaded && (
+          <div style={{ fontSize: 11, color: RED, marginTop: 8 }}>⚠ Domaine Short.io introuvable — vérifie ta connexion Short.io dans Réglages.</div>
+        )}
+        {!isCalendlyValid && canGenerate && (
           <div style={{ fontSize: 11, color: AMBER, marginTop: 8 }}>⚠ Sauvegarde ton lien Calendly pour activer la génération des liens bio.</div>
         )}
         {error && <div style={{ fontSize: 12, color: RED, background: RED + '12', borderRadius: 6, padding: '8px 12px', marginTop: 8 }}>{error}</div>}
@@ -571,7 +576,7 @@ export default function PageLiens() {
 
       {/* Paramètres : Calendly + liens bio */}
       <SectionCard title="Paramètres" sub="Configure ton lien Calendly une fois — il sera utilisé automatiquement partout.">
-        <SectionParametres profileId={profileId} domains={domainsLoaded ? domains : [{ id: 'mock', hostname: 'qnl.link' }]} onCalendlyChange={setCalendlyUrl} />
+        <SectionParametres profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} onCalendlyChange={setCalendlyUrl} />
       </SectionCard>
 
       {/* Tabs type de lien */}
