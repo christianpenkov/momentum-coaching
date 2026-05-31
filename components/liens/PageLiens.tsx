@@ -395,6 +395,11 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
   const isComposing = useRef(false);
   const lastValue = useRef(value);
   const draggingBadge = useRef<HTMLSpanElement | null>(null);
+  const caretRef = useRef<HTMLSpanElement | null>(null);
+
+  const removeCaret = useCallback(() => {
+    caretRef.current?.parentNode?.removeChild(caretRef.current);
+  }, []);
 
   const commitChange = useCallback(() => {
     const el = editorRef.current;
@@ -534,10 +539,39 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
   const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
-  }, []);
+
+    // Affiche un caret custom à la position de drop
+    const el = editorRef.current;
+    if (!el) return;
+    let range: Range | null = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    } else if ((document as any).caretPositionFromPoint) {
+      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
+    }
+    if (!range || !el.contains(range.startContainer)) { removeCaret(); return; }
+
+    // Crée ou déplace le caret
+    if (!caretRef.current) {
+      const c = document.createElement('span');
+      c.id = '__drag-caret__';
+      Object.assign(c.style, {
+        display: 'inline-block', width: '2px', height: '1.2em',
+        background: blue, verticalAlign: 'text-bottom', pointerEvents: 'none',
+        animation: 'none', borderRadius: '1px', marginLeft: '-1px',
+      });
+      caretRef.current = c;
+    }
+    const caret = caretRef.current;
+    // Retire le caret de son ancienne position avant de le réinsérer
+    caret.parentNode?.removeChild(caret);
+    range.insertNode(caret);
+  }, [blue]);
 
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     e.preventDefault();
+    removeCaret();
     const el = editorRef.current;
     if (!el || !draggingBadge.current) return;
 
@@ -552,11 +586,7 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
       range = document.caretRangeFromPoint(e.clientX, e.clientY);
     } else if ((document as any).caretPositionFromPoint) {
       const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) {
-        range = document.createRange();
-        range.setStart(pos.offsetNode, pos.offset);
-        range.collapse(true);
-      }
+      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
     }
 
     if (range && el.contains(range.startContainer)) {
@@ -566,7 +596,7 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
     }
 
     commitChange();
-  }, [blue, blueSoft, commitChange]);
+  }, [blue, blueSoft, commitChange, removeCaret]);
 
   return (
     <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
@@ -580,6 +610,8 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
         onKeyDown={handleKeyDown}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}
+        onDragLeave={removeCaret}
+        onDragEnd={removeCaret}
         onDrop={handleDrop}
         data-placeholder="Ex : 👋 Voici le lien comme promis !"
         style={{
@@ -773,9 +805,6 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           rows={3}
           style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
         />
-        <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>
-          Utilise <strong>{'{{prénom}}'}</strong> → remplacé par @username à l'envoi.
-        </div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
           <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
             style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
@@ -789,8 +818,11 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
 
       {/* Voir le post */}
       {post.permalink && (
-        <a href={post.permalink} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: BLUE, textDecoration: 'none', fontWeight: 600 }}>
-          Voir le post Instagram ↗
+        <a href={post.permalink} target="_blank" rel="noreferrer"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#fff', textDecoration: 'none', background: '#c2185b', borderRadius: 8, padding: '9px 16px', transition: 'opacity .15s' }}
+          onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
+          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
+          📸 Voir le post Instagram ↗
         </a>
       )}
 
