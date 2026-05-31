@@ -401,6 +401,42 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
   );
 }
 
+// ─── Dm1TokenBar : chip pour insérer {{lien_lm}} dans un textarea ─────────────
+
+function Dm1TokenBar({ value, onChange, blue, blueSoft, faint }: {
+  value: string; onChange: (v: string) => void;
+  blue: string; blueSoft: string; faint: string;
+}) {
+  const taRef = useRef<HTMLTextAreaElement | null>(null);
+
+  const insert = () => {
+    // Trouve le textarea frère le plus proche
+    const container = taRef.current?.parentElement;
+    const ta = container?.querySelector('textarea') as HTMLTextAreaElement | null;
+    if (!ta) { onChange(value + TOKEN); return; }
+    const start = ta.selectionStart ?? value.length;
+    const end = ta.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + TOKEN + value.slice(end);
+    onChange(next);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + TOKEN.length, start + TOKEN.length);
+    });
+  };
+
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+      <span style={{ fontSize: 10, color: faint }}>Insérer :</span>
+      <button type="button" onClick={insert} style={{
+        fontSize: 10, fontWeight: 700, color: blue, background: blueSoft,
+        border: `1px solid ${blue}`, borderRadius: 5, padding: '2px 8px',
+        cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em',
+      }}>Lien LM</button>
+      <span style={{ fontSize: 10, color: faint }}>— le lien est inséré à la position du curseur</span>
+    </div>
+  );
+}
+
 // ─── TabLm ────────────────────────────────────────────────────────────────────
 
 function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated, onPostUpdated }: {
@@ -509,14 +545,6 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   const [dm1Text, setDm1Text] = useState(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
   const [dm1Saved, setDm1Saved] = useState(true);
   const [dm1Saving, setDm1Saving] = useState(false);
-  const dm1SavedRef = useRef(true);
-  useEffect(() => { dm1SavedRef.current = dm1Saved; }, [dm1Saved]);
-  // Met à jour dm1Text depuis l'API async uniquement si pas d'édition en cours
-  useEffect(() => {
-    if (post.dmLmMessage && dm1SavedRef.current) {
-      setDm1Text(post.dmLmMessage);
-    }
-  }, [post.dmLmMessage]);
   const [dm2Text, setDm2Text] = useState(savedDmMessage);
   const [dm2Saved, setDm2Saved] = useState(true);
   const [dm2Saving, setDm2Saving] = useState(false);
@@ -553,16 +581,16 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le Lead Magnet</div>
           </div>
-          {/* Éditeur contentEditable avec badge {{lien_lm}} inline */}
-          <Dm1Editor
+          {/* Chip cliquable pour insérer {{lien_lm}} à la position du curseur */}
+          <Dm1TokenBar value={dm1Text} onChange={v => { setDm1Text(v); setDm1Saved(false); }} blue={BLUE} blueSoft={BLUE_SOFT} faint={FAINT} />
+          {/* Textarea identique à DM2 */}
+          <textarea
             value={dm1Text}
-            onChange={v => { setDm1Text(v); setDm1Saved(false); }}
-            saved={dm1Saved}
-            blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK} faint={FAINT}
+            onChange={e => { setDm1Text(e.target.value); setDm1Saved(false); }}
+            rows={3}
+            placeholder="Ex : 👋 Voici le lien comme promis ! {{lien_lm}}"
+            style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm1Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
           />
-          <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>
-            Tu peux glisser le badge <strong style={{ color: BLUE }}>Lien LM</strong> n'importe où dans le message pour le repositionner.
-          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={async () => {
               setDm1Saving(true);
