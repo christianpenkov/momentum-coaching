@@ -299,14 +299,20 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
           : <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans ⚙ Paramètres.</div>
       )}
       {destType === 'leadmagnet' && (
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Choisir un lead magnet</div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
           {leadMagnets.length === 0
-            ? <div style={{ fontSize: 12, color: FAINT }}>Aucun LM — crée-en un via le bouton 📄 Lead Magnets en haut.</div>
-            : <select value={customUrl} onChange={e => setCustomUrl(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK }}>
-                <option value="">— Sélectionner —</option>
-                {leadMagnets.map(lm => <option key={lm.id} value={lm.url}>{lm.name}</option>)}
-              </select>}
+            ? <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '10px 12px' }}>Aucun LM — crée-en un via le bouton 📄 Lead Magnets en haut.</div>
+            : leadMagnets.map(lm => (
+                <div key={lm.id} onClick={() => setCustomUrl(lm.url === customUrl ? '' : lm.url)} style={{
+                  padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                  border: `1.5px solid ${customUrl === lm.url ? BLUE : BORDER}`,
+                  background: customUrl === lm.url ? BLUE_SOFT : SURFACE, transition: 'all .12s',
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: customUrl === lm.url ? BLUE : INK, marginBottom: 2 }}>{lm.name}</div>
+                  {lm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED }}>#{lm.keyword}</span>}
+                </div>
+              ))}
         </div>
       )}
       {destType === 'custom' && (
@@ -314,6 +320,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
           style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
       )}
 
+      {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       <button onClick={generate} disabled={loading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim())}
@@ -799,7 +806,7 @@ export default function PageLiens() {
   const [contentLinks, setContentLinks] = useState<ContentLink[]>([]);
   const [rightView, setRightView] = useState<RightView>(null);
   const [paramOpen, setParamOpen] = useState(false);
-  const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all');
+  const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all'); // 'all' = pas de filtre
   const [search, setSearch] = useState('');
 
   // Charger domaines + settings + lead magnets
@@ -972,13 +979,19 @@ export default function PageLiens() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
               <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                {(['all', 'IG', 'YT'] as const).map(f => (
-                  <button key={f} onClick={() => setFilterPlatform(f)} style={{
-                    padding: '4px 11px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
-                    background: filterPlatform === f ? INK : SURFACE2,
-                    color: filterPlatform === f ? 'var(--bg)' : MUTED, transition: 'all .12s',
-                  }}>{f === 'all' ? 'Tous' : f === 'IG' ? '📸 IG' : '▶️ YT'}</button>
-                ))}
+                {(['all', 'IG', 'YT'] as const).map(f => {
+                  const active = filterPlatform === f;
+                  return (
+                    <button key={f} onClick={() => setFilterPlatform(f)} style={{
+                      display: 'flex', alignItems: 'center', gap: 5, padding: '4px 11px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+                      background: active ? INK : SURFACE2, color: active ? 'var(--bg)' : MUTED, transition: 'all .12s',
+                    }}>
+                      {f === 'IG' && <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>}
+                      {f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
+                      {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : 'YouTube'}
+                    </button>
+                  );
+                })}
                 <span style={{ marginLeft: 'auto', fontSize: 10, color: FAINT }}>
                   {filteredPosts.length} contenu{filteredPosts.length !== 1 ? 's' : ''}
                 </span>
