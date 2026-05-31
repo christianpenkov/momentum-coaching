@@ -820,15 +820,15 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       {lmUrl && <GeneratedUrlRow url={lmUrl} label="Lien lead magnet" />}
 
       {/* Boutons bas */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
         {post.permalink && (
           <a href={post.permalink} target="_blank" rel="noreferrer"
-            style={{ fontSize: 12, fontWeight: 600, color: '#c2185b', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            style={{ fontSize: 12, fontWeight: 600, color: '#c2185b', textDecoration: 'none', whiteSpace: 'nowrap', border: '1.5px solid #c2185b', borderRadius: 8, padding: '6px 14px' }}>
             📸 Voir le post Instagram ↗
           </a>
         )}
         <button onClick={handleEditClick}
-          style={{ fontSize: 12, fontWeight: 600, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}>
+          style={{ fontSize: 12, fontWeight: 600, color: MUTED, background: 'none', border: `1.5px solid ${BORDER}`, borderRadius: 8, cursor: 'pointer', padding: '6px 14px', whiteSpace: 'nowrap' }}>
           ✏️ Modifier / régénérer le LM
         </button>
       </div>
