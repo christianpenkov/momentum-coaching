@@ -701,7 +701,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       // Sauvegarder dans content_links
       await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_keyword: keyword, dm_opener_message: dmMessage || null }),
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null }),
       });
       setResult(shortUrl);
       onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl });
@@ -911,13 +911,18 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot, il reçoit le LM en DM automatiquement.</div>
       </div>
 
-      {/* DM avec le LM — aperçu */}
+      {/* DM 1 — éditable dès l'association */}
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 6 }}>DM envoyé avec le LM</div>
-        <div style={{ background: SURFACE2, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: MUTED, lineHeight: 1.6, fontStyle: 'italic' }}>
-          👋 Voici le lien comme promis ! <span style={{ color: BLUE }}>[lien Short.io généré automatiquement]</span>
+        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 6 }}>DM 1 — envoyé avec le Lead Magnet</div>
+        <Dm1Editor
+          value={dm1Text}
+          onChange={v => setDm1Text(v)}
+          saved={true}
+          blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK} faint={FAINT}
+        />
+        <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>
+          Tu peux glisser le badge <strong style={{ color: BLUE }}>Lien LM</strong> n'importe où dans le message pour le repositionner.
         </div>
-        <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>Ce message est fixe et généré automatiquement avec le lien tracké.</div>
       </div>
 
       {/* Message d'ouverture */}
