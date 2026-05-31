@@ -349,17 +349,31 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
 const TOKEN = '{{lien_lm}}';
 
 function serializeEditor(el: HTMLDivElement): string {
-  let result = '';
-  el.childNodes.forEach(node => {
+  // Parcours récursif pour gérer les div/span/br que le navigateur peut insérer
+  function walk(node: Node): string {
     if (node.nodeType === Node.TEXT_NODE) {
-      result += node.textContent ?? '';
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const child = node as HTMLElement;
-      if (child.dataset.token === 'lien_lm') result += TOKEN;
-      else result += child.textContent ?? '';
+      return node.textContent ?? '';
     }
-  });
-  return result;
+    if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      // Badge token
+      if (el.dataset.token === 'lien_lm') return TOKEN;
+      // <br> = saut de ligne
+      if (el.tagName === 'BR') return '\n';
+      // Récursion sur les enfants (div, span, p insérés par le navigateur)
+      let text = '';
+      el.childNodes.forEach(child => { text += walk(child); });
+      // Les <div> insérés par le navigateur représentent des nouvelles lignes
+      if (el.tagName === 'DIV' && text && !text.startsWith('\n')) text = '\n' + text;
+      return text;
+    }
+    return '';
+  }
+
+  let result = '';
+  el.childNodes.forEach(node => { result += walk(node); });
+  // Nettoie les \n parasites en début/fin
+  return result.replace(/^\n/, '').replace(/\n$/, '');
 }
 
 // Retourne l'offset caractère global du curseur dans la string sérialisée
