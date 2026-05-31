@@ -38,13 +38,25 @@ interface LeadMagnet {
   id: string;
   name: string;
   url: string;
-  usedOn: string[]; // post IDs
+  usedOn: string[];
+  created_at?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function slugify(s: string) {
   return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+}
+
+function normalizeUrl(url: string): string {
+  const t = url.trim();
+  if (!t) return t;
+  if (t.startsWith('http://') || t.startsWith('https://')) return t;
+  return `https://${t}`;
+}
+
+function isValidUrl(url: string): boolean {
+  return url.trim().length > 3;
 }
 
 async function callShortio(payload: Record<string, unknown>): Promise<{ shortUrl: string }> {
@@ -231,8 +243,9 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
   }, [post.id]);
 
   const generateDesc = async () => {
-    const destUrl = destType === 'calendly' ? calendlyUrl.trim() : customUrl.trim();
-    if (!destUrl || !canGenerate) return;
+    const validationError = validateDescParams({ canGenerate, destType, calendlyUrl, customUrl });
+    if (validationError) { setDescError(validationError); return; }
+    const destUrl = destType === 'calendly' ? calendlyUrl.trim() : normalizeUrl(customUrl);
     setDescLoading(true); setDescError(null);
     try {
       const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
@@ -242,7 +255,8 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
   };
 
   const generateLm = async () => {
-    if (!keyword.trim() || !canGenerate) return;
+    const validationError = validateLmParams({ canGenerate, keyword, lmMode, selectedLmId, newLmUrl });
+    if (validationError) { setLmError(validationError); return; }
     let lmUrl = '';
     let lmName = '';
     if (lmMode === 'existing') {
@@ -250,17 +264,25 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
       if (!lm) return;
       lmUrl = lm.url; lmName = lm.name;
     } else {
-      if (!newLmUrl.trim()) return;
-      lmUrl = newLmUrl.trim(); lmName = newLmName.trim() || keyword;
+      if (!isValidUrl(newLmUrl)) return;
+      lmUrl = normalizeUrl(newLmUrl); lmName = newLmName.trim() || keyword;
     }
     setLmLoading(true); setLmError(null);
     try {
+      // Sauvegarder le LM en DB si nouveau
+      if (lmMode === 'new') {
+        const res = await fetch('/api/client/lead-magnets', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: lmName, url: lmUrl }),
+        });
+        const saved = await res.json();
+        if (res.ok && saved.lead_magnet) {
+          onLmCreated(saved.lead_magnet);
+        }
+      }
       const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
       const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
       setLmResult(shortUrl);
-      if (lmMode === 'new' && newLmUrl.trim()) {
-        onLmCreated({ id: `lm-${Date.now()}`, name: lmName, url: newLmUrl.trim(), usedOn: [post.id] });
-      }
     } catch (e: any) { setLmError(e.message); } finally { setLmLoading(false); }
   };
 
@@ -442,8 +464,8 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
 
                 {lmError && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{lmError}</div>}
 
-                <button onClick={generateLm} disabled={lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !newLmUrl.trim())}
-                  style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !newLmUrl.trim()) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                <button onClick={generateLm} disabled={lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
+                  style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   {lmLoading ? <><Spinner /> Génération...</> : 'Générer le lien LM'}
                 </button>
               </>
@@ -525,9 +547,126 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
   );
 }
 
+// ─── Panel Lead Magnets ───────────────────────────────────────────────────────
+
+function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
+  leadMagnets: LeadMagnet[]; lmLoading: boolean;
+  onCreated: (lm: LeadMagnet) => void; onDeleted: (id: string) => void;
+}) {
+  const [name, setName] = useState('');
+  const [url, setUrl] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const create = async () => {
+    if (!isValidUrl(url)) return;
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch('/api/client/lead-magnets', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ name: name.trim() || url, url }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      onCreated(data.lead_magnet);
+      setName(''); setUrl('');
+    } catch (e: any) { setError(e.message); } finally { setSaving(false); }
+  };
+
+  const remove = async (id: string) => {
+    setDeletingId(id);
+    try {
+      await fetch(`/api/client/lead-magnets?id=${id}`, { method: 'DELETE' });
+      onDeleted(id);
+    } catch {} finally { setDeletingId(null); }
+  };
+
+  return (
+    <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 4 }}>Mes lead magnets</div>
+        <div style={{ fontSize: 12, color: MUTED }}>Crée et gère ta bibliothèque de LM. Tu peux les réutiliser sur n'importe quel contenu.</div>
+      </div>
+
+      {/* Formulaire création */}
+      <div style={{ background: SURFACE2, borderRadius: 12, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, border: `1px solid ${BORDER}` }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nouveau lead magnet</div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>Nom <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
+          <input value={name} onChange={e => setName(e.target.value)} placeholder="Checklist closing, Guide tunnel…"
+            style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+        </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>URL</div>
+          <input value={url} onChange={e => setUrl(e.target.value)} placeholder="notion.so/mon-guide ou https://…"
+            style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+        </div>
+        {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px' }}>{error}</div>}
+        <button onClick={create} disabled={saving || !isValidUrl(url)}
+          style={{ padding: '9px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: !isValidUrl(url) || saving ? 'not-allowed' : 'pointer', opacity: !isValidUrl(url) || saving ? 0.4 : 1, transition: 'opacity .15s' }}>
+          {saving ? 'Sauvegarde...' : '+ Ajouter le lead magnet'}
+        </button>
+      </div>
+
+      {/* Liste */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+          Bibliothèque ({leadMagnets.length})
+        </div>
+        {lmLoading ? (
+          <div style={{ fontSize: 12, color: FAINT }}>Chargement...</div>
+        ) : leadMagnets.length === 0 ? (
+          <div style={{ fontSize: 12, color: FAINT }}>Aucun lead magnet. Crée ton premier ci-dessus.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {leadMagnets.map(lm => (
+              <div key={lm.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE }}>
+                <div style={{ fontSize: 18, flexShrink: 0 }}>📄</div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
+                  <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all' }}>{lm.url}</div>
+                </div>
+                <button onClick={() => remove(lm.id)} disabled={deletingId === lm.id}
+                  style={{ fontSize: 11, color: RED, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, opacity: deletingId === lm.id ? 0.5 : 1, padding: '2px 4px' }}>
+                  {deletingId === lm.id ? '...' : '✕'}
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Validation LM avant génération ──────────────────────────────────────────
+
+function validateLmParams(params: {
+  canGenerate: boolean; keyword: string; lmMode: 'existing' | 'new';
+  selectedLmId: string; newLmUrl: string; calendlyUrl?: string; destType?: string;
+}): string | null {
+  if (!params.canGenerate) return 'Short.io non connecté — va dans Réglages pour connecter ton compte.';
+  if (params.keyword.trim().length === 0) return 'Le mot-clé déclencheur est requis.';
+  if (params.lmMode === 'existing' && !params.selectedLmId) return 'Sélectionne un lead magnet dans la liste.';
+  if (params.lmMode === 'new' && !isValidUrl(params.newLmUrl)) return 'L\'URL du lead magnet est requise (ex: notion.so/mon-guide).';
+  return null;
+}
+
+function validateDescParams(params: {
+  canGenerate: boolean; destType: string; calendlyUrl: string; customUrl: string;
+}): string | null {
+  if (!params.canGenerate) return 'Short.io non connecté — va dans Réglages pour connecter ton compte.';
+  if (params.destType === 'calendly' && !params.calendlyUrl.trim().startsWith('http'))
+    return 'Lien Calendly non configuré — clique sur ⚙ Paramètres pour le sauvegarder.';
+  if ((params.destType === 'leadmagnet' || params.destType === 'custom') && !isValidUrl(params.customUrl))
+    return 'L\'URL de destination est requise.';
+  return null;
+}
+
 // ─── Page principale ──────────────────────────────────────────────────────────
 
-type RightView = { type: 'post'; post: Post } | { type: 'prospect' } | null;
+type RightView = { type: 'post'; post: Post } | { type: 'prospect' } | { type: 'lm-library' } | null;
 
 export default function PageLiens() {
   const { user } = useUser();
@@ -539,15 +678,16 @@ export default function PageLiens() {
   const [postsLoading, setPostsLoading] = useState(true);
   const [calendlyUrl, setCalendlyUrl] = useState('');
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
+  const [lmLoading, setLmLoading] = useState(true);
   const [rightView, setRightView] = useState<RightView>(null);
   const [paramOpen, setParamOpen] = useState(false);
 
-  // Charger domaines + settings
+  // Charger domaines + settings + lead magnets
   useEffect(() => {
     if (!profileId) return;
     fetch(`/api/shortio/domains?profileId=${profileId}`)
       .then(r => r.json())
-      .then(data => { const list: ShortDomain[] = data.domains?.length ? data.domains : []; setDomains(list); })
+      .then(data => { setDomains(data.domains?.length ? data.domains : []); })
       .catch(() => setDomains([]))
       .finally(() => setDomainsLoaded(true));
 
@@ -555,6 +695,12 @@ export default function PageLiens() {
       .then(r => r.json())
       .then(data => { if (data.calendly_url) setCalendlyUrl(data.calendly_url); })
       .catch(() => {});
+
+    fetch('/api/client/lead-magnets')
+      .then(r => r.json())
+      .then(data => { setLeadMagnets(data.lead_magnets ?? []); })
+      .catch(() => {})
+      .finally(() => setLmLoading(false));
   }, [profileId]);
 
   // Charger posts IG + YT
@@ -578,15 +724,10 @@ export default function PageLiens() {
       }).catch(() => {}).finally(() => { ytDone = true; checkDone(); });
   }, [profileId]);
 
-  const handleLmCreated = (lm: LeadMagnet) => {
-    setLeadMagnets(prev => [...prev, lm]);
-  };
-
   const selectedPost = rightView?.type === 'post' ? rightView.post : null;
 
   return (
     <>
-      {/* Spinner CSS */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       <ModalParametres
@@ -598,14 +739,25 @@ export default function PageLiens() {
       <div className="liens-shell">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: INK, letterSpacing: '-0.02em' }}>Gérer mes liens</div>
-            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>Génère des liens Short.io trackés pour chaque contenu et chaque prospect.</div>
+            <div style={{ fontSize: 17, fontWeight: 800, color: INK, letterSpacing: '-0.02em' }}>Gérer mes liens</div>
+            <div style={{ fontSize: 11, color: MUTED, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
-          <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: MUTED, cursor: 'pointer', transition: 'color .15s' }}>
-            ⚙ Paramètres
-          </button>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button onClick={() => setRightView({ type: 'lm-library' })} style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', transition: 'all .15s',
+              border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
+              background: rightView?.type === 'lm-library' ? 'var(--green-soft)' : SURFACE,
+              color: rightView?.type === 'lm-library' ? 'var(--green)' : MUTED,
+            }}>
+              📄 Lead Magnets
+              {leadMagnets.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: rightView?.type === 'lm-library' ? 'var(--green)' : BORDER, color: rightView?.type === 'lm-library' ? '#fff' : MUTED, borderRadius: 10, padding: '1px 6px' }}>{leadMagnets.length}</span>}
+            </button>
+            <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: MUTED, cursor: 'pointer' }}>
+              ⚙ Paramètres
+            </button>
+          </div>
         </div>
 
         {/* Body : 2 colonnes */}
@@ -662,22 +814,32 @@ export default function PageLiens() {
             </div>
           </div>
 
-          {/* Colonne droite : actions */}
+          {/* Colonne droite */}
           <div style={{ flex: 1, minWidth: 0, background: SURFACE, overflowY: 'auto' }}>
             {rightView === null ? (
               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, padding: 40, textAlign: 'center' }}>
                 <div style={{ fontSize: 36 }}>🔗</div>
                 <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>Sélectionne un contenu</div>
-                <div style={{ fontSize: 13, color: MUTED, maxWidth: 300, lineHeight: 1.5 }}>
+                <div style={{ fontSize: 13, color: MUTED, maxWidth: 320, lineHeight: 1.6 }}>
                   Clique sur un contenu à gauche pour générer un lien description ou un lien lead magnet.
                   <br /><br />
-                  Ou utilise le bouton <strong>Calendly prospect</strong> pour générer un lien unique à envoyer en DM.
+                  Ou utilise <strong>Calendly prospect</strong> pour un lien DM unique, et <strong>📄 Lead Magnets</strong> pour gérer ta bibliothèque.
                 </div>
               </div>
+            ) : rightView.type === 'lm-library' ? (
+              <PanneauLeadMagnets
+                leadMagnets={leadMagnets} lmLoading={lmLoading}
+                onCreated={lm => setLeadMagnets(prev => [lm, ...prev])}
+                onDeleted={id => setLeadMagnets(prev => prev.filter(l => l.id !== id))}
+              />
             ) : rightView.type === 'prospect' ? (
               <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
             ) : (
-              <PanneauActions post={rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onLmCreated={handleLmCreated} />
+              <PanneauActions
+                post={rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
+                calendlyUrl={calendlyUrl} leadMagnets={leadMagnets}
+                onLmCreated={lm => setLeadMagnets(prev => [lm, ...prev])}
+              />
             )}
           </div>
         </div>
