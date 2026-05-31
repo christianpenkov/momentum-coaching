@@ -344,383 +344,100 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   );
 }
 
-// ─── Dm1Editor : contentEditable avec badge {{lien_lm}} inline ────────────────
+// ─── Dm1Editor : textarea contrôlé par React + badge visuel overlay ───────────
+// Approche fiable : React contrôle la valeur via textarea (string pure).
+// Un div overlay non-interactif affiche le rendu visuel avec le badge.
+// Le textarea est transparent et positionné par-dessus l'overlay.
 
 const TOKEN = '{{lien_lm}}';
-
-function serializeEditor(el: HTMLDivElement): string {
-  // Parcours récursif pour gérer les div/span/br que le navigateur peut insérer
-  function walk(node: Node): string {
-    if (node.nodeType === Node.TEXT_NODE) {
-      return node.textContent ?? '';
-    }
-    if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as HTMLElement;
-      // Badge token
-      if (el.dataset.token === 'lien_lm') return TOKEN;
-      // <br> = saut de ligne
-      if (el.tagName === 'BR') return '\n';
-      // Récursion sur les enfants (div, span, p insérés par le navigateur)
-      let text = '';
-      el.childNodes.forEach(child => { text += walk(child); });
-      // Les <div> insérés par le navigateur représentent des nouvelles lignes
-      if (el.tagName === 'DIV' && text && !text.startsWith('\n')) text = '\n' + text;
-      return text;
-    }
-    return '';
-  }
-
-  let result = '';
-  el.childNodes.forEach(node => { result += walk(node); });
-  // Nettoie les \n parasites en début/fin
-  return result.replace(/^\n/, '').replace(/\n$/, '');
-}
-
-// Retourne l'offset caractère global du curseur dans la string sérialisée
-function getCaretOffset(el: HTMLDivElement): number {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return -1;
-  const range = sel.getRangeAt(0);
-  if (!range.collapsed) return -1;
-  const { startContainer, startOffset } = range;
-
-  let offset = 0;
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      if (node === startContainer) {
-        return offset + startOffset;
-      }
-      offset += node.textContent?.length ?? 0;
-    } else {
-      const child = node as HTMLElement;
-      if (child.dataset?.token === 'lien_lm') {
-        // Le curseur peut être positionné sur le badge lui-même (startOffset 0 ou 1)
-        if (child === startContainer || child.contains(startContainer)) {
-          // Avant le badge si offset=0, après si offset=1
-          return startOffset === 0 ? offset : offset + TOKEN.length;
-        }
-        offset += TOKEN.length;
-      } else {
-        if (child === startContainer || child.contains(startContainer)) {
-          return offset + startOffset;
-        }
-        offset += child.textContent?.length ?? 0;
-      }
-    }
-  }
-  return offset;
-}
-
-// Replace le curseur à l'offset caractère global dans la string sérialisée
-function setCaretOffset(el: HTMLDivElement, targetOffset: number) {
-  const sel = window.getSelection();
-  if (!sel) return;
-  let remaining = targetOffset;
-
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const len = node.textContent?.length ?? 0;
-      if (remaining <= len) {
-        try {
-          const r = document.createRange();
-          r.setStart(node, remaining);
-          r.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(r);
-        } catch {}
-        return;
-      }
-      remaining -= len;
-    } else {
-      const child = node as HTMLElement;
-      if (child.dataset?.token === 'lien_lm') {
-        if (remaining <= 0) {
-          try {
-            const r = document.createRange();
-            r.setStartBefore(child);
-            r.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(r);
-          } catch {}
-          return;
-        }
-        remaining -= TOKEN.length;
-        if (remaining <= 0) {
-          try {
-            const r = document.createRange();
-            r.setStartAfter(child);
-            r.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(r);
-          } catch {}
-          return;
-        }
-      }
-    }
-  }
-  // Fallback : fin du contenu
-  try {
-    const r = document.createRange();
-    r.selectNodeContents(el);
-    r.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(r);
-  } catch {}
-}
-
-function buildNodes(value: string): (string | 'TOKEN')[] {
-  const parts = value.split(TOKEN);
-  const out: (string | 'TOKEN')[] = [];
-  parts.forEach((p, i) => {
-    if (p) out.push(p);
-    if (i < parts.length - 1) out.push('TOKEN');
-  });
-  return out;
-}
-
-function makeBadge(blue: string, blueSoft: string): HTMLSpanElement {
-  const badge = document.createElement('span');
-  badge.dataset.token = 'lien_lm';
-  badge.contentEditable = 'false';
-  badge.draggable = true;
-  badge.textContent = 'Lien LM';
-  Object.assign(badge.style, {
-    display: 'inline-flex', alignItems: 'center',
-    background: blueSoft, border: `1px solid ${blue}`, borderRadius: '5px',
-    padding: '1px 8px', margin: '0 1px', color: blue,
-    fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
-    letterSpacing: '0.04em', verticalAlign: 'middle', userSelect: 'none',
-    cursor: 'grab',
-  });
-  return badge;
-}
 
 function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
 }) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const isComposing = useRef(false);
-  const lastValue = useRef(value);
-  const draggingBadge = useRef<HTMLSpanElement | null>(null);
-  const caretRef = useRef<HTMLSpanElement | null>(null);
-  const skipNextSync = useRef(false);
+  const taRef = useRef<HTMLTextAreaElement>(null);
 
-  const removeCaret = useCallback(() => {
-    caretRef.current?.parentNode?.removeChild(caretRef.current);
-  }, []);
-
-  const commitChange = useCallback(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    const serialized = serializeEditor(el);
-    lastValue.current = serialized;
-    onChange(serialized);
-  }, [onChange]);
-
-  const syncDom = useCallback((val: string, caretOffset: number | undefined = undefined) => {
-    const el = editorRef.current;
-    if (!el) return;
-
-    el.innerHTML = '';
-    buildNodes(val).forEach(part => {
-      if (part === 'TOKEN') {
-        el.appendChild(makeBadge(blue, blueSoft));
-      } else {
-        el.appendChild(document.createTextNode(part));
-      }
+  // Insère {{lien_lm}} à la position du curseur dans le textarea
+  const insertToken = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const start = ta.selectionStart ?? value.length;
+    const end = ta.selectionEnd ?? value.length;
+    const next = value.slice(0, start) + TOKEN + value.slice(end);
+    onChange(next);
+    // Replace le curseur après le token
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(start + TOKEN.length, start + TOKEN.length);
     });
+  }, [value, onChange]);
 
-    if (caretOffset !== undefined) {
-      setCaretOffset(el, caretOffset);
-    } else {
-      // Fin du contenu
-      const sel = window.getSelection();
-      if (sel) {
-        const r = document.createRange();
-        r.selectNodeContents(el);
-        r.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(r);
-      }
-    }
-  }, [blue, blueSoft]);
-
-  useEffect(() => {
-    if (value !== lastValue.current) {
-      if (skipNextSync.current) {
-        skipNextSync.current = false;
-        lastValue.current = value;
-        return;
-      }
-      lastValue.current = value;
-      syncDom(value);
-    }
-  }, [value, syncDom]);
-
-  useEffect(() => {
-    syncDom(value);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleInput = useCallback(() => {
-    if (isComposing.current || !editorRef.current) return;
-    const el = editorRef.current;
-
-    // Capture l'offset curseur AVANT de modifier le DOM
-    const caretOff = getCaretOffset(el);
-    const serialized = serializeEditor(el);
-    if (serialized === lastValue.current) return;
-
-    // Si le badge a disparu (couper, coller, etc.) → on le remet à la fin
-    const prevHadToken = lastValue.current.includes(TOKEN);
-    const nowHasToken = serialized.includes(TOKEN);
-    let final = serialized;
-    if (prevHadToken && !nowHasToken) {
-      final = serialized + TOKEN;
-    }
-
-    lastValue.current = final;
-    // Toujours resync le DOM pour garantir la structure correcte
-    syncDom(final, caretOff >= 0 ? caretOff : undefined);
-    onChange(final);
-  }, [onChange, syncDom]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return;
-    const range = sel.getRangeAt(0);
-
-    // Bloque toute suppression qui toucherait le badge
-    if (e.key === 'Backspace' || e.key === 'Delete') {
-      const el = editorRef.current;
-      if (!el) return;
-
-      // Si sélection non-collapsed, vérifier qu'aucun badge n'est dans la sélection
-      if (!range.collapsed) {
-        const frag = range.cloneContents();
-        const hasBadge = Array.from(frag.querySelectorAll('[data-token="lien_lm"]')).length > 0;
-        if (hasBadge) { e.preventDefault(); return; }
-      }
-
-      if (e.key === 'Backspace' && range.collapsed) {
-        const prev = range.startContainer.previousSibling;
-        if (range.startOffset === 0 && prev && (prev as HTMLElement).dataset?.token === 'lien_lm') {
-          e.preventDefault(); return;
-        }
-      }
-      if (e.key === 'Delete' && range.collapsed) {
-        const textLen = range.startContainer.textContent?.length ?? 0;
-        const next = range.startContainer.nextSibling;
-        if (range.startOffset === textLen && next && (next as HTMLElement).dataset?.token === 'lien_lm') {
-          e.preventDefault(); return;
-        }
-      }
-    }
-  }, []);
-
-  // Drag & drop du badge dans l'éditeur
-  const handleDragStart = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.dataset?.token === 'lien_lm') {
-      draggingBadge.current = target as HTMLSpanElement;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', TOKEN);
-    }
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    // Affiche un caret custom à la position de drop
-    const el = editorRef.current;
-    if (!el) return;
-    let range: Range | null = null;
-    if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(e.clientX, e.clientY);
-    } else if ((document as any).caretPositionFromPoint) {
-      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
-    }
-    if (!range || !el.contains(range.startContainer)) { removeCaret(); return; }
-
-    // Crée ou déplace le caret
-    if (!caretRef.current) {
-      const c = document.createElement('span');
-      c.id = '__drag-caret__';
-      Object.assign(c.style, {
-        display: 'inline-block', width: '2px', height: '1.2em',
-        background: blue, verticalAlign: 'text-bottom', pointerEvents: 'none',
-        animation: 'none', borderRadius: '1px', marginLeft: '-1px',
-      });
-      caretRef.current = c;
-    }
-    const caret = caretRef.current;
-    // Retire le caret de son ancienne position avant de le réinsérer
-    caret.parentNode?.removeChild(caret);
-    range.insertNode(caret);
-  }, [blue]);
-
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    removeCaret();
-    const el = editorRef.current;
-    if (!el || !draggingBadge.current) return;
-
-    // Capture la position de drop AVANT de toucher au DOM
-    let dropRange: Range | null = null;
-    if (document.caretRangeFromPoint) {
-      dropRange = document.caretRangeFromPoint(e.clientX, e.clientY);
-    } else if ((document as any).caretPositionFromPoint) {
-      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) { dropRange = document.createRange(); dropRange.setStart(pos.offsetNode, pos.offset); dropRange.collapse(true); }
-    }
-
-    // Retire le badge de sa position actuelle
-    const badge = draggingBadge.current;
-    badge.parentNode?.removeChild(badge);
-    draggingBadge.current = null;
-
-    // Insère le nouveau badge à la position capturée
-    const newBadge = makeBadge(blue, blueSoft);
-    if (dropRange && el.contains(dropRange.startContainer)) {
-      dropRange.insertNode(newBadge);
-    } else {
-      el.appendChild(newBadge);
-    }
-
-    // Sérialise le DOM tel quel, met à jour lastValue et notifie sans déclencher de resync
-    const serialized = serializeEditor(el);
-    lastValue.current = serialized;
-    skipNextSync.current = true;
-    onChange(serialized);
-  }, [blue, blueSoft, onChange, removeCaret]);
+  // Rendu visuel : split sur {{lien_lm}} → texte + badge
+  const parts = value.split(TOKEN);
 
   return (
-    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={handleInput}
-        onCompositionStart={() => { isComposing.current = true; }}
-        onCompositionEnd={() => { isComposing.current = false; handleInput(); }}
-        onKeyDown={handleKeyDown}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragLeave={removeCaret}
-        onDragEnd={removeCaret}
-        onDrop={handleDrop}
-        data-placeholder="Ex : 👋 Voici le lien comme promis !"
+    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg, position: 'relative' }}>
+      {/* Overlay visuel — non interactif, juste pour le rendu du badge */}
+      <div aria-hidden style={{
+        position: 'absolute', inset: 0, padding: '10px 12px',
+        fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit',
+        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        pointerEvents: 'none', zIndex: 1,
+        color: 'transparent', // texte invisible, seul le badge est visible
+      }}>
+        {parts.map((part, i) => (
+          <span key={i}>
+            <span style={{ color: 'transparent' }}>{part}</span>
+            {i < parts.length - 1 && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center',
+                background: blueSoft, border: `1px solid ${blue}`,
+                borderRadius: 5, padding: '1px 7px', margin: '0 1px',
+                color: blue, fontSize: 10, fontWeight: 700,
+                textTransform: 'uppercase', letterSpacing: '0.04em',
+                verticalAlign: 'middle',
+              }}>Lien LM</span>
+            )}
+          </span>
+        ))}
+      </div>
+      {/* Textarea transparent — React contrôle la valeur, fiable à 100% */}
+      <textarea
+        ref={taRef}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        rows={3}
+        placeholder="Ex : 👋 Voici le lien comme promis ! {{lien_lm}}"
         style={{
-          minHeight: 72, padding: '10px 12px', fontSize: 12, lineHeight: 1.6,
-          fontFamily: 'inherit', color: ink, outline: 'none',
+          position: 'relative', zIndex: 2,
+          width: '100%', padding: '10px 12px',
+          fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit',
+          background: 'transparent',
+          // Texte transparent là où il y a le token, visible ailleurs
+          color: value.includes(TOKEN) ? 'transparent' : ink,
+          caretColor: ink,
+          border: 'none', outline: 'none', resize: 'vertical',
+          boxSizing: 'border-box', minHeight: 80,
           whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          borderRadius: 8,
         }}
       />
-      <style>{`[contenteditable]:empty:before{content:attr(data-placeholder);color:${faint};}`}</style>
+      {/* Bouton pour insérer le badge à la position du curseur */}
+      {!value.includes(TOKEN) && (
+        <div style={{ padding: '0 12px 8px', zIndex: 2, position: 'relative' }}>
+          <button
+            type="button"
+            onClick={insertToken}
+            style={{
+              fontSize: 10, fontWeight: 700, color: blue,
+              background: blueSoft, border: `1px solid ${blue}`,
+              borderRadius: 5, padding: '2px 8px', cursor: 'pointer',
+              textTransform: 'uppercase', letterSpacing: '0.04em',
+            }}
+          >
+            + Insérer Lien LM
+          </button>
+        </div>
+      )}
     </div>
   );
 }
