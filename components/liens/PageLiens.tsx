@@ -774,6 +774,9 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
             saved={dm1Saved}
             blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK} faint={FAINT}
           />
+          <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>
+            Tu peux glisser le badge <strong style={{ color: BLUE }}>Lien LM</strong> n'importe où dans le message pour le repositionner.
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={async () => {
               setDm1Saving(true);
