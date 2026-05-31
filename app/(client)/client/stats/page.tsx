@@ -1,2 +1,2 @@
-import PageAnalytics from '@/components/analytics/PageAnalytics';
-export default PageAnalytics;
+import PageClientStats from '@/components/analytics/PageClientStats';
+export default PageClientStats;

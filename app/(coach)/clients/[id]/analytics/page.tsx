@@ -2,7 +2,7 @@
 
 import { use } from 'react';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import PageAnalytics from '@/components/analytics/PageAnalytics';
+import PageClientStats from '@/components/analytics/PageClientStats';
 
 export default function ClientAnalyticsPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -10,5 +10,5 @@ export default function ClientAnalyticsPage({ params }: { params: Promise<{ id: 
   const client = getClient(id);
 
   if (!client) return null;
-  return <PageAnalytics profileId={client.profile_id ?? undefined} />;
+  return <PageClientStats profileId={client.profile_id ?? undefined} />;
 }
