@@ -488,6 +488,7 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
   const lastValue = useRef(value);
   const draggingBadge = useRef<HTMLSpanElement | null>(null);
   const caretRef = useRef<HTMLSpanElement | null>(null);
+  const skipNextSync = useRef(false);
 
   const removeCaret = useCallback(() => {
     caretRef.current?.parentNode?.removeChild(caretRef.current);
@@ -531,6 +532,11 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
 
   useEffect(() => {
     if (value !== lastValue.current) {
+      if (skipNextSync.current) {
+        skipNextSync.current = false;
+        lastValue.current = value;
+        return;
+      }
       lastValue.current = value;
       syncDom(value);
     }
@@ -646,28 +652,34 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
     const el = editorRef.current;
     if (!el || !draggingBadge.current) return;
 
+    // Capture la position de drop AVANT de toucher au DOM
+    let dropRange: Range | null = null;
+    if (document.caretRangeFromPoint) {
+      dropRange = document.caretRangeFromPoint(e.clientX, e.clientY);
+    } else if ((document as any).caretPositionFromPoint) {
+      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+      if (pos) { dropRange = document.createRange(); dropRange.setStart(pos.offsetNode, pos.offset); dropRange.collapse(true); }
+    }
+
     // Retire le badge de sa position actuelle
     const badge = draggingBadge.current;
     badge.parentNode?.removeChild(badge);
     draggingBadge.current = null;
 
-    // Insère à la position du drop
-    let range: Range | null = null;
-    if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(e.clientX, e.clientY);
-    } else if ((document as any).caretPositionFromPoint) {
-      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
-    }
-
-    if (range && el.contains(range.startContainer)) {
-      range.insertNode(makeBadge(blue, blueSoft));
+    // Insère le nouveau badge à la position capturée
+    const newBadge = makeBadge(blue, blueSoft);
+    if (dropRange && el.contains(dropRange.startContainer)) {
+      dropRange.insertNode(newBadge);
     } else {
-      el.appendChild(makeBadge(blue, blueSoft));
+      el.appendChild(newBadge);
     }
 
-    commitChange();
-  }, [blue, blueSoft, commitChange, removeCaret]);
+    // Sérialise le DOM tel quel, met à jour lastValue et notifie sans déclencher de resync
+    const serialized = serializeEditor(el);
+    lastValue.current = serialized;
+    skipNextSync.current = true;
+    onChange(serialized);
+  }, [blue, blueSoft, onChange, removeCaret]);
 
   return (
     <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
