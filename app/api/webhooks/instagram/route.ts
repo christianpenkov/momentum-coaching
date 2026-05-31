@@ -135,107 +135,99 @@ export async function POST(request: Request) {
       const { profile_id, access_token } = integ;
       pushEvent({ type: 'debug_profile_found', profile_id });
 
-      // Récupère les mots-clés configurés pour ce profil
-      const { data: keywordRows } = await serviceSupabase
-        .from('lead_magnet_keywords')
-        .select('keyword')
-        .eq('profile_id', profile_id);
-
-      const keywords = (keywordRows || []).map((r: any) => r.keyword.toLowerCase());
-      pushEvent({ type: 'debug_keywords', keywords, commentText, commentTextLower: commentText.toLowerCase() });
-
-      if (keywords.length === 0) {
-        pushEvent({ type: 'error', reason: 'aucun_mot_cle_configure', profile_id });
+      // Filtre strict : cherche un content_link sur CE post précis avec un keyword qui matche
+      // On ne fallback JAMAIS sur un autre post — chaque post a son propre LM
+      if (!mediaId) {
+        pushEvent({ type: 'error', reason: 'media_id_manquant', commentId });
         continue;
       }
 
-      // Vérifie si le commentaire contient un mot-clé
-      const text = commentText.toLowerCase();
-      const matchedKeyword = keywords.find((kw: string) => text.includes(kw));
-      pushEvent({ type: 'debug_keyword_check', text, keywords, matchedKeyword: matchedKeyword || null });
-      if (!matchedKeyword) continue;
+      const { data: contentLinks } = await serviceSupabase
+        .from('content_links')
+        .select('lm_keyword, lm_short_url, dm_opener_message, dm_lm_message')
+        .eq('profile_id', profile_id)
+        .eq('content_id', mediaId)
+        .not('lm_keyword', 'is', null)
+        .not('lm_short_url', 'is', null);
 
-      console.log(`[IG Webhook] Mot-clé "${matchedKeyword}" détecté — @${commenterUsername} sur media ${mediaId}`);
+      const cls = contentLinks || [];
+      pushEvent({ type: 'debug_content_links', mediaId, count: cls.length, keywords: cls.map((c: any) => c.lm_keyword) });
+
+      if (cls.length === 0) {
+        pushEvent({ type: 'no_lm_on_this_post', mediaId });
+        continue;
+      }
+
+      // Cherche le content_link dont le keyword matche le commentaire
+      const text = commentText.toLowerCase().trim();
+      const cl = cls.find((c: any) => text.includes(c.lm_keyword.toLowerCase()));
+
+      if (!cl) {
+        pushEvent({ type: 'keyword_no_match', text, available: cls.map((c: any) => c.lm_keyword) });
+        continue;
+      }
+
+      const matchedKeyword = cl.lm_keyword;
+      console.log(`[IG Webhook] Mot-clé "${matchedKeyword}" matché sur post ${mediaId} — @${commenterUsername}`);
       pushEvent({ type: 'keyword_matched', keyword: matchedKeyword, commenterUsername, mediaId });
 
-
       let leadMagnetSent = false;
-      let shortLink: string | null = null;
+      const shortLink = cl.lm_short_url;
 
-      // Source de vérité : content_links — stocke lm_short_url + dm_opener_message par post
-      // Cherche d'abord par media_id + keyword, puis fallback par keyword seul
-      const { data: contentLinkExact } = await serviceSupabase
-        .from('content_links')
-        .select('lm_short_url, dm_opener_message, dm_lm_message')
-        .eq('profile_id', profile_id)
-        .eq('content_id', mediaId || '')
-        .ilike('lm_keyword', matchedKeyword)
-        .maybeSingle();
+      // Construit le DM 1 : remplace {{lien_lm}} par le lien, ou utilise le message par défaut
+      const rawDm1 = cl.dm_lm_message || `👋 Voici le lien comme promis ! {{lien_lm}}`;
+      const dm1Text = rawDm1.replace(/\{\{lien_lm\}\}/gi, shortLink).replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`);
 
-      const { data: contentLinkFallback } = !contentLinkExact ? await serviceSupabase
-        .from('content_links')
-        .select('lm_short_url, dm_opener_message, dm_lm_message')
-        .eq('profile_id', profile_id)
-        .ilike('lm_keyword', matchedKeyword)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle() : { data: null };
+      // Construit le DM 2
+      const rawDm2 = cl.dm_opener_message || '';
+      const dm2Text = rawDm2.replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`).trim();
 
-      const cl = contentLinkExact || contentLinkFallback;
+      pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dm1Text, dm2Text, mediaId });
 
-      if (!cl?.lm_short_url) {
-        pushEvent({ type: 'lm_not_found_no_dm', matchedKeyword, mediaId });
+      // Envoie DM 1 via private reply sur le commentaire
+      const dm1Res = await fetch(
+        `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipient: { comment_id: commentId },
+            message: { text: dm1Text },
+            access_token,
+          }),
+        }
+      );
+      const dm1Data = await dm1Res.json();
+
+      if (dm1Data.error) {
+        console.error(`[IG Webhook] Erreur DM1 :`, dm1Data.error);
+        pushEvent({ type: 'dm1_error', error: dm1Data.error, commenterUsername });
       } else {
-        shortLink = cl.lm_short_url;
-        const rawOpener = cl.dm_opener_message || "C'est quoi ton objectif principal en ce moment ?";
-        const dmOpener = rawOpener.replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`);
-        pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dmOpener, mediaId });
+        leadMagnetSent = true;
+        console.log(`[IG Webhook] DM1 envoyé — message_id: ${dm1Data.message_id}`);
+        pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername, shortLink });
 
-        // Envoie le private reply (DM 1 — lien LM pré-généré)
-        const dm1Res = await fetch(
-          `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              recipient: { comment_id: commentId },
-              message: { text: cl.dm_lm_message ? cl.dm_lm_message.replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`) + ` ${shortLink}` : `👋 Voici le lien comme promis ! ${shortLink}` },
-              access_token,
-            }),
-          }
-        );
-        const dm1Data = await dm1Res.json();
-
-        if (dm1Data.error) {
-          console.error(`[IG Webhook] Erreur DM1 :`, dm1Data.error);
-          pushEvent({ type: 'dm1_error', error: dm1Data.error, commenterUsername });
-        } else {
-          leadMagnetSent = true;
-          console.log(`[IG Webhook] DM1 envoyé — message_id: ${dm1Data.message_id}`);
-          pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername, shortLink });
-
-          // Envoie le DM opener (DM 2) — message configuré sur le contenu
-          if (commenterId) {
-            const dm2Res = await fetch(
-              `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
-              {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  recipient: { id: commenterId },
-                  message: { text: dmOpener },
-                  access_token,
-                }),
-              }
-            );
-            const dm2Data = await dm2Res.json();
-            if (dm2Data.error) {
-              console.error(`[IG Webhook] Erreur DM2 :`, dm2Data.error);
-              pushEvent({ type: 'dm2_error', error: dm2Data.error, commenterUsername });
-            } else {
-              console.log(`[IG Webhook] DM2 envoyé — message_id: ${dm2Data.message_id}`);
-              pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, commenterUsername, text: dmOpener });
+        // Envoie DM 2 seulement s'il y a un message d'ouverture configuré
+        if (commenterId && dm2Text) {
+          const dm2Res = await fetch(
+            `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipient: { id: commenterId },
+                message: { text: dm2Text },
+                access_token,
+              }),
             }
+          );
+          const dm2Data = await dm2Res.json();
+          if (dm2Data.error) {
+            console.error(`[IG Webhook] Erreur DM2 :`, dm2Data.error);
+            pushEvent({ type: 'dm2_error', error: dm2Data.error, commenterUsername });
+          } else {
+            console.log(`[IG Webhook] DM2 envoyé — message_id: ${dm2Data.message_id}`);
+            pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, commenterUsername, text: dm2Text });
           }
         }
       }
