@@ -1460,16 +1460,20 @@ export default function PageLiens() {
       .then(r => r.json())
       .then(data => {
         if (!data.posts) return;
-        const fresh: Post[] = data.posts.map((p: any) => ({
-          id: p.id,
-          caption: (p.caption || 'Publication Instagram').slice(0, 60),
-          platform: 'IG' as const,
-          thumbnail: p.thumbnail || null,
-          permalink: p.permalink || null,
-        }));
-        // Met à jour les posts IG avec les données fraîches
+        // Fusionne les posts frais avec les champs déjà enrichis (dmLmMessage, lmKeyword, etc.)
         setPosts(prev => {
           const ytExisting = prev.filter(p => p.platform === 'YT');
+          const fresh: Post[] = data.posts.map((p: any) => {
+            const existing = prev.find(e => e.id === p.id);
+            return {
+              ...(existing || {}), // préserve les champs enrichis (dmLmMessage, lmKeyword, etc.)
+              id: p.id,
+              caption: (p.caption || 'Publication Instagram').slice(0, 60),
+              platform: 'IG' as const,
+              thumbnail: p.thumbnail || null,
+              permalink: p.permalink || null,
+            };
+          });
           return [...fresh, ...ytExisting];
         });
         setPostsLoading(false);
