@@ -352,12 +352,86 @@ function serializeEditor(el: HTMLDivElement): string {
     if (node.nodeType === Node.TEXT_NODE) {
       result += node.textContent ?? '';
     } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const el = node as HTMLElement;
-      if (el.dataset.token === 'lien_lm') result += TOKEN;
-      else result += el.textContent ?? '';
+      const child = node as HTMLElement;
+      if (child.dataset.token === 'lien_lm') result += TOKEN;
+      else result += child.textContent ?? '';
     }
   });
   return result;
+}
+
+// Retourne l'offset caractère global du curseur dans la string sérialisée
+function getCaretOffset(el: HTMLDivElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return -1;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return -1;
+  let offset = 0;
+  for (const node of Array.from(el.childNodes)) {
+    if (node === range.startContainer) { offset += range.startOffset; break; }
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node.contains?.(range.startContainer) || node === range.startContainer) {
+        offset += range.startOffset; break;
+      }
+      offset += node.textContent?.length ?? 0;
+    } else {
+      const child = node as HTMLElement;
+      if (child.dataset?.token === 'lien_lm') {
+        if (child === range.startContainer || child.contains(range.startContainer)) break;
+        offset += TOKEN.length;
+      } else {
+        offset += child.textContent?.length ?? 0;
+      }
+    }
+  }
+  return offset;
+}
+
+// Replace le curseur à l'offset caractère global dans la string sérialisée
+function setCaretOffset(el: HTMLDivElement, targetOffset: number) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  let remaining = targetOffset;
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = node.textContent?.length ?? 0;
+      if (remaining <= len) {
+        try {
+          const r = document.createRange();
+          r.setStart(node, remaining);
+          r.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        } catch {}
+        return;
+      }
+      remaining -= len;
+    } else {
+      const child = node as HTMLElement;
+      if (child.dataset?.token === 'lien_lm') {
+        remaining -= TOKEN.length;
+        if (remaining <= 0) {
+          // Place le curseur après le badge
+          try {
+            const r = document.createRange();
+            r.setStartAfter(child);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+          } catch {}
+          return;
+        }
+      }
+    }
+  }
+  // Fallback : fin du contenu
+  try {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } catch {}
 }
 
 function buildNodes(value: string): (string | 'TOKEN')[] {
@@ -409,19 +483,9 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
     onChange(serialized);
   }, [onChange]);
 
-  const syncDom = useCallback((val: string, preserveCursor = false) => {
+  const syncDom = useCallback((val: string, caretOffset: number | undefined = undefined) => {
     const el = editorRef.current;
     if (!el) return;
-
-    let anchorNode: Node | null = null;
-    let anchorOffset = 0;
-    if (preserveCursor) {
-      const sel = window.getSelection();
-      if (sel && sel.rangeCount > 0) {
-        anchorNode = sel.getRangeAt(0).startContainer;
-        anchorOffset = sel.getRangeAt(0).startOffset;
-      }
-    }
 
     el.innerHTML = '';
     buildNodes(val).forEach(part => {
@@ -432,24 +496,19 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
       }
     });
 
-    // Restaure curseur
-    const sel = window.getSelection();
-    if (!sel) return;
-    if (preserveCursor && anchorNode && el.contains(anchorNode)) {
-      try {
+    if (caretOffset !== undefined) {
+      setCaretOffset(el, caretOffset);
+    } else {
+      // Fin du contenu
+      const sel = window.getSelection();
+      if (sel) {
         const r = document.createRange();
-        r.setStart(anchorNode, Math.min(anchorOffset, anchorNode.textContent?.length ?? 0));
-        r.collapse(true);
+        r.selectNodeContents(el);
+        r.collapse(false);
         sel.removeAllRanges();
         sel.addRange(r);
-        return;
-      } catch {}
+      }
     }
-    const r = document.createRange();
-    r.selectNodeContents(el);
-    r.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(r);
   }, [blue, blueSoft]);
 
   useEffect(() => {
@@ -466,31 +525,25 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
 
   const handleInput = useCallback(() => {
     if (isComposing.current || !editorRef.current) return;
-    const serialized = serializeEditor(editorRef.current);
+    const el = editorRef.current;
+
+    // Capture l'offset curseur AVANT de modifier le DOM
+    const caretOff = getCaretOffset(el);
+    const serialized = serializeEditor(el);
     if (serialized === lastValue.current) return;
 
-    // Si le badge a été retiré (couper, coller sans lui, etc.) → on le force dans la valeur
+    // Si le badge a disparu (couper, coller, etc.) → on le remet à la fin
     const prevHadToken = lastValue.current.includes(TOKEN);
     const nowHasToken = serialized.includes(TOKEN);
+    let final = serialized;
     if (prevHadToken && !nowHasToken) {
-      // Restaure le DOM avec le token à la fin du texte actuel
-      const restored = serialized + TOKEN;
-      lastValue.current = restored;
-      syncDom(restored, true);
-      onChange(restored);
-      return;
+      final = serialized + TOKEN;
     }
 
-    // Convertit {{lien_lm}} tapé manuellement en badge
-    if (serialized.includes(TOKEN)) {
-      lastValue.current = serialized;
-      syncDom(serialized, true);
-      onChange(serialized);
-      return;
-    }
-
-    lastValue.current = serialized;
-    onChange(serialized);
+    lastValue.current = final;
+    // Toujours resync le DOM pour garantir la structure correcte
+    syncDom(final, caretOff >= 0 ? caretOff : undefined);
+    onChange(final);
   }, [onChange, syncDom]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
