@@ -829,7 +829,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         )}
         <button onClick={handleEditClick}
           style={{ fontSize: 12, fontWeight: 600, color: INK, background: 'none', border: `1.5px solid ${INK}`, borderRadius: 8, cursor: 'pointer', padding: '6px 14px', whiteSpace: 'nowrap' }}>
-          ✏️ Modifier / régénérer le LM
+          ✏️ Modifier / Régénérer le LM
         </button>
       </div>
     </div>
