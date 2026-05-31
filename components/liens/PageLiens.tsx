@@ -35,6 +35,7 @@ interface Post {
   lmKeyword?: string;
   lmShortUrl?: string;
   dmOpenerMessage?: string;
+  dmLmMessage?: string;
 }
 
 interface ContentLink {
@@ -734,6 +735,8 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setKeyword(post.lmKeyword || '');
     setDmMessage(post.dmOpenerMessage || '');
     setResult(post.lmShortUrl || null);
+    setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
+    setDm1Saved(true);
   }, [post.id]);
 
   if (isYT) return (
@@ -811,7 +814,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   const handleConfirmLeave = () => { setEditing(false); setDmMessage(savedDmMessage); setDmEdited(false); setConfirmLeave(false); };
 
   // États pour l'édition inline des DMs (sans passer par mode édition complet)
-  const [dm1Text, setDm1Text] = useState(`👋 Voici le lien comme promis ! {{lien_lm}}`);
+  const [dm1Text, setDm1Text] = useState(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
   const [dm1Saved, setDm1Saved] = useState(true);
   const [dm1Saving, setDm1Saving] = useState(false);
   const [dm2Text, setDm2Text] = useState(savedDmMessage);
@@ -868,6 +871,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
                   method: 'POST', headers: { 'content-type': 'application/json' },
                   body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_lm_message: dm1Text }),
                 });
+                onPostUpdated(post.id, { dmLmMessage: dm1Text });
                 setDm1Saved(true);
               } catch {} finally { setDm1Saving(false); }
             }} disabled={dm1Saving || dm1Saved}
@@ -1481,6 +1485,7 @@ export default function PageLiens() {
         lmKeyword: cl.lm_keyword || undefined,
         lmShortUrl: cl.lm_short_url || undefined,
         dmOpenerMessage: cl.dm_opener_message || undefined,
+        dmLmMessage: cl.dm_lm_message || undefined,
       };
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
