@@ -1,18 +1,45 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@/lib/UserContext';
 
+// ─── Design tokens (alignés sur globals.css) ──────────────────────────────────
+const INK = 'var(--ink)';
+const MUTED = 'var(--muted)';
+const FAINT = 'var(--faint)';
+const SURFACE = 'var(--surface)';
+const SURFACE2 = 'var(--surface-2)';
+const BORDER = 'var(--border)';
+const BG = 'var(--bg)';
+const GREEN = 'var(--green)';
+const GREEN_SOFT = 'var(--green-soft)';
+const RED = 'var(--red)';
+const AMBER = 'var(--amber)';
+const AMBER_SOFT = 'var(--amber-soft)';
 const BLUE = '#6b7cde';
-const GREEN = '#3f8a52';
-const RED = '#cd5b3f';
-const AMBER = '#b58025';
-const PURPLE = '#7c5cbf';
+const BLUE_SOFT = '#6b7cde12';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface ShortDomain { id: string | number; hostname: string; }
-type LinkType = 'calendly_prospect' | 'bio' | 'description' | 'leadmagnet';
+
+interface Post {
+  id: string;
+  caption: string;
+  platform: 'IG' | 'YT';
+  thumbnail?: string | null;
+  hasDescLink?: boolean;
+  hasLeadMagnet?: boolean;
+  descLinkUrl?: string;
+  lmKeyword?: string;
+}
+
+interface LeadMagnet {
+  id: string;
+  name: string;
+  url: string;
+  usedOn: string[]; // post IDs
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -20,609 +47,641 @@ function slugify(s: string) {
   return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 }
 
-async function callShortio(payload: Record<string, any>): Promise<{ shortUrl: string }> {
+async function callShortio(payload: Record<string, unknown>): Promise<{ shortUrl: string }> {
   const res = await fetch('/api/shortio/links', {
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify(payload),
   });
   const ct = res.headers.get('content-type') || '';
   if (!ct.includes('application/json')) {
-    throw new Error(`Erreur serveur (${res.status}) — vérifie que la clé Short.io est configurée dans Réglages`);
+    throw new Error(`Erreur serveur (${res.status}) — vérifie que Short.io est connecté dans Réglages`);
   }
   const data = await res.json();
   if (!res.ok) {
-    if (data.error === 'no_token') throw new Error('Clé Short.io non configurée — va dans Réglages pour la connecter');
+    if (data.error === 'no_token') throw new Error('Short.io non connecté — va dans Réglages');
     throw new Error(data.error || 'Erreur Short.io');
   }
   return { shortUrl: data.shortUrl };
 }
 
-function typeBadgeColor(t: LinkType) {
-  if (t === 'calendly_prospect') return BLUE;
-  if (t === 'bio') return PURPLE;
-  if (t === 'description') return AMBER;
-  return GREEN;
-}
+// ─── Mini-composants ──────────────────────────────────────────────────────────
 
-// ─── Sous-composants communs ──────────────────────────────────────────────────
-
-function SectionCard({ title, sub, children }: { title: string; sub?: string; children: React.ReactNode }) {
+function Badge({ color, bg, children }: { color: string; bg: string; children: React.ReactNode }) {
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: '22px 24px' }}>
-      <div style={{ marginBottom: 18 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)' }}>{title}</div>
-        {sub && <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{sub}</div>}
-      </div>
+    <span style={{ fontSize: 9, fontWeight: 700, color, background: bg, borderRadius: 4, padding: '2px 5px', letterSpacing: '0.04em' }}>
       {children}
-    </div>
-  );
-}
-
-function InputField({ label, hint, ...props }: React.InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
-  return (
-    <div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 5 }}>
-        {label}{hint && <span style={{ fontWeight: 400, marginLeft: 6, color: 'var(--faint)' }}>{hint}</span>}
-      </div>
-      <input {...props} style={{ width: '100%', padding: '9px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box', outline: 'none', ...props.style }} />
-    </div>
-  );
-}
-
-function PathInput({ domain, value, onChange, placeholder }: { domain: string; value: string; onChange: (v: string) => void; placeholder: string }) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
-      <span style={{ padding: '9px 10px', fontSize: 12, color: 'var(--muted)', background: 'var(--surface-2)', borderRight: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{domain}/</span>
-      <input value={value} onChange={e => onChange(slugify(e.target.value))} placeholder={placeholder}
-        style={{ flex: 1, padding: '9px 12px', fontSize: 13, border: 'none', background: 'var(--surface)', color: 'var(--ink)', outline: 'none' }} />
-    </div>
-  );
-}
-
-function Btn({ children, disabled, loading, variant = 'primary', onClick, style }: {
-  children: React.ReactNode; disabled?: boolean; loading?: boolean;
-  variant?: 'primary' | 'ghost'; onClick?: () => void; style?: React.CSSProperties;
-}) {
-  return (
-    <button onClick={onClick} disabled={disabled || loading} style={{
-      padding: '10px 18px', fontSize: 13, fontWeight: 700, borderRadius: 8,
-      cursor: disabled || loading ? 'not-allowed' : 'pointer',
-      border: variant === 'ghost' ? '1px solid var(--border)' : 'none',
-      background: variant === 'ghost' ? 'transparent' : BLUE,
-      color: variant === 'ghost' ? 'var(--ink)' : '#fff',
-      opacity: disabled || loading ? 0.5 : 1, transition: 'opacity .15s', ...style,
-    }}>{loading ? 'Génération...' : children}</button>
-  );
-}
-
-function CopiedLink({ url, onReset }: { url: string; onReset: () => void }) {
-  const [copied, setCopied] = useState(false);
-  const copy = () => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px' }}>
-        <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: BLUE, wordBreak: 'break-all' }}>{url}</span>
-        <button onClick={copy} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none', background: copied ? GREEN : BLUE, color: '#fff', transition: 'background .2s', flexShrink: 0 }}>
-          {copied ? 'Copié !' : 'Copier'}
-        </button>
-      </div>
-      <Btn variant="ghost" onClick={onReset} style={{ width: '100%', textAlign: 'center' }}>Générer un autre lien</Btn>
-    </div>
-  );
-}
-
-// ─── Section Paramètres (Calendly + liens bio auto) ───────────────────────────
-
-function SectionParametres({ profileId, domains, domainsLoaded, onCalendlyChange }: {
-  profileId: string;
-  domains: ShortDomain[];
-  domainsLoaded: boolean;
-  onCalendlyChange: (url: string) => void;
-}) {
-  const [calendlyUrl, setCalendlyUrl] = useState('');
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [bioIgResult, setBioIgResult] = useState<string | null>(null);
-  const [bioYtResult, setBioYtResult] = useState<string | null>(null);
-  const [generatingIg, setGeneratingIg] = useState(false);
-  const [generatingYt, setGeneratingYt] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const domain = domains[0]?.hostname || '';
-  const canGenerate = domainsLoaded && !!domain;
-
-  // Charger le lien Calendly sauvegardé
-  useEffect(() => {
-    fetch('/api/client/settings')
-      .then(r => r.json())
-      .then(data => {
-        if (data.calendly_url) {
-          setCalendlyUrl(data.calendly_url);
-          onCalendlyChange(data.calendly_url);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const saveCalendly = async () => {
-    if (!calendlyUrl.trim()) return;
-    setSaving(true); setError(null);
-    try {
-      await fetch('/api/client/settings', {
-        method: 'PATCH',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ calendly_url: calendlyUrl.trim() }),
-      });
-      setSaved(true);
-      onCalendlyChange(calendlyUrl.trim());
-      setTimeout(() => setSaved(false), 2500);
-    } catch { setError('Erreur lors de la sauvegarde'); }
-    finally { setSaving(false); }
-  };
-
-  const generateBio = async (platform: 'instagram' | 'youtube', setResult: (v: string) => void, setLoading: (v: boolean) => void) => {
-    if (!calendlyUrl.trim()) return;
-    setLoading(true); setError(null);
-    try {
-      const path = `bio-${platform === 'instagram' ? 'ig' : 'yt'}`;
-      const { shortUrl } = await callShortio({
-        profileId, domainId: domain,
-        originalUrl: calendlyUrl.trim(),
-        title: `Bio ${platform === 'instagram' ? 'Instagram' : 'YouTube'}`,
-        utmSource: domain, utmMedium: 'bio',
-        utmCampaign: `bio-${platform}`,
-        path,
-      });
-      setResult(shortUrl);
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
-  };
-
-  const isCalendlyValid = calendlyUrl.trim().startsWith('http');
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
-
-      {/* Lien Calendly */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>Ton lien Calendly</div>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            value={calendlyUrl}
-            onChange={e => setCalendlyUrl(e.target.value)}
-            placeholder="https://calendly.com/ton-nom/discovery"
-            style={{ flex: 1, padding: '9px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', outline: 'none' }}
-          />
-          <button onClick={saveCalendly} disabled={saving || !isCalendlyValid} style={{
-            padding: '9px 16px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: 'none',
-            background: saved ? GREEN : BLUE, color: '#fff', cursor: saving || !isCalendlyValid ? 'not-allowed' : 'pointer',
-            opacity: saving || !isCalendlyValid ? 0.5 : 1, transition: 'all .2s', whiteSpace: 'nowrap',
-          }}>
-            {saving ? 'Sauvegarde...' : saved ? '✓ Sauvegardé' : 'Sauvegarder'}
-          </button>
-        </div>
-        <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
-          Ce lien est utilisé pour tous les liens Calendly générés sur cette page. Change-le ici, tous les prochains liens en bénéficieront.
-        </div>
-      </div>
-
-      {/* Liens bio générés automatiquement */}
-      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 18 }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 12 }}>
-          Liens bio — à générer une fois et mettre dans ta bio
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-
-          {/* Bio Instagram */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>📸</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>Bio Instagram</div>
-              {bioIgResult
-                ? <div style={{ fontSize: 12, color: BLUE, fontWeight: 600, wordBreak: 'break-all' }}>{bioIgResult}</div>
-                : <div style={{ fontSize: 11, color: 'var(--faint)' }}>{domain}/bio-ig</div>}
-            </div>
-            {bioIgResult
-              ? <CopyBtn url={bioIgResult} />
-              : <button onClick={() => generateBio('instagram', setBioIgResult, setGeneratingIg)} disabled={generatingIg || !isCalendlyValid || !canGenerate}
-                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: PURPLE, color: '#fff', cursor: !isCalendlyValid || !canGenerate || generatingIg ? 'not-allowed' : 'pointer', opacity: !isCalendlyValid || !canGenerate || generatingIg ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-                  {!canGenerate ? '...' : generatingIg ? '...' : 'Générer'}
-                </button>}
-          </div>
-
-          {/* Bio YouTube */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)' }}>
-            <span style={{ fontSize: 18, flexShrink: 0 }}>▶️</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 2 }}>Bio YouTube</div>
-              {bioYtResult
-                ? <div style={{ fontSize: 12, color: BLUE, fontWeight: 600, wordBreak: 'break-all' }}>{bioYtResult}</div>
-                : <div style={{ fontSize: 11, color: 'var(--faint)' }}>{domain}/bio-yt</div>}
-            </div>
-            {bioYtResult
-              ? <CopyBtn url={bioYtResult} />
-              : <button onClick={() => generateBio('youtube', setBioYtResult, setGeneratingYt)} disabled={generatingYt || !isCalendlyValid || !canGenerate}
-                  style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none', background: PURPLE, color: '#fff', cursor: !isCalendlyValid || !canGenerate || generatingYt ? 'not-allowed' : 'pointer', opacity: !isCalendlyValid || !canGenerate || generatingYt ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-                  {generatingYt ? '...' : 'Générer'}
-                </button>}
-          </div>
-
-        </div>
-        {!canGenerate && domainsLoaded && (
-          <div style={{ fontSize: 11, color: RED, marginTop: 8 }}>⚠ Domaine Short.io introuvable — vérifie ta connexion Short.io dans Réglages.</div>
-        )}
-        {!isCalendlyValid && canGenerate && (
-          <div style={{ fontSize: 11, color: AMBER, marginTop: 8 }}>⚠ Sauvegarde ton lien Calendly pour activer la génération des liens bio.</div>
-        )}
-        {error && <div style={{ fontSize: 12, color: RED, background: RED + '12', borderRadius: 6, padding: '8px 12px', marginTop: 8 }}>{error}</div>}
-      </div>
-    </div>
+    </span>
   );
 }
 
 function CopyBtn({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
-  const copy = () => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); };
   return (
-    <button onClick={copy} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${copied ? 'transparent' : 'var(--border)'}`, background: copied ? GREEN : 'var(--surface)', color: copied ? '#fff' : 'var(--ink)', cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap' } as React.CSSProperties}>
-      {copied ? 'Copié !' : 'Copier'}
+    <button onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${copied ? 'transparent' : BORDER}`, background: copied ? 'var(--green)' : SURFACE, color: copied ? '#fff' : INK, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap' }}>
+      {copied ? '✓ Copié' : 'Copier'}
     </button>
   );
 }
 
-// ─── Section Calendly Prospect ────────────────────────────────────────────────
+function GeneratedUrlRow({ url, label }: { url: string; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 10, fontWeight: 600, color: MUTED, marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: BLUE, wordBreak: 'break-all' }}>{url}</div>
+      </div>
+      <CopyBtn url={url} />
+    </div>
+  );
+}
 
-function SectionCalendlyProspect({ domains, profileId, posts, calendlyUrl }: {
-  domains: ShortDomain[]; profileId: string;
-  posts: { id: string; caption: string; platform: 'IG' | 'YT' }[];
-  calendlyUrl: string;
+function Spinner() {
+  return <span style={{ display: 'inline-block', width: 14, height: 14, border: `2px solid ${BORDER}`, borderTopColor: BLUE, borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />;
+}
+
+// ─── Modal Paramètres ─────────────────────────────────────────────────────────
+
+function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onCalendlyChange, initialCalendly }: {
+  open: boolean; onClose: () => void;
+  profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
+  onCalendlyChange: (url: string) => void; initialCalendly: string;
 }) {
-  const [username, setUsername] = useState('');
-  const [postId, setPostId] = useState('');
-  const [customPath, setCustomPath] = useState('');
-  const [result, setResult] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [calendlyUrl, setCalendlyUrl] = useState(initialCalendly);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [bioIg, setBioIg] = useState<string | null>(null);
+  const [bioYt, setBioYt] = useState<string | null>(null);
+  const [genIg, setGenIg] = useState(false);
+  const [genYt, setGenYt] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const domain = domains[0]?.hostname || 'qnl.link';
+  const domain = domains[0]?.hostname || '';
+  const canGenerate = domainsLoaded && !!domain;
+  const isValid = calendlyUrl.trim().startsWith('http');
 
-  const generate = async () => {
-    if (!calendlyUrl.trim() || !username.trim()) return;
+  useEffect(() => { setCalendlyUrl(initialCalendly); }, [initialCalendly]);
+
+  const save = async () => {
+    if (!isValid) return;
+    setSaving(true); setError(null);
+    try {
+      await fetch('/api/client/settings', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendly_url: calendlyUrl.trim() }) });
+      setSaved(true); onCalendlyChange(calendlyUrl.trim());
+      setTimeout(() => setSaved(false), 2500);
+    } catch { setError('Erreur sauvegarde'); } finally { setSaving(false); }
+  };
+
+  const genBio = async (platform: 'instagram' | 'youtube', setResult: (v: string) => void, setLoading: (v: boolean) => void) => {
+    if (!isValid || !canGenerate) return;
     setLoading(true); setError(null);
     try {
-      const usernameSlug = slugify(username);
-      const path = customPath || usernameSlug;
-      const { shortUrl } = await callShortio({
-        profileId, domainId: domain,
-        originalUrl: calendlyUrl.trim(),
-        title: `Calendly — @${username}`,
-        utmSource: domain, utmMedium: 'dm',
-        utmCampaign: `prospect-${usernameSlug}`,
-        utmContent: postId || undefined,
-        path,
-      });
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: `Bio ${platform === 'instagram' ? 'Instagram' : 'YouTube'}`, utmSource: domain, utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: `bio-${platform === 'instagram' ? 'ig' : 'yt'}` });
       setResult(shortUrl);
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  };
+
+  if (!open) return null;
+
+  return (
+    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.45)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', padding: 16 }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 14, padding: 24, width: 420, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,.18)', border: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: INK }}>Paramètres des liens</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: MUTED, lineHeight: 1, padding: '0 4px' }}>×</button>
+        </div>
+
+        {/* Calendly */}
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lien Calendly</div>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input value={calendlyUrl} onChange={e => setCalendlyUrl(e.target.value)} placeholder="https://calendly.com/ton-nom/discovery"
+              style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none' }} />
+            <button onClick={save} disabled={saving || !isValid} style={{ padding: '8px 14px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: 'none', background: saved ? 'var(--green)' : BLUE, color: '#fff', cursor: !isValid || saving ? 'not-allowed' : 'pointer', opacity: !isValid || saving ? 0.5 : 1, whiteSpace: 'nowrap', transition: 'all .2s' }}>
+              {saving ? '...' : saved ? '✓' : 'Sauver'}
+            </button>
+          </div>
+          <div style={{ fontSize: 11, color: FAINT, marginTop: 5 }}>Utilisé automatiquement pour tous les liens Calendly générés.</div>
+        </div>
+
+        {/* Liens bio */}
+        <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liens bio permanents</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {[
+              { platform: 'instagram' as const, label: '📸 Bio Instagram', result: bioIg, setResult: setBioIg, loading: genIg, setLoading: setGenIg, path: 'bio-ig' },
+              { platform: 'youtube' as const, label: '▶️ Bio YouTube', result: bioYt, setResult: setBioYt, loading: genYt, setLoading: setGenYt, path: 'bio-yt' },
+            ].map(({ platform, label, result, setResult, loading, setLoading }) => (
+              <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 11, color: result ? BLUE : FAINT, fontWeight: result ? 600 : 400, wordBreak: 'break-all' }}>
+                    {result || (domain ? `${domain}/bio-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
+                  </div>
+                </div>
+                {result ? <CopyBtn url={result} /> :
+                  <button onClick={() => genBio(platform, setResult, setLoading)} disabled={loading || !isValid || !canGenerate}
+                    style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: !isValid || !canGenerate || loading ? 'not-allowed' : 'pointer', opacity: !isValid || !canGenerate || loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                    {loading ? '...' : 'Générer'}
+                  </button>}
+              </div>
+            ))}
+          </div>
+          {!isValid && <div style={{ fontSize: 11, color: AMBER, marginTop: 8 }}>⚠ Sauvegarde d'abord ton lien Calendly.</div>}
+          {!canGenerate && domainsLoaded && <div style={{ fontSize: 11, color: RED, marginTop: 8 }}>⚠ Short.io non connecté — va dans Réglages.</div>}
+          {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px', marginTop: 8 }}>{error}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Panneau droit : actions pour un contenu ──────────────────────────────────
+
+function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, leadMagnets, onLmCreated }: {
+  post: Post; profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
+  calendlyUrl: string; leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
+}) {
+  const domain = domains[0]?.hostname || '';
+  const canGenerate = domainsLoaded && !!domain;
+  const [activeTab, setActiveTab] = useState<'desc' | 'lm'>('desc');
+
+  // --- Lien description ---
+  const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>('calendly');
+  const [customUrl, setCustomUrl] = useState('');
+  const [descResult, setDescResult] = useState<string | null>(null);
+  const [descLoading, setDescLoading] = useState(false);
+  const [descError, setDescError] = useState<string | null>(null);
+
+  // --- Lead magnet ---
+  const [lmMode, setLmMode] = useState<'existing' | 'new'>('existing');
+  const [selectedLmId, setSelectedLmId] = useState('');
+  const [newLmName, setNewLmName] = useState('');
+  const [newLmUrl, setNewLmUrl] = useState('');
+  const [keyword, setKeyword] = useState('');
+  const [lmResult, setLmResult] = useState<string | null>(null);
+  const [lmLoading, setLmLoading] = useState(false);
+  const [lmError, setLmError] = useState<string | null>(null);
+
+  // Reset quand le post change
+  useEffect(() => {
+    setDescResult(null); setDescError(null);
+    setLmResult(null); setLmError(null);
+    setKeyword(''); setSelectedLmId(''); setNewLmName(''); setNewLmUrl('');
+    setActiveTab('desc');
+  }, [post.id]);
+
+  const generateDesc = async () => {
+    const destUrl = destType === 'calendly' ? calendlyUrl.trim() : customUrl.trim();
+    if (!destUrl || !canGenerate) return;
+    setDescLoading(true); setDescError(null);
+    try {
+      const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: domain, utmMedium: 'description', utmCampaign: destType, utmContent: post.id, path });
+      setDescResult(shortUrl);
+    } catch (e: any) { setDescError(e.message); } finally { setDescLoading(false); }
+  };
+
+  const generateLm = async () => {
+    if (!keyword.trim() || !canGenerate) return;
+    let lmUrl = '';
+    let lmName = '';
+    if (lmMode === 'existing') {
+      const lm = leadMagnets.find(l => l.id === selectedLmId);
+      if (!lm) return;
+      lmUrl = lm.url; lmName = lm.name;
+    } else {
+      if (!newLmUrl.trim()) return;
+      lmUrl = newLmUrl.trim(); lmName = newLmName.trim() || keyword;
+    }
+    setLmLoading(true); setLmError(null);
+    try {
+      const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
+      setLmResult(shortUrl);
+      if (lmMode === 'new' && newLmUrl.trim()) {
+        onLmCreated({ id: `lm-${Date.now()}`, name: lmName, url: newLmUrl.trim(), usedOn: [post.id] });
+      }
+    } catch (e: any) { setLmError(e.message); } finally { setLmLoading(false); }
   };
 
   const hasCalendly = calendlyUrl.trim().startsWith('http');
 
-  if (result) return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ fontSize: 12, color: 'var(--muted)' }}>Envoie ce lien en DM à <strong>@{username}</strong> — les clics et réservations seront trackés.</div>
-      <CopiedLink url={result} onReset={() => { setResult(null); setUsername(''); setPostId(''); setCustomPath(''); }} />
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header post */}
+      <div style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 8, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
+            {post.platform === 'IG' ? '📸' : '▶️'}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: INK, lineHeight: 1.3, marginBottom: 4 }}>{post.caption}</div>
+            <div style={{ display: 'flex', gap: 5 }}>
+              <Badge color={post.platform === 'IG' ? '#c2185b' : '#d32f2f'} bg={post.platform === 'IG' ? '#c2185b18' : '#d32f2f18'}>{post.platform}</Badge>
+              {post.hasDescLink && <Badge color={BLUE} bg={BLUE_SOFT}>📝 Desc</Badge>}
+              {post.hasLeadMagnet && <Badge color='var(--green)' bg='var(--green-soft)'>📄 LM</Badge>}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG }}>
+        {[{ key: 'desc', label: '📝 Lien description' }, { key: 'lm', label: '📄 Lead magnet' }].map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key as 'desc' | 'lm')} style={{
+            flex: 1, padding: '12px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+            background: activeTab === tab.key ? SURFACE : 'transparent',
+            color: activeTab === tab.key ? INK : MUTED,
+            borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
+            transition: 'all .15s',
+          }}>{tab.label}</button>
+        ))}
+      </div>
+
+      {/* Contenu tab */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+
+        {/* ── Tab description ── */}
+        {activeTab === 'desc' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {descResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 12, color: MUTED }}>Lien créé — colle-le dans la description de ta publication.</div>
+                <GeneratedUrlRow url={descResult} label="Lien description" />
+                <button onClick={() => setDescResult(null)} style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
+                  Générer un autre lien
+                </button>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Destination</div>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {[
+                      { key: 'calendly', label: '📅 Calendly' },
+                      { key: 'leadmagnet', label: '📄 Lead magnet' },
+                      { key: 'custom', label: '🔗 URL custom' },
+                    ].map(opt => (
+                      <button key={opt.key} onClick={() => { setDestType(opt.key as any); setCustomUrl(''); }} style={{
+                        padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+                        border: `1.5px solid ${destType === opt.key ? BLUE : BORDER}`,
+                        background: destType === opt.key ? BLUE_SOFT : SURFACE,
+                        color: destType === opt.key ? BLUE : INK,
+                        transition: 'all .12s',
+                      }}>{opt.label}</button>
+                    ))}
+                  </div>
+                </div>
+
+                {destType === 'calendly' && (
+                  hasCalendly
+                    ? <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>→ <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span></div>
+                    : <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans Paramètres (⚙ en haut).</div>
+                )}
+                {destType === 'leadmagnet' && (
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Choisir un lead magnet</div>
+                    {leadMagnets.length === 0
+                      ? <div style={{ fontSize: 12, color: FAINT }}>Aucun LM créé — génères-en un via l'onglet Lead magnet.</div>
+                      : <select value={customUrl} onChange={e => setCustomUrl(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK }}>
+                          <option value="">— Sélectionner —</option>
+                          {leadMagnets.map(lm => <option key={lm.id} value={lm.url}>{lm.name}</option>)}
+                        </select>}
+                  </div>
+                )}
+                {destType === 'custom' && (
+                  <input value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="https://..." style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                )}
+
+                {descError && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{descError}</div>}
+
+                <button onClick={generateDesc} disabled={descLoading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim())}
+                  style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: descLoading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim()) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  {descLoading ? <><Spinner /> Génération...</> : 'Générer le lien description'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
+        {/* ── Tab lead magnet ── */}
+        {activeTab === 'lm' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+            {lmResult ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <div style={{ fontSize: 12, color: MUTED }}>
+                  Lead magnet lié à ce contenu. Mot-clé déclencheur : <strong style={{ color: INK }}>#{keyword}</strong>
+                </div>
+                <GeneratedUrlRow url={lmResult} label="Lien lead magnet" />
+                <button onClick={() => setLmResult(null)} style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
+                  Générer un autre
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* Toggle existing / nouveau */}
+                <div style={{ display: 'flex', background: SURFACE2, borderRadius: 8, padding: 3, gap: 2 }}>
+                  {[{ key: 'existing', label: 'LM existant' }, { key: 'new', label: 'Nouveau LM' }].map(opt => (
+                    <button key={opt.key} onClick={() => setLmMode(opt.key as 'existing' | 'new')} style={{
+                      flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+                      background: lmMode === opt.key ? SURFACE : 'transparent',
+                      color: lmMode === opt.key ? INK : MUTED,
+                      boxShadow: lmMode === opt.key ? '0 1px 3px rgba(0,0,0,.07)' : 'none',
+                    }}>{opt.label}</button>
+                  ))}
+                </div>
+
+                {lmMode === 'existing' && (
+                  <div>
+                    {leadMagnets.length === 0 ? (
+                      <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '12px', textAlign: 'center' }}>
+                        Aucun lead magnet créé.<br />
+                        <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setLmMode('new')}>Créer un nouveau LM</span>
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
+                        {leadMagnets.map(lm => (
+                          <div key={lm.id} onClick={() => setSelectedLmId(lm.id)} style={{
+                            padding: '10px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
+                            background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
+                          }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{lm.name}</div>
+                            <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all' }}>{lm.url}</div>
+                            {lm.usedOn.length > 0 && (
+                              <div style={{ fontSize: 10, color: MUTED, marginTop: 3 }}>Utilisé sur {lm.usedOn.length} contenu{lm.usedOn.length > 1 ? 's' : ''}</div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {lmMode === 'new' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Nom du LM <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
+                      <input value={newLmName} onChange={e => setNewLmName(e.target.value)} placeholder="Checklist closing, Guide tunnel…"
+                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>URL du lead magnet</div>
+                      <input value={newLmUrl} onChange={e => setNewLmUrl(e.target.value)} placeholder="https://notion.so/ton-guide"
+                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                    </div>
+                  </div>
+                )}
+
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Mot-clé déclencheur</div>
+                  <input value={keyword} onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="GUIDE, CHECKLIST, TUNNEL…"
+                    style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box', fontWeight: 600, letterSpacing: '0.04em' }} />
+                  <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot, il reçoit le LM en DM automatiquement.</div>
+                </div>
+
+                {lmError && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{lmError}</div>}
+
+                <button onClick={generateLm} disabled={lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !newLmUrl.trim())}
+                  style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !newLmUrl.trim()) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                  {lmLoading ? <><Spinner /> Génération...</> : 'Générer le lien LM'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
+}
+
+// ─── Panneau droit : Calendly prospect ───────────────────────────────────────
+
+function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUrl, posts }: {
+  profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
+  calendlyUrl: string; posts: Post[];
+}) {
+  const domain = domains[0]?.hostname || '';
+  const canGenerate = domainsLoaded && !!domain;
+  const hasCalendly = calendlyUrl.trim().startsWith('http');
+  const [username, setUsername] = useState('');
+  const [postId, setPostId] = useState('');
+  const [result, setResult] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = async () => {
+    if (!username.trim() || !hasCalendly || !canGenerate) return;
+    setLoading(true); setError(null);
+    try {
+      const us = slugify(username);
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: `Calendly — @${username}`, utmSource: domain, utmMedium: 'dm', utmCampaign: `prospect-${us}`, utmContent: postId || undefined, path: us });
+      setResult(shortUrl);
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+    <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 4 }}>Lien Calendly prospect</div>
+        <div style={{ fontSize: 12, color: MUTED }}>Génère un lien unique par prospect à envoyer en DM. Chaque clic est tracké.</div>
+      </div>
+
       {!hasCalendly && (
-        <div style={{ fontSize: 12, color: AMBER, background: AMBER + '15', borderRadius: 8, padding: '10px 12px' }}>
-          ⚠ Configure ton lien Calendly dans la section "Paramètres" en haut de page.
-        </div>
+        <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans Paramètres (⚙ en haut).</div>
       )}
       {hasCalendly && (
-        <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-2)', borderRadius: 8, padding: '8px 12px' }}>
-          Destination : <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{calendlyUrl}</span>
-        </div>
+        <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>→ <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span></div>
       )}
-      <InputField label="Pseudo Instagram du prospect" placeholder="thomas.biz" value={username}
-        onChange={e => setUsername(e.target.value.replace(/^@/, ''))} />
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 5 }}>
-          Contenu source <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span>
+
+      {result ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ fontSize: 12, color: MUTED }}>Envoie ce lien en DM à <strong>@{username}</strong></div>
+          <GeneratedUrlRow url={result} label="Lien Calendly" />
+          <button onClick={() => { setResult(null); setUsername(''); setPostId(''); }} style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>Générer pour un autre prospect</button>
         </div>
-        <select value={postId} onChange={e => setPostId(e.target.value)}
-          style={{ width: '100%', padding: '9px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}>
-          <option value="">— Sans attribution —</option>
-          {posts.map(p => <option key={p.id} value={p.id}>{p.platform} · {p.caption}</option>)}
-        </select>
-      </div>
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 5 }}>
-          Chemin <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span>
-        </div>
-        <PathInput domain={domain} value={customPath} onChange={setCustomPath}
-          placeholder={username ? slugify(username) : 'pseudo-prospect'} />
-      </div>
-      {error && <div style={{ fontSize: 12, color: RED, background: RED + '12', borderRadius: 6, padding: '8px 12px' }}>{error}</div>}
-      <Btn onClick={generate} loading={loading} disabled={!hasCalendly || !username.trim()}>Générer le lien prospect</Btn>
-    </div>
-  );
-}
-
-// ─── Section Description publication ─────────────────────────────────────────
-
-function SectionDescription({ domains, profileId, posts, calendlyUrl }: {
-  domains: ShortDomain[]; profileId: string;
-  posts: { id: string; caption: string; platform: 'IG' | 'YT' }[];
-  calendlyUrl: string;
-}) {
-  const [destType, setDestType] = useState<'calendly' | 'leadmagnet'>('calendly');
-  const [manualUrl, setManualUrl] = useState('');
-  const [postId, setPostId] = useState('');
-  const [customPath, setCustomPath] = useState('');
-  const [result, setResult] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const domain = domains[0]?.hostname || 'qnl.link';
-  const selectedPost = posts.find(p => p.id === postId);
-  const destUrl = destType === 'calendly' ? calendlyUrl.trim() : manualUrl.trim();
-
-  const generate = async () => {
-    if (!destUrl || !postId) return;
-    setLoading(true); setError(null);
-    try {
-      const path = customPath || `desc-${slugify(selectedPost?.caption.slice(0, 20) || postId)}`;
-      const { shortUrl } = await callShortio({
-        profileId, domainId: domain,
-        originalUrl: destUrl,
-        title: `Description — ${selectedPost?.caption.slice(0, 40) || postId}`,
-        utmSource: domain, utmMedium: 'description',
-        utmCampaign: destType, utmContent: postId, path,
-      });
-      setResult(shortUrl);
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
-  };
-
-  if (result) return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ fontSize: 12, color: 'var(--muted)' }}>Mets ce lien dans la description de ta publication.</div>
-      <CopiedLink url={result} onReset={() => { setResult(null); setManualUrl(''); setPostId(''); setCustomPath(''); }} />
-    </div>
-  );
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 5 }}>Publication</div>
-        <select value={postId} onChange={e => setPostId(e.target.value)}
-          style={{ width: '100%', padding: '9px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}>
-          <option value="">— Sélectionne une publication —</option>
-          {posts.map(p => <option key={p.id} value={p.id}>{p.platform} · {p.caption}</option>)}
-        </select>
-      </div>
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 8 }}>Destination</div>
-        <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2, marginBottom: 10 }}>
-          {(['calendly', 'leadmagnet'] as const).map(d => (
-            <button key={d} onClick={() => { setDestType(d); setManualUrl(''); }} style={{
-              flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
-              background: destType === d ? 'var(--surface)' : 'transparent',
-              color: destType === d ? 'var(--ink)' : 'var(--muted)',
-              boxShadow: destType === d ? '0 1px 3px rgba(0,0,0,.07)' : 'none',
-            }}>
-              {d === 'calendly' ? '📅 Calendly' : '📄 Lead magnet'}
-            </button>
-          ))}
-        </div>
-        {destType === 'calendly'
-          ? calendlyUrl.trim()
-            ? <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-2)', borderRadius: 8, padding: '8px 12px' }}>
-                <span style={{ fontWeight: 600, color: 'var(--ink)' }}>{calendlyUrl}</span>
-              </div>
-            : <div style={{ fontSize: 12, color: AMBER, background: AMBER + '15', borderRadius: 8, padding: '10px 12px' }}>
-                ⚠ Configure ton lien Calendly dans Paramètres.
-              </div>
-          : <InputField label="URL du lead magnet" placeholder="https://notion.so/ton-guide-pdf" value={manualUrl}
-              onChange={e => setManualUrl(e.target.value)} />}
-      </div>
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 5 }}>
-          Chemin <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span>
-        </div>
-        <PathInput domain={domain} value={customPath} onChange={setCustomPath}
-          placeholder={selectedPost ? `desc-${slugify(selectedPost.caption.slice(0, 15))}` : 'desc-contenu'} />
-      </div>
-      {error && <div style={{ fontSize: 12, color: RED, background: RED + '12', borderRadius: 6, padding: '8px 12px' }}>{error}</div>}
-      <Btn onClick={generate} loading={loading} disabled={!destUrl || !postId}>Générer le lien</Btn>
-    </div>
-  );
-}
-
-// ─── Section Lead Magnet ──────────────────────────────────────────────────────
-
-function SectionLeadMagnet({ domains, profileId, posts }: {
-  domains: ShortDomain[]; profileId: string;
-  posts: { id: string; caption: string; platform: 'IG' | 'YT' }[];
-}) {
-  const [lmUrl, setLmUrl] = useState('');
-  const [lmName, setLmName] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [postId, setPostId] = useState('');
-  const [customPath, setCustomPath] = useState('');
-  const [result, setResult] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const domain = domains[0]?.hostname || 'qnl.link';
-  const selectedPost = posts.find(p => p.id === postId);
-
-  const generate = async () => {
-    if (!lmUrl.trim() || !keyword.trim()) return;
-    setLoading(true); setError(null);
-    try {
-      const path = customPath || `lm-${slugify(lmName || keyword)}`;
-      const { shortUrl } = await callShortio({
-        profileId, domainId: domain,
-        originalUrl: lmUrl.trim(),
-        title: `Lead magnet — ${lmName || keyword}`,
-        utmSource: domain, utmMedium: 'leadmagnet',
-        utmCampaign: `lm-${slugify(keyword)}`,
-        utmContent: postId || undefined, path,
-      });
-      setResult(shortUrl);
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
-  };
-
-  if (result) return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', fontSize: 12, color: 'var(--muted)' }}>
-        <span style={{ fontWeight: 600, color: 'var(--ink)' }}>Mot-clé :</span> <span style={{ fontWeight: 700, color: BLUE }}>#{keyword}</span>
-        {selectedPost && <> · attribué à <span style={{ fontWeight: 600 }}>{selectedPost.caption.slice(0, 40)}…</span></>}
-      </div>
-      <div style={{ fontSize: 12, color: 'var(--muted)' }}>Quand quelqu'un commente <strong>#{keyword}</strong>, il reçoit ce lien en DM automatiquement.</div>
-      <CopiedLink url={result} onReset={() => { setResult(null); setLmUrl(''); setLmName(''); setKeyword(''); setPostId(''); setCustomPath(''); }} />
-    </div>
-  );
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-      <InputField label="Nom du lead magnet" hint="(optionnel)" placeholder="Checklist closing, Guide tunnel de vente…" value={lmName} onChange={e => setLmName(e.target.value)} />
-      <InputField label="URL du lead magnet" placeholder="https://notion.so/ton-guide-pdf" value={lmUrl} onChange={e => setLmUrl(e.target.value)} />
-      <InputField label="Mot-clé déclencheur" placeholder="GUIDE, CHECKLIST, TUNNEL…" value={keyword}
-        onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} />
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 5 }}>
-          Attribuer à une publication <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span>
-        </div>
-        <select value={postId} onChange={e => setPostId(e.target.value)}
-          style={{ width: '100%', padding: '9px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}>
-          <option value="">— Sans attribution —</option>
-          {posts.map(p => <option key={p.id} value={p.id}>{p.platform} · {p.caption}</option>)}
-        </select>
-      </div>
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 5 }}>
-          Chemin <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span>
-        </div>
-        <PathInput domain={domain} value={customPath} onChange={setCustomPath}
-          placeholder={keyword ? `lm-${slugify(keyword)}` : 'lm-guide'} />
-      </div>
-      {error && <div style={{ fontSize: 12, color: RED, background: RED + '12', borderRadius: 6, padding: '8px 12px' }}>{error}</div>}
-      <Btn onClick={generate} loading={loading} disabled={!lmUrl.trim() || !keyword.trim()}>Générer le lien lead magnet</Btn>
+      ) : (
+        <>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Pseudo Instagram du prospect</div>
+            <input value={username} onChange={e => setUsername(e.target.value.replace(/^@/, ''))} placeholder="thomas.biz"
+              style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Contenu source <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
+            <select value={postId} onChange={e => setPostId(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, boxSizing: 'border-box' }}>
+              <option value="">— Sans attribution —</option>
+              {posts.map(p => <option key={p.id} value={p.id}>{p.platform} · {p.caption}</option>)}
+            </select>
+          </div>
+          {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
+          <button onClick={generate} disabled={loading || !canGenerate || !hasCalendly || !username.trim()}
+            style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            {loading ? <><Spinner /> Génération...</> : 'Générer le lien prospect'}
+          </button>
+        </>
+      )}
     </div>
   );
 }
 
 // ─── Page principale ──────────────────────────────────────────────────────────
 
+type RightView = { type: 'post'; post: Post } | { type: 'prospect' } | null;
+
 export default function PageLiens() {
   const { user } = useUser();
-  const [activeType, setActiveType] = useState<LinkType>('calendly_prospect');
-  const [domains, setDomains] = useState<ShortDomain[]>([]);
-  const [posts, setPosts] = useState<{ id: string; caption: string; platform: 'IG' | 'YT' }[]>([]);
-  const [domainsLoaded, setDomainsLoaded] = useState(false);
-  const [calendlyUrl, setCalendlyUrl] = useState('');
-
   const profileId = user?.id || '';
 
+  const [domains, setDomains] = useState<ShortDomain[]>([]);
+  const [domainsLoaded, setDomainsLoaded] = useState(false);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [calendlyUrl, setCalendlyUrl] = useState('');
+  const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
+  const [rightView, setRightView] = useState<RightView>(null);
+  const [paramOpen, setParamOpen] = useState(false);
+
+  // Charger domaines + settings
   useEffect(() => {
     if (!profileId) return;
     fetch(`/api/shortio/domains?profileId=${profileId}`)
       .then(r => r.json())
-      .then(data => {
-        const list: ShortDomain[] = data.domains?.length ? data.domains : [{ id: 'mock', hostname: 'qnl.link' }];
-        setDomains(list);
-      })
-      .catch(() => setDomains([{ id: 'mock', hostname: 'qnl.link' }]))
+      .then(data => { const list: ShortDomain[] = data.domains?.length ? data.domains : []; setDomains(list); })
+      .catch(() => setDomains([]))
       .finally(() => setDomainsLoaded(true));
+
+    fetch('/api/client/settings')
+      .then(r => r.json())
+      .then(data => { if (data.calendly_url) setCalendlyUrl(data.calendly_url); })
+      .catch(() => {});
   }, [profileId]);
 
+  // Charger posts IG + YT
   useEffect(() => {
     if (!profileId) return;
+    let igDone = false; let ytDone = false;
+    const checkDone = () => { if (igDone && ytDone) setPostsLoading(false); };
+
     fetch(`/api/instagram/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        const igPosts = (data.posts || []).map((p: any) => ({
-          id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 55), platform: 'IG' as const,
-        }));
-        setPosts(prev => [...igPosts, ...prev.filter(p => p.platform === 'YT')]);
-      }).catch(() => {});
+        const ig = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail }));
+        setPosts(prev => [...ig, ...prev.filter(p => p.platform === 'YT')]);
+      }).catch(() => {}).finally(() => { igDone = true; checkDone(); });
+
     fetch(`/api/youtube/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        const ytVideos = (data.videos || []).map((v: any) => ({
-          id: v.id, caption: (v.title || 'Vidéo YouTube').slice(0, 55), platform: 'YT' as const,
-        }));
-        setPosts(prev => [...prev.filter(p => p.platform === 'IG'), ...ytVideos]);
-      }).catch(() => {});
+        const yt = (data.videos || []).map((v: any) => ({ id: v.id, caption: (v.title || 'Vidéo YouTube').slice(0, 60), platform: 'YT' as const, thumbnail: v.thumbnail }));
+        setPosts(prev => [...prev.filter(p => p.platform === 'IG'), ...yt]);
+      }).catch(() => {}).finally(() => { ytDone = true; checkDone(); });
   }, [profileId]);
 
-  const TABS: { type: LinkType; label: string; icon: string; desc: string }[] = [
-    { type: 'calendly_prospect', icon: '📅', label: 'Calendly prospect', desc: 'Lien unique par prospect envoyé en DM' },
-    { type: 'description', icon: '📝', label: 'Description publication', desc: 'Lien dans la description d\'un contenu' },
-    { type: 'leadmagnet', icon: '📄', label: 'Lead magnet', desc: 'Lien avec mot-clé déclencheur de DM auto' },
-  ];
+  const handleLmCreated = (lm: LeadMagnet) => {
+    setLeadMagnets(prev => [...prev, lm]);
+  };
+
+  const selectedPost = rightView?.type === 'post' ? rightView.post : null;
 
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto', padding: '32px 20px', display: 'flex', flexDirection: 'column', gap: 24 }}>
+    <>
+      {/* Spinner CSS */}
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-      {/* Header */}
-      <div>
-        <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', marginBottom: 4 }}>Mes liens</div>
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>Génère des liens Short.io trackés avec UTM pour chaque étape de ton funnel.</div>
-      </div>
+      <ModalParametres
+        open={paramOpen} onClose={() => setParamOpen(false)}
+        profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
+        onCalendlyChange={setCalendlyUrl} initialCalendly={calendlyUrl}
+      />
 
-      {/* Paramètres : Calendly + liens bio */}
-      <SectionCard title="Paramètres" sub="Configure ton lien Calendly une fois — il sera utilisé automatiquement partout.">
-        <SectionParametres profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} onCalendlyChange={setCalendlyUrl} />
-      </SectionCard>
+      <div className="liens-shell">
 
-      {/* Tabs type de lien */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
-        {TABS.map(tab => (
-          <button key={tab.type} onClick={() => setActiveType(tab.type)} style={{
-            padding: '14px 12px', borderRadius: 12, cursor: 'pointer', textAlign: 'left',
-            border: `1.5px solid ${activeType === tab.type ? typeBadgeColor(tab.type) : 'var(--border)'}`,
-            background: activeType === tab.type ? typeBadgeColor(tab.type) + '10' : 'var(--surface)',
-            transition: 'all .15s',
-          }}>
-            <div style={{ fontSize: 18, marginBottom: 5 }}>{tab.icon}</div>
-            <div style={{ fontSize: 12, fontWeight: 700, color: activeType === tab.type ? typeBadgeColor(tab.type) : 'var(--ink)', marginBottom: 2 }}>{tab.label}</div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.4 }}>{tab.desc}</div>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '20px 24px 16px', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: INK, letterSpacing: '-0.02em' }}>Gérer mes liens</div>
+            <div style={{ fontSize: 12, color: MUTED, marginTop: 2 }}>Génère des liens Short.io trackés pour chaque contenu et chaque prospect.</div>
+          </div>
+          <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: MUTED, cursor: 'pointer', transition: 'color .15s' }}>
+            ⚙ Paramètres
           </button>
-        ))}
-      </div>
+        </div>
 
-      {/* Formulaire actif */}
-      {!domainsLoaded
-        ? <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 14, padding: 32, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Chargement…</div>
-        : <>
-          {activeType === 'calendly_prospect' && (
-            <SectionCard title="Lien Calendly pour un prospect" sub="Lien unique par prospect à envoyer en DM — chaque clic et réservation sera attribué à cette personne et au contenu source.">
-              <SectionCalendlyProspect domains={domains} profileId={profileId} posts={posts} calendlyUrl={calendlyUrl} />
-            </SectionCard>
-          )}
-          {activeType === 'description' && (
-            <SectionCard title="Lien description de publication" sub="Crée un lien tracké à mettre dans la description d'un contenu. Les clics seront attribués à cette publication.">
-              <SectionDescription domains={domains} profileId={profileId} posts={posts} calendlyUrl={calendlyUrl} />
-            </SectionCard>
-          )}
-          {activeType === 'leadmagnet' && (
-            <SectionCard title="Lien lead magnet" sub="Quand quelqu'un commente le mot-clé, il reçoit ce lien en DM automatiquement.">
-              <SectionLeadMagnet domains={domains} profileId={profileId} posts={posts} />
-            </SectionCard>
-          )}
-        </>}
+        {/* Body : 2 colonnes */}
+        <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
-      {/* Info UTM */}
-      <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 16px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
-        <span style={{ fontSize: 14, flexShrink: 0, marginTop: 1 }}>ℹ️</span>
-        <div style={{ fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
-          Chaque lien contient des UTM automatiques (<code>utm_source</code>, <code>utm_medium</code>, <code>utm_campaign</code>, <code>utm_content</code>) pour tracker la source exacte de chaque clic dans l'onglet Business.
+          {/* Colonne gauche : liste contenus + bouton prospect */}
+          <div style={{ width: 280, flexShrink: 0, borderRight: `1px solid ${BORDER}`, overflowY: 'auto', background: BG, display: 'flex', flexDirection: 'column' }}>
+
+            {/* Bouton Calendly prospect */}
+            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${BORDER}` }}>
+              <button onClick={() => setRightView({ type: 'prospect' })} style={{
+                width: '100%', padding: '10px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                border: `1.5px solid ${rightView?.type === 'prospect' ? BLUE : BORDER}`,
+                background: rightView?.type === 'prospect' ? BLUE_SOFT : SURFACE,
+                color: rightView?.type === 'prospect' ? BLUE : INK,
+                transition: 'all .15s',
+              }}>
+                📅 Lien Calendly prospect
+              </button>
+            </div>
+
+            {/* Liste contenus */}
+            <div style={{ flex: 1, padding: '8px 0' }}>
+              <div style={{ padding: '8px 16px 4px', fontSize: 10, fontWeight: 700, color: FAINT, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                Contenus
+              </div>
+              {postsLoading ? (
+                <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>Chargement...</div>
+              ) : posts.length === 0 ? (
+                <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>Aucun contenu trouvé.<br />Connecte Instagram ou YouTube.</div>
+              ) : (
+                posts.map(post => {
+                  const isSelected = selectedPost?.id === post.id;
+                  return (
+                    <div key={post.id} onClick={() => setRightView({ type: 'post', post })}
+                      style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 16px', cursor: 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, transition: 'all .1s' }}>
+                      <div style={{ width: 32, height: 32, borderRadius: 6, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, overflow: 'hidden' }}>
+                        {post.thumbnail
+                          ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          : post.platform === 'IG' ? '📸' : '▶️'}
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ fontSize: 11, fontWeight: 600, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{post.caption}</div>
+                        <div style={{ display: 'flex', gap: 4, marginTop: 3 }}>
+                          <Badge color={post.platform === 'IG' ? '#c2185b' : '#d32f2f'} bg={post.platform === 'IG' ? '#c2185b12' : '#d32f2f12'}>{post.platform}</Badge>
+                          {post.hasDescLink && <Badge color={BLUE} bg={BLUE_SOFT}>📝</Badge>}
+                          {post.hasLeadMagnet && <Badge color='var(--green)' bg='var(--green-soft)'>📄</Badge>}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+
+          {/* Colonne droite : actions */}
+          <div style={{ flex: 1, minWidth: 0, background: SURFACE, overflowY: 'auto' }}>
+            {rightView === null ? (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, padding: 40, textAlign: 'center' }}>
+                <div style={{ fontSize: 36 }}>🔗</div>
+                <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>Sélectionne un contenu</div>
+                <div style={{ fontSize: 13, color: MUTED, maxWidth: 300, lineHeight: 1.5 }}>
+                  Clique sur un contenu à gauche pour générer un lien description ou un lien lead magnet.
+                  <br /><br />
+                  Ou utilise le bouton <strong>Calendly prospect</strong> pour générer un lien unique à envoyer en DM.
+                </div>
+              </div>
+            ) : rightView.type === 'prospect' ? (
+              <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
+            ) : (
+              <PanneauActions post={rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onLmCreated={handleLmCreated} />
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </>
   );
 }

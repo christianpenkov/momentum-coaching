@@ -1070,10 +1070,12 @@ a { color: inherit; text-decoration: none; }
 }
 /* Chat + AI page override — annule le padding et le scroll du main-content */
 .main-content:has(.chat-shell),
-.main-content:has(.ai-shell) {
+.main-content:has(.ai-shell),
+.main-content:has(.liens-shell) {
   padding: 0;
   overflow: hidden;
 }
+.liens-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
 
 @keyframes pulse {
   0%, 100% { opacity: 0.3; transform: scale(0.8); }
