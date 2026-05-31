@@ -3173,91 +3173,45 @@ export default function PageAnalytics({ profileId }: { profileId?: string } = {}
   useEffect(() => {
     const supabase = createClient();
     const q = profileId ? `?profileId=${profileId}` : '';
-    const CACHE_KEY = `analytics_cache_${profileId || 'self'}`;
-    const CACHE_TTL = 6 * 60 * 60 * 1000; // 6h
 
-    // 1. Charge le cache localStorage immédiatement (zéro latence)
-    try {
-      const raw = localStorage.getItem(CACHE_KEY);
-      if (raw) {
-        const { ts, ig: cachedIg, yt: cachedYt, stripe: cachedStripe, msgs: cachedMsgs, shortio: cachedShortio } = JSON.parse(raw);
-        const age = Date.now() - ts;
-        if (age < CACHE_TTL) {
-          if (cachedIg) setIg(cachedIg);
-          if (cachedYt) setYt(cachedYt);
-          if (cachedStripe) setStripe(cachedStripe);
-          if (cachedMsgs) setMsgs(cachedMsgs);
-          if (cachedShortio) setShortio(cachedShortio);
-          setLoading(false);
-          // Cache frais (< 6h) : refresh en arrière-plan silencieux
-          if (age < CACHE_TTL) {
-            // On laisse quand même les calls Supabase se charger (rapides)
-          }
-          // Si cache < 30min, on ne refetch pas du tout
-          if (age < 30 * 60 * 1000) {
-            // Charge quand même les calls depuis Supabase (instantané)
-            supabase.auth.getUser().then(({ data: { user } }) => {
-              if (!user) return;
-              loadCalls(supabase, user.id, profileId, setCalls);
-            });
-            return;
+    async function load() {
+      const safe = async (fn: () => Promise<Response>) => {
+        try { const r = await fn(); return r.ok ? r.json() : null; } catch { return null; }
+      };
+
+      const [igData, ytData, stripeData, msgsData, shortioData] = await Promise.all([
+        safe(() => fetch(`/api/instagram/stats${q}`)),
+        safe(() => fetch(`/api/youtube/stats${q}`)),
+        safe(() => fetch(`/api/stripe/client-data${q}`)),
+        safe(() => fetch(`/api/instagram/messages${q}`)),
+        safe(() => fetch(`/api/shortio/stats${q}`)),
+      ]);
+
+      if (igData && !igData.error) setIg(igData);
+      if (ytData && !ytData.error) setYt(ytData);
+      if (stripeData && !stripeData.error) setStripe(stripeData);
+      if (msgsData && !msgsData.error) setMsgs(msgsData);
+      if (shortioData && !shortioData.error) setShortio(shortioData);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        if (profileId) {
+          const { data } = await supabase.from('calls').select('*').eq('coach_id', user.id).order('scheduled_at', { ascending: false }).limit(500);
+          if (data) setCalls(data);
+        } else {
+          const { data: clientRow } = await supabase.from('clients').select('id').eq('profile_id', user.id).maybeSingle();
+          if (clientRow) {
+            const { data } = await supabase.from('calls').select('*').eq('client_id', clientRow.id).order('scheduled_at', { ascending: false }).limit(500);
+            if (data) setCalls(data);
           }
         }
       }
-    } catch {}
 
-    const safe = async (fn: () => Promise<Response>) => {
-      try { const r = await fn(); return r.ok ? r.json() : null; } catch { return null; }
-    };
-
-    // 2. Fetch toutes les APIs en parallèle, affichage progressif
-    const igPromise = safe(() => fetch(`/api/instagram/stats${q}`));
-    const ytPromise = safe(() => fetch(`/api/youtube/stats${q}`));
-    const stripePromise = safe(() => fetch(`/api/stripe/client-data${q}`));
-    const msgsPromise = safe(() => fetch(`/api/instagram/messages${q}`));
-    const shortioPromise = safe(() => fetch(`/api/shortio/stats${q}`));
-
-    let igData: any = null, ytData: any = null, stripeData: any = null, msgsData: any = null, shortioData: any = null;
-
-    igPromise.then(d => { if (d && !d.error) { igData = d; setIg(d); setLoading(false); } });
-    ytPromise.then(d => { if (d && !d.error) { ytData = d; setYt(d); } });
-    stripePromise.then(d => { if (d && !d.error) { stripeData = d; setStripe(d); } });
-    msgsPromise.then(d => { if (d && !d.error) { msgsData = d; setMsgs(d); } });
-    shortioPromise.then(d => { if (d && !d.error) { shortioData = d; setShortio(d); } });
-
-    // 3. Une fois tout reçu, sauvegarde dans localStorage
-    Promise.all([igPromise, ytPromise, stripePromise, msgsPromise, shortioPromise]).then(() => {
       setLoading(false);
-      try {
-        localStorage.setItem(CACHE_KEY, JSON.stringify({
-          ts: Date.now(),
-          ig: igData, yt: ytData, stripe: stripeData, msgs: msgsData, shortio: shortioData,
-        }));
-      } catch {}
-    });
-
-    // 4. Calls Supabase (instantané, pas besoin de cache)
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) loadCalls(supabase, user.id, profileId, setCalls);
-    });
-
-    setTimeout(() => setLoading(false), 20000);
-  }, [profileId]);
-
-  function loadCalls(supabase: any, userId: string, profileId: string | undefined, setCalls: (v: any[]) => void) {
-    if (profileId) {
-      supabase.from('calls').select('*').eq('coach_id', userId).order('scheduled_at', { ascending: false }).limit(500)
-        .then(({ data }: any) => { if (data) setCalls(data); });
-    } else {
-      supabase.from('clients').select('id').eq('profile_id', userId).maybeSingle()
-        .then(({ data: clientRow }: any) => {
-          if (clientRow) {
-            supabase.from('calls').select('*').eq('client_id', clientRow.id).order('scheduled_at', { ascending: false }).limit(500)
-              .then(({ data }: any) => { if (data) setCalls(data); });
-          }
-        });
     }
-  }
+
+    load();
+  }, [profileId]);
 
   const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Revenus', 'Short.io'];
 

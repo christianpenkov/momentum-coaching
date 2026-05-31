@@ -344,10 +344,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   );
 }
 
-// ─── Dm1Editor : textarea contrôlé par React + badge visuel overlay ───────────
-// Approche fiable : React contrôle la valeur via textarea (string pure).
-// Un div overlay non-interactif affiche le rendu visuel avec le badge.
-// Le textarea est transparent et positionné par-dessus l'overlay.
+// ─── Dm1Editor : textarea React simple + bouton insérer token ─────────────────
 
 const TOKEN = '{{lien_lm}}';
 
@@ -357,7 +354,6 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
 
-  // Insère {{lien_lm}} à la position du curseur dans le textarea
   const insertToken = useCallback(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -365,43 +361,14 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
     const end = ta.selectionEnd ?? value.length;
     const next = value.slice(0, start) + TOKEN + value.slice(end);
     onChange(next);
-    // Replace le curseur après le token
     requestAnimationFrame(() => {
       ta.focus();
       ta.setSelectionRange(start + TOKEN.length, start + TOKEN.length);
     });
   }, [value, onChange]);
 
-  // Rendu visuel : split sur {{lien_lm}} → texte + badge
-  const parts = value.split(TOKEN);
-
   return (
-    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg, position: 'relative' }}>
-      {/* Overlay visuel — non interactif, juste pour le rendu du badge */}
-      <div aria-hidden style={{
-        position: 'absolute', inset: 0, padding: '10px 12px',
-        fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit',
-        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        pointerEvents: 'none', zIndex: 1,
-        color: 'transparent', // texte invisible, seul le badge est visible
-      }}>
-        {parts.map((part, i) => (
-          <span key={i}>
-            <span style={{ color: 'transparent' }}>{part}</span>
-            {i < parts.length - 1 && (
-              <span style={{
-                display: 'inline-flex', alignItems: 'center',
-                background: blueSoft, border: `1px solid ${blue}`,
-                borderRadius: 5, padding: '1px 7px', margin: '0 1px',
-                color: blue, fontSize: 10, fontWeight: 700,
-                textTransform: 'uppercase', letterSpacing: '0.04em',
-                verticalAlign: 'middle',
-              }}>Lien LM</span>
-            )}
-          </span>
-        ))}
-      </div>
-      {/* Textarea transparent — React contrôle la valeur, fiable à 100% */}
+    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
       <textarea
         ref={taRef}
         value={value}
@@ -409,35 +376,27 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
         rows={3}
         placeholder="Ex : 👋 Voici le lien comme promis ! {{lien_lm}}"
         style={{
-          position: 'relative', zIndex: 2,
           width: '100%', padding: '10px 12px',
           fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit',
-          background: 'transparent',
-          // Texte transparent là où il y a le token, visible ailleurs
-          color: value.includes(TOKEN) ? 'transparent' : ink,
-          caretColor: ink,
+          color: ink, background: 'transparent',
           border: 'none', outline: 'none', resize: 'vertical',
-          boxSizing: 'border-box', minHeight: 80,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          boxSizing: 'border-box', minHeight: 72,
         }}
       />
-      {/* Bouton pour insérer le badge à la position du curseur */}
-      {!value.includes(TOKEN) && (
-        <div style={{ padding: '0 12px 8px', zIndex: 2, position: 'relative' }}>
-          <button
-            type="button"
-            onClick={insertToken}
-            style={{
-              fontSize: 10, fontWeight: 700, color: blue,
-              background: blueSoft, border: `1px solid ${blue}`,
-              borderRadius: 5, padding: '2px 8px', cursor: 'pointer',
-              textTransform: 'uppercase', letterSpacing: '0.04em',
-            }}
-          >
-            + Insérer Lien LM
-          </button>
-        </div>
-      )}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px 8px' }}>
+        <span style={{ fontSize: 10, color: faint }}>Tape</span>
+        <button
+          type="button"
+          onClick={insertToken}
+          style={{
+            fontSize: 10, fontWeight: 700, color: blue,
+            background: blueSoft, border: `1px solid ${blue}`,
+            borderRadius: 5, padding: '2px 8px', cursor: 'pointer',
+            textTransform: 'uppercase', letterSpacing: '0.04em',
+          }}
+        >Lien LM</button>
+        <span style={{ fontSize: 10, color: faint }}>pour insérer le lien à la position du curseur</span>
+      </div>
     </div>
   );
 }
@@ -469,16 +428,8 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setResult(post.lmShortUrl || null);
     setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
     setDm1Saved(true);
-  }, [post.id]); // reset complet au changement de post
+  }, [post.id]);
 
-  // Quand dmLmMessage arrive depuis l'API (async), on met à jour dm1Text
-  // seulement si l'utilisateur n'a pas commencé à éditer
-  useEffect(() => {
-    if (post.dmLmMessage) {
-      setDm1Text(post.dmLmMessage);
-      setDm1Saved(true);
-    }
-  }, [post.dmLmMessage]);
 
   if (isYT) return (
     <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
@@ -558,6 +509,14 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   const [dm1Text, setDm1Text] = useState(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
   const [dm1Saved, setDm1Saved] = useState(true);
   const [dm1Saving, setDm1Saving] = useState(false);
+  const dm1SavedRef = useRef(true);
+  useEffect(() => { dm1SavedRef.current = dm1Saved; }, [dm1Saved]);
+  // Met à jour dm1Text depuis l'API async uniquement si pas d'édition en cours
+  useEffect(() => {
+    if (post.dmLmMessage && dm1SavedRef.current) {
+      setDm1Text(post.dmLmMessage);
+    }
+  }, [post.dmLmMessage]);
   const [dm2Text, setDm2Text] = useState(savedDmMessage);
   const [dm2Saved, setDm2Saved] = useState(true);
   const [dm2Saving, setDm2Saving] = useState(false);
