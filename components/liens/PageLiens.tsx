@@ -765,7 +765,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       {lmUrl && (
         <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le LM</div>
+            <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le Lead Magnet</div>
           </div>
           {/* Éditeur contentEditable avec badge {{lien_lm}} inline */}
           <Dm1Editor
@@ -799,7 +799,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
         <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 4 }}>DM 2 — Message d'ouverture de discussion</div>
         <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.5 }}>
-          Envoyé automatiquement juste après le DM avec le LM.
+          Envoyé automatiquement juste après le DM avec le Lead Magnet.
         </div>
         <textarea
           value={dm2Text}
@@ -829,7 +829,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         )}
         <button onClick={handleEditClick}
           style={{ fontSize: 12, fontWeight: 600, color: INK, background: 'none', border: `1.5px solid ${INK}`, borderRadius: 8, cursor: 'pointer', padding: '6px 14px', whiteSpace: 'nowrap' }}>
-          ✏️ Modifier / Régénérer le LM
+          ✏️ Modifier / Régénérer le Lead Magnet
         </button>
       </div>
     </div>
