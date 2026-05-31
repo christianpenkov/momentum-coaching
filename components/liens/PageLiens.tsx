@@ -366,20 +366,28 @@ function getCaretOffset(el: HTMLDivElement): number {
   if (!sel || sel.rangeCount === 0) return -1;
   const range = sel.getRangeAt(0);
   if (!range.collapsed) return -1;
+  const { startContainer, startOffset } = range;
+
   let offset = 0;
   for (const node of Array.from(el.childNodes)) {
-    if (node === range.startContainer) { offset += range.startOffset; break; }
     if (node.nodeType === Node.TEXT_NODE) {
-      if (node.contains?.(range.startContainer) || node === range.startContainer) {
-        offset += range.startOffset; break;
+      if (node === startContainer) {
+        return offset + startOffset;
       }
       offset += node.textContent?.length ?? 0;
     } else {
       const child = node as HTMLElement;
       if (child.dataset?.token === 'lien_lm') {
-        if (child === range.startContainer || child.contains(range.startContainer)) break;
+        // Le curseur peut être positionné sur le badge lui-même (startOffset 0 ou 1)
+        if (child === startContainer || child.contains(startContainer)) {
+          // Avant le badge si offset=0, après si offset=1
+          return startOffset === 0 ? offset : offset + TOKEN.length;
+        }
         offset += TOKEN.length;
       } else {
+        if (child === startContainer || child.contains(startContainer)) {
+          return offset + startOffset;
+        }
         offset += child.textContent?.length ?? 0;
       }
     }
@@ -392,6 +400,7 @@ function setCaretOffset(el: HTMLDivElement, targetOffset: number) {
   const sel = window.getSelection();
   if (!sel) return;
   let remaining = targetOffset;
+
   for (const node of Array.from(el.childNodes)) {
     if (node.nodeType === Node.TEXT_NODE) {
       const len = node.textContent?.length ?? 0;
@@ -409,9 +418,18 @@ function setCaretOffset(el: HTMLDivElement, targetOffset: number) {
     } else {
       const child = node as HTMLElement;
       if (child.dataset?.token === 'lien_lm') {
+        if (remaining <= 0) {
+          try {
+            const r = document.createRange();
+            r.setStartBefore(child);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+          } catch {}
+          return;
+        }
         remaining -= TOKEN.length;
         if (remaining <= 0) {
-          // Place le curseur après le badge
           try {
             const r = document.createRange();
             r.setStartAfter(child);
