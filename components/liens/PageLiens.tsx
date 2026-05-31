@@ -38,7 +38,7 @@ interface LeadMagnet {
   id: string;
   name: string;
   url: string;
-  usedOn: string[];
+  keyword: string;
   created_at?: string;
 }
 
@@ -424,14 +424,14 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                         <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
                         {leadMagnets.map(lm => (
-                          <div key={lm.id} onClick={() => setSelectedLmId(lm.id)} style={{
+                          <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword && !keyword) setKeyword(lm.keyword); }} style={{
                             padding: '10px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
                             background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
                           }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{lm.name}</div>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
                             <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all' }}>{lm.url}</div>
-                            {lm.usedOn.length > 0 && (
-                              <div style={{ fontSize: 10, color: MUTED, marginTop: 3 }}>Utilisé sur {lm.usedOn.length} contenu{lm.usedOn.length > 1 ? 's' : ''}</div>
+                            {lm.keyword && (
+                              <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginTop: 4 }}>Mot-clé par défaut : <span style={{ color: BLUE }}>#{lm.keyword}</span></div>
                             )}
                           </div>
                         ))}
@@ -456,10 +456,12 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
                 )}
 
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Mot-clé déclencheur</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>
+                    Mot-clé déclencheur <span style={{ fontWeight: 400, color: FAINT }}>(pré-rempli depuis le LM, modifiable pour ce contenu)</span>
+                  </div>
                   <input value={keyword} onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="GUIDE, CHECKLIST, TUNNEL…"
                     style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box', fontWeight: 600, letterSpacing: '0.04em' }} />
-                  <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot, il reçoit le LM en DM automatiquement.</div>
+                  <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot sous ce contenu, il reçoit le LM en DM.</div>
                 </div>
 
                 {lmError && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{lmError}</div>}
@@ -555,6 +557,7 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
 }) {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
+  const [keyword, setKeyword] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -565,12 +568,12 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
     try {
       const res = await fetch('/api/client/lead-magnets', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: name.trim() || url, url }),
+        body: JSON.stringify({ name: name.trim() || url, url, keyword }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Erreur');
       onCreated(data.lead_magnet);
-      setName(''); setUrl('');
+      setName(''); setUrl(''); setKeyword('');
     } catch (e: any) { setError(e.message); } finally { setSaving(false); }
   };
 
@@ -602,6 +605,18 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
           <input value={url} onChange={e => setUrl(e.target.value)} placeholder="notion.so/mon-guide ou https://…"
             style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
         </div>
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>
+            Mot-clé déclencheur <span style={{ fontWeight: 400, color: FAINT }}>(optionnel — peut être changé par contenu)</span>
+          </div>
+          <input
+            value={keyword}
+            onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))}
+            placeholder="GUIDE, CHECKLIST, TUNNEL…"
+            style={{ width: '100%', padding: '8px 10px', fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }}
+          />
+          <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot, il reçoit ce LM en DM. Tu pourras le modifier pour chaque contenu.</div>
+        </div>
         {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px' }}>{error}</div>}
         <button onClick={create} disabled={saving || !isValidUrl(url)}
           style={{ padding: '9px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: !isValidUrl(url) || saving ? 'not-allowed' : 'pointer', opacity: !isValidUrl(url) || saving ? 0.4 : 1, transition: 'opacity .15s' }}>
@@ -625,7 +640,10 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
                 <div style={{ fontSize: 18, flexShrink: 0 }}>📄</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
-                  <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all' }}>{lm.url}</div>
+                  <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all', marginBottom: lm.keyword ? 4 : 0 }}>{lm.url}</div>
+                  {lm.keyword && (
+                    <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
+                  )}
                 </div>
                 <button onClick={() => remove(lm.id)} disabled={deletingId === lm.id}
                   style={{ fontSize: 11, color: RED, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, opacity: deletingId === lm.id ? 0.5 : 1, padding: '2px 4px' }}>

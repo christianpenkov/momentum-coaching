@@ -21,7 +21,7 @@ export async function GET() {
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
-    .select('id, name, url, created_at')
+    .select('id, name, url, keyword, created_at')
     .eq('profile_id', user.id)
     .order('created_at', { ascending: false });
 
@@ -36,16 +36,17 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
   const body = await request.json();
-  const { name, url } = body;
+  const { name, url, keyword } = body;
 
   if (!url?.trim()) return NextResponse.json({ error: 'URL requise' }, { status: 400 });
 
   const normalizedUrl = normalizeUrl(url);
+  const cleanKeyword = (keyword || '').toUpperCase().trim().replace(/\s+/g, '');
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
-    .insert({ profile_id: user.id, name: name?.trim() || normalizedUrl, url: normalizedUrl })
-    .select('id, name, url, created_at')
+    .insert({ profile_id: user.id, name: name?.trim() || normalizedUrl, url: normalizedUrl, keyword: cleanKeyword })
+    .select('id, name, url, keyword, created_at')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
