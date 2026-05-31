@@ -71,6 +71,9 @@ export async function GET(request: Request) {
 
   const since = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
   const until = Math.floor(Date.now() / 1000);
+  // online_followers : fenêtre J-33→J-3 pour éviter les 48h de délai Meta (objets {} vides)
+  const ofUntil = Math.floor((Date.now() - 3 * 24 * 60 * 60 * 1000) / 1000);
+  const ofSince = Math.floor((Date.now() - 33 * 24 * 60 * 60 * 1000) / 1000);
 
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
@@ -79,7 +82,7 @@ export async function GET(request: Request) {
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,is_shared_to_feed,video_duration&limit=100&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,views,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=lifetime&since=${ofSince}&until=${ofUntil}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&period=day&since=${since}&until=${until}&breakdown=follow_type&access_token=${token}`),
   ]);
 
@@ -145,13 +148,38 @@ export async function GET(request: Request) {
     }
   }
 
-  // Abonnés en ligne par heure (online_followers period=day)
-  let onlineFollowers: any = null;
-  for (const metric of onlineFollowersData?.data || []) {
-    if (metric.name === 'online_followers' && metric.total_value) {
-      onlineFollowers = metric.total_value;
+  // Heatmap abonnés en ligne — period=lifetime, clés PST converties en heure Paris (UTC+2 été)
+  // PST offset : +7h en été (PDT), +8h en hiver (PST)
+  const now2 = new Date();
+  const yr = now2.getUTCFullYear();
+  const dstS = new Date(Date.UTC(yr, 2, 1)); dstS.setUTCDate(1 + (7 - dstS.getUTCDay()) % 7 + 7);
+  const dstE = new Date(Date.UTC(yr, 10, 1)); dstE.setUTCDate(1 + (7 - dstE.getUTCDay()) % 7);
+  const pstOffset = now2 >= dstS && now2 < dstE ? 7 : 8;
+  const localOffset = 2; // Paris UTC+2 été — à rendre dynamique quand on aura le TZ du coach
+
+  const heatmapMatrix: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+  const heatmapCount: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+  const ofValues = onlineFollowersData?.data?.[0]?.values || [];
+  for (const entry of ofValues) {
+    if (!entry.value || typeof entry.value !== 'object' || Object.keys(entry.value).length === 0) continue;
+    const day = new Date(entry.end_time).getUTCDay();
+    for (let pstHour = 0; pstHour < 24; pstHour++) {
+      const count = entry.value[String(pstHour)] ?? 0;
+      const localHour = (pstHour + pstOffset + localOffset) % 24;
+      heatmapMatrix[day][localHour] += count;
+      heatmapCount[day][localHour]++;
     }
   }
+  const onlineFollowers = {
+    heatmap: heatmapMatrix.map((row, d) =>
+      row.map((sum, h) => heatmapCount[d][h] > 0 ? Math.round(sum / heatmapCount[d][h]) : 0)
+    ),
+    maxValue: Math.max(...heatmapMatrix.flat().map((sum, i) => {
+      const d = Math.floor(i / 24); const h = i % 24;
+      return heatmapCount[d][h] > 0 ? Math.round(sum / heatmapCount[d][h]) : 0;
+    }), 1),
+    dataPointCount: ofValues.filter((e: any) => e.value && Object.keys(e.value).length > 0).length,
+  };
 
   // Chart reach + followers par jour
   const reachValues = insightMap['reach'] || [];
@@ -258,6 +286,18 @@ export async function GET(request: Request) {
       }
     })
   );
+
+  // Upsert des posts dans cached_posts — en arrière-plan, ne bloque pas la réponse
+  const postsToCache = mediaWithInsights.map((p: any) => ({
+    id: p.id,
+    profile_id: targetProfileId,
+    platform: 'IG',
+    caption: p.caption || null,
+    thumbnail: p.thumbnail || null,
+    permalink: p.permalink || null,
+    cached_at: new Date().toISOString(),
+  }));
+  void serviceSupabase.from('cached_posts').upsert(postsToCache, { onConflict: 'id,profile_id' });
 
   return NextResponse.json({
     username: accountData.username,

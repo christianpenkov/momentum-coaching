@@ -1417,58 +1417,78 @@ export default function PageLiens() {
       .catch(() => {});
   }, [profileId]);
 
-  // Charger posts IG + YT + liens Short.io existants pour croiser hasDescLink / hasLeadMagnet
+  // Charger posts : d'abord depuis le cache Supabase (instantané), puis sync IG en arrière-plan
   useEffect(() => {
     if (!profileId) return;
-    let igDone = false; let ytDone = false; let linksDone = false;
-    let igPosts: Post[] = [];
+    let ytDone = false;
     let ytPosts: Post[] = [];
-    let shortioLinks: any[] = [];
 
-    const enrich = () => {
-      if (!igDone || !ytDone || !linksDone) return;
-      const all = [...igPosts, ...ytPosts].map(post => {
-        const descLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'post');
-        const lmLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'leadmagnet');
-        return {
-          ...post,
-          hasDescLink: !!descLink,
-          descLinkUrl: descLink?.shortUrl || undefined,
-          hasLeadMagnet: !!lmLink,
-          lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
-        };
-      });
-      setPosts(all);
-      setPostsLoading(false);
-    };
+    // 1. Charge le cache Supabase immédiatement
+    fetch(`/api/client/posts?profileId=${profileId}`)
+      .then(r => r.json())
+      .then(data => {
+        if (data.posts && data.posts.length > 0) {
+          const cached: Post[] = data.posts.map((p: any) => ({
+            id: p.id,
+            caption: (p.caption || 'Publication Instagram').slice(0, 60),
+            platform: p.platform as 'IG' | 'YT',
+            thumbnail: p.thumbnail || null,
+            permalink: p.permalink || null,
+          }));
+          setPosts(prev => {
+            // Fusionne cache IG avec posts YT déjà chargés
+            const ytExisting = prev.filter(p => p.platform === 'YT');
+            const igCached = cached.filter(p => p.platform === 'IG');
+            return [...igCached, ...ytExisting];
+          });
+          setPostsLoading(false);
+        }
+      })
+      .catch(() => {});
 
+    // 2. Sync IG en arrière-plan (met à jour le cache Supabase pour la prochaine visite)
     fetch(`/api/instagram/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        igPosts = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail, permalink: p.permalink || null }));
-      }).catch(() => {}).finally(() => { igDone = true; enrich(); });
+        if (!data.posts) return;
+        const fresh: Post[] = data.posts.map((p: any) => ({
+          id: p.id,
+          caption: (p.caption || 'Publication Instagram').slice(0, 60),
+          platform: 'IG' as const,
+          thumbnail: p.thumbnail || null,
+          permalink: p.permalink || null,
+        }));
+        // Met à jour les posts IG avec les données fraîches
+        setPosts(prev => {
+          const ytExisting = prev.filter(p => p.platform === 'YT');
+          return [...fresh, ...ytExisting];
+        });
+        setPostsLoading(false);
+      })
+      .catch(() => { setPostsLoading(false); });
 
+    // 3. Charge YouTube en parallèle
     fetch(`/api/youtube/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        ytPosts = (data.videos || []).map((v: any) => ({ id: v.id, caption: (v.title || 'Vidéo YouTube').slice(0, 60), platform: 'YT' as const, thumbnail: v.thumbnail }));
-      }).catch(() => {}).finally(() => { ytDone = true; enrich(); });
-
-    fetch(`/api/shortio/stats?profileId=${profileId}`)
-      .then(r => r.json())
-      .then(data => {
-        shortioLinks = (data.links || []).map((l: any) => {
-          try {
-            const u = new URL(l.originalUrl || '');
-            return {
-              ...l,
-              postId: u.searchParams.get('utm_content') || null,
-              linkType: u.searchParams.get('utm_medium') || null,
-            };
-          } catch { return l; }
-        });
+        ytPosts = (data.videos || []).map((v: any) => ({
+          id: v.id,
+          caption: (v.title || 'Vidéo YouTube').slice(0, 60),
+          platform: 'YT' as const,
+          thumbnail: v.thumbnail,
+          permalink: null,
+        }));
       })
-      .catch(() => {}).finally(() => { linksDone = true; enrich(); });
+      .catch(() => {})
+      .finally(() => {
+        ytDone = true;
+        setPosts(prev => {
+          const igExisting = prev.filter(p => p.platform === 'IG');
+          return [...igExisting, ...ytPosts];
+        });
+      });
+
+    void ytDone; // évite le warning lint
   }, [profileId]);
 
   // Enrichir les posts avec les content_links — source de vérité principale
