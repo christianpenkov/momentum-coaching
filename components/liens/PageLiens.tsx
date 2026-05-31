@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useUser } from '@/lib/UserContext';
 
 // ─── Design tokens (alignés sur globals.css) ──────────────────────────────────
@@ -342,6 +342,181 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   );
 }
 
+// ─── Dm1Editor : contentEditable avec badge {{lien_lm}} inline ────────────────
+
+const TOKEN = '{{lien_lm}}';
+
+function serializeEditor(el: HTMLDivElement): string {
+  let result = '';
+  el.childNodes.forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      result += node.textContent ?? '';
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const el = node as HTMLElement;
+      if (el.dataset.token === 'lien_lm') result += TOKEN;
+      else result += el.textContent ?? '';
+    }
+  });
+  return result;
+}
+
+function buildNodes(value: string): (string | 'TOKEN')[] {
+  const parts = value.split(TOKEN);
+  const out: (string | 'TOKEN')[] = [];
+  parts.forEach((p, i) => {
+    if (p) out.push(p);
+    if (i < parts.length - 1) out.push('TOKEN');
+  });
+  return out;
+}
+
+function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
+  value: string; onChange: (v: string) => void; saved: boolean;
+  blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
+}) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const isComposing = useRef(false);
+  const lastValue = useRef(value);
+
+  // Reconstruit le DOM seulement quand la valeur change depuis l'extérieur
+  const syncDom = useCallback((val: string) => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    // Sauvegarde position curseur
+    const sel = window.getSelection();
+    let anchorOffset = 0;
+    let anchorNode: Node | null = null;
+    if (sel && sel.rangeCount > 0) {
+      const r = sel.getRangeAt(0);
+      anchorOffset = r.startOffset;
+      anchorNode = r.startContainer;
+    }
+
+    // Reconstruit le contenu
+    el.innerHTML = '';
+    buildNodes(val).forEach(part => {
+      if (part === 'TOKEN') {
+        const badge = document.createElement('span');
+        badge.dataset.token = 'lien_lm';
+        badge.contentEditable = 'false';
+        badge.textContent = 'Lien LM';
+        Object.assign(badge.style, {
+          display: 'inline-flex', alignItems: 'center',
+          background: blueSoft, border: `1px solid ${blue}`, borderRadius: '5px',
+          padding: '1px 8px', margin: '0 1px', color: blue,
+          fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
+          letterSpacing: '0.04em', verticalAlign: 'middle', userSelect: 'none',
+          cursor: 'default',
+        });
+        el.appendChild(badge);
+      } else {
+        el.appendChild(document.createTextNode(part));
+      }
+    });
+
+    // Restaure le curseur à la fin si le nœud d'ancrage a disparu
+    if (sel && anchorNode && el.contains(anchorNode)) {
+      try {
+        const r = document.createRange();
+        r.setStart(anchorNode, Math.min(anchorOffset, anchorNode.textContent?.length ?? 0));
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      } catch {}
+    } else if (sel) {
+      // Place le curseur à la fin
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      r.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }, [blue, blueSoft]);
+
+  // Init et mise à jour depuis l'extérieur
+  useEffect(() => {
+    if (value !== lastValue.current) {
+      lastValue.current = value;
+      syncDom(value);
+    }
+  }, [value, syncDom]);
+
+  // Init au montage
+  useEffect(() => {
+    syncDom(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleInput = useCallback(() => {
+    if (isComposing.current || !editorRef.current) return;
+    const serialized = serializeEditor(editorRef.current);
+    if (serialized !== lastValue.current) {
+      lastValue.current = serialized;
+      onChange(serialized);
+    }
+  }, [onChange]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+
+    // Backspace : si le nœud juste avant le curseur est un badge, le supprimer
+    if (e.key === 'Backspace' && range.collapsed) {
+      const { startContainer, startOffset } = range;
+      if (startOffset === 0) {
+        const prev = startContainer.previousSibling;
+        if (prev && (prev as HTMLElement).dataset?.token === 'lien_lm') {
+          e.preventDefault();
+          prev.parentNode?.removeChild(prev);
+          handleInput();
+          return;
+        }
+      }
+    }
+
+    // Delete : si le nœud juste après le curseur est un badge, le supprimer
+    if (e.key === 'Delete' && range.collapsed) {
+      const { startContainer, startOffset } = range;
+      const textLen = startContainer.textContent?.length ?? 0;
+      if (startOffset === textLen) {
+        const next = startContainer.nextSibling;
+        if (next && (next as HTMLElement).dataset?.token === 'lien_lm') {
+          e.preventDefault();
+          next.parentNode?.removeChild(next);
+          handleInput();
+          return;
+        }
+      }
+    }
+  }, [handleInput]);
+
+  return (
+    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onCompositionStart={() => { isComposing.current = true; }}
+        onCompositionEnd={() => { isComposing.current = false; handleInput(); }}
+        onKeyDown={handleKeyDown}
+        data-placeholder="Ex : 👋 Voici le lien comme promis !"
+        style={{
+          minHeight: 72, padding: '10px 12px', fontSize: 12, lineHeight: 1.6,
+          fontFamily: 'inherit', color: ink, outline: 'none',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          borderRadius: 8,
+        }}
+      />
+      <style>{`[contenteditable]:empty:before{content:attr(data-placeholder);color:${faint};}`}</style>
+    </div>
+  );
+}
+
+// ─── TabLm ────────────────────────────────────────────────────────────────────
+
 function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated, onPostUpdated }: {
   post: Post; profileId: string; domain: string; canGenerate: boolean;
   leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
@@ -445,7 +620,6 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   const [dm1Text, setDm1Text] = useState(`👋 Voici le lien comme promis ! {{lien_lm}}`);
   const [dm1Saved, setDm1Saved] = useState(true);
   const [dm1Saving, setDm1Saving] = useState(false);
-  const dm1Ref = useRef<HTMLTextAreaElement>(null);
   const [dm2Text, setDm2Text] = useState(savedDmMessage);
   const [dm2Saved, setDm2Saved] = useState(true);
   const [dm2Saving, setDm2Saving] = useState(false);
@@ -482,47 +656,13 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le LM</div>
           </div>
-          {/* Éditeur avec token {{lien_lm}} rendu comme badge bleu */}
-          <div style={{ position: 'relative', borderRadius: 8, border: `1px solid ${dm1Saved ? BORDER : AMBER}` }}>
-            {/* Rendu visuel par-dessus */}
-            <div aria-hidden style={{
-              position: 'absolute', inset: 0, padding: '10px 12px', fontSize: 12, lineHeight: 1.5,
-              fontFamily: 'inherit', pointerEvents: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-              color: 'transparent', zIndex: 1,
-            }}>
-              {dm1Text.split('{{lien_lm}}').map((part, i, arr) => (
-                <span key={i}>
-                  <span style={{ color: 'transparent' }}>{part}</span>
-                  {i < arr.length - 1 && (
-                    <span style={{
-                      display: 'inline-flex', alignItems: 'center', gap: 4,
-                      background: BLUE_SOFT, border: `1px solid ${BLUE}`, borderRadius: 5,
-                      padding: '1px 7px', verticalAlign: 'middle', color: BLUE,
-                      fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
-                      pointerEvents: 'none',
-                    }}>
-                      Lien LM
-                    </span>
-                  )}
-                </span>
-              ))}
-            </div>
-            {/* Textarea transparent (édition réelle) */}
-            <textarea
-              ref={dm1Ref}
-              value={dm1Text}
-              onChange={e => { setDm1Text(e.target.value); setDm1Saved(false); }}
-              rows={3}
-              placeholder="Ex : 👋 Voici le lien comme promis !"
-              style={{
-                position: 'relative', zIndex: 2, width: '100%', padding: '10px 12px',
-                fontSize: 12, borderRadius: 8, border: 'none', background: 'transparent',
-                color: dm1Text.includes('{{lien_lm}}') ? 'transparent' : INK,
-                caretColor: INK, outline: 'none', resize: 'vertical',
-                boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit',
-              }}
-            />
-          </div>
+          {/* Éditeur contentEditable avec badge {{lien_lm}} inline */}
+          <Dm1Editor
+            value={dm1Text}
+            onChange={v => { setDm1Text(v); setDm1Saved(false); }}
+            saved={dm1Saved}
+            blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK} faint={FAINT}
+          />
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={async () => {
               setDm1Saving(true);
