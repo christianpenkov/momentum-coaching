@@ -32,6 +32,19 @@ interface Post {
   hasLeadMagnet?: boolean;
   descLinkUrl?: string;
   lmKeyword?: string;
+  lmShortUrl?: string;
+  dmOpenerMessage?: string;
+}
+
+interface ContentLink {
+  content_id: string;
+  platform: string;
+  desc_short_url?: string | null;
+  desc_dest_type?: string | null;
+  lm_id?: string | null;
+  lm_short_url?: string | null;
+  lm_keyword?: string | null;
+  dm_opener_message?: string | null;
 }
 
 interface LeadMagnet {
@@ -209,9 +222,10 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
 // ─── Panneau droit : actions pour un contenu ──────────────────────────────────
 
-function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnets }: {
+function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnets, onPostUpdated }: {
   post: Post; profileId: string; domain: string; canGenerate: boolean;
   calendlyUrl: string; leadMagnets: LeadMagnet[];
+  onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
   const hasCalendly = calendlyUrl.trim().startsWith('http');
   // IG: Calendly / LM / custom — YT: Calendly / custom seulement
@@ -234,7 +248,12 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     try {
       const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
       const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: domain, utmMedium: 'description', utmCampaign: destType, utmContent: post.id, path });
+      await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, desc_short_url: shortUrl, desc_dest_type: destType }),
+      });
       setResult(shortUrl);
+      onPostUpdated(post.id, { hasDescLink: true, descLinkUrl: shortUrl });
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -305,9 +324,10 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   );
 }
 
-function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated }: {
+function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated, onPostUpdated }: {
   post: Post; profileId: string; domain: string; canGenerate: boolean;
   leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
+  onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
   const isYT = post.platform === 'YT';
   const [lmMode, setLmMode] = useState<'existing' | 'new'>('existing');
@@ -315,10 +335,19 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated 
   const [newLmName, setNewLmName] = useState('');
   const [newLmUrl, setNewLmUrl] = useState('');
   const [keyword, setKeyword] = useState(post.lmKeyword || '');
-  const [result, setResult] = useState<string | null>(null);
+  const [dmMessage, setDmMessage] = useState(post.dmOpenerMessage || '');
+  const [result, setResult] = useState<string | null>(post.lmShortUrl || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isExisting = !!post.hasLeadMagnet && !!post.lmKeyword;
+  const [savingMsg, setSavingMsg] = useState(false);
+  const [msgSaved, setMsgSaved] = useState(false);
+  const isExisting = !!post.hasLeadMagnet;
+
+  useEffect(() => {
+    setKeyword(post.lmKeyword || '');
+    setDmMessage(post.dmOpenerMessage || '');
+    setResult(post.lmShortUrl || null);
+  }, [post.id]);
 
   if (isYT) return (
     <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
@@ -333,10 +362,22 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated 
     </div>
   );
 
+  const saveMessage = async (msg: string) => {
+    setSavingMsg(true);
+    try {
+      await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_opener_message: msg }),
+      });
+      onPostUpdated(post.id, { dmOpenerMessage: msg });
+      setMsgSaved(true); setTimeout(() => setMsgSaved(false), 2000);
+    } catch {} finally { setSavingMsg(false); }
+  };
+
   const generate = async () => {
     const validationError = validateLmParams({ canGenerate, keyword, lmMode, selectedLmId, newLmUrl });
     if (validationError) { setError(validationError); return; }
-    let lmUrl = '', lmName = '';
+    let lmUrl = '', lmName = '', resolvedLmId = selectedLmId;
     if (lmMode === 'existing') {
       const lm = leadMagnets.find(l => l.id === selectedLmId);
       if (!lm) return;
@@ -349,30 +390,59 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated 
       if (lmMode === 'new') {
         const res = await fetch('/api/client/lead-magnets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: lmName, url: lmUrl, keyword }) });
         const saved = await res.json();
-        if (res.ok && saved.lead_magnet) onLmCreated(saved.lead_magnet);
+        if (res.ok && saved.lead_magnet) { onLmCreated(saved.lead_magnet); resolvedLmId = saved.lead_magnet.id; }
       }
       const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
       const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
+      // Sauvegarder dans content_links
+      await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_keyword: keyword, dm_opener_message: dmMessage || null }),
+      });
       setResult(shortUrl);
+      onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl });
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
   if (result || isExisting) return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--green-soft)', borderRadius: 8, padding: '10px 14px' }}>
-        <span style={{ fontSize: 16 }}>✅</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--green-soft)', borderRadius: 10, padding: '12px 14px' }}>
+        <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>✅</span>
         <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>Lead magnet associé à ce contenu</div>
-          <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
-            Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong> — le LM s'envoie automatiquement en DM quand quelqu'un commente ce mot.
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 3 }}>Lead magnet associé</div>
+          <div style={{ fontSize: 11, color: MUTED }}>
+            Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong>
+          </div>
+          <div style={{ fontSize: 11, color: MUTED, marginTop: 2, lineHeight: 1.5 }}>
+            Quand quelqu'un commente ce mot, il reçoit le LM en DM automatiquement. <strong>Rien à faire de plus sur Instagram.</strong>
           </div>
         </div>
       </div>
-      <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '10px 12px', lineHeight: 1.6 }}>
-        <strong>Rien à faire de plus sur Instagram.</strong> La plateforme détecte automatiquement le commentaire et envoie le LM en DM. Tu n'as pas besoin de mettre ce lien quelque part.
+
+      {/* Message d'ouverture de discussion */}
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 4 }}>Message d'ouverture de discussion</div>
+        <div style={{ fontSize: 11, color: MUTED, marginBottom: 10, lineHeight: 1.5 }}>
+          Après l'envoi du LM, tu peux envoyer ce message pour ouvrir la conversation avec le lead.
+        </div>
+        <textarea
+          value={dmMessage}
+          onChange={e => setDmMessage(e.target.value)}
+          placeholder={`Ex : "Salut [prénom] ! Tu as bien reçu le guide ? Si tu as des questions je suis là 😊"`}
+          rows={4}
+          style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
+        />
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
+          <div style={{ fontSize: 10, color: FAINT }}>Ce message est une référence — tu l'envoies manuellement après réception du LM par le lead.</div>
+          <button onClick={() => saveMessage(dmMessage)} disabled={savingMsg}
+            style={{ padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: msgSaved ? 'var(--green)' : BLUE, color: '#fff', cursor: savingMsg ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', flexShrink: 0, transition: 'background .2s' }}>
+            {savingMsg ? '...' : msgSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
+          </button>
+        </div>
       </div>
-      {result && <GeneratedUrlRow url={result} label="Lien lead magnet (référence)" />}
-      <button onClick={() => { setResult(null); }} style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
+
+      {result && <GeneratedUrlRow url={result} label="Lien lead magnet" />}
+      <button onClick={() => { setResult(null); onPostUpdated(post.id, { hasLeadMagnet: false, lmKeyword: undefined, lmShortUrl: undefined }); }} style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
         Modifier / regénérer
       </button>
     </div>
@@ -447,9 +517,10 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated 
   );
 }
 
-function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, leadMagnets, onLmCreated }: {
+function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, leadMagnets, onLmCreated, onPostUpdated }: {
   post: Post; profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
   calendlyUrl: string; leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
+  onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
   const domain = domains[0]?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
@@ -500,8 +571,8 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
 
       {/* Contenu */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-        {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} />}
-        {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} leadMagnets={leadMagnets} onLmCreated={onLmCreated} />}
+        {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onPostUpdated={onPostUpdated} />}
+        {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} leadMagnets={leadMagnets} onLmCreated={onLmCreated} onPostUpdated={onPostUpdated} />}
       </div>
     </div>
   );
@@ -725,8 +796,11 @@ export default function PageLiens() {
   const [calendlyUrl, setCalendlyUrl] = useState('');
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
   const [lmLoading, setLmLoading] = useState(true);
+  const [contentLinks, setContentLinks] = useState<ContentLink[]>([]);
   const [rightView, setRightView] = useState<RightView>(null);
   const [paramOpen, setParamOpen] = useState(false);
+  const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all');
+  const [search, setSearch] = useState('');
 
   // Charger domaines + settings + lead magnets
   useEffect(() => {
@@ -747,6 +821,11 @@ export default function PageLiens() {
       .then(data => { setLeadMagnets(data.lead_magnets ?? []); })
       .catch(() => {})
       .finally(() => setLmLoading(false));
+
+    fetch('/api/client/content-links')
+      .then(r => r.json())
+      .then(data => { setContentLinks(data.content_links ?? []); })
+      .catch(() => {});
   }, [profileId]);
 
   // Charger posts IG + YT + liens Short.io existants pour croiser hasDescLink / hasLeadMagnet
@@ -803,6 +882,39 @@ export default function PageLiens() {
       .catch(() => {}).finally(() => { linksDone = true; enrich(); });
   }, [profileId]);
 
+  // Enrichir les posts avec les content_links dès qu'on a les deux
+  useEffect(() => {
+    if (!contentLinks.length || !posts.length) return;
+    setPosts(prev => prev.map(post => {
+      const cl = contentLinks.find(c => c.content_id === post.id);
+      if (!cl) return post;
+      return {
+        ...post,
+        hasDescLink: !!cl.desc_short_url,
+        descLinkUrl: cl.desc_short_url || undefined,
+        hasLeadMagnet: !!cl.lm_short_url,
+        lmKeyword: cl.lm_keyword || undefined,
+        lmShortUrl: cl.lm_short_url || undefined,
+        dmOpenerMessage: cl.dm_opener_message || undefined,
+      };
+    }));
+  }, [contentLinks]);
+
+  const handlePostUpdated = (postId: string, patch: Partial<Post>) => {
+    setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...patch } : p));
+    // Mettre à jour rightView si c'est le post sélectionné
+    setRightView(prev => {
+      if (!prev || prev.type !== 'post' || prev.post.id !== postId) return prev;
+      return { type: 'post', post: { ...prev.post, ...patch } };
+    });
+  };
+
+  const filteredPosts = posts.filter(p => {
+    if (filterPlatform !== 'all' && p.platform !== filterPlatform) return false;
+    if (search.trim() && !p.caption.toLowerCase().includes(search.toLowerCase())) return false;
+    return true;
+  });
+
   const selectedPost = rightView?.type === 'post' ? rightView.post : null;
 
   return (
@@ -842,54 +954,70 @@ export default function PageLiens() {
         {/* Body : 2 colonnes */}
         <div style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
-          {/* Colonne gauche : liste contenus + bouton prospect */}
-          <div style={{ width: 280, flexShrink: 0, borderRight: `1px solid ${BORDER}`, overflowY: 'auto', background: BG, display: 'flex', flexDirection: 'column' }}>
+          {/* Colonne gauche */}
+          <div style={{ width: 380, flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 
             {/* Bouton Calendly prospect */}
-            <div style={{ padding: '12px 16px', borderBottom: `1px solid ${BORDER}` }}>
+            <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
               <button onClick={() => setRightView({ type: 'prospect' })} style={{
-                width: '100%', padding: '10px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                width: '100%', padding: '9px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
                 border: `1.5px solid ${rightView?.type === 'prospect' ? BLUE : BORDER}`,
                 background: rightView?.type === 'prospect' ? BLUE_SOFT : SURFACE,
-                color: rightView?.type === 'prospect' ? BLUE : INK,
-                transition: 'all .15s',
-              }}>
-                📅 Lien Calendly prospect
-              </button>
+                color: rightView?.type === 'prospect' ? BLUE : INK, transition: 'all .15s',
+              }}>📅 Lien Calendly prospect</button>
+            </div>
+
+            {/* Barre recherche + filtres */}
+            <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
+                style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                {(['all', 'IG', 'YT'] as const).map(f => (
+                  <button key={f} onClick={() => setFilterPlatform(f)} style={{
+                    padding: '4px 11px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+                    background: filterPlatform === f ? INK : SURFACE2,
+                    color: filterPlatform === f ? 'var(--bg)' : MUTED, transition: 'all .12s',
+                  }}>{f === 'all' ? 'Tous' : f === 'IG' ? '📸 IG' : '▶️ YT'}</button>
+                ))}
+                <span style={{ marginLeft: 'auto', fontSize: 10, color: FAINT }}>
+                  {filteredPosts.length} contenu{filteredPosts.length !== 1 ? 's' : ''}
+                </span>
+              </div>
             </div>
 
             {/* Liste contenus */}
-            <div style={{ flex: 1, padding: '8px 0' }}>
-              <div style={{ padding: '8px 16px 4px', fontSize: 10, fontWeight: 700, color: FAINT, textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-                Contenus
-              </div>
+            <div style={{ flex: 1, overflowY: 'auto' }}>
               {postsLoading ? (
                 <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>Chargement...</div>
-              ) : posts.length === 0 ? (
-                <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>Aucun contenu trouvé.<br />Connecte Instagram ou YouTube.</div>
-              ) : (
-                posts.map(post => {
-                  const isSelected = selectedPost?.id === post.id;
-                  return (
-                    <div key={post.id} onClick={() => setRightView({ type: 'post', post })}
-                      style={{ display: 'flex', alignItems: 'flex-start', gap: 8, padding: '8px 16px', cursor: 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, transition: 'all .1s' }}>
-                      <div style={{ width: 32, height: 32, borderRadius: 6, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, flexShrink: 0, overflow: 'hidden' }}>
-                        {post.thumbnail
-                          ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          : post.platform === 'IG' ? '📸' : '▶️'}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{post.caption}</div>
-                        <div style={{ display: 'flex', gap: 4, marginTop: 3 }}>
-                          <Badge color={post.platform === 'IG' ? '#c2185b' : '#d32f2f'} bg={post.platform === 'IG' ? '#c2185b12' : '#d32f2f12'}>{post.platform}</Badge>
-                          {post.hasDescLink && <Badge color={BLUE} bg={BLUE_SOFT}>📝</Badge>}
-                          {post.hasLeadMagnet && <Badge color='var(--green)' bg='var(--green-soft)'>📄</Badge>}
-                        </div>
+              ) : filteredPosts.length === 0 ? (
+                <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
+                  {search ? 'Aucun résultat.' : 'Aucun contenu trouvé.'}
+                </div>
+              ) : filteredPosts.map(post => {
+                const isSelected = selectedPost?.id === post.id;
+                const hasDesc = !!post.hasDescLink;
+                const hasLm = !!post.hasLeadMagnet;
+                return (
+                  <div key={post.id} onClick={() => setRightView({ type: 'post', post })}
+                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 14px', cursor: 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, transition: 'all .1s' }}>
+                    <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0, overflow: 'hidden' }}>
+                      {post.thumbnail ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : post.platform === 'IG' ? '📸' : '▶️'}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>{post.caption}</div>
+                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                        <Badge color={post.platform === 'IG' ? '#c2185b' : '#d32f2f'} bg={post.platform === 'IG' ? '#c2185b12' : '#d32f2f12'}>{post.platform}</Badge>
+                        {hasDesc
+                          ? <Badge color={BLUE} bg={BLUE_SOFT}>📝 Desc</Badge>
+                          : <Badge color={FAINT} bg={SURFACE2}>📝 —</Badge>}
+                        {post.platform === 'IG' && (hasLm
+                          ? <Badge color='var(--green)' bg='var(--green-soft)'>📄 {post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</Badge>
+                          : <Badge color={FAINT} bg={SURFACE2}>📄 —</Badge>)}
                       </div>
                     </div>
-                  );
-                })
-              )}
+                  </div>
+                );
+              })}
             </div>
           </div>
 
@@ -918,6 +1046,7 @@ export default function PageLiens() {
                 post={rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
                 calendlyUrl={calendlyUrl} leadMagnets={leadMagnets}
                 onLmCreated={lm => setLeadMagnets(prev => [lm, ...prev])}
+                onPostUpdated={handlePostUpdated}
               />
             )}
           </div>
