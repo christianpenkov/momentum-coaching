@@ -482,40 +482,46 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le LM</div>
           </div>
-          {/* Bloc draggable {{lien_lm}} */}
-          <div
-            draggable
-            onDragStart={e => e.dataTransfer.setData('text/plain', '{{lien_lm}}')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 8, background: BLUE_SOFT, border: `1px solid ${BLUE}`, borderRadius: 6, padding: '4px 10px', cursor: 'grab', userSelect: 'none' }}
-          >
-            <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Lien LM</span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: BLUE, fontFamily: 'monospace' }}>{'{{lien_lm}}'}</span>
-            <span style={{ fontSize: 9, color: MUTED }}>↕ glisser</span>
-          </div>
-          {/* Texte éditable */}
-          <textarea
-            ref={dm1Ref}
-            value={dm1Text}
-            onChange={e => { setDm1Text(e.target.value); setDm1Saved(false); }}
-            onDrop={e => {
-              e.preventDefault();
-              const token = e.dataTransfer.getData('text/plain');
-              const el = dm1Ref.current;
-              if (!el || !token) return;
-              const start = el.selectionStart ?? dm1Text.length;
-              const end = el.selectionEnd ?? dm1Text.length;
-              const next = dm1Text.slice(0, start) + token + dm1Text.slice(end);
-              setDm1Text(next);
-              setDm1Saved(false);
-              setTimeout(() => { el.selectionStart = el.selectionEnd = start + token.length; el.focus(); }, 0);
-            }}
-            onDragOver={e => e.preventDefault()}
-            rows={3}
-            placeholder="Ex : Hello ! Voici le lien que tu as demandé : {{lien_lm}}"
-            style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm1Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
-          />
-          <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>
-            Glisse <strong>Lien LM</strong> dans le message pour positionner le lien où tu veux.
+          {/* Éditeur avec token {{lien_lm}} rendu comme badge bleu */}
+          <div style={{ position: 'relative', borderRadius: 8, border: `1px solid ${dm1Saved ? BORDER : AMBER}` }}>
+            {/* Rendu visuel par-dessus */}
+            <div aria-hidden style={{
+              position: 'absolute', inset: 0, padding: '10px 12px', fontSize: 12, lineHeight: 1.5,
+              fontFamily: 'inherit', pointerEvents: 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              color: 'transparent', zIndex: 1,
+            }}>
+              {dm1Text.split('{{lien_lm}}').map((part, i, arr) => (
+                <span key={i}>
+                  <span style={{ color: 'transparent' }}>{part}</span>
+                  {i < arr.length - 1 && (
+                    <span style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 4,
+                      background: BLUE_SOFT, border: `1px solid ${BLUE}`, borderRadius: 5,
+                      padding: '1px 7px', verticalAlign: 'middle', color: BLUE,
+                      fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em',
+                      pointerEvents: 'none',
+                    }}>
+                      Lien LM
+                    </span>
+                  )}
+                </span>
+              ))}
+            </div>
+            {/* Textarea transparent (édition réelle) */}
+            <textarea
+              ref={dm1Ref}
+              value={dm1Text}
+              onChange={e => { setDm1Text(e.target.value); setDm1Saved(false); }}
+              rows={3}
+              placeholder="Ex : 👋 Voici le lien comme promis !"
+              style={{
+                position: 'relative', zIndex: 2, width: '100%', padding: '10px 12px',
+                fontSize: 12, borderRadius: 8, border: 'none', background: 'transparent',
+                color: dm1Text.includes('{{lien_lm}}') ? 'transparent' : INK,
+                caretColor: INK, outline: 'none', resize: 'vertical',
+                boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit',
+              }}
+            />
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={async () => {
