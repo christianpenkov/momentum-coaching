@@ -1057,16 +1057,19 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     setStatModal({ label, value, color: s.color, data: s.data, unit: s.unit });
   };
 
-  // Online followers heatmap
+  // Online followers heatmap — matrix[dayIndex][hourIndex], dayIndex 0=Dim (format API)
   let heatmapRows: { name: string; cells: { label: string; value: number }[] }[] = [];
   const days = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
   const hours = Array.from({ length: 24 }, (_, i) => `${i}h`);
-  if (ig.onlineFollowers?.hour_counts) {
+  const ofMatrix = ig.onlineFollowers?.heatmap;
+  if (ofMatrix && Array.isArray(ofMatrix) && ofMatrix.length === 7) {
+    // API : [0=Dim, 1=Lun, ..., 6=Sam] → affichage : [Lun, Mar, Mer, Jeu, Ven, Sam, Dim]
+    const apiOrder = [1, 2, 3, 4, 5, 6, 0];
     heatmapRows = days.map((day, di) => ({
       name: day,
       cells: hours.map((h, hi) => ({
         label: `${day} ${h}`,
-        value: ig.onlineFollowers.hour_counts?.[di]?.[hi] ?? 0,
+        value: ofMatrix[apiOrder[di]]?.[hi] ?? 0,
       })),
     }));
   }
@@ -3176,19 +3179,12 @@ export default function PageAnalytics({ profileId }: { profileId?: string } = {}
         try { const r = await fn(); return r.ok ? r.json() : null; } catch { return null; }
       };
 
-      const [igData, ytData, stripeData, msgsData, shortioData] = await Promise.all([
-        safe(() => fetch(`/api/instagram/stats${q}`)),
-        safe(() => fetch(`/api/youtube/stats${q}`)),
-        safe(() => fetch(`/api/stripe/client-data${q}`)),
-        safe(() => fetch(`/api/instagram/messages${q}`)),
-        safe(() => fetch(`/api/shortio/stats${q}`)),
-      ]);
-
-      if (igData && !igData.error) setIg(igData);
-      if (ytData && !ytData.error) setYt(ytData);
-      if (stripeData && !stripeData.error) setStripe(stripeData);
-      if (msgsData && !msgsData.error) setMsgs(msgsData);
-      if (shortioData && !shortioData.error) setShortio(shortioData);
+      // Chaque API répond indépendamment — affichage progressif sans attendre les autres
+      safe(() => fetch(`/api/instagram/stats${q}`)).then(d => { if (d && !d.error) { setIg(d); setLoading(false); } });
+      safe(() => fetch(`/api/youtube/stats${q}`)).then(d => { if (d && !d.error) setYt(d); });
+      safe(() => fetch(`/api/stripe/client-data${q}`)).then(d => { if (d && !d.error) setStripe(d); });
+      safe(() => fetch(`/api/instagram/messages${q}`)).then(d => { if (d && !d.error) setMsgs(d); });
+      safe(() => fetch(`/api/shortio/stats${q}`)).then(d => { if (d && !d.error) setShortio(d); });
 
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
@@ -3220,7 +3216,8 @@ export default function PageAnalytics({ profileId }: { profileId?: string } = {}
         }
       }
 
-      setLoading(false);
+      // Fallback : si IG ne répond pas en 15s, on affiche quand même ce qui est chargé
+      setTimeout(() => setLoading(false), 15000);
     }
 
     load();
