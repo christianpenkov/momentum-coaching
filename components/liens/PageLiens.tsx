@@ -370,6 +370,23 @@ function buildNodes(value: string): (string | 'TOKEN')[] {
   return out;
 }
 
+function makeBadge(blue: string, blueSoft: string): HTMLSpanElement {
+  const badge = document.createElement('span');
+  badge.dataset.token = 'lien_lm';
+  badge.contentEditable = 'false';
+  badge.draggable = true;
+  badge.textContent = 'Lien LM';
+  Object.assign(badge.style, {
+    display: 'inline-flex', alignItems: 'center',
+    background: blueSoft, border: `1px solid ${blue}`, borderRadius: '5px',
+    padding: '1px 8px', margin: '0 1px', color: blue,
+    fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
+    letterSpacing: '0.04em', verticalAlign: 'middle', userSelect: 'none',
+    cursor: 'grab',
+  });
+  return badge;
+}
+
 function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
@@ -377,64 +394,59 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
   const editorRef = useRef<HTMLDivElement>(null);
   const isComposing = useRef(false);
   const lastValue = useRef(value);
+  const draggingBadge = useRef<HTMLSpanElement | null>(null);
 
-  // Reconstruit le DOM seulement quand la valeur change depuis l'extérieur
-  const syncDom = useCallback((val: string) => {
+  const commitChange = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const serialized = serializeEditor(el);
+    lastValue.current = serialized;
+    onChange(serialized);
+  }, [onChange]);
+
+  const syncDom = useCallback((val: string, preserveCursor = false) => {
     const el = editorRef.current;
     if (!el) return;
 
-    // Sauvegarde position curseur
-    const sel = window.getSelection();
-    let anchorOffset = 0;
     let anchorNode: Node | null = null;
-    if (sel && sel.rangeCount > 0) {
-      const r = sel.getRangeAt(0);
-      anchorOffset = r.startOffset;
-      anchorNode = r.startContainer;
+    let anchorOffset = 0;
+    if (preserveCursor) {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        anchorNode = sel.getRangeAt(0).startContainer;
+        anchorOffset = sel.getRangeAt(0).startOffset;
+      }
     }
 
-    // Reconstruit le contenu
     el.innerHTML = '';
     buildNodes(val).forEach(part => {
       if (part === 'TOKEN') {
-        const badge = document.createElement('span');
-        badge.dataset.token = 'lien_lm';
-        badge.contentEditable = 'false';
-        badge.textContent = 'Lien LM';
-        Object.assign(badge.style, {
-          display: 'inline-flex', alignItems: 'center',
-          background: blueSoft, border: `1px solid ${blue}`, borderRadius: '5px',
-          padding: '1px 8px', margin: '0 1px', color: blue,
-          fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
-          letterSpacing: '0.04em', verticalAlign: 'middle', userSelect: 'none',
-          cursor: 'default',
-        });
-        el.appendChild(badge);
+        el.appendChild(makeBadge(blue, blueSoft));
       } else {
         el.appendChild(document.createTextNode(part));
       }
     });
 
-    // Restaure le curseur à la fin si le nœud d'ancrage a disparu
-    if (sel && anchorNode && el.contains(anchorNode)) {
+    // Restaure curseur
+    const sel = window.getSelection();
+    if (!sel) return;
+    if (preserveCursor && anchorNode && el.contains(anchorNode)) {
       try {
         const r = document.createRange();
         r.setStart(anchorNode, Math.min(anchorOffset, anchorNode.textContent?.length ?? 0));
         r.collapse(true);
         sel.removeAllRanges();
         sel.addRange(r);
+        return;
       } catch {}
-    } else if (sel) {
-      // Place le curseur à la fin
-      const r = document.createRange();
-      r.selectNodeContents(el);
-      r.collapse(false);
-      sel.removeAllRanges();
-      sel.addRange(r);
     }
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
   }, [blue, blueSoft]);
 
-  // Init et mise à jour depuis l'extérieur
   useEffect(() => {
     if (value !== lastValue.current) {
       lastValue.current = value;
@@ -442,7 +454,6 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
     }
   }, [value, syncDom]);
 
-  // Init au montage
   useEffect(() => {
     syncDom(value);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -451,46 +462,111 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
   const handleInput = useCallback(() => {
     if (isComposing.current || !editorRef.current) return;
     const serialized = serializeEditor(editorRef.current);
-    if (serialized !== lastValue.current) {
-      lastValue.current = serialized;
-      onChange(serialized);
+    if (serialized === lastValue.current) return;
+
+    // Si le badge a été retiré (couper, coller sans lui, etc.) → on le force dans la valeur
+    const prevHadToken = lastValue.current.includes(TOKEN);
+    const nowHasToken = serialized.includes(TOKEN);
+    if (prevHadToken && !nowHasToken) {
+      // Restaure le DOM avec le token à la fin du texte actuel
+      const restored = serialized + TOKEN;
+      lastValue.current = restored;
+      syncDom(restored, true);
+      onChange(restored);
+      return;
     }
-  }, [onChange]);
+
+    // Convertit {{lien_lm}} tapé manuellement en badge
+    if (serialized.includes(TOKEN)) {
+      lastValue.current = serialized;
+      syncDom(serialized, true);
+      onChange(serialized);
+      return;
+    }
+
+    lastValue.current = serialized;
+    onChange(serialized);
+  }, [onChange, syncDom]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     const sel = window.getSelection();
     if (!sel || !sel.rangeCount) return;
     const range = sel.getRangeAt(0);
 
-    // Backspace : si le nœud juste avant le curseur est un badge, le supprimer
-    if (e.key === 'Backspace' && range.collapsed) {
-      const { startContainer, startOffset } = range;
-      if (startOffset === 0) {
-        const prev = startContainer.previousSibling;
-        if (prev && (prev as HTMLElement).dataset?.token === 'lien_lm') {
-          e.preventDefault();
-          prev.parentNode?.removeChild(prev);
-          handleInput();
-          return;
+    // Bloque toute suppression qui toucherait le badge
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const el = editorRef.current;
+      if (!el) return;
+
+      // Si sélection non-collapsed, vérifier qu'aucun badge n'est dans la sélection
+      if (!range.collapsed) {
+        const frag = range.cloneContents();
+        const hasBadge = Array.from(frag.querySelectorAll('[data-token="lien_lm"]')).length > 0;
+        if (hasBadge) { e.preventDefault(); return; }
+      }
+
+      if (e.key === 'Backspace' && range.collapsed) {
+        const prev = range.startContainer.previousSibling;
+        if (range.startOffset === 0 && prev && (prev as HTMLElement).dataset?.token === 'lien_lm') {
+          e.preventDefault(); return;
         }
+      }
+      if (e.key === 'Delete' && range.collapsed) {
+        const textLen = range.startContainer.textContent?.length ?? 0;
+        const next = range.startContainer.nextSibling;
+        if (range.startOffset === textLen && next && (next as HTMLElement).dataset?.token === 'lien_lm') {
+          e.preventDefault(); return;
+        }
+      }
+    }
+  }, []);
+
+  // Drag & drop du badge dans l'éditeur
+  const handleDragStart = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.dataset?.token === 'lien_lm') {
+      draggingBadge.current = target as HTMLSpanElement;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', TOKEN);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    const el = editorRef.current;
+    if (!el || !draggingBadge.current) return;
+
+    // Retire le badge de sa position actuelle
+    const badge = draggingBadge.current;
+    badge.parentNode?.removeChild(badge);
+    draggingBadge.current = null;
+
+    // Insère à la position du drop
+    let range: Range | null = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    } else if ((document as any).caretPositionFromPoint) {
+      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
       }
     }
 
-    // Delete : si le nœud juste après le curseur est un badge, le supprimer
-    if (e.key === 'Delete' && range.collapsed) {
-      const { startContainer, startOffset } = range;
-      const textLen = startContainer.textContent?.length ?? 0;
-      if (startOffset === textLen) {
-        const next = startContainer.nextSibling;
-        if (next && (next as HTMLElement).dataset?.token === 'lien_lm') {
-          e.preventDefault();
-          next.parentNode?.removeChild(next);
-          handleInput();
-          return;
-        }
-      }
+    if (range && el.contains(range.startContainer)) {
+      range.insertNode(makeBadge(blue, blueSoft));
+    } else {
+      el.appendChild(makeBadge(blue, blueSoft));
     }
-  }, [handleInput]);
+
+    commitChange();
+  }, [blue, blueSoft, commitChange]);
 
   return (
     <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
@@ -502,6 +578,9 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
         onCompositionStart={() => { isComposing.current = true; }}
         onCompositionEnd={() => { isComposing.current = false; handleInput(); }}
         onKeyDown={handleKeyDown}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
         data-placeholder="Ex : 👋 Voici le lien comme promis !"
         style={{
           minHeight: 72, padding: '10px 12px', fontSize: 12, lineHeight: 1.6,
