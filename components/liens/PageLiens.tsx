@@ -819,22 +819,19 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       {/* Lien LM */}
       {lmUrl && <GeneratedUrlRow url={lmUrl} label="Lien lead magnet" />}
 
-      {/* Voir le post */}
-      {post.permalink && (
-        <a href={post.permalink} target="_blank" rel="noreferrer"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 12, fontWeight: 700, color: '#fff', textDecoration: 'none', background: '#c2185b', borderRadius: 8, padding: '9px 16px', transition: 'opacity .15s' }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = '0.85')}
-          onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
-          📸 Voir le post Instagram ↗
-        </a>
-      )}
-
-      {/* Bouton Modifier LM */}
-      <button onClick={handleEditClick} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, cursor: 'pointer', transition: 'background .15s' }}
-        onMouseEnter={e => e.currentTarget.style.background = SURFACE2}
-        onMouseLeave={e => e.currentTarget.style.background = SURFACE}>
-        ✏️ Modifier / régénérer le LM
-      </button>
+      {/* Boutons bas */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        {post.permalink && (
+          <a href={post.permalink} target="_blank" rel="noreferrer"
+            style={{ fontSize: 12, fontWeight: 600, color: '#c2185b', textDecoration: 'none', whiteSpace: 'nowrap' }}>
+            📸 Voir le post Instagram ↗
+          </a>
+        )}
+        <button onClick={handleEditClick}
+          style={{ fontSize: 12, fontWeight: 600, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: 0, whiteSpace: 'nowrap' }}>
+          ✏️ Modifier / régénérer le LM
+        </button>
+      </div>
     </div>
   );
 
