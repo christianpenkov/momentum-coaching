@@ -738,7 +738,16 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setResult(post.lmShortUrl || null);
     setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
     setDm1Saved(true);
-  }, [post.id]);
+  }, [post.id]); // reset complet au changement de post
+
+  // Quand dmLmMessage arrive depuis l'API (async), on met à jour dm1Text
+  // seulement si l'utilisateur n'a pas commencé à éditer
+  useEffect(() => {
+    if (post.dmLmMessage) {
+      setDm1Text(post.dmLmMessage);
+      setDm1Saved(true);
+    }
+  }, [post.dmLmMessage]);
 
   if (isYT) return (
     <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
