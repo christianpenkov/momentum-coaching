@@ -28,6 +28,7 @@ interface Post {
   caption: string;
   platform: 'IG' | 'YT';
   thumbnail?: string | null;
+  permalink?: string | null;
   hasDescLink?: boolean;
   hasLeadMagnet?: boolean;
   descLinkUrl?: string;
@@ -270,6 +271,16 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
           <span style={{ fontSize: 11, fontWeight: 600, color: BLUE }}>Colle ce lien dans la description de ta publication</span>
         </div>
       )}
+      {/* Vérification lien en description */}
+      {post.permalink ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
+          <span style={{ fontSize: 12 }}>🔍</span>
+          <span style={{ fontSize: 11, color: MUTED, flex: 1 }}>Vérifie que le lien est bien dans la description de ton post.</span>
+          <a href={post.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: BLUE, textDecoration: 'none', whiteSpace: 'nowrap', padding: '4px 10px', border: `1px solid ${BLUE}`, borderRadius: 6 }}>
+            Voir le post ↗
+          </a>
+        </div>
+      ) : null}
       <GeneratedUrlRow url={result} label="Lien description" />
       <button onClick={() => setResult(null)} style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
         {isExisting ? 'Regénérer un nouveau lien' : 'Générer un autre lien'}
@@ -411,46 +422,267 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
-  if (result || isExisting) return (
+  const lmUrl = result || post.lmShortUrl || '';
+  const savedDmMessage = post.dmOpenerMessage || '';
+  const [dmEdited, setDmEdited] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
+
+  const handleDmChange = (v: string) => {
+    setDmMessage(v);
+    setDmEdited(v !== savedDmMessage);
+  };
+
+  const handleEditClick = () => setEditing(true);
+  const handleCancelEdit = () => {
+    if (dmEdited) { setConfirmLeave(true); return; }
+    setEditing(false);
+    setDmMessage(savedDmMessage);
+  };
+  const handleConfirmLeave = () => { setEditing(false); setDmMessage(savedDmMessage); setDmEdited(false); setConfirmLeave(false); };
+
+  // États pour l'édition inline des DMs (sans passer par mode édition complet)
+  const [dm1Text, setDm1Text] = useState(`👋 Voici le lien comme promis ! {{lien_lm}}`);
+  const [dm1Saved, setDm1Saved] = useState(true);
+  const [dm1Saving, setDm1Saving] = useState(false);
+  const dm1Ref = useRef<HTMLTextAreaElement>(null);
+  const [dm2Text, setDm2Text] = useState(savedDmMessage);
+  const [dm2Saved, setDm2Saved] = useState(true);
+  const [dm2Saving, setDm2Saving] = useState(false);
+
+  const saveDm2 = async (msg: string) => {
+    setDm2Saving(true);
+    try {
+      await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_opener_message: msg }),
+      });
+      onPostUpdated(post.id, { dmOpenerMessage: msg });
+      setDm2Saved(true);
+    } catch {} finally { setDm2Saving(false); }
+  };
+
+  if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Statut LM */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--green-soft)', borderRadius: 10, padding: '12px 14px' }}>
         <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>✅</span>
         <div>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 3 }}>Lead magnet associé</div>
-          <div style={{ fontSize: 11, color: MUTED }}>
-            Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong>
-          </div>
+          <div style={{ fontSize: 11, color: MUTED }}>Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong></div>
           <div style={{ fontSize: 11, color: MUTED, marginTop: 2, lineHeight: 1.5 }}>
-            Quand quelqu'un commente ce mot, il reçoit le LM en DM automatiquement. <strong>Rien à faire de plus sur Instagram.</strong>
+            Quand quelqu'un commente ce mot, il reçoit le LM + le message d'ouverture en DM automatiquement. <strong>Rien à faire de plus sur Instagram.</strong>
           </div>
         </div>
       </div>
 
-      {/* Message d'ouverture de discussion */}
+      {/* DM 1 — avec le LM (texte éditable + token {{lien_lm}} draggable) */}
+      {lmUrl && (
+        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le LM</div>
+          </div>
+          {/* Bloc draggable {{lien_lm}} */}
+          <div
+            draggable
+            onDragStart={e => e.dataTransfer.setData('text/plain', '{{lien_lm}}')}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6, marginBottom: 8, background: BLUE_SOFT, border: `1px solid ${BLUE}`, borderRadius: 6, padding: '4px 10px', cursor: 'grab', userSelect: 'none' }}
+          >
+            <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, textTransform: 'uppercase', letterSpacing: '0.04em' }}>Lien LM</span>
+            <span style={{ fontSize: 11, fontWeight: 700, color: BLUE, fontFamily: 'monospace' }}>{'{{lien_lm}}'}</span>
+            <span style={{ fontSize: 9, color: MUTED }}>↕ glisser</span>
+          </div>
+          {/* Texte éditable */}
+          <textarea
+            ref={dm1Ref}
+            value={dm1Text}
+            onChange={e => { setDm1Text(e.target.value); setDm1Saved(false); }}
+            onDrop={e => {
+              e.preventDefault();
+              const token = e.dataTransfer.getData('text/plain');
+              const el = dm1Ref.current;
+              if (!el || !token) return;
+              const start = el.selectionStart ?? dm1Text.length;
+              const end = el.selectionEnd ?? dm1Text.length;
+              const next = dm1Text.slice(0, start) + token + dm1Text.slice(end);
+              setDm1Text(next);
+              setDm1Saved(false);
+              setTimeout(() => { el.selectionStart = el.selectionEnd = start + token.length; el.focus(); }, 0);
+            }}
+            onDragOver={e => e.preventDefault()}
+            rows={3}
+            placeholder="Ex : Hello ! Voici le lien que tu as demandé : {{lien_lm}}"
+            style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm1Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+          <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>
+            Glisse <strong>Lien LM</strong> dans le message pour positionner le lien où tu veux.
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <button onClick={async () => {
+              setDm1Saving(true);
+              try {
+                await fetch('/api/client/content-links', {
+                  method: 'POST', headers: { 'content-type': 'application/json' },
+                  body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_lm_message: dm1Text }),
+                });
+                setDm1Saved(true);
+              } catch {} finally { setDm1Saving(false); }
+            }} disabled={dm1Saving || dm1Saved}
+              style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+              {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* DM 2 — message d'ouverture (éditable inline) */}
       <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 4 }}>Message d'ouverture de discussion</div>
-        <div style={{ fontSize: 11, color: MUTED, marginBottom: 10, lineHeight: 1.5 }}>
-          Après l'envoi du LM, tu peux envoyer ce message pour ouvrir la conversation avec le lead.
+        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 4 }}>DM 2 — Message d'ouverture de discussion</div>
+        <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.5 }}>
+          Envoyé automatiquement juste après le DM avec le LM.
         </div>
         <textarea
-          value={dmMessage}
-          onChange={e => setDmMessage(e.target.value)}
-          placeholder={`Ex : "Salut [prénom] ! Tu as bien reçu le guide ? Si tu as des questions je suis là 😊"`}
-          rows={4}
-          style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
+          value={dm2Text}
+          onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
+          placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ? 🎯"`}
+          rows={3}
+          style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
         />
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 }}>
-          <div style={{ fontSize: 10, color: FAINT }}>Ce message est une référence — tu l'envoies manuellement après réception du LM par le lead.</div>
-          <button onClick={() => saveMessage(dmMessage)} disabled={savingMsg}
-            style={{ padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: msgSaved ? 'var(--green)' : BLUE, color: '#fff', cursor: savingMsg ? 'not-allowed' : 'pointer', whiteSpace: 'nowrap', flexShrink: 0, transition: 'background .2s' }}>
-            {savingMsg ? '...' : msgSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
+        <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>
+          Utilise <strong>{'{{prénom}}'}</strong> → remplacé par @username à l'envoi.
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+          <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
+            style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+            {dm2Saving ? '...' : dm2Saved ? '✓ Sauvegardé' : 'Sauvegarder les modifications'}
           </button>
         </div>
       </div>
 
-      {result && <GeneratedUrlRow url={result} label="Lien lead magnet" />}
-      <button onClick={() => { setResult(null); onPostUpdated(post.id, { hasLeadMagnet: false, lmKeyword: undefined, lmShortUrl: undefined }); }} style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
-        Modifier / regénérer
+      {/* Lien LM */}
+      {lmUrl && <GeneratedUrlRow url={lmUrl} label="Lien lead magnet" />}
+
+      {/* Voir le post */}
+      {post.permalink && (
+        <a href={post.permalink} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: BLUE, textDecoration: 'none', fontWeight: 600 }}>
+          Voir le post Instagram ↗
+        </a>
+      )}
+
+      {/* Bouton Modifier LM */}
+      <button onClick={handleEditClick} style={{ padding: '8px 16px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, cursor: 'pointer', transition: 'background .15s' }}
+        onMouseEnter={e => e.currentTarget.style.background = SURFACE2}
+        onMouseLeave={e => e.currentTarget.style.background = SURFACE}>
+        ✏️ Modifier / régénérer le LM
+      </button>
+    </div>
+  );
+
+  // Interface de modification / association — tous les paramètres sur une seule vue
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      {/* Header édition */}
+      {(result || isExisting) && (
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>Modifier le lead magnet</div>
+          {confirmLeave ? (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <span style={{ fontSize: 11, color: AMBER }}>Annuler les modifications ?</span>
+              <button onClick={handleConfirmLeave} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: RED, color: '#fff', cursor: 'pointer' }}>Oui, annuler</button>
+              <button onClick={() => setConfirmLeave(false)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: 'pointer' }}>Continuer</button>
+            </div>
+          ) : (
+            <button onClick={handleCancelEdit} style={{ fontSize: 11, fontWeight: 700, color: '#fff', background: RED, border: 'none', borderRadius: 6, padding: '5px 12px', cursor: 'pointer' }}>← Annuler</button>
+          )}
+        </div>
+      )}
+
+      {/* Sélection du LM */}
+      <div style={{ display: 'flex', background: SURFACE2, borderRadius: 8, padding: 3, gap: 2 }}>
+        {[{ key: 'existing', label: 'LM existant' }, { key: 'new', label: 'Nouveau LM' }].map(opt => (
+          <button key={opt.key} onClick={() => setLmMode(opt.key as 'existing' | 'new')} style={{
+            flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+            background: lmMode === opt.key ? SURFACE : 'transparent',
+            color: lmMode === opt.key ? INK : MUTED,
+            boxShadow: lmMode === opt.key ? '0 1px 3px rgba(0,0,0,.07)' : 'none',
+          }}>{opt.label}</button>
+        ))}
+      </div>
+
+      {lmMode === 'existing' && (
+        leadMagnets.length === 0
+          ? <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '12px', textAlign: 'center' }}>
+              Aucun lead magnet créé.<br />
+              <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setLmMode('new')}>Créer un nouveau LM</span>
+            </div>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
+              {leadMagnets.map(lm => (
+                <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword && !keyword) setKeyword(lm.keyword); }} style={{
+                  padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                  border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
+                  background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
+                  <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all' }}>{lm.url}</div>
+                  {lm.keyword && <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginTop: 4 }}>Mot-clé : <span style={{ color: BLUE }}>#{lm.keyword}</span></div>}
+                </div>
+              ))}
+            </div>
+      )}
+
+      {lmMode === 'new' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>Nom du LM <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
+            <input value={newLmName} onChange={e => setNewLmName(e.target.value)} placeholder="Checklist closing, Guide tunnel…"
+              style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>URL du lead magnet</div>
+            <input value={newLmUrl} onChange={e => setNewLmUrl(e.target.value)} placeholder="notion.so/ton-guide ou https://…"
+              style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+        </div>
+      )}
+
+      {/* Mot-clé */}
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>Mot-clé déclencheur</div>
+        <input value={keyword} onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="GUIDE, CHECKLIST, TUNNEL…"
+          style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box', fontWeight: 600, letterSpacing: '0.04em' }} />
+        <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot, il reçoit le LM en DM automatiquement.</div>
+      </div>
+
+      {/* DM avec le LM — aperçu */}
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 6 }}>DM envoyé avec le LM</div>
+        <div style={{ background: SURFACE2, borderRadius: 10, padding: '10px 14px', fontSize: 12, color: MUTED, lineHeight: 1.6, fontStyle: 'italic' }}>
+          👋 Voici le lien comme promis ! <span style={{ color: BLUE }}>[lien Short.io généré automatiquement]</span>
+        </div>
+        <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>Ce message est fixe et généré automatiquement avec le lien tracké.</div>
+      </div>
+
+      {/* Message d'ouverture */}
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px' }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 4 }}>Message d'ouverture de discussion</div>
+        <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.5 }}>
+          Ce message est envoyé automatiquement en DM juste après l'envoi du LM. Il s'envoie sans que tu n'aies rien à faire.
+        </div>
+        <textarea
+          value={dmMessage}
+          onChange={e => handleDmChange(e.target.value)}
+          placeholder={`Ex : "Salut ! Tu as bien reçu le guide ? Si tu as des questions je suis là 😊"`}
+          rows={3}
+          style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
+        />
+      </div>
+
+      {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
+
+      <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
+        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        {loading ? <><Spinner /> Génération...</> : (result || isExisting) ? 'Régénérer le lien LM' : 'Associer le lead magnet'}
       </button>
     </div>
   );
@@ -863,7 +1095,7 @@ export default function PageLiens() {
     fetch(`/api/instagram/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        igPosts = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail }));
+        igPosts = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail, permalink: p.permalink || null }));
       }).catch(() => {}).finally(() => { igDone = true; enrich(); });
 
     fetch(`/api/youtube/stats?profileId=${profileId}`)
@@ -889,9 +1121,10 @@ export default function PageLiens() {
       .catch(() => {}).finally(() => { linksDone = true; enrich(); });
   }, [profileId]);
 
-  // Enrichir les posts avec les content_links dès qu'on a les deux
+  // Enrichir les posts avec les content_links — source de vérité principale
+  // Se déclenche dès que l'un des deux change
   useEffect(() => {
-    if (!contentLinks.length || !posts.length) return;
+    if (!posts.length) return;
     setPosts(prev => prev.map(post => {
       const cl = contentLinks.find(c => c.content_id === post.id);
       if (!cl) return post;
@@ -905,7 +1138,8 @@ export default function PageLiens() {
         dmOpenerMessage: cl.dm_opener_message || undefined,
       };
     }));
-  }, [contentLinks]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contentLinks, postsLoading]);
 
   const handlePostUpdated = (postId: string, patch: Partial<Post>) => {
     setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...patch } : p));
