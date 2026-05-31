@@ -209,6 +209,244 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
 // ─── Panneau droit : actions pour un contenu ──────────────────────────────────
 
+function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnets }: {
+  post: Post; profileId: string; domain: string; canGenerate: boolean;
+  calendlyUrl: string; leadMagnets: LeadMagnet[];
+}) {
+  const hasCalendly = calendlyUrl.trim().startsWith('http');
+  // IG: Calendly / LM / custom — YT: Calendly / custom seulement
+  const destOptions = post.platform === 'IG'
+    ? [{ key: 'calendly', label: '📅 Calendly' }, { key: 'leadmagnet', label: '📄 Lead magnet' }, { key: 'custom', label: '🔗 URL custom' }]
+    : [{ key: 'calendly', label: '📅 Calendly' }, { key: 'custom', label: '🔗 URL custom' }];
+
+  const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>('calendly');
+  const [customUrl, setCustomUrl] = useState('');
+  const [result, setResult] = useState<string | null>(post.descLinkUrl || null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isExisting = !!post.descLinkUrl;
+
+  const generate = async () => {
+    const validationError = validateDescParams({ canGenerate, destType, calendlyUrl, customUrl });
+    if (validationError) { setError(validationError); return; }
+    const destUrl = destType === 'calendly' ? calendlyUrl.trim() : normalizeUrl(customUrl);
+    setLoading(true); setError(null);
+    try {
+      const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: domain, utmMedium: 'description', utmCampaign: destType, utmContent: post.id, path });
+      setResult(shortUrl);
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  };
+
+  if (result) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      {isExisting && !loading ? (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--green-soft)', borderRadius: 8, padding: '8px 12px' }}>
+          <span style={{ fontSize: 13 }}>✅</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)' }}>Lien déjà généré pour ce contenu</span>
+        </div>
+      ) : (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: BLUE_SOFT, borderRadius: 8, padding: '8px 12px' }}>
+          <span style={{ fontSize: 13 }}>📋</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: BLUE }}>Colle ce lien dans la description de ta publication</span>
+        </div>
+      )}
+      <GeneratedUrlRow url={result} label="Lien description" />
+      <button onClick={() => setResult(null)} style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
+        {isExisting ? 'Regénérer un nouveau lien' : 'Générer un autre lien'}
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Destination</div>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+          {destOptions.map(opt => (
+            <button key={opt.key} onClick={() => { setDestType(opt.key as any); setCustomUrl(''); }} style={{
+              padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+              border: `1.5px solid ${destType === opt.key ? BLUE : BORDER}`,
+              background: destType === opt.key ? BLUE_SOFT : SURFACE,
+              color: destType === opt.key ? BLUE : INK, transition: 'all .12s',
+            }}>{opt.label}</button>
+          ))}
+        </div>
+      </div>
+
+      {destType === 'calendly' && (
+        hasCalendly
+          ? <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>→ <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span></div>
+          : <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans ⚙ Paramètres.</div>
+      )}
+      {destType === 'leadmagnet' && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Choisir un lead magnet</div>
+          {leadMagnets.length === 0
+            ? <div style={{ fontSize: 12, color: FAINT }}>Aucun LM — crée-en un via le bouton 📄 Lead Magnets en haut.</div>
+            : <select value={customUrl} onChange={e => setCustomUrl(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK }}>
+                <option value="">— Sélectionner —</option>
+                {leadMagnets.map(lm => <option key={lm.id} value={lm.url}>{lm.name}</option>)}
+              </select>}
+        </div>
+      )}
+      {destType === 'custom' && (
+        <input value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="https://..."
+          style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+      )}
+
+      {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
+
+      <button onClick={generate} disabled={loading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim())}
+        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim()) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        {loading ? <><Spinner /> Génération...</> : 'Générer le lien description'}
+      </button>
+    </div>
+  );
+}
+
+function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated }: {
+  post: Post; profileId: string; domain: string; canGenerate: boolean;
+  leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
+}) {
+  const isYT = post.platform === 'YT';
+  const [lmMode, setLmMode] = useState<'existing' | 'new'>('existing');
+  const [selectedLmId, setSelectedLmId] = useState('');
+  const [newLmName, setNewLmName] = useState('');
+  const [newLmUrl, setNewLmUrl] = useState('');
+  const [keyword, setKeyword] = useState(post.lmKeyword || '');
+  const [result, setResult] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isExisting = !!post.hasLeadMagnet && !!post.lmKeyword;
+
+  if (isYT) return (
+    <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
+      <span style={{ fontSize: 20, flexShrink: 0 }}>ℹ️</span>
+      <div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 4 }}>Non disponible sur YouTube</div>
+        <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.6 }}>
+          Les lead magnets par mot-clé nécessitent de pouvoir contacter les viewers en DM automatique, ce qui n'est pas possible sur YouTube.<br /><br />
+          Pour tracker ton trafic YouTube, utilise le <strong>Lien description</strong>.
+        </div>
+      </div>
+    </div>
+  );
+
+  const generate = async () => {
+    const validationError = validateLmParams({ canGenerate, keyword, lmMode, selectedLmId, newLmUrl });
+    if (validationError) { setError(validationError); return; }
+    let lmUrl = '', lmName = '';
+    if (lmMode === 'existing') {
+      const lm = leadMagnets.find(l => l.id === selectedLmId);
+      if (!lm) return;
+      lmUrl = lm.url; lmName = lm.name;
+    } else {
+      lmUrl = normalizeUrl(newLmUrl); lmName = newLmName.trim() || keyword;
+    }
+    setLoading(true); setError(null);
+    try {
+      if (lmMode === 'new') {
+        const res = await fetch('/api/client/lead-magnets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: lmName, url: lmUrl, keyword }) });
+        const saved = await res.json();
+        if (res.ok && saved.lead_magnet) onLmCreated(saved.lead_magnet);
+      }
+      const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
+      setResult(shortUrl);
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  };
+
+  if (result || isExisting) return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--green-soft)', borderRadius: 8, padding: '10px 14px' }}>
+        <span style={{ fontSize: 16 }}>✅</span>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)' }}>Lead magnet associé à ce contenu</div>
+          <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>
+            Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong> — le LM s'envoie automatiquement en DM quand quelqu'un commente ce mot.
+          </div>
+        </div>
+      </div>
+      <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '10px 12px', lineHeight: 1.6 }}>
+        <strong>Rien à faire de plus sur Instagram.</strong> La plateforme détecte automatiquement le commentaire et envoie le LM en DM. Tu n'as pas besoin de mettre ce lien quelque part.
+      </div>
+      {result && <GeneratedUrlRow url={result} label="Lien lead magnet (référence)" />}
+      <button onClick={() => { setResult(null); }} style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
+        Modifier / regénérer
+      </button>
+    </div>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ display: 'flex', background: SURFACE2, borderRadius: 8, padding: 3, gap: 2 }}>
+        {[{ key: 'existing', label: 'LM existant' }, { key: 'new', label: 'Nouveau LM' }].map(opt => (
+          <button key={opt.key} onClick={() => setLmMode(opt.key as 'existing' | 'new')} style={{
+            flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+            background: lmMode === opt.key ? SURFACE : 'transparent',
+            color: lmMode === opt.key ? INK : MUTED,
+            boxShadow: lmMode === opt.key ? '0 1px 3px rgba(0,0,0,.07)' : 'none',
+          }}>{opt.label}</button>
+        ))}
+      </div>
+
+      {lmMode === 'existing' && (
+        leadMagnets.length === 0
+          ? <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '12px', textAlign: 'center' }}>
+              Aucun lead magnet créé.<br />
+              <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setLmMode('new')}>Créer un nouveau LM</span>
+            </div>
+          : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
+              {leadMagnets.map(lm => (
+                <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword && !keyword) setKeyword(lm.keyword); }} style={{
+                  padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
+                  border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
+                  background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
+                  <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all' }}>{lm.url}</div>
+                  {lm.keyword && <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginTop: 4 }}>Mot-clé par défaut : <span style={{ color: BLUE }}>#{lm.keyword}</span></div>}
+                </div>
+              ))}
+            </div>
+      )}
+
+      {lmMode === 'new' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>Nom du LM <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
+            <input value={newLmName} onChange={e => setNewLmName(e.target.value)} placeholder="Checklist closing, Guide tunnel…"
+              style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>URL du lead magnet</div>
+            <input value={newLmUrl} onChange={e => setNewLmUrl(e.target.value)} placeholder="notion.so/ton-guide ou https://…"
+              style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+        </div>
+      )}
+
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>
+          Mot-clé déclencheur <span style={{ fontWeight: 400, color: FAINT }}>(pré-rempli depuis le LM, modifiable)</span>
+        </div>
+        <input value={keyword} onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="GUIDE, CHECKLIST, TUNNEL…"
+          style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box', fontWeight: 600, letterSpacing: '0.04em' }} />
+        <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot sous ce contenu, il reçoit le LM en DM automatiquement.</div>
+      </div>
+
+      {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
+
+      <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
+        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        {loading ? <><Spinner /> Génération...</> : 'Associer le lead magnet'}
+      </button>
+    </div>
+  );
+}
+
 function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, leadMagnets, onLmCreated }: {
   post: Post; profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
   calendlyUrl: string; leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
@@ -217,91 +455,31 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
   const canGenerate = domainsLoaded && !!domain;
   const [activeTab, setActiveTab] = useState<'desc' | 'lm'>('desc');
 
-  // --- Lien description ---
-  const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>('calendly');
-  const [customUrl, setCustomUrl] = useState('');
-  const [descResult, setDescResult] = useState<string | null>(null);
-  const [descLoading, setDescLoading] = useState(false);
-  const [descError, setDescError] = useState<string | null>(null);
+  useEffect(() => { setActiveTab('desc'); }, [post.id]);
 
-  // --- Lead magnet ---
-  const [lmMode, setLmMode] = useState<'existing' | 'new'>('existing');
-  const [selectedLmId, setSelectedLmId] = useState('');
-  const [newLmName, setNewLmName] = useState('');
-  const [newLmUrl, setNewLmUrl] = useState('');
-  const [keyword, setKeyword] = useState('');
-  const [lmResult, setLmResult] = useState<string | null>(null);
-  const [lmLoading, setLmLoading] = useState(false);
-  const [lmError, setLmError] = useState<string | null>(null);
-
-  // Reset quand le post change
-  useEffect(() => {
-    setDescResult(null); setDescError(null);
-    setLmResult(null); setLmError(null);
-    setKeyword(''); setSelectedLmId(''); setNewLmName(''); setNewLmUrl('');
-    setActiveTab('desc');
-  }, [post.id]);
-
-  const generateDesc = async () => {
-    const validationError = validateDescParams({ canGenerate, destType, calendlyUrl, customUrl });
-    if (validationError) { setDescError(validationError); return; }
-    const destUrl = destType === 'calendly' ? calendlyUrl.trim() : normalizeUrl(customUrl);
-    setDescLoading(true); setDescError(null);
-    try {
-      const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: domain, utmMedium: 'description', utmCampaign: destType, utmContent: post.id, path });
-      setDescResult(shortUrl);
-    } catch (e: any) { setDescError(e.message); } finally { setDescLoading(false); }
-  };
-
-  const generateLm = async () => {
-    const validationError = validateLmParams({ canGenerate, keyword, lmMode, selectedLmId, newLmUrl });
-    if (validationError) { setLmError(validationError); return; }
-    let lmUrl = '';
-    let lmName = '';
-    if (lmMode === 'existing') {
-      const lm = leadMagnets.find(l => l.id === selectedLmId);
-      if (!lm) return;
-      lmUrl = lm.url; lmName = lm.name;
-    } else {
-      if (!isValidUrl(newLmUrl)) return;
-      lmUrl = normalizeUrl(newLmUrl); lmName = newLmName.trim() || keyword;
-    }
-    setLmLoading(true); setLmError(null);
-    try {
-      // Sauvegarder le LM en DB si nouveau
-      if (lmMode === 'new') {
-        const res = await fetch('/api/client/lead-magnets', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ name: lmName, url: lmUrl }),
-        });
-        const saved = await res.json();
-        if (res.ok && saved.lead_magnet) {
-          onLmCreated(saved.lead_magnet);
-        }
-      }
-      const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
-      setLmResult(shortUrl);
-    } catch (e: any) { setLmError(e.message); } finally { setLmLoading(false); }
-  };
-
-  const hasCalendly = calendlyUrl.trim().startsWith('http');
+  const tabs = [
+    { key: 'desc', label: `📝 Lien description${post.hasDescLink ? ' ✓' : ''}` },
+    { key: 'lm', label: `📄 Lead magnet${post.hasLeadMagnet ? ' ✓' : ''}` },
+  ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header post */}
-      <div style={{ padding: '20px 24px 16px', borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ padding: '16px 24px', borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 8, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0 }}>
-            {post.platform === 'IG' ? '📸' : '▶️'}
+          <div style={{ width: 40, height: 40, borderRadius: 8, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, overflow: 'hidden' }}>
+            {post.thumbnail ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : post.platform === 'IG' ? '📸' : '▶️'}
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: INK, lineHeight: 1.3, marginBottom: 4 }}>{post.caption}</div>
-            <div style={{ display: 'flex', gap: 5 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: INK, lineHeight: 1.3, marginBottom: 5 }}>{post.caption}</div>
+            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
               <Badge color={post.platform === 'IG' ? '#c2185b' : '#d32f2f'} bg={post.platform === 'IG' ? '#c2185b18' : '#d32f2f18'}>{post.platform}</Badge>
-              {post.hasDescLink && <Badge color={BLUE} bg={BLUE_SOFT}>📝 Desc</Badge>}
-              {post.hasLeadMagnet && <Badge color='var(--green)' bg='var(--green-soft)'>📄 LM</Badge>}
+              {post.hasDescLink
+                ? <Badge color={BLUE} bg={BLUE_SOFT}>📝 Lien desc</Badge>
+                : <Badge color={FAINT} bg={SURFACE2}>📝 Sans lien</Badge>}
+              {post.hasLeadMagnet
+                ? <Badge color='var(--green)' bg='var(--green-soft)'>📄 LM {post.lmKeyword ? `#${post.lmKeyword}` : ''}</Badge>
+                : post.platform === 'IG' ? <Badge color={FAINT} bg={SURFACE2}>📄 Sans LM</Badge> : null}
             </div>
           </div>
         </div>
@@ -309,9 +487,9 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG }}>
-        {[{ key: 'desc', label: '📝 Lien description' }, { key: 'lm', label: '📄 Lead magnet' }].map(tab => (
+        {tabs.map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key as 'desc' | 'lm')} style={{
-            flex: 1, padding: '12px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+            flex: 1, padding: '11px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
             background: activeTab === tab.key ? SURFACE : 'transparent',
             color: activeTab === tab.key ? INK : MUTED,
             borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
@@ -320,160 +498,10 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
         ))}
       </div>
 
-      {/* Contenu tab */}
+      {/* Contenu */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-
-        {/* ── Tab description ── */}
-        {activeTab === 'desc' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {descResult ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontSize: 12, color: MUTED }}>Lien créé — colle-le dans la description de ta publication.</div>
-                <GeneratedUrlRow url={descResult} label="Lien description" />
-                <button onClick={() => setDescResult(null)} style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
-                  Générer un autre lien
-                </button>
-              </div>
-            ) : (
-              <>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Destination</div>
-                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-                    {[
-                      { key: 'calendly', label: '📅 Calendly' },
-                      { key: 'leadmagnet', label: '📄 Lead magnet' },
-                      { key: 'custom', label: '🔗 URL custom' },
-                    ].map(opt => (
-                      <button key={opt.key} onClick={() => { setDestType(opt.key as any); setCustomUrl(''); }} style={{
-                        padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
-                        border: `1.5px solid ${destType === opt.key ? BLUE : BORDER}`,
-                        background: destType === opt.key ? BLUE_SOFT : SURFACE,
-                        color: destType === opt.key ? BLUE : INK,
-                        transition: 'all .12s',
-                      }}>{opt.label}</button>
-                    ))}
-                  </div>
-                </div>
-
-                {destType === 'calendly' && (
-                  hasCalendly
-                    ? <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>→ <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span></div>
-                    : <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans Paramètres (⚙ en haut).</div>
-                )}
-                {destType === 'leadmagnet' && (
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Choisir un lead magnet</div>
-                    {leadMagnets.length === 0
-                      ? <div style={{ fontSize: 12, color: FAINT }}>Aucun LM créé — génères-en un via l'onglet Lead magnet.</div>
-                      : <select value={customUrl} onChange={e => setCustomUrl(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK }}>
-                          <option value="">— Sélectionner —</option>
-                          {leadMagnets.map(lm => <option key={lm.id} value={lm.url}>{lm.name}</option>)}
-                        </select>}
-                  </div>
-                )}
-                {destType === 'custom' && (
-                  <input value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="https://..." style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-                )}
-
-                {descError && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{descError}</div>}
-
-                <button onClick={generateDesc} disabled={descLoading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim())}
-                  style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: descLoading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim()) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  {descLoading ? <><Spinner /> Génération...</> : 'Générer le lien description'}
-                </button>
-              </>
-            )}
-          </div>
-        )}
-
-        {/* ── Tab lead magnet ── */}
-        {activeTab === 'lm' && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-            {lmResult ? (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <div style={{ fontSize: 12, color: MUTED }}>
-                  Lead magnet lié à ce contenu. Mot-clé déclencheur : <strong style={{ color: INK }}>#{keyword}</strong>
-                </div>
-                <GeneratedUrlRow url={lmResult} label="Lien lead magnet" />
-                <button onClick={() => setLmResult(null)} style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
-                  Générer un autre
-                </button>
-              </div>
-            ) : (
-              <>
-                {/* Toggle existing / nouveau */}
-                <div style={{ display: 'flex', background: SURFACE2, borderRadius: 8, padding: 3, gap: 2 }}>
-                  {[{ key: 'existing', label: 'LM existant' }, { key: 'new', label: 'Nouveau LM' }].map(opt => (
-                    <button key={opt.key} onClick={() => setLmMode(opt.key as 'existing' | 'new')} style={{
-                      flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
-                      background: lmMode === opt.key ? SURFACE : 'transparent',
-                      color: lmMode === opt.key ? INK : MUTED,
-                      boxShadow: lmMode === opt.key ? '0 1px 3px rgba(0,0,0,.07)' : 'none',
-                    }}>{opt.label}</button>
-                  ))}
-                </div>
-
-                {lmMode === 'existing' && (
-                  <div>
-                    {leadMagnets.length === 0 ? (
-                      <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '12px', textAlign: 'center' }}>
-                        Aucun lead magnet créé.<br />
-                        <span style={{ color: BLUE, cursor: 'pointer', textDecoration: 'underline' }} onClick={() => setLmMode('new')}>Créer un nouveau LM</span>
-                      </div>
-                    ) : (
-                      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                        <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
-                        {leadMagnets.map(lm => (
-                          <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword && !keyword) setKeyword(lm.keyword); }} style={{
-                            padding: '10px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
-                            background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
-                          }}>
-                            <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
-                            <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all' }}>{lm.url}</div>
-                            {lm.keyword && (
-                              <div style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginTop: 4 }}>Mot-clé par défaut : <span style={{ color: BLUE }}>#{lm.keyword}</span></div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {lmMode === 'new' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Nom du LM <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
-                      <input value={newLmName} onChange={e => setNewLmName(e.target.value)} placeholder="Checklist closing, Guide tunnel…"
-                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>URL du lead magnet</div>
-                      <input value={newLmUrl} onChange={e => setNewLmUrl(e.target.value)} placeholder="https://notion.so/ton-guide"
-                        style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>
-                    Mot-clé déclencheur <span style={{ fontWeight: 400, color: FAINT }}>(pré-rempli depuis le LM, modifiable pour ce contenu)</span>
-                  </div>
-                  <input value={keyword} onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="GUIDE, CHECKLIST, TUNNEL…"
-                    style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box', fontWeight: 600, letterSpacing: '0.04em' }} />
-                  <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot sous ce contenu, il reçoit le LM en DM.</div>
-                </div>
-
-                {lmError && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{lmError}</div>}
-
-                <button onClick={generateLm} disabled={lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
-                  style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: lmLoading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  {lmLoading ? <><Spinner /> Génération...</> : 'Générer le lien LM'}
-                </button>
-              </>
-            )}
-          </div>
-        )}
+        {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} />}
+        {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} leadMagnets={leadMagnets} onLmCreated={onLmCreated} />}
       </div>
     </div>
   );
@@ -721,25 +749,58 @@ export default function PageLiens() {
       .finally(() => setLmLoading(false));
   }, [profileId]);
 
-  // Charger posts IG + YT
+  // Charger posts IG + YT + liens Short.io existants pour croiser hasDescLink / hasLeadMagnet
   useEffect(() => {
     if (!profileId) return;
-    let igDone = false; let ytDone = false;
-    const checkDone = () => { if (igDone && ytDone) setPostsLoading(false); };
+    let igDone = false; let ytDone = false; let linksDone = false;
+    let igPosts: Post[] = [];
+    let ytPosts: Post[] = [];
+    let shortioLinks: any[] = [];
+
+    const enrich = () => {
+      if (!igDone || !ytDone || !linksDone) return;
+      const all = [...igPosts, ...ytPosts].map(post => {
+        const descLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'post');
+        const lmLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'leadmagnet');
+        return {
+          ...post,
+          hasDescLink: !!descLink,
+          descLinkUrl: descLink?.shortUrl || undefined,
+          hasLeadMagnet: !!lmLink,
+          lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
+        };
+      });
+      setPosts(all);
+      setPostsLoading(false);
+    };
 
     fetch(`/api/instagram/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        const ig = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail }));
-        setPosts(prev => [...ig, ...prev.filter(p => p.platform === 'YT')]);
-      }).catch(() => {}).finally(() => { igDone = true; checkDone(); });
+        igPosts = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail }));
+      }).catch(() => {}).finally(() => { igDone = true; enrich(); });
 
     fetch(`/api/youtube/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        const yt = (data.videos || []).map((v: any) => ({ id: v.id, caption: (v.title || 'Vidéo YouTube').slice(0, 60), platform: 'YT' as const, thumbnail: v.thumbnail }));
-        setPosts(prev => [...prev.filter(p => p.platform === 'IG'), ...yt]);
-      }).catch(() => {}).finally(() => { ytDone = true; checkDone(); });
+        ytPosts = (data.videos || []).map((v: any) => ({ id: v.id, caption: (v.title || 'Vidéo YouTube').slice(0, 60), platform: 'YT' as const, thumbnail: v.thumbnail }));
+      }).catch(() => {}).finally(() => { ytDone = true; enrich(); });
+
+    fetch(`/api/shortio/stats?profileId=${profileId}`)
+      .then(r => r.json())
+      .then(data => {
+        shortioLinks = (data.links || []).map((l: any) => {
+          try {
+            const u = new URL(l.originalUrl || '');
+            return {
+              ...l,
+              postId: u.searchParams.get('utm_content') || null,
+              linkType: u.searchParams.get('utm_medium') || null,
+            };
+          } catch { return l; }
+        });
+      })
+      .catch(() => {}).finally(() => { linksDone = true; enrich(); });
   }, [profileId]);
 
   const selectedPost = rightView?.type === 'post' ? rightView.post : null;
