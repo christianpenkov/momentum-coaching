@@ -1055,8 +1055,9 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
   const [leads, setLeads] = useState<{ ig_username: string; detected_at: string; keyword_matched: string; media_id: string | null }[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
 
-  // Contenu source
-  const [postId, setPostId] = useState('auto');
+  // Contenu source — postMode: 'auto' | 'lead' | 'manual' | 'none'
+  const [postMode, setPostMode] = useState<'auto' | 'lead' | 'manual' | 'none'>('auto');
+  const [postId, setPostId] = useState('');
   const [postSearch, setPostSearch] = useState('');
   const [showPostPicker, setShowPostPicker] = useState(false);
 
@@ -1089,9 +1090,9 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
     !postSearch || p.caption.toLowerCase().includes(postSearch.toLowerCase()) || p.platform.toLowerCase().includes(postSearch.toLowerCase())
   );
 
-  // Si un lead est sélectionné et a un media_id, il est déjà dans postId
-  // 'auto' = dernier post connu
-  const resolvedPostId = postId === 'auto' ? (posts[0]?.id || undefined) : (postId || undefined);
+  const resolvedPostId = postMode === 'auto' ? (posts[0]?.id || undefined)
+    : postMode === 'none' ? undefined
+    : (postId || undefined); // 'lead' ou 'manual' → postId direct
 
   const generate = async () => {
     if (!username.trim() || !hasCalendly || !canGenerate) return;
@@ -1133,7 +1134,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontSize: 12, color: MUTED }}>Envoie ce lien en DM à <strong>@{username}</strong></div>
           <GeneratedUrlRow url={result} label="Lien Calendly" />
-          <button onClick={() => { setResult(null); setUsername(''); setUsernameSearch(''); setPostId('auto'); }}
+          <button onClick={() => { setResult(null); setUsername(''); setUsernameSearch(''); setPostId(''); setPostMode('auto'); }}
             style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
             Générer pour un autre prospect
           </button>
@@ -1163,7 +1164,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                   ) : filteredLeads.length === 0 ? (
                     <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT }}>Aucun lead trouvé</div>
                   ) : filteredLeads.map(l => (
-                    <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setUsernameSearch(''); setShowLeads(false); if (l.media_id) setPostId(l.media_id); }}
+                    <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setUsernameSearch(''); setShowLeads(false); if (l.media_id) { setPostId(l.media_id); setPostMode('lead'); } }}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
                       onMouseEnter={e => (e.currentTarget.style.background = SURFACE2)}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
@@ -1183,9 +1184,15 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
               <button type="button" onClick={() => setShowPostPicker(v => !v)}
                 style={{ width: '100%', padding: '9px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '90%' }}>
-                  {postId === 'auto'
-                    ? <span style={{ color: MUTED }}>Automatique <span style={{ color: FAINT, fontSize: 11 }}>{posts[0] ? `— ${posts[0].platform} · ${posts[0].caption.slice(0, 30)}` : ''}</span></span>
-                    : selectedPost ? <span>{selectedPost.platform} · {selectedPost.caption.slice(0, 40)}</span> : <span style={{ color: FAINT }}>— Sans attribution —</span>}
+                  {(postMode === 'auto' || postMode === 'lead') ? (
+                    <span style={{ color: INK }}>Automatique <span style={{ color: FAINT, fontSize: 11 }}>
+                      {selectedPost ? `— ${selectedPost.platform} · ${selectedPost.caption.slice(0, 30)}` : posts[0] ? `— ${posts[0].platform} · ${posts[0].caption.slice(0, 30)}` : ''}
+                    </span></span>
+                  ) : postMode === 'manual' && selectedPost ? (
+                    <span>{selectedPost.platform} · {selectedPost.caption.slice(0, 40)}</span>
+                  ) : (
+                    <span style={{ color: FAINT }}>— Sans attribution —</span>
+                  )}
                 </span>
                 <span style={{ color: FAINT, fontSize: 10, flexShrink: 0 }}>▾</span>
               </button>
@@ -1204,25 +1211,25 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                   </div>
                   <div style={{ maxHeight: 200, overflowY: 'auto' }}>
                     {/* Option auto */}
-                    <div onMouseDown={() => { setPostId('auto'); setShowPostPicker(false); setPostSearch(''); }}
-                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postId === 'auto' ? BLUE_SOFT : 'transparent', fontWeight: postId === 'auto' ? 600 : 400 }}
-                      onMouseEnter={e => { if (postId !== 'auto') e.currentTarget.style.background = SURFACE2; }}
-                      onMouseLeave={e => { if (postId !== 'auto') e.currentTarget.style.background = 'transparent'; }}>
+                    <div onMouseDown={() => { setPostMode('auto'); setPostId(''); setShowPostPicker(false); setPostSearch(''); }}
+                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postMode === 'auto' ? BLUE_SOFT : 'transparent', fontWeight: postMode === 'auto' ? 600 : 400 }}
+                      onMouseEnter={e => { if (postMode !== 'auto') e.currentTarget.style.background = SURFACE2; }}
+                      onMouseLeave={e => { if (postMode !== 'auto') e.currentTarget.style.background = 'transparent'; }}>
                       Automatique <span style={{ color: FAINT, fontWeight: 400 }}>(dernier post)</span>
                     </div>
                     {/* Option sans attribution */}
-                    <div onMouseDown={() => { setPostId(''); setShowPostPicker(false); setPostSearch(''); }}
-                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: MUTED, borderBottom: `1px solid ${BORDER}`, background: postId === '' ? BLUE_SOFT : 'transparent' }}
-                      onMouseEnter={e => { if (postId !== '') e.currentTarget.style.background = SURFACE2; }}
-                      onMouseLeave={e => { if (postId !== '') e.currentTarget.style.background = 'transparent'; }}>
+                    <div onMouseDown={() => { setPostMode('none'); setPostId(''); setShowPostPicker(false); setPostSearch(''); }}
+                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: MUTED, borderBottom: `1px solid ${BORDER}`, background: postMode === 'none' ? BLUE_SOFT : 'transparent' }}
+                      onMouseEnter={e => { if (postMode !== 'none') e.currentTarget.style.background = SURFACE2; }}
+                      onMouseLeave={e => { if (postMode !== 'none') e.currentTarget.style.background = 'transparent'; }}>
                       — Sans attribution —
                     </div>
                     {/* Posts filtrés */}
                     {filteredPosts.map(p => (
-                      <div key={p.id} onMouseDown={() => { setPostId(p.id); setShowPostPicker(false); setPostSearch(''); }}
-                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postId === p.id ? BLUE_SOFT : 'transparent' }}
-                        onMouseEnter={e => { if (postId !== p.id) e.currentTarget.style.background = SURFACE2; }}
-                        onMouseLeave={e => { if (postId !== p.id) e.currentTarget.style.background = 'transparent'; }}>
+                      <div key={p.id} onMouseDown={() => { setPostMode('manual'); setPostId(p.id); setShowPostPicker(false); setPostSearch(''); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postMode === 'manual' && postId === p.id ? BLUE_SOFT : 'transparent' }}
+                        onMouseEnter={e => { if (!(postMode === 'manual' && postId === p.id)) e.currentTarget.style.background = SURFACE2; }}
+                        onMouseLeave={e => { if (!(postMode === 'manual' && postId === p.id)) e.currentTarget.style.background = 'transparent'; }}>
                         <span style={{ fontSize: 10, fontWeight: 700, color: p.platform === 'IG' ? '#c2185b' : RED, background: p.platform === 'IG' ? '#fce4ec' : 'var(--red-soft)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>{p.platform}</span>
                         <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.caption}</span>
                       </div>
