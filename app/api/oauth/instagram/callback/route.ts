@@ -92,22 +92,30 @@ export async function GET(request: NextRequest) {
     metadata: igAccountId ? { ig_account_id: igAccountId } : null,
   }, { onConflict: 'profile_id,provider' });
 
-  // Réabonner automatiquement au webhook comments + messages avec le nouveau token
+  // Réabonner aux deux niveaux webhook après chaque connexion
   if (igAccountId) {
+    const appToken = `${process.env.INSTAGRAM_CLIENT_ID}|${process.env.INSTAGRAM_CLIENT_SECRET}`;
     try {
-      await fetch(
-        `https://graph.instagram.com/v21.0/${igAccountId}/subscribed_apps`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            subscribed_fields: 'comments,messages',
-            access_token: accessToken,
-          }),
-        }
-      );
+      // Niveau 1 — app-level (fields comments+messages au niveau Meta app)
+      await fetch(`https://graph.facebook.com/v21.0/${process.env.INSTAGRAM_CLIENT_ID}/subscriptions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          object: 'instagram',
+          callback_url: `${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/webhooks/instagram`,
+          fields: 'comments,messages',
+          verify_token: process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN!,
+          access_token: appToken,
+        }),
+      });
+      // Niveau 2 — account-level (autorise l'app sur ce compte IG)
+      await fetch(`https://graph.instagram.com/v21.0/${igAccountId}/subscribed_apps`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscribed_fields: 'comments,messages', access_token: accessToken }),
+      });
     } catch (e) {
-      console.error('[IG callback] register-webhook failed:', e);
+      console.error('[IG callback] webhook registration failed:', e);
     }
   }
 
