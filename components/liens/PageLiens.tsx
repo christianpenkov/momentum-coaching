@@ -344,9 +344,10 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   );
 }
 
-// ─── Dm1Editor : contentEditable avec badge {{lien_lm}} inline ────────────────
-
 const TOKEN = '{{lien_lm}}';
+
+// ─── SUPPRIMÉ : tout le code contentEditable était ici ───────────────────────
+// Remplacé par Dm1Editor simple ci-dessous
 
 function serializeEditor(el: HTMLDivElement): string {
   let result = '';
@@ -481,235 +482,21 @@ function makeBadge(blue: string, blueSoft: string): HTMLSpanElement {
   return badge;
 }
 
-function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
+function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
   value: string; onChange: (v: string) => void; saved: boolean;
-  blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
+  blue?: string; blueSoft?: string; border: string; amber: string; bg: string; ink: string; faint?: string;
 }) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  const isComposing = useRef(false);
-  const lastValue = useRef(value);
-  const draggingBadge = useRef<HTMLSpanElement | null>(null);
-  const caretRef = useRef<HTMLSpanElement | null>(null);
-  const skipNextSync = useRef(false);
-
-  const removeCaret = useCallback(() => {
-    caretRef.current?.parentNode?.removeChild(caretRef.current);
-  }, []);
-
-  const commitChange = useCallback(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    const serialized = serializeEditor(el);
-    lastValue.current = serialized;
-    onChange(serialized);
-  }, [onChange]);
-
-  const syncDom = useCallback((val: string, caretOffset: number | undefined = undefined) => {
-    const el = editorRef.current;
-    if (!el) return;
-
-    el.innerHTML = '';
-    buildNodes(val).forEach(part => {
-      if (part === 'TOKEN') {
-        el.appendChild(makeBadge(blue, blueSoft));
-      } else {
-        el.appendChild(document.createTextNode(part));
-      }
-    });
-
-    if (caretOffset !== undefined) {
-      setCaretOffset(el, caretOffset);
-    } else {
-      // Fin du contenu
-      const sel = window.getSelection();
-      if (sel) {
-        const r = document.createRange();
-        r.selectNodeContents(el);
-        r.collapse(false);
-        sel.removeAllRanges();
-        sel.addRange(r);
-      }
-    }
-  }, [blue, blueSoft]);
-
-  useEffect(() => {
-    if (value !== lastValue.current) {
-      if (skipNextSync.current) {
-        skipNextSync.current = false;
-        lastValue.current = value;
-        return;
-      }
-      lastValue.current = value;
-      syncDom(value);
-    }
-  }, [value, syncDom]);
-
-  useEffect(() => {
-    syncDom(value);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleInput = useCallback(() => {
-    if (isComposing.current || !editorRef.current) return;
-    const el = editorRef.current;
-
-    // Capture l'offset curseur AVANT de modifier le DOM
-    const caretOff = getCaretOffset(el);
-    const serialized = serializeEditor(el);
-    if (serialized === lastValue.current) return;
-
-    // Si le badge a disparu (couper, coller, etc.) → on le remet à la fin
-    const prevHadToken = lastValue.current.includes(TOKEN);
-    const nowHasToken = serialized.includes(TOKEN);
-    let final = serialized;
-    if (prevHadToken && !nowHasToken) {
-      final = serialized + TOKEN;
-    }
-
-    lastValue.current = final;
-    // Toujours resync le DOM pour garantir la structure correcte
-    syncDom(final, caretOff >= 0 ? caretOff : undefined);
-    onChange(final);
-  }, [onChange, syncDom]);
-
-  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    const sel = window.getSelection();
-    if (!sel || !sel.rangeCount) return;
-    const range = sel.getRangeAt(0);
-
-    // Bloque toute suppression qui toucherait le badge
-    if (e.key === 'Backspace' || e.key === 'Delete') {
-      const el = editorRef.current;
-      if (!el) return;
-
-      // Si sélection non-collapsed, vérifier qu'aucun badge n'est dans la sélection
-      if (!range.collapsed) {
-        const frag = range.cloneContents();
-        const hasBadge = Array.from(frag.querySelectorAll('[data-token="lien_lm"]')).length > 0;
-        if (hasBadge) { e.preventDefault(); return; }
-      }
-
-      if (e.key === 'Backspace' && range.collapsed) {
-        const prev = range.startContainer.previousSibling;
-        if (range.startOffset === 0 && prev && (prev as HTMLElement).dataset?.token === 'lien_lm') {
-          e.preventDefault(); return;
-        }
-      }
-      if (e.key === 'Delete' && range.collapsed) {
-        const textLen = range.startContainer.textContent?.length ?? 0;
-        const next = range.startContainer.nextSibling;
-        if (range.startOffset === textLen && next && (next as HTMLElement).dataset?.token === 'lien_lm') {
-          e.preventDefault(); return;
-        }
-      }
-    }
-  }, []);
-
-  // Drag & drop du badge dans l'éditeur
-  const handleDragStart = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.dataset?.token === 'lien_lm') {
-      draggingBadge.current = target as HTMLSpanElement;
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', TOKEN);
-    }
-  }, []);
-
-  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-
-    // Affiche un caret custom à la position de drop
-    const el = editorRef.current;
-    if (!el) return;
-    let range: Range | null = null;
-    if (document.caretRangeFromPoint) {
-      range = document.caretRangeFromPoint(e.clientX, e.clientY);
-    } else if ((document as any).caretPositionFromPoint) {
-      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
-    }
-    if (!range || !el.contains(range.startContainer)) { removeCaret(); return; }
-
-    // Crée ou déplace le caret
-    if (!caretRef.current) {
-      const c = document.createElement('span');
-      c.id = '__drag-caret__';
-      Object.assign(c.style, {
-        display: 'inline-block', width: '2px', height: '1.2em',
-        background: blue, verticalAlign: 'text-bottom', pointerEvents: 'none',
-        animation: 'none', borderRadius: '1px', marginLeft: '-1px',
-      });
-      caretRef.current = c;
-    }
-    const caret = caretRef.current;
-    // Retire le caret de son ancienne position avant de le réinsérer
-    caret.parentNode?.removeChild(caret);
-    range.insertNode(caret);
-  }, [blue]);
-
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    removeCaret();
-    const el = editorRef.current;
-    if (!el || !draggingBadge.current) return;
-
-    // Capture la position de drop AVANT de toucher au DOM
-    let dropRange: Range | null = null;
-    if (document.caretRangeFromPoint) {
-      dropRange = document.caretRangeFromPoint(e.clientX, e.clientY);
-    } else if ((document as any).caretPositionFromPoint) {
-      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
-      if (pos) { dropRange = document.createRange(); dropRange.setStart(pos.offsetNode, pos.offset); dropRange.collapse(true); }
-    }
-
-    // Retire le badge de sa position actuelle
-    const badge = draggingBadge.current;
-    badge.parentNode?.removeChild(badge);
-    draggingBadge.current = null;
-
-    // Insère le nouveau badge à la position capturée
-    const newBadge = makeBadge(blue, blueSoft);
-    if (dropRange && el.contains(dropRange.startContainer)) {
-      dropRange.insertNode(newBadge);
-    } else {
-      el.appendChild(newBadge);
-    }
-
-    // Sérialise le DOM tel quel, met à jour lastValue et notifie sans déclencher de resync
-    const serialized = serializeEditor(el);
-    lastValue.current = serialized;
-    skipNextSync.current = true;
-    onChange(serialized);
-  }, [blue, blueSoft, onChange, removeCaret]);
-
   return (
-    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={handleInput}
-        onCompositionStart={() => { isComposing.current = true; }}
-        onCompositionEnd={() => { isComposing.current = false; handleInput(); }}
-        onKeyDown={handleKeyDown}
-        onDragStart={handleDragStart}
-        onDragOver={handleDragOver}
-        onDragLeave={removeCaret}
-        onDragEnd={removeCaret}
-        onDrop={handleDrop}
-        data-placeholder="Ex : 👋 Voici le lien comme promis !"
-        style={{
-          minHeight: 72, padding: '10px 12px', fontSize: 12, lineHeight: 1.6,
-          fontFamily: 'inherit', color: ink, outline: 'none',
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-          borderRadius: 8,
-        }}
-      />
-      <style>{`[contenteditable]:empty:before{content:attr(data-placeholder);color:${faint};}`}</style>
-    </div>
+    <textarea
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      rows={3}
+      placeholder="Ex : 👋 Voici le lien comme promis ! {{lien_lm}}"
+      style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg, color: ink, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
+    />
   );
 }
+
 
 // ─── TabLm ────────────────────────────────────────────────────────────────────
 
