@@ -388,12 +388,11 @@ function htmlToValue(el: HTMLDivElement): string {
   return result;
 }
 
-function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
+function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink }: {
   value: string; onChange: (v: string) => void; saved: boolean;
-  blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
+  blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string;
 }) {
   const editorRef = useRef<HTMLDivElement>(null);
-  const hasToken = value.includes(TOKEN);
   // Pour éviter la boucle onChange → re-render → perte de curseur
   const isComposing = useRef(false);
   const lastValue = useRef(value);
@@ -432,11 +431,29 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
     if (isComposing.current) return;
     const el = editorRef.current;
     if (!el) return;
-    const extracted = htmlToValue(el);
-    lastValue.current = extracted;
+    let extracted = htmlToValue(el);
+    // Le token est obligatoire — si l'utilisateur l'a supprimé, on le remet à la fin
+    if (!extracted.includes(TOKEN)) {
+      extracted = extracted.trimEnd() + (extracted.trimEnd().length > 0 ? ' ' : '') + TOKEN;
+      lastValue.current = extracted;
+      el.innerHTML = valueToHtml(extracted, blue, blueSoft);
+      attachBadgeDragListeners(el);
+      // Placer le curseur avant le badge
+      const sel = window.getSelection();
+      if (sel) {
+        const range = document.createRange();
+        const lastTextNode = Array.from(el.childNodes).reverse().find(n => n.nodeType === Node.TEXT_NODE);
+        if (lastTextNode) { range.setStartAfter(lastTextNode); } else { range.setStart(el, el.childNodes.length - 1); }
+        range.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    } else {
+      lastValue.current = extracted;
+    }
     onChange(extracted);
     attachBadgeDragListeners(el);
-  }, [onChange]);
+  }, [onChange, blue, blueSoft]);
 
   // Drop du badge dans le contentEditable
   const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
@@ -483,17 +500,6 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
     if (el) { el.innerHTML = valueToHtml(next, blue, blueSoft); attachBadgeDragListeners(el); }
   }, [value, onChange, blue, blueSoft]);
 
-  const insertToken = useCallback(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    const withoutToken = value.replace(TOKEN, '').replace(/  +/g, ' ');
-    const next = insertTokenAt(withoutToken, withoutToken.length);
-    lastValue.current = next;
-    onChange(next);
-    el.innerHTML = valueToHtml(next, blue, blueSoft);
-    attachBadgeDragListeners(el);
-  }, [value, onChange, blue, blueSoft]);
-
   return (
     <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
       <div
@@ -513,17 +519,6 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
           outline: 'none', wordBreak: 'break-word', whiteSpace: 'pre-wrap',
         }}
       />
-      {/* Bouton insérer si token absent */}
-      {!hasToken && (
-        <div style={{ padding: '0 12px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <button type="button" onClick={insertToken} style={{
-            fontSize: 10, fontWeight: 700, color: blue, background: blueSoft,
-            border: `1px solid ${blue}`, borderRadius: 5, padding: '2px 8px',
-            cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em',
-          }}>+ Lien LM</button>
-          <span style={{ fontSize: 10, color: faint }}>— glisse le badge pour le repositionner</span>
-        </div>
-      )}
     </div>
   );
 }
@@ -689,11 +684,8 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
             value={dm1Text}
             onChange={v => { setDm1Text(v); setDm1Saved(false); }}
             saved={dm1Saved}
-            blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK} faint={FAINT}
+            blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
           />
-          <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>
-            Tu peux glisser le badge <strong style={{ color: BLUE }}>Lien LM</strong> n'importe où dans le message pour le repositionner.
-          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
               style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
@@ -826,11 +818,8 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           value={dm1Text}
           onChange={v => setDm1Text(v)}
           saved={true}
-          blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK} faint={FAINT}
+          blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
         />
-        <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>
-          Tu peux glisser le badge <strong style={{ color: BLUE }}>Lien LM</strong> n'importe où dans le message pour le repositionner.
-        </div>
       </div>
 
       {/* Message d'ouverture */}
