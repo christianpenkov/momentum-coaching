@@ -58,6 +58,8 @@ interface LeadMagnet {
   created_at?: string;
   bio_ig_url?: string | null;
   bio_yt_url?: string | null;
+  bio_ig_source_url?: string | null;
+  bio_yt_source_url?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -132,11 +134,12 @@ function Spinner() {
 
 // ─── Modal Paramètres ─────────────────────────────────────────────────────────
 
-function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onCalendlyChange, initialCalendly, leadMagnets }: {
+function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onCalendlyChange, initialCalendly, leadMagnets, onLmUpdated }: {
   open: boolean; onClose: () => void;
   profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
   onCalendlyChange: (url: string) => void; initialCalendly: string;
   leadMagnets: LeadMagnet[];
+  onLmUpdated: (lm: LeadMagnet) => void;
 }) {
   const [calendlyUrl, setCalendlyUrl] = useState(initialCalendly);
   const [saved, setSaved] = useState(false);
@@ -217,9 +220,10 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
       // Sauvegarde en DB
       await fetch('/api/client/lead-magnets', {
         method: 'PATCH', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id: lmId, name: lm.name, url: lm.url, keyword: lm.keyword, [`bio_${platform}_url`]: shortUrl }),
+        body: JSON.stringify({ id: lmId, [`bio_${platform}_url`]: shortUrl, [`bio_${platform}_source_url`]: lm.url }),
       });
       setLmBioUrls(prev => ({ ...prev, [lmId]: { ...prev[lmId], [platform]: shortUrl } }));
+      onLmUpdated({ ...lm, [`bio_${platform}_url`]: shortUrl, [`bio_${platform}_source_url`]: lm.url });
     } catch (e: any) { setError(e.message); } finally { setGenLmLoading(prev => ({ ...prev, [key]: false })); }
   };
 
@@ -297,6 +301,13 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
                     {/* Liens bio si déployé */}
                     {isSelected && (
                       <div style={{ borderTop: `1px solid ${BORDER}`, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {/* Warning si URL du LM a changé depuis la génération */}
+                        {((lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) ||
+                          (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
+                          <div style={{ fontSize: 11, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '7px 10px' }}>
+                            ⚠ L'URL de ce lead magnet a été modifiée. Regénère les liens bio ci-dessous pour qu'ils pointent vers la nouvelle URL.
+                          </div>
+                        )}
                         {(['ig', 'yt'] as const).map(p => {
                           const label = p === 'ig' ? '📸 Bio Instagram' : '▶️ Bio YouTube';
                           const url = urls[p];
@@ -315,9 +326,10 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
                                   <button onClick={async () => {
                                     await fetch('/api/client/lead-magnets', {
                                       method: 'PATCH', headers: { 'content-type': 'application/json' },
-                                      body: JSON.stringify({ id: lm.id, [`bio_${p}_url`]: null }),
+                                      body: JSON.stringify({ id: lm.id, [`bio_${p}_url`]: null, [`bio_${p}_source_url`]: null }),
                                     });
                                     setLmBioUrls(prev => ({ ...prev, [lm.id]: { ...prev[lm.id], [p]: undefined } }));
+                                    onLmUpdated({ ...lm, [`bio_${p}_url`]: null, [`bio_${p}_source_url`]: null });
                                   }} style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: RED, cursor: 'pointer', whiteSpace: 'nowrap' }}>
                                     Supprimer
                                   </button>
@@ -1573,8 +1585,8 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                       {/* Indicateurs liens bio actifs */}
                       {(lm.bio_ig_url || lm.bio_yt_url) && (
                         <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {lm.bio_ig_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>📸 Bio IG actif</span>}
-                          {lm.bio_yt_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>▶️ Bio YT actif</span>}
+                          {lm.bio_ig_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>📸 Bio IG généré</span>}
+                          {lm.bio_yt_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>▶️ Bio YT généré</span>}
                         </div>
                       )}
                     </div>
@@ -1787,6 +1799,7 @@ export default function PageLiens() {
         profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
         onCalendlyChange={setCalendlyUrl} initialCalendly={calendlyUrl}
         leadMagnets={leadMagnets}
+        onLmUpdated={lm => setLeadMagnets(prev => prev.map(l => l.id === lm.id ? lm : l))}
       />
 
       <div className="liens-shell">

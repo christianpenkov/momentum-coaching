@@ -21,7 +21,7 @@ export async function GET() {
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
-    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
     .eq('profile_id', user.id)
     .order('created_at', { ascending: false });
 
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
     .insert({ profile_id: user.id, name: name?.trim() || normalizedUrl, url: normalizedUrl, keyword: cleanKeyword })
-    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -60,7 +60,7 @@ export async function PATCH(request: Request) {
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
   const body = await request.json();
-  const { id, name, url, keyword, bio_ig_url, bio_yt_url } = body;
+  const { id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
   const patch: Record<string, any> = {};
@@ -68,13 +68,15 @@ export async function PATCH(request: Request) {
   if (keyword !== undefined) patch.keyword = (keyword || '').toUpperCase().trim().replace(/\s+/g, '');
   if (bio_ig_url !== undefined) patch.bio_ig_url = bio_ig_url;
   if (bio_yt_url !== undefined) patch.bio_yt_url = bio_yt_url;
+  if (bio_ig_source_url !== undefined) patch.bio_ig_source_url = bio_ig_source_url;
+  if (bio_yt_source_url !== undefined) patch.bio_yt_source_url = bio_yt_source_url;
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
     .update(patch)
     .eq('id', id)
     .eq('profile_id', user.id)
-    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url, created_at')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
