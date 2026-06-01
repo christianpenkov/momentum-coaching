@@ -1215,7 +1215,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                       style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postMode === 'auto' ? BLUE_SOFT : 'transparent', fontWeight: postMode === 'auto' ? 600 : 400 }}
                       onMouseEnter={e => { if (postMode !== 'auto') e.currentTarget.style.background = SURFACE2; }}
                       onMouseLeave={e => { if (postMode !== 'auto') e.currentTarget.style.background = 'transparent'; }}>
-                      Automatique <span style={{ color: FAINT, fontWeight: 400 }}>(dernier post)</span>
+                      Automatique <span style={{ color: FAINT, fontWeight: 400 }}>(détecté via le commentaire)</span>
                     </div>
                     {/* Option sans attribution */}
                     <div onMouseDown={() => { setPostMode('none'); setPostId(''); setShowPostPicker(false); setPostSearch(''); }}
