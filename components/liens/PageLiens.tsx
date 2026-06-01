@@ -397,8 +397,8 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   const hasCalendly = calendlyUrl.trim().startsWith('http');
   // IG: Calendly / LM / custom — YT: Calendly / custom seulement
   const destOptions = post.platform === 'IG'
-    ? [{ key: 'calendly', label: '📅 Calendly' }, { key: 'leadmagnet', label: '📄 Lead magnet' }, { key: 'custom', label: '🔗 URL custom' }]
-    : [{ key: 'calendly', label: '📅 Calendly' }, { key: 'custom', label: '🔗 URL custom' }];
+    ? [{ key: 'calendly', label: 'Calendly' }, { key: 'leadmagnet', label: 'Lead magnet' }, { key: 'custom', label: 'URL custom' }]
+    : [{ key: 'calendly', label: 'Calendly' }, { key: 'custom', label: 'URL custom' }];
 
   const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>('calendly');
   const [customUrl, setCustomUrl] = useState('');
@@ -1148,28 +1148,32 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
   useEffect(() => { setActiveTab('desc'); }, [post.id]);
 
   const tabs = [
-    { key: 'desc', label: `📝 Lien description${post.hasDescLink ? ' ✓' : ''}` },
-    { key: 'lm', label: `📄 Lead magnet${post.hasLeadMagnet ? ' ✓' : ''}` },
+    { key: 'desc', label: `Lien description${post.hasDescLink ? ' ✓' : ''}` },
+    { key: 'lm', label: `Lead magnet${post.hasLeadMagnet ? ' ✓' : ''}` },
   ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header post */}
-      <div style={{ padding: '16px 24px', borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-          <div style={{ width: 40, height: 40, borderRadius: 8, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, flexShrink: 0, overflow: 'hidden' }}>
-            {post.thumbnail ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : post.platform === 'IG' ? '📸' : '▶️'}
+      <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
+            {post.thumbnail
+              ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  {post.platform === 'IG'
+                    ? <svg width="14" height="14" viewBox="0 0 24 24" fill={MUTED}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                    : <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                  }
+                </div>
+            }
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: INK, lineHeight: 1.3, marginBottom: 5 }}>{post.caption}</div>
-            <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-              <Badge color={post.platform === 'IG' ? '#c2185b' : '#d32f2f'} bg={post.platform === 'IG' ? '#c2185b18' : '#d32f2f18'}>{post.platform}</Badge>
-              {post.hasDescLink
-                ? <Badge color={BLUE} bg={BLUE_SOFT}>📝 Lien desc</Badge>
-                : <Badge color={FAINT} bg={SURFACE2}>📝 Sans lien</Badge>}
-              {post.hasLeadMagnet
-                ? <Badge color='var(--green)' bg='var(--green-soft)'>📄 LM {post.lmKeyword ? `#${post.lmKeyword}` : ''}</Badge>
-                : post.platform === 'IG' ? <Badge color={FAINT} bg={SURFACE2}>📄 Sans LM</Badge> : null}
+            <div style={{ fontSize: 13, fontWeight: 600, color: INK, lineHeight: 1.3, marginBottom: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.caption}</div>
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 10, fontWeight: 700, color: post.platform === 'IG' ? '#c2185b' : '#d32f2f', opacity: 0.8 }}>{post.platform}</span>
+              {post.hasDescLink && <span style={{ fontSize: 10, color: BLUE, fontWeight: 600, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px' }}>Lien desc ✓</span>}
+              {post.hasLeadMagnet && <span style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600, background: 'var(--green-soft)', borderRadius: 4, padding: '1px 6px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM ✓'}</span>}
             </div>
           </div>
         </div>
@@ -1613,21 +1617,23 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                   </div>
                 ) : (
                   /* Mode lecture */
-                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px' }}>
-                    <div style={{ fontSize: 18, flexShrink: 0 }}>📄</div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
-                      <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all', marginBottom: lm.keyword ? 4 : 0 }}>{lm.url}</div>
-                      {lm.keyword && (
-                        <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
-                      )}
-                      {/* Indicateurs liens bio actifs */}
-                      {(lm.bio_ig_url || lm.bio_yt_url) && (
-                        <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          {lm.bio_ig_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>📸 Bio IG généré</span>}
-                          {lm.bio_yt_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>▶️ Bio YT généré</span>}
-                        </div>
-                      )}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: INK }}>{lm.name}</div>
+                        {lm.keyword && (
+                          <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <div style={{ fontSize: 11, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 240 }}>{lm.url}</div>
+                        {(lm.bio_ig_url || lm.bio_yt_url) && (
+                          <div style={{ display: 'flex', gap: 3, flexShrink: 0 }}>
+                            {lm.bio_ig_url && <span style={{ fontSize: 9, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 3, padding: '1px 5px' }}>Bio IG</span>}
+                            {lm.bio_yt_url && <span style={{ fontSize: 9, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 3, padding: '1px 5px' }}>Bio YT</span>}
+                          </div>
+                        )}
+                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       <button onClick={() => startEdit(lm)}
