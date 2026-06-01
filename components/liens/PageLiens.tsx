@@ -1847,25 +1847,27 @@ export default function PageLiens() {
       <div className="liens-shell">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '14px 24px', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
           <div>
-            <div style={{ fontSize: 17, fontWeight: 800, color: INK, letterSpacing: '-0.02em' }}>Gérer mes liens</div>
-            <div style={{ fontSize: 11, color: MUTED, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: INK, letterSpacing: '-0.01em' }}>Gérer mes liens</div>
+            <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
-          <div style={{ display: 'flex', gap: 8 }}>
+          <div style={{ display: 'flex', gap: 6 }}>
             <button onClick={() => setRightView({ type: 'lm-library' })} style={{
-              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', transition: 'all .15s',
+              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
               border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
-              background: rightView?.type === 'lm-library' ? 'var(--green-soft)' : SURFACE,
+              background: rightView?.type === 'lm-library' ? 'var(--green-soft)' : 'transparent',
               color: rightView?.type === 'lm-library' ? 'var(--green)' : MUTED,
             }}>
-              📄 Lead Magnets
-              {leadMagnets.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: rightView?.type === 'lm-library' ? 'var(--green)' : BORDER, color: rightView?.type === 'lm-library' ? '#fff' : MUTED, borderRadius: 10, padding: '1px 6px' }}>{leadMagnets.length}</span>}
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              Lead Magnets
+              {leadMagnets.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: rightView?.type === 'lm-library' ? 'var(--green)' : SURFACE2, color: rightView?.type === 'lm-library' ? '#fff' : MUTED, borderRadius: 10, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>{leadMagnets.length}</span>}
             </button>
-            <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`, background: SURFACE, color: MUTED, cursor: 'pointer', position: 'relative' }}>
-              ⚙ Paramètres
+            <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer', position: 'relative', transition: 'all .15s' }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              Paramètres
               {leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
-                <span style={{ position: 'absolute', top: -7, right: -7, width: 16, height: 16, borderRadius: '50%', background: AMBER, border: '2px solid var(--surface)', boxShadow: `0 0 0 3px ${AMBER_SOFT}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#fff', fontWeight: 700 }}>!</span>
+                <span style={{ position: 'absolute', top: -6, right: -6, width: 14, height: 14, borderRadius: '50%', background: AMBER, border: '2px solid var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 700 }}>!</span>
               )}
             </button>
           </div>
@@ -1878,13 +1880,16 @@ export default function PageLiens() {
           <div style={{ width: 380, flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
 
             {/* Bouton Calendly prospect */}
-            <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
               <button onClick={() => setRightView({ type: 'prospect' })} style={{
-                width: '100%', padding: '9px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left',
+                width: '100%', padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 7,
                 border: `1.5px solid ${rightView?.type === 'prospect' ? BLUE : BORDER}`,
-                background: rightView?.type === 'prospect' ? BLUE_SOFT : SURFACE,
-                color: rightView?.type === 'prospect' ? BLUE : INK, transition: 'all .15s',
-              }}>📅 Lien Calendly prospect</button>
+                background: rightView?.type === 'prospect' ? BLUE_SOFT : 'transparent',
+                color: rightView?.type === 'prospect' ? BLUE : MUTED, transition: 'all .15s',
+              }}>
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+                Lien Calendly prospect
+              </button>
             </div>
 
             {/* Barre recherche + filtres */}
@@ -1925,20 +1930,28 @@ export default function PageLiens() {
                 const hasLm = !!post.hasLeadMagnet;
                 return (
                   <div key={post.id} onClick={() => setRightView({ type: 'post', post })}
-                    style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '9px 14px', cursor: 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, transition: 'all .1s' }}>
-                    <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 15, flexShrink: 0, overflow: 'hidden' }}>
-                      {post.thumbnail ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : post.platform === 'IG' ? '📸' : '▶️'}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, transition: 'all .1s' }}>
+                    <div style={{ width: 36, height: 36, borderRadius: 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
+                      {post.thumbnail
+                        ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {post.platform === 'IG'
+                              ? <svg width="14" height="14" viewBox="0 0 24 24" fill={MUTED}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                              : <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                            }
+                          </div>
+                      }
                     </div>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 4 }}>{post.caption}</div>
-                      <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                        <Badge color={post.platform === 'IG' ? '#c2185b' : '#d32f2f'} bg={post.platform === 'IG' ? '#c2185b12' : '#d32f2f12'}>{post.platform}</Badge>
-                        {hasDesc
-                          ? <Badge color={BLUE} bg={BLUE_SOFT}>📝 Desc</Badge>
-                          : <Badge color={FAINT} bg={SURFACE2}>📝 —</Badge>}
-                        {post.platform === 'IG' && (hasLm
-                          ? <Badge color='var(--green)' bg='var(--green-soft)'>📄 {post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</Badge>
-                          : <Badge color={FAINT} bg={SURFACE2}>📄 —</Badge>)}
+                      <div style={{ fontSize: 12, fontWeight: 500, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{post.caption}</div>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: post.platform === 'IG' ? '#c2185b' : '#d32f2f', opacity: 0.8 }}>{post.platform}</span>
+                        <span style={{ width: 3, height: 3, borderRadius: '50%', background: hasDesc ? BLUE : FAINT, flexShrink: 0, opacity: hasDesc ? 1 : 0.4 }} title={hasDesc ? 'Lien description généré' : 'Pas de lien description'} />
+                        {post.platform === 'IG' && (
+                          hasLm
+                            ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</span>
+                            : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lead magnet" />
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1950,13 +1963,13 @@ export default function PageLiens() {
           {/* Colonne droite */}
           <div style={{ flex: 1, minWidth: 0, background: SURFACE, overflowY: 'auto' }}>
             {rightView === null ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 12, padding: 40, textAlign: 'center' }}>
-                <div style={{ fontSize: 36 }}>🔗</div>
-                <div style={{ fontSize: 15, fontWeight: 700, color: INK }}>Sélectionne un contenu</div>
-                <div style={{ fontSize: 13, color: MUTED, maxWidth: 320, lineHeight: 1.6 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, padding: 40, textAlign: 'center' }}>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                <div style={{ fontSize: 14, fontWeight: 600, color: INK, marginTop: 2 }}>Sélectionne un contenu</div>
+                <div style={{ fontSize: 12, color: MUTED, maxWidth: 300, lineHeight: 1.6 }}>
                   Clique sur un contenu à gauche pour générer un lien description ou un lien lead magnet.
                   <br /><br />
-                  Ou utilise <strong>Calendly prospect</strong> pour un lien DM unique, et <strong>📄 Lead Magnets</strong> pour gérer ta bibliothèque.
+                  Ou utilise <strong>Calendly prospect</strong> pour un lien DM unique, et <strong>Lead Magnets</strong> pour gérer ta bibliothèque.
                 </div>
               </div>
             ) : rightView.type === 'lm-library' ? (
