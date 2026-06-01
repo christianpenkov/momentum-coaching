@@ -1484,6 +1484,7 @@ export default function PageLiens() {
         lmKeyword: cl.lm_keyword || undefined,
         lmShortUrl: cl.lm_short_url || undefined,
         dmOpenerMessage: cl.dm_opener_message || undefined,
+        dmLmMessage: cl.dm_lm_message || undefined,
       };
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
