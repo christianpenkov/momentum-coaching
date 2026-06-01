@@ -346,154 +346,119 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
 
 const TOKEN = '{{lien_lm}}';
 
-// ─── SUPPRIMÉ : tout le code contentEditable était ici ───────────────────────
-// Remplacé par Dm1Editor simple ci-dessous
-
-function serializeEditor(el: HTMLDivElement): string {
-  let result = '';
-  el.childNodes.forEach(node => {
-    if (node.nodeType === Node.TEXT_NODE) {
-      result += node.textContent ?? '';
-    } else if (node.nodeType === Node.ELEMENT_NODE) {
-      const child = node as HTMLElement;
-      if (child.dataset.token === 'lien_lm') result += TOKEN;
-      else result += child.textContent ?? '';
-    }
-  });
-  return result;
+// Insère le token avec espaces garantis autour
+function insertTokenAt(text: string, pos: number): string {
+  const before = text.slice(0, pos);
+  const after = text.slice(pos);
+  const needSpaceBefore = before.length > 0 && !before.endsWith(' ');
+  const needSpaceAfter = after.length > 0 && !after.startsWith(' ');
+  return before
+    + (needSpaceBefore ? ' ' : '')
+    + TOKEN
+    + (needSpaceAfter ? ' ' : '')
+    + after;
 }
 
-// Retourne l'offset caractère global du curseur dans la string sérialisée
-function getCaretOffset(el: HTMLDivElement): number {
-  const sel = window.getSelection();
-  if (!sel || sel.rangeCount === 0) return -1;
-  const range = sel.getRangeAt(0);
-  if (!range.collapsed) return -1;
-  const { startContainer, startOffset } = range;
+// ─── Dm1Editor : textarea React (fiable) + badge visuel overlay ──────────────
+// Le textarea est la source de vérité (React contrôle la valeur).
+// Un div overlay non-interactif affiche le badge bleu à la place de {{lien_lm}}.
+// Le drag & drop du badge réinsère le token avec espaces garantis.
 
-  let offset = 0;
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      if (node === startContainer) {
-        return offset + startOffset;
-      }
-      offset += node.textContent?.length ?? 0;
-    } else {
-      const child = node as HTMLElement;
-      if (child.dataset?.token === 'lien_lm') {
-        // Le curseur peut être positionné sur le badge lui-même (startOffset 0 ou 1)
-        if (child === startContainer || child.contains(startContainer)) {
-          // Avant le badge si offset=0, après si offset=1
-          return startOffset === 0 ? offset : offset + TOKEN.length;
-        }
-        offset += TOKEN.length;
-      } else {
-        if (child === startContainer || child.contains(startContainer)) {
-          return offset + startOffset;
-        }
-        offset += child.textContent?.length ?? 0;
-      }
-    }
-  }
-  return offset;
-}
-
-// Replace le curseur à l'offset caractère global dans la string sérialisée
-function setCaretOffset(el: HTMLDivElement, targetOffset: number) {
-  const sel = window.getSelection();
-  if (!sel) return;
-  let remaining = targetOffset;
-
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      const len = node.textContent?.length ?? 0;
-      if (remaining <= len) {
-        try {
-          const r = document.createRange();
-          r.setStart(node, remaining);
-          r.collapse(true);
-          sel.removeAllRanges();
-          sel.addRange(r);
-        } catch {}
-        return;
-      }
-      remaining -= len;
-    } else {
-      const child = node as HTMLElement;
-      if (child.dataset?.token === 'lien_lm') {
-        if (remaining <= 0) {
-          try {
-            const r = document.createRange();
-            r.setStartBefore(child);
-            r.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(r);
-          } catch {}
-          return;
-        }
-        remaining -= TOKEN.length;
-        if (remaining <= 0) {
-          try {
-            const r = document.createRange();
-            r.setStartAfter(child);
-            r.collapse(true);
-            sel.removeAllRanges();
-            sel.addRange(r);
-          } catch {}
-          return;
-        }
-      }
-    }
-  }
-  // Fallback : fin du contenu
-  try {
-    const r = document.createRange();
-    r.selectNodeContents(el);
-    r.collapse(false);
-    sel.removeAllRanges();
-    sel.addRange(r);
-  } catch {}
-}
-
-function buildNodes(value: string): (string | 'TOKEN')[] {
-  const parts = value.split(TOKEN);
-  const out: (string | 'TOKEN')[] = [];
-  parts.forEach((p, i) => {
-    if (p) out.push(p);
-    if (i < parts.length - 1) out.push('TOKEN');
-  });
-  return out;
-}
-
-function makeBadge(blue: string, blueSoft: string): HTMLSpanElement {
-  const badge = document.createElement('span');
-  badge.dataset.token = 'lien_lm';
-  badge.contentEditable = 'false';
-  badge.draggable = true;
-  badge.textContent = 'Lien LM';
-  Object.assign(badge.style, {
-    display: 'inline-flex', alignItems: 'center',
-    background: blueSoft, border: `1px solid ${blue}`, borderRadius: '5px',
-    padding: '1px 8px', margin: '0 1px', color: blue,
-    fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
-    letterSpacing: '0.04em', verticalAlign: 'middle', userSelect: 'none',
-    cursor: 'grab',
-  });
-  return badge;
-}
-
-function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
+function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
   value: string; onChange: (v: string) => void; saved: boolean;
-  blue?: string; blueSoft?: string; border: string; amber: string; bg: string; ink: string; faint?: string;
+  blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
 }) {
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const parts = value.split(TOKEN);
+  const hasToken = parts.length > 1;
+
+  // Insère le token à la position du curseur dans le textarea
+  const insertToken = useCallback(() => {
+    const ta = taRef.current;
+    if (!ta) return;
+    const pos = ta.selectionStart ?? value.length;
+    const next = insertTokenAt(value, pos);
+    onChange(next);
+    // Replace le curseur après le token inséré
+    const newPos = next.indexOf(TOKEN) + TOKEN.length;
+    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(newPos, newPos); });
+  }, [value, onChange]);
+
+  // Drag du badge : supprime le token existant et le réinsère à la position de drop
+  const handleDrop = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+    if (e.dataTransfer.getData('text/plain') !== TOKEN) return;
+    e.preventDefault();
+    const ta = taRef.current;
+    if (!ta) return;
+    // Supprime le token existant
+    const withoutToken = value.replace(TOKEN, '').replace(/  +/g, ' ').trim();
+    // Calcule la position de drop dans le textarea via les coordonnées
+    // On insère à la fin par défaut (le textarea gère le drop nativement)
+    const next = insertTokenAt(withoutToken, withoutToken.length);
+    onChange(next);
+  }, [value, onChange]);
+
   return (
-    <textarea
-      value={value}
-      onChange={e => onChange(e.target.value)}
-      rows={3}
-      placeholder="Ex : 👋 Voici le lien comme promis ! {{lien_lm}}"
-      style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg, color: ink, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
-    />
+    <div style={{ position: 'relative', borderRadius: 8, border: `1px solid ${saved ? border : amber}` }}>
+      {/* Overlay visuel — affiche le badge bleu à la place de {{lien_lm}} */}
+      <div aria-hidden style={{
+        position: 'absolute', inset: 0, padding: '10px 12px',
+        fontSize: 12, lineHeight: 1.5, fontFamily: 'inherit',
+        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        pointerEvents: 'none', zIndex: 1, color: 'transparent',
+        overflow: 'hidden',
+      }}>
+        {parts.map((part, i) => (
+          <span key={i}>
+            <span style={{ color: 'transparent' }}>{part}</span>
+            {i < parts.length - 1 && (
+              <span
+                draggable
+                onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData('text/plain', TOKEN); }}
+                style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  background: blueSoft, border: `1px solid ${blue}`, borderRadius: 5,
+                  padding: '1px 8px', color: blue, fontSize: 10, fontWeight: 700,
+                  textTransform: 'uppercase', letterSpacing: '0.04em',
+                  verticalAlign: 'middle', userSelect: 'none', cursor: 'grab',
+                  pointerEvents: 'all',
+                }}>Lien LM</span>
+            )}
+          </span>
+        ))}
+      </div>
+      {/* Textarea transparent — React contrôle la valeur, toujours fiable */}
+      <textarea
+        ref={taRef}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onDrop={handleDrop}
+        rows={3}
+        placeholder="Ex : 👋 Voici le lien comme promis !"
+        style={{
+          position: 'relative', zIndex: 2,
+          width: '100%', padding: '10px 12px',
+          fontSize: 12, lineHeight: 1.5, fontFamily: 'inherit',
+          background: 'transparent',
+          color: hasToken ? 'transparent' : ink,
+          caretColor: ink,
+          border: 'none', outline: 'none', resize: 'vertical',
+          boxSizing: 'border-box', minHeight: 72,
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+        }}
+      />
+      {/* Bouton pour insérer le badge si absent */}
+      {!hasToken && (
+        <div style={{ padding: '0 12px 8px', zIndex: 2, position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 10, color: faint }}>Insérer le lien :</span>
+          <button type="button" onClick={insertToken} style={{
+            fontSize: 10, fontWeight: 700, color: blue, background: blueSoft,
+            border: `1px solid ${blue}`, borderRadius: 5, padding: '2px 8px',
+            cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em',
+          }}>Lien LM</button>
+        </div>
+      )}
+    </div>
   );
 }
 
