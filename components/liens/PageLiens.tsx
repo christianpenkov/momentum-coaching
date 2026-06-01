@@ -47,6 +47,7 @@ interface ContentLink {
   lm_short_url?: string | null;
   lm_keyword?: string | null;
   dm_opener_message?: string | null;
+  dm_lm_message?: string | null;
 }
 
 interface LeadMagnet {
