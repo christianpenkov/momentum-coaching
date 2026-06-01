@@ -535,9 +535,10 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
 
 // ─── DissociateButton ────────────────────────────────────────────────────────
 
-function DissociateButton({ postId, platform, onPostUpdated }: {
+function DissociateButton({ postId, platform, onPostUpdated, onDissociated }: {
   postId: string; platform: string;
   onPostUpdated: (postId: string, patch: Partial<Post>) => void;
+  onDissociated: () => void;
 }) {
   const [confirm, setConfirm] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -557,6 +558,7 @@ function DissociateButton({ postId, platform, onPostUpdated }: {
         hasLeadMagnet: false, lmKeyword: undefined, lmShortUrl: undefined,
         dmOpenerMessage: undefined, dmLmMessage: undefined,
       });
+      onDissociated();
     } catch {} finally { setLoading(false); setConfirm(false); }
   };
 
@@ -604,6 +606,8 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setResult(post.lmShortUrl || null);
     setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
     setDm1Saved(true);
+    setDm2Text(post.dmOpenerMessage || '');
+    setDm2Saved(true);
   }, [post.id]);
 
   if (isYT) return (
@@ -657,6 +661,8 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null }),
       });
       setResult(shortUrl);
+      setDm2Text(dmMessage || '');
+      setDm2Saved(true);
       onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl, dmOpenerMessage: dmMessage || undefined });
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -785,7 +791,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           ✏️ Modifier / Régénérer le Lead Magnet
         </button>
         <div style={{ marginLeft: 'auto' }}>
-          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} />
+          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} onDissociated={() => { setResult(null); setEditing(false); setKeyword(''); setDm1Text(`👋 Voici le lien comme promis ! {{lien_lm}}`); setDm1Saved(true); setDm2Text(''); setDm2Saved(true); }} />
         </div>
       </div>
     </div>
