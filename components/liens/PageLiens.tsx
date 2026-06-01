@@ -370,36 +370,6 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
-  if (result) return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      {isExisting && !loading ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--green-soft)', borderRadius: 8, padding: '8px 12px' }}>
-          <span style={{ fontSize: 13 }}>✅</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--green)' }}>Lien déjà généré pour ce contenu</span>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: BLUE_SOFT, borderRadius: 8, padding: '8px 12px' }}>
-          <span style={{ fontSize: 13 }}>📋</span>
-          <span style={{ fontSize: 11, fontWeight: 600, color: BLUE }}>Colle ce lien dans la description de ta publication</span>
-        </div>
-      )}
-      {/* Vérification lien en description */}
-      {post.permalink ? (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
-          <span style={{ fontSize: 12 }}>🔍</span>
-          <span style={{ fontSize: 11, color: MUTED, flex: 1 }}>Vérifie que le lien est bien dans la description de ton post.</span>
-          <a href={post.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: BLUE, textDecoration: 'none', whiteSpace: 'nowrap', padding: '4px 10px', border: `1px solid ${BLUE}`, borderRadius: 6 }}>
-            Voir le post ↗
-          </a>
-        </div>
-      ) : null}
-      <GeneratedUrlRow url={result} label="Lien description" />
-      <button onClick={() => setResult(null)} style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
-        {isExisting ? 'Regénérer un nouveau lien' : 'Générer un autre lien'}
-      </button>
-    </div>
-  );
-
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
@@ -446,9 +416,22 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
       {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
+      {/* Lien déjà généré */}
+      {result && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {post.permalink && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
+              <span style={{ fontSize: 11, color: MUTED, flex: 1 }}>Vérifie que le lien est dans la description.</span>
+              <a href={post.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: BLUE, textDecoration: 'none', whiteSpace: 'nowrap', padding: '4px 10px', border: `1px solid ${BLUE}`, borderRadius: 6 }}>Voir ↗</a>
+            </div>
+          )}
+          <GeneratedUrlRow url={result} label="Lien description" />
+        </div>
+      )}
+
       <button onClick={generate} disabled={loading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim())}
         style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim()) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {loading ? <><Spinner /> Génération...</> : 'Générer le lien description'}
+        {loading ? <><Spinner /> Génération...</> : result ? 'Regénérer le lien' : 'Générer le lien description'}
       </button>
     </div>
   );
