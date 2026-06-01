@@ -309,13 +309,31 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
                                   {url || '—'}
                                 </div>
                               </div>
-                              {url
-                                ? <CopyBtn url={url} />
-                                : <button onClick={() => genLmBio(lm.id, p)} disabled={loading || !canGenerate}
-                                    style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: !canGenerate || loading ? 'not-allowed' : 'pointer', opacity: !canGenerate || loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-                                    {loading ? '...' : 'Générer'}
+                              {url ? (
+                                <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                                  {/* Cas 2 — supprimer le lien bio */}
+                                  <button onClick={async () => {
+                                    await fetch('/api/client/lead-magnets', {
+                                      method: 'PATCH', headers: { 'content-type': 'application/json' },
+                                      body: JSON.stringify({ id: lm.id, [`bio_${p}_url`]: null }),
+                                    });
+                                    setLmBioUrls(prev => ({ ...prev, [lm.id]: { ...prev[lm.id], [p]: undefined } }));
+                                  }} style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: RED, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                    Supprimer
                                   </button>
-                              }
+                                  {/* Cas 3 — regénérer */}
+                                  <button onClick={() => genLmBio(lm.id, p)} disabled={loading || !canGenerate}
+                                    style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, cursor: 'pointer', whiteSpace: 'nowrap' }}>
+                                    {loading ? '...' : 'Regénérer'}
+                                  </button>
+                                  <CopyBtn url={url} />
+                                </div>
+                              ) : (
+                                <button onClick={() => genLmBio(lm.id, p)} disabled={loading || !canGenerate}
+                                  style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: !canGenerate || loading ? 'not-allowed' : 'pointer', opacity: !canGenerate || loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                                  {loading ? '...' : 'Générer'}
+                                </button>
+                              )}
                             </div>
                           );
                         })}
@@ -1416,6 +1434,8 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   const [editSaving, setEditSaving] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
 
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+
   const startEdit = (lm: LeadMagnet) => {
     setEditingId(lm.id); setEditName(lm.name); setEditUrl(lm.url); setEditKeyword(lm.keyword || ''); setEditError(null);
   };
@@ -1434,6 +1454,9 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
       setEditingId(null);
     } catch (e: any) { setEditError(e.message); } finally { setEditSaving(false); }
   };
+
+  // Vérifie si l'URL a changé par rapport au LM original
+  const urlChanged = (lm: LeadMagnet) => editingId === lm.id && editUrl.trim() !== lm.url && (lm.bio_ig_url || lm.bio_yt_url);
 
   const create = async () => {
     if (!isValidUrl(url)) return;
@@ -1519,6 +1542,12 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                       style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${isValidUrl(editUrl) ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
                     <input value={editKeyword} onChange={e => setEditKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="MOT-CLÉ"
                       style={{ width: '100%', padding: '7px 10px', fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', borderRadius: 7, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                    {/* Cas 1 — URL changée sur un LM avec lien bio actif */}
+                    {urlChanged(lm) && (
+                      <div style={{ fontSize: 11, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '7px 10px' }}>
+                        ⚠ Ce LM a un lien bio {lm.bio_ig_url ? 'Instagram' : ''}{lm.bio_ig_url && lm.bio_yt_url ? ' et ' : ''}{lm.bio_yt_url ? 'YouTube' : ''} actif. Après sauvegarde, va dans <strong>Paramètres</strong> pour regénérer le lien bio avec la nouvelle URL.
+                      </div>
+                    )}
                     {editError && <div style={{ fontSize: 11, color: RED }}>{editError}</div>}
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={saveEdit} disabled={editSaving || !isValidUrl(editUrl)}
@@ -1541,16 +1570,36 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                       {lm.keyword && (
                         <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
                       )}
+                      {/* Indicateurs liens bio actifs */}
+                      {(lm.bio_ig_url || lm.bio_yt_url) && (
+                        <div style={{ marginTop: 4, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                          {lm.bio_ig_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>📸 Bio IG actif</span>}
+                          {lm.bio_yt_url && <span style={{ fontSize: 10, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 6px' }}>▶️ Bio YT actif</span>}
+                        </div>
+                      )}
                     </div>
                     <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       <button onClick={() => startEdit(lm)}
                         style={{ fontSize: 11, fontWeight: 600, color: MUTED, background: 'none', border: `1px solid ${BORDER}`, borderRadius: 6, cursor: 'pointer', padding: '3px 10px', whiteSpace: 'nowrap' }}>
                         Modifier
                       </button>
-                      <button onClick={() => remove(lm.id)} disabled={deletingId === lm.id}
-                        style={{ fontSize: 11, color: RED, background: 'none', border: 'none', cursor: 'pointer', opacity: deletingId === lm.id ? 0.5 : 1, padding: '2px 4px' }}>
-                        {deletingId === lm.id ? '...' : '✕'}
-                      </button>
+                      {/* Cas 4 — suppression LM avec bio actif */}
+                      {confirmDeleteId === lm.id ? (
+                        <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                          {(lm.bio_ig_url || lm.bio_yt_url) && (
+                            <span style={{ fontSize: 10, color: AMBER, maxWidth: 120, lineHeight: 1.3 }}>Lien bio restera actif</span>
+                          )}
+                          <button onClick={() => { remove(lm.id); setConfirmDeleteId(null); }}
+                            style={{ fontSize: 11, fontWeight: 600, color: '#fff', background: RED, border: 'none', borderRadius: 6, cursor: 'pointer', padding: '3px 8px' }}>Oui</button>
+                          <button onClick={() => setConfirmDeleteId(null)}
+                            style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: '3px 4px' }}>Non</button>
+                        </div>
+                      ) : (
+                        <button onClick={() => (lm.bio_ig_url || lm.bio_yt_url) ? setConfirmDeleteId(lm.id) : remove(lm.id)} disabled={deletingId === lm.id}
+                          style={{ fontSize: 11, color: RED, background: 'none', border: 'none', cursor: 'pointer', opacity: deletingId === lm.id ? 0.5 : 1, padding: '2px 4px' }}>
+                          {deletingId === lm.id ? '...' : '✕'}
+                        </button>
+                      )}
                     </div>
                   </div>
                 )}
