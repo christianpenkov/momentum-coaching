@@ -98,7 +98,6 @@ export async function POST(request: Request) {
 
   for (const entry of entries) {
     const igAccountId = String(entry.id);
-    console.log('[IGW]', JSON.stringify({ id: igAccountId, changes: entry.changes?.length ?? 0, messaging: entry.messaging?.length ?? 0, keys: Object.keys(entry) }));
 
     // Events sur les changements (commentaires, mentions, etc.)
     for (const change of entry.changes || []) {
@@ -132,7 +131,6 @@ export async function POST(request: Request) {
         String(r.metadata?.ig_account_id) === igAccountId
       );
       const integ = match || null;
-      console.log('[IGW match]', igAccountId, '->', integ ? integ.profile_id : 'NOT FOUND', '| DB ids:', (allIg||[]).map((r:any) => `ig:${r.metadata?.ig_account_id} page:${r.metadata?.page_id}`));
 
       if (!integ) {
         pushEvent({ type: 'error', reason: 'profil_non_trouve', igAccountId });
