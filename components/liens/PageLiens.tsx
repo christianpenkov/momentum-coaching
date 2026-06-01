@@ -359,79 +359,169 @@ function insertTokenAt(text: string, pos: number): string {
     + after;
 }
 
-// ─── Dm1Editor : textarea React fiable + badge draggable séparé ──────────────
+// ─── Dm1Editor : contentEditable avec badge inline draggable ─────────────────
+
+// Convertit la valeur string → HTML pour l'affichage ({{lien_lm}} → badge span)
+function valueToHtml(text: string, blue: string, blueSoft: string): string {
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+  return escaped.replace(
+    /\{\{lien_lm\}\}/g,
+    `<span class="dm1-token" contenteditable="false" draggable="true" data-token="{{lien_lm}}" style="display:inline-flex;align-items:center;background:${blueSoft};border:1px solid ${blue};border-radius:5px;padding:2px 8px;color:${blue};font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;user-select:none;cursor:grab;vertical-align:middle;line-height:1.4">Lien LM</span>`
+  );
+}
+
+// Extrait la valeur string depuis le innerHTML du contentEditable
+function htmlToValue(el: HTMLDivElement): string {
+  let result = '';
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      result += node.textContent ?? '';
+    } else if (node instanceof HTMLElement && node.dataset.token) {
+      result += node.dataset.token;
+    } else if (node instanceof HTMLElement) {
+      result += node.textContent ?? '';
+    }
+  }
+  return result;
+}
 
 function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
 }) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
   const hasToken = value.includes(TOKEN);
+  // Pour éviter la boucle onChange → re-render → perte de curseur
+  const isComposing = useRef(false);
+  const lastValue = useRef(value);
 
-  const insertToken = useCallback(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    const pos = ta.selectionStart ?? value.length;
-    const next = insertTokenAt(value, pos);
-    onChange(next);
-    const newPos = next.indexOf(TOKEN) + TOKEN.length;
-    requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(newPos, newPos); });
-  }, [value, onChange]);
+  // Sync HTML quand la valeur change depuis l'extérieur (ex: changement de post)
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    if (lastValue.current === value) return;
+    lastValue.current = value;
+    const html = valueToHtml(value, blue, blueSoft);
+    el.innerHTML = html || '';
+    // Réattacher les listeners dragstart aux badges après re-render
+    attachBadgeDragListeners(el);
+  }, [value, blue, blueSoft]);
 
-  const handleDrop = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
+  // Attacher dragstart sur les badges du contentEditable
+  function attachBadgeDragListeners(el: HTMLDivElement) {
+    el.querySelectorAll('[data-token]').forEach(span => {
+      (span as HTMLElement).ondragstart = (e: DragEvent) => {
+        e.dataTransfer?.setData('text/plain', TOKEN);
+      };
+    });
+  }
+
+  // Init au montage
+  useEffect(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    el.innerHTML = valueToHtml(value, blue, blueSoft);
+    attachBadgeDragListeners(el);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleInput = useCallback(() => {
+    if (isComposing.current) return;
+    const el = editorRef.current;
+    if (!el) return;
+    const extracted = htmlToValue(el);
+    lastValue.current = extracted;
+    onChange(extracted);
+    attachBadgeDragListeners(el);
+  }, [onChange]);
+
+  // Drop du badge dans le contentEditable
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
     if (e.dataTransfer.getData('text/plain') !== TOKEN) return;
     e.preventDefault();
-    const ta = taRef.current;
-    if (!ta) return;
-    const withoutToken = value.split(TOKEN).join('').replace(/  +/g, ' ');
-    const next = insertTokenAt(withoutToken, ta.selectionStart ?? withoutToken.length);
+    // Obtenir la position du drop dans le texte
+    let dropPos: number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const caretData = (document as any).caretRangeFromPoint?.(e.clientX, e.clientY)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ?? (document as any).caretPositionFromPoint?.(e.clientX, e.clientY);
+    const withoutToken = value.replace(TOKEN, '').replace(/  +/g, ' ');
+    if (caretData) {
+      // Calculer l'offset texte brut jusqu'au point de drop
+      const el = editorRef.current;
+      if (el) {
+        const tempRange = document.createRange();
+        if ('startContainer' in caretData) {
+          tempRange.setStart(caretData.startContainer, caretData.startOffset);
+        } else {
+          tempRange.setStart(caretData.offsetNode, caretData.offset);
+        }
+        tempRange.collapse(true);
+        const rangeFromStart = document.createRange();
+        rangeFromStart.setStart(el, 0);
+        rangeFromStart.setEnd(tempRange.startContainer, tempRange.startOffset);
+        // Compter les chars texte brut avant le drop (hors badges)
+        let count = 0;
+        const iter = document.createNodeIterator(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+        let n: Node | null;
+        while ((n = iter.nextNode())) {
+          if (n === tempRange.startContainer) { count += tempRange.startOffset; break; }
+          if (n.nodeType === Node.TEXT_NODE) count += (n.textContent ?? '').length;
+          else if (n instanceof HTMLElement && n.dataset.token) count += n.dataset.token.length;
+        }
+        dropPos = count;
+      } else { dropPos = withoutToken.length; }
+    } else { dropPos = withoutToken.length; }
+    const next = insertTokenAt(withoutToken, dropPos);
+    lastValue.current = next;
     onChange(next);
-  }, [value, onChange]);
+    // Mettre à jour le HTML
+    const el = editorRef.current;
+    if (el) { el.innerHTML = valueToHtml(next, blue, blueSoft); attachBadgeDragListeners(el); }
+  }, [value, onChange, blue, blueSoft]);
+
+  const insertToken = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const withoutToken = value.replace(TOKEN, '').replace(/  +/g, ' ');
+    const next = insertTokenAt(withoutToken, withoutToken.length);
+    lastValue.current = next;
+    onChange(next);
+    el.innerHTML = valueToHtml(next, blue, blueSoft);
+    attachBadgeDragListeners(el);
+  }, [value, onChange, blue, blueSoft]);
 
   return (
     <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
-      {/* Badge draggable au-dessus du textarea */}
-      {hasToken && (
-        <div style={{ padding: '8px 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10, color: faint }}>Glisse pour repositionner :</span>
-          <span
-            draggable
-            onDragStart={e => e.dataTransfer.setData('text/plain', TOKEN)}
-            style={{
-              display: 'inline-flex', alignItems: 'center',
-              background: blueSoft, border: `1px solid ${blue}`, borderRadius: 5,
-              padding: '2px 8px', color: blue, fontSize: 10, fontWeight: 700,
-              textTransform: 'uppercase', letterSpacing: '0.04em',
-              userSelect: 'none', cursor: 'grab',
-            }}>Lien LM</span>
-        </div>
-      )}
-      {/* Textarea — source de vérité React, toujours fiable */}
-      <textarea
-        ref={taRef}
-        value={value}
-        onChange={e => onChange(e.target.value)}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onCompositionStart={() => { isComposing.current = true; }}
+        onCompositionEnd={() => { isComposing.current = false; handleInput(); }}
         onDrop={handleDrop}
         onDragOver={e => e.preventDefault()}
-        rows={3}
-        placeholder="Ex : 👋 Voici le lien comme promis !"
+        data-placeholder="Ex : 👋 Voici le lien comme promis !"
         style={{
-          width: '100%', padding: '10px 12px',
-          fontSize: 12, lineHeight: 1.5, fontFamily: 'inherit',
+          minHeight: 72, padding: '10px 12px',
+          fontSize: 12, lineHeight: 1.8, fontFamily: 'inherit',
           color: ink, background: 'transparent',
-          border: 'none', outline: 'none', resize: 'vertical',
-          boxSizing: 'border-box', minHeight: 72,
+          outline: 'none', wordBreak: 'break-word', whiteSpace: 'pre-wrap',
         }}
       />
       {/* Bouton insérer si token absent */}
       {!hasToken && (
         <div style={{ padding: '0 12px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 10, color: faint }}>Insérer le lien :</span>
           <button type="button" onClick={insertToken} style={{
             fontSize: 10, fontWeight: 700, color: blue, background: blueSoft,
             border: `1px solid ${blue}`, borderRadius: 5, padding: '2px 8px',
             cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em',
-          }}>Lien LM</button>
+          }}>+ Lien LM</button>
+          <span style={{ fontSize: 10, color: faint }}>— glisse le badge pour le repositionner</span>
         </div>
       )}
     </div>
