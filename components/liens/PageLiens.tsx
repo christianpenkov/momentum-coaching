@@ -212,7 +212,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
         title: `LM Bio ${platform.toUpperCase()} — ${lm.name}`,
         utmSource: domain, utmMedium: 'bio',
         utmCampaign: `lm-bio-${platform}`,
-        path: `lm-bio-${platform}-${lmId.slice(-4)}`,
+        path: `lm-bio-${platform}-${slugify(lm.name.split(/\s+/).slice(0, 2).join('-'))}`,
       });
       // Sauvegarde en DB
       await fetch('/api/client/lead-magnets', {
