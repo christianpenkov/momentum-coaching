@@ -93,19 +93,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 });
   }
 
-  // Log par tranches pour contourner la troncature Vercel
-  const raw = rawBody.slice(0, 2000);
-  for (let i = 0; i < raw.length; i += 400) {
-    console.log(`[IG Webhook RAW ${i}]`, raw.slice(i, i + 400));
-  }
-
   // Meta envoie un tableau d'entries
   const entries = body?.entry || [];
-  console.log('[IG Webhook] entries count:', entries.length);
 
   for (const entry of entries) {
     const igAccountId = entry.id;
-    console.log('[IG Webhook] entry id:', igAccountId, '| changes:', JSON.stringify(entry.changes), '| messaging:', JSON.stringify(entry.messaging));
 
     // Events sur les changements (commentaires, mentions, etc.)
     for (const change of entry.changes || []) {

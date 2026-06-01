@@ -114,41 +114,24 @@ export async function GET(request: Request) {
     commentResult.dm1 = dm1Data;
     steps.push({ step: 4, result: dm1Data });
 
-    // ÉTAPE 5 — Envoie la question d'ouverture (DM 2) via conversation_id
-    if (!dm1Data.error) {
-      steps.push({ step: 5, action: `Question d'ouverture → @${commenterUsername}` });
-
-      // Récupère la conversation ouverte avec cette personne
-      let conversationId: string | null = null;
-
-      if (commenterId) {
-        const convRes = await fetch(
-          `https://graph.instagram.com/v21.0/${IG_ID}/conversations?user_id=${commenterId}&fields=id&access_token=${TOKEN}`
-        );
-        const convData = await convRes.json();
-        conversationId = convData?.data?.[0]?.id || null;
-      }
-
-      if (conversationId) {
-        const dm2Res = await fetch(
-          `https://graph.instagram.com/v21.0/${IG_ID}/messages`,
-          {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              recipient: { conversation_id: conversationId },
-              message: { text: "C'est quoi ton objectif principal en ce moment ? 🎯" },
-              access_token: TOKEN,
-            }),
-          }
-        );
-        const dm2Data = await dm2Res.json();
-        commentResult.dm2 = dm2Data;
-        steps.push({ step: 5, result: dm2Data });
-      } else {
-        commentResult.dm2 = { skipped: 'conversation_id non trouvé — DM 2 non envoyé' };
-        steps.push({ step: 5, result: commentResult.dm2 });
-      }
+    // ÉTAPE 5 — Envoie le DM 2 directement par recipient id
+    if (!dm1Data.error && commenterId) {
+      steps.push({ step: 5, action: `DM 2 → @${commenterUsername} (id: ${commenterId})` });
+      const dm2Res = await fetch(
+        `https://graph.instagram.com/v21.0/${IG_ID}/messages`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipient: { id: commenterId },
+            message: { text: "C'est quoi ton objectif principal en ce moment ? 🎯" },
+            access_token: TOKEN,
+          }),
+        }
+      );
+      const dm2Data = await dm2Res.json();
+      commentResult.dm2 = dm2Data;
+      steps.push({ step: 5, result: dm2Data });
     }
 
     // ÉTAPE 6 — Stocke le lead en DB
