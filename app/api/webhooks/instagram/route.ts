@@ -93,8 +93,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 });
   }
 
-  // Log le body brut complet pour diagnostic
-  console.log('[IG Webhook] body recu FULL:', JSON.stringify(body));
+  // Log par tranches pour contourner la troncature Vercel
+  const raw = rawBody.slice(0, 2000);
+  for (let i = 0; i < raw.length; i += 400) {
+    console.log(`[IG Webhook RAW ${i}]`, raw.slice(i, i + 400));
+  }
 
   // Meta envoie un tableau d'entries
   const entries = body?.entry || [];
