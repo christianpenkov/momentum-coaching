@@ -35,7 +35,8 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const body = await request.json();
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
   const { name, url, keyword } = body;
 
   if (!url?.trim()) return NextResponse.json({ error: 'URL requise' }, { status: 400 });
@@ -59,7 +60,8 @@ export async function PATCH(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const body = await request.json();
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
   const { id, name, url, keyword, bio_ig_url, bio_yt_url, bio_ig_source_url, bio_yt_source_url } = body;
   if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 

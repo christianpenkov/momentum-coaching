@@ -782,7 +782,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       });
       onPostUpdated(post.id, { dmOpenerMessage: msg });
       setMsgSaved(true); setTimeout(() => setMsgSaved(false), 2000);
-    } catch {} finally { setSavingMsg(false); }
+    } catch (e: any) { console.error('[saveMessage]', e?.message); } finally { setSavingMsg(false); }
   };
 
   const generate = async () => {
