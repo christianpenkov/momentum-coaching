@@ -1094,6 +1094,17 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
     : postMode === 'none' ? undefined
     : (postId || undefined); // 'lead' ou 'manual' → postId direct
 
+  const [history, setHistory] = useState<{ id: string; ig_username: string; short_url: string; content_id: string | null; created_at: string }[]>([]);
+  const [historyCopied, setHistoryCopied] = useState<string | null>(null);
+
+  // Charge l'historique des liens générés
+  useEffect(() => {
+    fetch('/api/client/prospect-links')
+      .then(r => r.json())
+      .then(d => setHistory(d.links || []))
+      .catch(() => {});
+  }, []);
+
   const generate = async () => {
     if (!username.trim() || !hasCalendly || !canGenerate) return;
     setLoading(true); setError(null);
@@ -1109,6 +1120,14 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
         path: us,
       });
       setResult(shortUrl);
+      // Sauvegarde en DB
+      const res = await fetch('/api/client/prospect-links', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ig_username: username, short_url: shortUrl, content_id: resolvedPostId || null }),
+      });
+      const saved = await res.json();
+      if (saved.link) setHistory(prev => [saved.link, ...prev]);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -1249,6 +1268,35 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
             {loading ? <><Spinner /> Génération...</> : 'Générer le lien prospect'}
           </button>
         </>
+      )}
+
+      {/* Historique des liens générés */}
+      {history.length > 0 && (
+        <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Liens générés</div>
+          {history.map(h => {
+            const post = posts.find(p => p.id === h.content_id);
+            const copied = historyCopied === h.id;
+            return (
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>@{h.ig_username}</span>
+                    {post && <span style={{ fontSize: 10, color: FAINT }}>· {post.platform} · {post.caption.slice(0, 25)}...</span>}
+                  </div>
+                  <div style={{ fontSize: 10, color: FAINT }}>
+                    {new Date(h.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })} à {new Date(h.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+                <button
+                  onClick={() => { navigator.clipboard.writeText(h.short_url); setHistoryCopied(h.id); setTimeout(() => setHistoryCopied(null), 2000); }}
+                  style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, border: `1px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : BG, color: copied ? 'var(--green)' : MUTED, cursor: 'pointer', transition: 'all .15s' }}>
+                  {copied ? '✓ Copié' : 'Copier'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
       )}
     </div>
   );
