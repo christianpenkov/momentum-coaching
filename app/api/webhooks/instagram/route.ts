@@ -93,6 +93,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 });
   }
 
+  // Log le body brut pour diagnostiquer ce que Meta envoie réellement
+  console.log('[IG Webhook] body recu:', JSON.stringify(body).slice(0, 500));
+
   // Meta envoie un tableau d'entries
   const entries = body?.entry || [];
 
