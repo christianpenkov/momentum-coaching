@@ -54,6 +54,29 @@ export async function POST(request: Request) {
   return NextResponse.json({ lead_magnet: data });
 }
 
+export async function PATCH(request: Request) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const { id, name, url, keyword } = await request.json();
+  if (!id || !url?.trim()) return NextResponse.json({ error: 'id et url requis' }, { status: 400 });
+
+  const normalizedUrl = normalizeUrl(url);
+  const cleanKeyword = (keyword || '').toUpperCase().trim().replace(/\s+/g, '');
+
+  const { data, error } = await serviceSupabase
+    .from('lead_magnets')
+    .update({ name: name?.trim() || normalizedUrl, url: normalizedUrl, keyword: cleanKeyword })
+    .eq('id', id)
+    .eq('profile_id', user.id)
+    .select('id, name, url, keyword, created_at')
+    .single();
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ lead_magnet: data });
+}
+
 export async function DELETE(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();

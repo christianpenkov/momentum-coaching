@@ -1380,9 +1380,10 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
 
 // ─── Panel Lead Magnets ───────────────────────────────────────────────────────
 
-function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
+function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUpdated }: {
   leadMagnets: LeadMagnet[]; lmLoading: boolean;
   onCreated: (lm: LeadMagnet) => void; onDeleted: (id: string) => void;
+  onUpdated: (lm: LeadMagnet) => void;
 }) {
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
@@ -1390,6 +1391,32 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Édition inline
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editUrl, setEditUrl] = useState('');
+  const [editKeyword, setEditKeyword] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  const startEdit = (lm: LeadMagnet) => {
+    setEditingId(lm.id); setEditName(lm.name); setEditUrl(lm.url); setEditKeyword(lm.keyword || ''); setEditError(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editingId || !isValidUrl(editUrl)) return;
+    setEditSaving(true); setEditError(null);
+    try {
+      const res = await fetch('/api/client/lead-magnets', {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: editingId, name: editName, url: editUrl, keyword: editKeyword }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Erreur');
+      onUpdated(data.lead_magnet);
+      setEditingId(null);
+    } catch (e: any) { setEditError(e.message); } finally { setEditSaving(false); }
+  };
 
   const create = async () => {
     if (!isValidUrl(url)) return;
@@ -1465,19 +1492,51 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted }: {
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {leadMagnets.map(lm => (
-              <div key={lm.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px', borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE }}>
-                <div style={{ fontSize: 18, flexShrink: 0 }}>📄</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
-                  <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all', marginBottom: lm.keyword ? 4 : 0 }}>{lm.url}</div>
-                  {lm.keyword && (
-                    <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
-                  )}
-                </div>
-                <button onClick={() => remove(lm.id)} disabled={deletingId === lm.id}
-                  style={{ fontSize: 11, color: RED, background: 'none', border: 'none', cursor: 'pointer', flexShrink: 0, opacity: deletingId === lm.id ? 0.5 : 1, padding: '2px 4px' }}>
-                  {deletingId === lm.id ? '...' : '✕'}
-                </button>
+              <div key={lm.id} style={{ borderRadius: 10, border: `1px solid ${editingId === lm.id ? BLUE : BORDER}`, background: SURFACE, overflow: 'hidden', transition: 'border-color .15s' }}>
+                {editingId === lm.id ? (
+                  /* Mode édition */
+                  <div style={{ padding: '12px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                    <input value={editName} onChange={e => setEditName(e.target.value)} placeholder="Nom"
+                      style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                    <input value={editUrl} onChange={e => setEditUrl(e.target.value)} placeholder="URL"
+                      style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${isValidUrl(editUrl) ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                    <input value={editKeyword} onChange={e => setEditKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))} placeholder="MOT-CLÉ"
+                      style={{ width: '100%', padding: '7px 10px', fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', borderRadius: 7, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                    {editError && <div style={{ fontSize: 11, color: RED }}>{editError}</div>}
+                    <div style={{ display: 'flex', gap: 8 }}>
+                      <button onClick={saveEdit} disabled={editSaving || !isValidUrl(editUrl)}
+                        style={{ flex: 1, padding: '7px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: editSaving || !isValidUrl(editUrl) ? 0.5 : 1 }}>
+                        {editSaving ? '...' : 'Sauvegarder'}
+                      </button>
+                      <button onClick={() => setEditingId(null)}
+                        style={{ padding: '7px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, cursor: 'pointer' }}>
+                        Annuler
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  /* Mode lecture */
+                  <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '12px 14px' }}>
+                    <div style={{ fontSize: 18, flexShrink: 0 }}>📄</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 700, color: INK, marginBottom: 2 }}>{lm.name}</div>
+                      <div style={{ fontSize: 11, color: FAINT, wordBreak: 'break-all', marginBottom: lm.keyword ? 4 : 0 }}>{lm.url}</div>
+                      {lm.keyword && (
+                        <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
+                      )}
+                    </div>
+                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                      <button onClick={() => startEdit(lm)}
+                        style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>
+                        ✏️
+                      </button>
+                      <button onClick={() => remove(lm.id)} disabled={deletingId === lm.id}
+                        style={{ fontSize: 11, color: RED, background: 'none', border: 'none', cursor: 'pointer', opacity: deletingId === lm.id ? 0.5 : 1, padding: '2px 4px' }}>
+                        {deletingId === lm.id ? '...' : '✕'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -1781,6 +1840,7 @@ export default function PageLiens() {
                 leadMagnets={leadMagnets} lmLoading={lmLoading}
                 onCreated={lm => setLeadMagnets(prev => [lm, ...prev])}
                 onDeleted={id => setLeadMagnets(prev => prev.filter(l => l.id !== id))}
+                onUpdated={lm => setLeadMagnets(prev => prev.map(l => l.id === lm.id ? lm : l))}
               />
             ) : rightView.type === 'prospect' ? (
               <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
