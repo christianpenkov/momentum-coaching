@@ -655,14 +655,17 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
             <button onClick={async () => {
               setDm1Saving(true);
               try {
-                await fetch('/api/client/content-links', {
+                const res = await fetch('/api/client/content-links', {
                   method: 'POST', headers: { 'content-type': 'application/json' },
                   body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_lm_message: dm1Text }),
                 });
-                setDm1Saved(true);
+                if (res.ok) {
+                  onPostUpdated(post.id, { dmLmMessage: dm1Text });
+                  setDm1Saved(true);
+                }
               } catch {} finally { setDm1Saving(false); }
-            }} disabled={dm1Saving || dm1Saved}
-              style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+            }} disabled={dm1Saving}
+              style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: 'pointer', transition: 'background .2s' }}>
               {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
             </button>
           </div>
