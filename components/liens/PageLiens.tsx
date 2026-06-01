@@ -156,6 +156,15 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
   useEffect(() => { setCalendlyUrl(initialCalendly); }, [initialCalendly]);
 
+  // Génère automatiquement les liens bio au montage si Calendly déjà configuré
+  useEffect(() => {
+    if (open && initialCalendly.trim().startsWith('http') && canGenerate && !bioIg && !bioYt) {
+      genBio('instagram', setBioIg, setGenIg);
+      genBio('youtube', setBioYt, setGenYt);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, canGenerate]);
+
   const save = async () => {
     if (!isValid) return;
     setSaving(true); setError(null);
@@ -163,6 +172,11 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
       await fetch('/api/client/settings', { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ calendly_url: calendlyUrl.trim() }) });
       setSaved(true); onCalendlyChange(calendlyUrl.trim());
       setTimeout(() => setSaved(false), 2500);
+      // Génère automatiquement les liens bio après sauvegarde
+      if (canGenerate) {
+        genBio('instagram', setBioIg, setGenIg);
+        genBio('youtube', setBioYt, setGenYt);
+      }
     } catch { setError('Erreur sauvegarde'); } finally { setSaving(false); }
   };
 
@@ -225,11 +239,12 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
                     {result || (domain ? `${domain}/bio-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
                   </div>
                 </div>
-                {result ? <CopyBtn url={result} /> :
-                  <button onClick={() => genBio(platform, setResult, setLoading)} disabled={loading || !isValid || !canGenerate}
-                    style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: !isValid || !canGenerate || loading ? 'not-allowed' : 'pointer', opacity: !isValid || !canGenerate || loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-                    {loading ? '...' : 'Générer'}
-                  </button>}
+                {result
+                  ? <CopyBtn url={result} />
+                  : loading
+                    ? <span style={{ fontSize: 11, color: FAINT }}>...</span>
+                    : <span style={{ fontSize: 11, color: FAINT }}>—</span>
+                }
               </div>
             ))}
           </div>
