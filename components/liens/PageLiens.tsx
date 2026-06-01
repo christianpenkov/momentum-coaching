@@ -1843,7 +1843,7 @@ export default function PageLiens() {
             <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`, background: SURFACE, color: MUTED, cursor: 'pointer', position: 'relative' }}>
               ⚙ Paramètres
               {leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
-                <span style={{ position: 'absolute', top: -4, right: -4, width: 8, height: 8, borderRadius: '50%', background: AMBER, border: '2px solid var(--surface)' }} />
+                <span style={{ position: 'absolute', top: -7, right: -7, width: 16, height: 16, borderRadius: '50%', background: AMBER, border: '2px solid var(--surface)', boxShadow: `0 0 0 3px ${AMBER_SOFT}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, color: '#fff', fontWeight: 700 }}>!</span>
               )}
             </button>
           </div>
