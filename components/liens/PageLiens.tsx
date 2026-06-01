@@ -292,8 +292,14 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
                     {/* Header LM cliquable */}
                     <div onClick={() => setSelectedLmId(isSelected ? '' : lm.id)}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', cursor: 'pointer' }}>
-                      <div>
-                        <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{lm.name}</div>
+                      <div style={{ flex: 1 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>{lm.name}</span>
+                          {((lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) ||
+                            (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
+                            <span style={{ width: 10, height: 10, borderRadius: '50%', background: AMBER, flexShrink: 0, display: 'inline-block', boxShadow: `0 0 0 3px ${AMBER_SOFT}` }} />
+                          )}
+                        </div>
                         <div style={{ fontSize: 11, color: FAINT }}>{lm.url}</div>
                       </div>
                       <span style={{ fontSize: 10, color: FAINT }}>{isSelected ? '▲' : '▼'}</span>
@@ -304,8 +310,22 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
                         {/* Warning si URL du LM a changé depuis la génération */}
                         {((lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) ||
                           (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
-                          <div style={{ fontSize: 11, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '7px 10px' }}>
-                            ⚠ L'URL de ce lead magnet a été modifiée. Regénère les liens bio ci-dessous pour qu'ils pointent vers la nouvelle URL.
+                          <div style={{ display: 'flex', gap: 10, background: AMBER_SOFT, border: `1px solid ${AMBER}`, borderRadius: 8, padding: '10px 12px' }}>
+                            <span style={{ fontSize: 18, flexShrink: 0 }}>⚠️</span>
+                            <div>
+                              <div style={{ fontSize: 12, fontWeight: 700, color: AMBER, marginBottom: 4 }}>URL modifiée — liens bio à mettre à jour</div>
+                              <div style={{ fontSize: 11, color: INK, lineHeight: 1.5 }}>
+                                Ces liens pointent encore vers l'ancienne URL. Clique <strong>Regénérer</strong> pour chacun :
+                              </div>
+                              <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 3 }}>
+                                {lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url && (
+                                  <div style={{ fontSize: 11, color: MUTED }}>📸 <strong>Bio Instagram</strong> — {lm.bio_ig_url}</div>
+                                )}
+                                {lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url && (
+                                  <div style={{ fontSize: 11, color: MUTED }}>▶️ <strong>Bio YouTube</strong> — {lm.bio_yt_url}</div>
+                                )}
+                              </div>
+                            </div>
                           </div>
                         )}
                         {(['ig', 'yt'] as const).map(p => {
