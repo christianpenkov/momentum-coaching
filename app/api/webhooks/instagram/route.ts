@@ -121,26 +121,18 @@ export async function POST(request: Request) {
       // Log temps réel — event brut reçu
       pushEvent({ type: 'comment_received', commentId, commentText, commenterUsername, mediaId, timestamp });
 
-      // Trouve le profil qui possède ce compte IG
-      // Double tentative : string ET number (Meta peut envoyer l'un ou l'autre)
-      let integ: { profile_id: string; access_token: string } | null = null;
-      const { data: d1 } = await serviceSupabase
+      // Trouve le profil : Meta envoie le page_id Facebook dans entry.id (pas l'ig_account_id)
+      // On cherche par page_id d'abord, puis ig_account_id en fallback
+      const { data: allIg } = await serviceSupabase
         .from('integrations')
-        .select('profile_id, access_token')
-        .eq('provider', 'instagram')
-        .contains('metadata', { ig_account_id: igAccountId })
-        .single();
-      if (d1) { integ = d1; }
-      else {
-        // Fallback : cherche par cast numérique (au cas où stocké comme number)
-        const { data: allIg } = await serviceSupabase
-          .from('integrations')
-          .select('profile_id, access_token, metadata')
-          .eq('provider', 'instagram');
-        const match = (allIg || []).find((r: any) => String(r.metadata?.ig_account_id) === igAccountId);
-        if (match) integ = match;
-      }
-      console.log('[IG Webhook] profil trouvé:', integ ? integ.profile_id : `NON TROUVÉ — entry.id=${igAccountId}`);
+        .select('profile_id, access_token, metadata')
+        .eq('provider', 'instagram');
+      const match = (allIg || []).find((r: any) =>
+        String(r.metadata?.page_id) === igAccountId ||
+        String(r.metadata?.ig_account_id) === igAccountId
+      );
+      const integ = match || null;
+      console.log('[IGW match]', igAccountId, '->', integ ? integ.profile_id : 'NOT FOUND', '| DB ids:', (allIg||[]).map((r:any) => `ig:${r.metadata?.ig_account_id} page:${r.metadata?.page_id}`));
 
       if (!integ) {
         pushEvent({ type: 'error', reason: 'profil_non_trouve', igAccountId });

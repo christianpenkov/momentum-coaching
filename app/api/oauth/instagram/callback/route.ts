@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
   const accessToken = longTokenData.access_token || tokenData.access_token;
   const expiresIn = longTokenData.expires_in || null;
 
-  // Récupère l'ID réel + username via /me
+  // Récupère l'ID réel + username via /me (ig_account_id)
   const meRes = await fetch(
     `https://graph.instagram.com/v22.0/me?fields=id,username,account_type&access_token=${accessToken}`
   );
@@ -71,6 +71,17 @@ export async function GET(request: NextRequest) {
   console.log('[IG callback] /me response:', JSON.stringify(meData));
   const igAccountId = meData.id ? String(meData.id) : (tokenData.user_id ? String(tokenData.user_id) : null);
   const accountLabel = meData.username ? `@${meData.username}` : null;
+
+  // Récupère aussi le page_id Facebook (Meta envoie cet ID dans entry.id du webhook)
+  let pageId: string | null = null;
+  if (igAccountId) {
+    const pageRes = await fetch(
+      `https://graph.instagram.com/v22.0/${igAccountId}?fields=page&access_token=${accessToken}`
+    );
+    const pageData = await pageRes.json();
+    pageId = pageData?.page?.id ? String(pageData.page.id) : null;
+    console.log('[IG callback] page_id:', pageId);
+  }
 
   const expiresAt = expiresIn
     ? new Date(Date.now() + expiresIn * 1000).toISOString()
@@ -89,7 +100,7 @@ export async function GET(request: NextRequest) {
     account_label: accountLabel,
     expires_at: expiresAt,
     connected_at: new Date().toISOString(),
-    metadata: igAccountId ? { ig_account_id: igAccountId } : null,
+    metadata: igAccountId ? { ig_account_id: igAccountId, ...(pageId ? { page_id: pageId } : {}) } : null,
   }, { onConflict: 'profile_id,provider' });
 
   // Réabonner aux deux niveaux webhook après chaque connexion
