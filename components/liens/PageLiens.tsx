@@ -1047,18 +1047,64 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
   const domain = domains[0]?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const hasCalendly = calendlyUrl.trim().startsWith('http');
+
+  // Pseudo Instagram
   const [username, setUsername] = useState('');
-  const [postId, setPostId] = useState('');
+  const [usernameSearch, setUsernameSearch] = useState('');
+  const [showLeads, setShowLeads] = useState(false);
+  const [leads, setLeads] = useState<{ ig_username: string; detected_at: string; keyword_matched: string }[]>([]);
+  const [leadsLoading, setLeadsLoading] = useState(false);
+
+  // Contenu source
+  const [postId, setPostId] = useState('auto');
+  const [postSearch, setPostSearch] = useState('');
+  const [showPostPicker, setShowPostPicker] = useState(false);
+
   const [result, setResult] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Charge les leads récents au montage
+  useEffect(() => {
+    setLeadsLoading(true);
+    fetch('/api/instagram/leads?page=1')
+      .then(r => r.json())
+      .then(d => {
+        const unique = new Map<string, any>();
+        (d.leads || []).forEach((l: any) => {
+          if (l.ig_username && !unique.has(l.ig_username)) unique.set(l.ig_username, l);
+        });
+        setLeads(Array.from(unique.values()));
+      })
+      .catch(() => {})
+      .finally(() => setLeadsLoading(false));
+  }, []);
+
+  const filteredLeads = leads.filter(l =>
+    !usernameSearch || l.ig_username.toLowerCase().includes(usernameSearch.toLowerCase())
+  );
+
+  const selectedPost = posts.find(p => p.id === postId);
+  const filteredPosts = posts.filter(p =>
+    !postSearch || p.caption.toLowerCase().includes(postSearch.toLowerCase()) || p.platform.toLowerCase().includes(postSearch.toLowerCase())
+  );
+
+  const resolvedPostId = postId === 'auto' ? (posts[0]?.id || undefined) : (postId || undefined);
 
   const generate = async () => {
     if (!username.trim() || !hasCalendly || !canGenerate) return;
     setLoading(true); setError(null);
     try {
       const us = slugify(username);
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: `Calendly — @${username}`, utmSource: domain, utmMedium: 'dm', utmCampaign: `prospect-${us}`, utmContent: postId || undefined, path: us });
+      const { shortUrl } = await callShortio({
+        profileId, domainId: domain,
+        originalUrl: calendlyUrl.trim(),
+        title: `Calendly — @${username}`,
+        utmSource: domain, utmMedium: 'dm',
+        utmCampaign: `prospect-${us}`,
+        utmContent: resolvedPostId,
+        path: us,
+      });
       setResult(shortUrl);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -1071,32 +1117,123 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
       </div>
 
       {!hasCalendly && (
-        <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans Paramètres (⚙ en haut).</div>
+        <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>
+          ⚠ Configure ton lien Calendly dans Paramètres (⚙ en haut).
+        </div>
       )}
       {hasCalendly && (
-        <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>→ <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span></div>
+        <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
+          → <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span>
+        </div>
       )}
 
       {result ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontSize: 12, color: MUTED }}>Envoie ce lien en DM à <strong>@{username}</strong></div>
           <GeneratedUrlRow url={result} label="Lien Calendly" />
-          <button onClick={() => { setResult(null); setUsername(''); setPostId(''); }} style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>Générer pour un autre prospect</button>
+          <button onClick={() => { setResult(null); setUsername(''); setUsernameSearch(''); setPostId('auto'); }}
+            style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
+            Générer pour un autre prospect
+          </button>
         </div>
       ) : (
         <>
+          {/* Pseudo Instagram */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Pseudo Instagram du prospect</div>
-            <input value={username} onChange={e => setUsername(e.target.value.replace(/^@/, ''))} placeholder="thomas.biz"
-              style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Pseudo Instagram du prospect</div>
+            <div style={{ position: 'relative' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: `1px solid ${BORDER}`, borderRadius: 8, background: BG, overflow: 'hidden' }}>
+                <span style={{ padding: '0 8px 0 12px', fontSize: 13, color: FAINT }}>@</span>
+                <input
+                  value={username}
+                  onChange={e => { setUsername(e.target.value.replace(/^@/, '')); setUsernameSearch(e.target.value.replace(/^@/, '')); setShowLeads(true); }}
+                  onFocus={() => setShowLeads(true)}
+                  onBlur={() => setTimeout(() => setShowLeads(false), 150)}
+                  placeholder="thomas.biz"
+                  style={{ flex: 1, padding: '9px 12px 9px 0', fontSize: 13, background: 'transparent', border: 'none', outline: 'none', color: INK }}
+                />
+              </div>
+              {/* Dropdown leads récents */}
+              {showLeads && (leads.length > 0 || leadsLoading) && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.08)', zIndex: 50, maxHeight: 200, overflowY: 'auto' }}>
+                  {leadsLoading ? (
+                    <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT }}>Chargement...</div>
+                  ) : filteredLeads.length === 0 ? (
+                    <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT }}>Aucun lead trouvé</div>
+                  ) : filteredLeads.map(l => (
+                    <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setUsernameSearch(''); setShowLeads(false); }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
+                      onMouseEnter={e => (e.currentTarget.style.background = SURFACE2)}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+                      <span style={{ fontWeight: 600 }}>@{l.ig_username}</span>
+                      <span style={{ fontSize: 10, color: FAINT }}>{l.keyword_matched}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* Contenu source */}
           <div>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 5 }}>Contenu source <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
-            <select value={postId} onChange={e => setPostId(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, boxSizing: 'border-box' }}>
-              <option value="">— Sans attribution —</option>
-              {posts.map(p => <option key={p.id} value={p.id}>{p.platform} · {p.caption}</option>)}
-            </select>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Contenu source</div>
+            <div style={{ position: 'relative' }}>
+              <button type="button" onClick={() => setShowPostPicker(v => !v)}
+                style={{ width: '100%', padding: '9px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '90%' }}>
+                  {postId === 'auto'
+                    ? <span>🔁 Automatique <span style={{ color: FAINT, fontSize: 11 }}>{posts[0] ? `— ${posts[0].platform} · ${posts[0].caption.slice(0, 30)}...` : ''}</span></span>
+                    : selectedPost ? `${selectedPost.platform} · ${selectedPost.caption.slice(0, 40)}` : '— Sans attribution —'}
+                </span>
+                <span style={{ color: FAINT, fontSize: 10, flexShrink: 0 }}>▾</span>
+              </button>
+
+              {showPostPicker && (
+                <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.08)', zIndex: 50 }}>
+                  {/* Barre de recherche */}
+                  <div style={{ padding: '8px', borderBottom: `1px solid ${BORDER}` }}>
+                    <input
+                      autoFocus
+                      value={postSearch}
+                      onChange={e => setPostSearch(e.target.value)}
+                      placeholder="Rechercher un contenu..."
+                      style={{ width: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 6, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }}
+                    />
+                  </div>
+                  <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                    {/* Option auto */}
+                    <div onMouseDown={() => { setPostId('auto'); setShowPostPicker(false); setPostSearch(''); }}
+                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postId === 'auto' ? BLUE_SOFT : 'transparent', fontWeight: postId === 'auto' ? 600 : 400 }}
+                      onMouseEnter={e => { if (postId !== 'auto') e.currentTarget.style.background = SURFACE2; }}
+                      onMouseLeave={e => { if (postId !== 'auto') e.currentTarget.style.background = 'transparent'; }}>
+                      🔁 Automatique <span style={{ color: FAINT, fontWeight: 400 }}>(dernier post)</span>
+                    </div>
+                    {/* Option sans attribution */}
+                    <div onMouseDown={() => { setPostId(''); setShowPostPicker(false); setPostSearch(''); }}
+                      style={{ padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: MUTED, borderBottom: `1px solid ${BORDER}`, background: postId === '' ? BLUE_SOFT : 'transparent' }}
+                      onMouseEnter={e => { if (postId !== '') e.currentTarget.style.background = SURFACE2; }}
+                      onMouseLeave={e => { if (postId !== '') e.currentTarget.style.background = 'transparent'; }}>
+                      — Sans attribution —
+                    </div>
+                    {/* Posts filtrés */}
+                    {filteredPosts.map(p => (
+                      <div key={p.id} onMouseDown={() => { setPostId(p.id); setShowPostPicker(false); setPostSearch(''); }}
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}`, background: postId === p.id ? BLUE_SOFT : 'transparent' }}
+                        onMouseEnter={e => { if (postId !== p.id) e.currentTarget.style.background = SURFACE2; }}
+                        onMouseLeave={e => { if (postId !== p.id) e.currentTarget.style.background = 'transparent'; }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: p.platform === 'IG' ? '#c2185b' : RED, background: p.platform === 'IG' ? '#fce4ec' : 'var(--red-soft)', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>{p.platform}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{p.caption}</span>
+                      </div>
+                    ))}
+                    {filteredPosts.length === 0 && postSearch && (
+                      <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT }}>Aucun résultat</div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
+
           {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
           <button onClick={generate} disabled={loading || !canGenerate || !hasCalendly || !username.trim()}
             style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
