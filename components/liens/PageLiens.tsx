@@ -1261,10 +1261,9 @@ export default function PageLiens() {
       .catch(() => {}).finally(() => { linksDone = true; enrich(); });
   }, [profileId]);
 
-  // Enrichir les posts avec les content_links — source de vérité principale
-  // Se déclenche dès que l'un des deux change
+  // Enrichit les posts avec content_links — se déclenche quand l'un ou l'autre arrive
   useEffect(() => {
-    if (!posts.length) return;
+    if (!contentLinks.length || !posts.length) return;
     setPosts(prev => prev.map(post => {
       const cl = contentLinks.find(c => c.content_id === post.id);
       if (!cl) return post;
@@ -1280,7 +1279,7 @@ export default function PageLiens() {
       };
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentLinks]);
+  }, [contentLinks, postsLoading]);
 
   const handlePostUpdated = (postId: string, patch: Partial<Post>) => {
     setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...patch } : p));
