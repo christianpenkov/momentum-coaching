@@ -1297,7 +1297,10 @@ export default function PageLiens() {
     return true;
   });
 
-  const selectedPost = rightView?.type === 'post' ? rightView.post : null;
+  // Résout le post depuis l'array live (enrichi) plutôt que rightView (copie figée)
+  const selectedPost = rightView?.type === 'post'
+    ? (posts.find(p => p.id === rightView.post.id) ?? rightView.post)
+    : null;
 
   return (
     <>
