@@ -153,6 +153,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
   const [selectedLmId, setSelectedLmId] = useState('');
   const [lmBioUrls, setLmBioUrls] = useState<Record<string, { ig?: string; yt?: string }>>({});
   const [genLmLoading, setGenLmLoading] = useState<Record<string, boolean>>({});
+  const [genLmSuccess, setGenLmSuccess] = useState<Record<string, boolean>>({});
   const domain = domains[0]?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const isValid = calendlyUrl.trim().startsWith('http');
@@ -224,6 +225,8 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
       });
       setLmBioUrls(prev => ({ ...prev, [lmId]: { ...prev[lmId], [platform]: shortUrl } }));
       onLmUpdated({ ...lm, [`bio_${platform}_url`]: shortUrl, [`bio_${platform}_source_url`]: lm.url });
+      setGenLmSuccess(prev => ({ ...prev, [key]: true }));
+      setTimeout(() => setGenLmSuccess(prev => ({ ...prev, [key]: false })), 5000);
     } catch (e: any) { setError(e.message); } finally { setGenLmLoading(prev => ({ ...prev, [key]: false })); }
   };
 
@@ -355,8 +358,8 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
                                   </button>
                                   {/* Cas 3 — regénérer */}
                                   <button onClick={() => genLmBio(lm.id, p)} disabled={loading || !canGenerate}
-                                    style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                                    {loading ? '...' : 'Regénérer'}
+                                    style={{ padding: '4px 8px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${genLmSuccess[`${lm.id}-${p}`] ? 'var(--green)' : BORDER}`, background: genLmSuccess[`${lm.id}-${p}`] ? 'var(--green-soft)' : 'none', color: genLmSuccess[`${lm.id}-${p}`] ? 'var(--green)' : MUTED, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .2s' }}>
+                                    {loading ? '...' : genLmSuccess[`${lm.id}-${p}`] ? '✓ Regénéré' : 'Regénérer'}
                                   </button>
                                   <CopyBtn url={url} />
                                 </div>
@@ -1815,7 +1818,7 @@ export default function PageLiens() {
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       <ModalParametres
-        open={paramOpen} onClose={() => setParamOpen(false)}
+        open={paramOpen} onClose={() => { setParamOpen(false); }}
         profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
         onCalendlyChange={setCalendlyUrl} initialCalendly={calendlyUrl}
         leadMagnets={leadMagnets}
