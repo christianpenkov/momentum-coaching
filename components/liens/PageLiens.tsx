@@ -56,6 +56,8 @@ interface LeadMagnet {
   url: string;
   keyword: string;
   created_at?: string;
+  bio_ig_url?: string | null;
+  bio_yt_url?: string | null;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -144,17 +146,26 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
   const [genIg, setGenIg] = useState(false);
   const [genYt, setGenYt] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Lien LM bio
+  // Lien LM bio — keyed par lm.id pour éviter le mélange entre LMs
   const [selectedLmId, setSelectedLmId] = useState('');
-  const [lmBioIg, setLmBioIg] = useState<string | null>(null);
-  const [lmBioYt, setLmBioYt] = useState<string | null>(null);
-  const [genLmIg, setGenLmIg] = useState(false);
-  const [genLmYt, setGenLmYt] = useState(false);
+  const [lmBioUrls, setLmBioUrls] = useState<Record<string, { ig?: string; yt?: string }>>({});
+  const [genLmLoading, setGenLmLoading] = useState<Record<string, boolean>>({});
   const domain = domains[0]?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const isValid = calendlyUrl.trim().startsWith('http');
 
   useEffect(() => { setCalendlyUrl(initialCalendly); }, [initialCalendly]);
+
+  // Charge les urls bio LM déjà générés depuis les données en DB
+  useEffect(() => {
+    const init: Record<string, { ig?: string; yt?: string }> = {};
+    leadMagnets.forEach(lm => {
+      if (lm.bio_ig_url || lm.bio_yt_url) {
+        init[lm.id] = { ig: lm.bio_ig_url ?? undefined, yt: lm.bio_yt_url ?? undefined };
+      }
+    });
+    setLmBioUrls(init);
+  }, [leadMagnets]);
 
   // Génère automatiquement les liens bio au montage si Calendly déjà configuré
   useEffect(() => {
@@ -189,16 +200,27 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
-  const genLmBio = async (platform: 'instagram' | 'youtube', setResult: (v: string) => void, setLoading: (v: boolean) => void) => {
-    if (!canGenerate || !selectedLmId) return;
-    const lm = leadMagnets.find(l => l.id === selectedLmId);
+  const genLmBio = async (lmId: string, platform: 'ig' | 'yt') => {
+    if (!canGenerate) return;
+    const lm = leadMagnets.find(l => l.id === lmId);
     if (!lm) return;
-    setLoading(true); setError(null);
+    const key = `${lmId}-${platform}`;
+    setGenLmLoading(prev => ({ ...prev, [key]: true })); setError(null);
     try {
-      const suffix = platform === 'instagram' ? 'ig' : 'yt';
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lm.url, title: `LM Bio ${suffix.toUpperCase()} — ${lm.name}`, utmSource: domain, utmMedium: 'bio', utmCampaign: `lm-bio-${suffix}`, path: `lm-bio-${suffix}` });
-      setResult(shortUrl);
-    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+      const { shortUrl } = await callShortio({
+        profileId, domainId: domain, originalUrl: lm.url,
+        title: `LM Bio ${platform.toUpperCase()} — ${lm.name}`,
+        utmSource: domain, utmMedium: 'bio',
+        utmCampaign: `lm-bio-${platform}`,
+        path: `lm-bio-${platform}-${lmId.slice(-4)}`,
+      });
+      // Sauvegarde en DB
+      await fetch('/api/client/lead-magnets', {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id: lmId, name: lm.name, url: lm.url, keyword: lm.keyword, [`bio_${platform}_url`]: shortUrl }),
+      });
+      setLmBioUrls(prev => ({ ...prev, [lmId]: { ...prev[lmId], [platform]: shortUrl } }));
+    } catch (e: any) { setError(e.message); } finally { setGenLmLoading(prev => ({ ...prev, [key]: false })); }
   };
 
   if (!open) return null;
@@ -256,42 +278,54 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
         {/* Liens bio Lead Magnet */}
         {leadMagnets.length > 0 && (
           <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, marginTop: 4 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lien bio Lead Magnet</div>
-            <div style={{ marginBottom: 10 }}>
-              <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>Lead magnet à mettre en bio</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-                {leadMagnets.map(lm => (
-                  <div key={lm.id} onClick={() => setSelectedLmId(lm.id)}
-                    style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`, background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE2, transition: 'all .12s' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{lm.name}</div>
-                    <div style={{ fontSize: 11, color: FAINT }}>{lm.url}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-            {selectedLmId && (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                {[
-                  { platform: 'instagram' as const, label: '📸 Bio Instagram', result: lmBioIg, setResult: setLmBioIg, loading: genLmIg, setLoading: setGenLmIg },
-                  { platform: 'youtube' as const, label: '▶️ Bio YouTube', result: lmBioYt, setResult: setLmBioYt, loading: genLmYt, setLoading: setGenLmYt },
-                ].map(({ platform, label, result, setResult, loading, setLoading }) => (
-                  <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{label}</div>
-                      <div style={{ fontSize: 11, color: result ? BLUE : FAINT, fontWeight: result ? 600 : 400, wordBreak: 'break-all' }}>
-                        {result || (domain ? `${domain}/lm-bio-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liens bio Lead Magnet</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {leadMagnets.map(lm => {
+                const urls = lmBioUrls[lm.id] || {};
+                const isSelected = selectedLmId === lm.id;
+                return (
+                  <div key={lm.id} style={{ borderRadius: 10, border: `1.5px solid ${isSelected ? BLUE : BORDER}`, background: SURFACE2, overflow: 'hidden', transition: 'border-color .15s' }}>
+                    {/* Header LM cliquable */}
+                    <div onClick={() => setSelectedLmId(isSelected ? '' : lm.id)}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', cursor: 'pointer' }}>
+                      <div>
+                        <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{lm.name}</div>
+                        <div style={{ fontSize: 11, color: FAINT }}>{lm.url}</div>
                       </div>
+                      <span style={{ fontSize: 10, color: FAINT }}>{isSelected ? '▲' : '▼'}</span>
                     </div>
-                    {result ? <CopyBtn url={result} /> :
-                      <button onClick={() => genLmBio(platform, setResult, setLoading)} disabled={loading || !canGenerate}
-                        style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: !canGenerate || loading ? 'not-allowed' : 'pointer', opacity: !canGenerate || loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
-                        {loading ? '...' : 'Générer'}
-                      </button>}
+                    {/* Liens bio si déployé */}
+                    {isSelected && (
+                      <div style={{ borderTop: `1px solid ${BORDER}`, padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+                        {(['ig', 'yt'] as const).map(p => {
+                          const label = p === 'ig' ? '📸 Bio Instagram' : '▶️ Bio YouTube';
+                          const url = urls[p];
+                          const loading = genLmLoading[`${lm.id}-${p}`];
+                          return (
+                            <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: SURFACE, border: `1px solid ${BORDER}` }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>{label}</div>
+                                <div style={{ fontSize: 11, color: url ? BLUE : FAINT, wordBreak: 'break-all' }}>
+                                  {url || '—'}
+                                </div>
+                              </div>
+                              {url
+                                ? <CopyBtn url={url} />
+                                : <button onClick={() => genLmBio(lm.id, p)} disabled={loading || !canGenerate}
+                                    style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: !canGenerate || loading ? 'not-allowed' : 'pointer', opacity: !canGenerate || loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                                    {loading ? '...' : 'Générer'}
+                                  </button>
+                              }
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
-                ))}
-              </div>
-            )}
-            {!selectedLmId && <div style={{ fontSize: 11, color: FAINT }}>Sélectionne un lead magnet ci-dessus.</div>}
+                );
+              })}
+            </div>
+            {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px', marginTop: 8 }}>{error}</div>}
           </div>
         )}
       </div>

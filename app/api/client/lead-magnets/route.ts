@@ -21,7 +21,7 @@ export async function GET() {
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
-    .select('id, name, url, keyword, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, created_at')
     .eq('profile_id', user.id)
     .order('created_at', { ascending: false });
 
@@ -46,7 +46,7 @@ export async function POST(request: Request) {
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
     .insert({ profile_id: user.id, name: name?.trim() || normalizedUrl, url: normalizedUrl, keyword: cleanKeyword })
-    .select('id, name, url, keyword, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, created_at')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -59,18 +59,22 @@ export async function PATCH(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const { id, name, url, keyword } = await request.json();
-  if (!id || !url?.trim()) return NextResponse.json({ error: 'id et url requis' }, { status: 400 });
+  const body = await request.json();
+  const { id, name, url, keyword, bio_ig_url, bio_yt_url } = body;
+  if (!id) return NextResponse.json({ error: 'id requis' }, { status: 400 });
 
-  const normalizedUrl = normalizeUrl(url);
-  const cleanKeyword = (keyword || '').toUpperCase().trim().replace(/\s+/g, '');
+  const patch: Record<string, any> = {};
+  if (url !== undefined) { patch.url = normalizeUrl(url); patch.name = name?.trim() || normalizeUrl(url); }
+  if (keyword !== undefined) patch.keyword = (keyword || '').toUpperCase().trim().replace(/\s+/g, '');
+  if (bio_ig_url !== undefined) patch.bio_ig_url = bio_ig_url;
+  if (bio_yt_url !== undefined) patch.bio_yt_url = bio_yt_url;
 
   const { data, error } = await serviceSupabase
     .from('lead_magnets')
-    .update({ name: name?.trim() || normalizedUrl, url: normalizedUrl, keyword: cleanKeyword })
+    .update(patch)
     .eq('id', id)
     .eq('profile_id', user.id)
-    .select('id, name, url, keyword, created_at')
+    .select('id, name, url, keyword, bio_ig_url, bio_yt_url, created_at')
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
