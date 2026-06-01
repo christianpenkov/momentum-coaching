@@ -359,97 +359,73 @@ function insertTokenAt(text: string, pos: number): string {
     + after;
 }
 
-// ─── Dm1Editor : textarea React (fiable) + badge visuel overlay ──────────────
-// Le textarea est la source de vérité (React contrôle la valeur).
-// Un div overlay non-interactif affiche le badge bleu à la place de {{lien_lm}}.
-// Le drag & drop du badge réinsère le token avec espaces garantis.
+// ─── Dm1Editor : textarea React fiable + badge draggable séparé ──────────────
 
 function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
 }) {
   const taRef = useRef<HTMLTextAreaElement>(null);
-  const parts = value.split(TOKEN);
-  const hasToken = parts.length > 1;
+  const hasToken = value.includes(TOKEN);
 
-  // Insère le token à la position du curseur dans le textarea
   const insertToken = useCallback(() => {
     const ta = taRef.current;
     if (!ta) return;
     const pos = ta.selectionStart ?? value.length;
     const next = insertTokenAt(value, pos);
     onChange(next);
-    // Replace le curseur après le token inséré
     const newPos = next.indexOf(TOKEN) + TOKEN.length;
     requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(newPos, newPos); });
   }, [value, onChange]);
 
-  // Drag du badge : supprime le token existant et le réinsère à la position de drop
   const handleDrop = useCallback((e: React.DragEvent<HTMLTextAreaElement>) => {
     if (e.dataTransfer.getData('text/plain') !== TOKEN) return;
     e.preventDefault();
     const ta = taRef.current;
     if (!ta) return;
-    // Supprime le token existant
-    const withoutToken = value.replace(TOKEN, '').replace(/  +/g, ' ').trim();
-    // Calcule la position de drop dans le textarea via les coordonnées
-    // On insère à la fin par défaut (le textarea gère le drop nativement)
-    const next = insertTokenAt(withoutToken, withoutToken.length);
+    const withoutToken = value.split(TOKEN).join('').replace(/  +/g, ' ');
+    const next = insertTokenAt(withoutToken, ta.selectionStart ?? withoutToken.length);
     onChange(next);
   }, [value, onChange]);
 
   return (
-    <div style={{ position: 'relative', borderRadius: 8, border: `1px solid ${saved ? border : amber}` }}>
-      {/* Overlay visuel — affiche le badge bleu à la place de {{lien_lm}} */}
-      <div aria-hidden style={{
-        position: 'absolute', inset: 0, padding: '10px 12px',
-        fontSize: 12, lineHeight: 1.5, fontFamily: 'inherit',
-        whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-        pointerEvents: 'none', zIndex: 1, color: 'transparent',
-        overflow: 'hidden',
-      }}>
-        {parts.map((part, i) => (
-          <span key={i}>
-            <span style={{ color: 'transparent' }}>{part}</span>
-            {i < parts.length - 1 && (
-              <span
-                draggable
-                onDragStart={e => { e.stopPropagation(); e.dataTransfer.setData('text/plain', TOKEN); }}
-                style={{
-                  display: 'inline-flex', alignItems: 'center',
-                  background: blueSoft, border: `1px solid ${blue}`, borderRadius: 5,
-                  padding: '1px 8px', color: blue, fontSize: 10, fontWeight: 700,
-                  textTransform: 'uppercase', letterSpacing: '0.04em',
-                  verticalAlign: 'middle', userSelect: 'none', cursor: 'grab',
-                  pointerEvents: 'all',
-                }}>Lien LM</span>
-            )}
-          </span>
-        ))}
-      </div>
-      {/* Textarea transparent — React contrôle la valeur, toujours fiable */}
+    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
+      {/* Badge draggable au-dessus du textarea */}
+      {hasToken && (
+        <div style={{ padding: '8px 12px 0', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ fontSize: 10, color: faint }}>Glisse pour repositionner :</span>
+          <span
+            draggable
+            onDragStart={e => e.dataTransfer.setData('text/plain', TOKEN)}
+            style={{
+              display: 'inline-flex', alignItems: 'center',
+              background: blueSoft, border: `1px solid ${blue}`, borderRadius: 5,
+              padding: '2px 8px', color: blue, fontSize: 10, fontWeight: 700,
+              textTransform: 'uppercase', letterSpacing: '0.04em',
+              userSelect: 'none', cursor: 'grab',
+            }}>Lien LM</span>
+        </div>
+      )}
+      {/* Textarea — source de vérité React, toujours fiable */}
       <textarea
         ref={taRef}
         value={value}
         onChange={e => onChange(e.target.value)}
         onDrop={handleDrop}
+        onDragOver={e => e.preventDefault()}
         rows={3}
         placeholder="Ex : 👋 Voici le lien comme promis !"
         style={{
-          position: 'relative', zIndex: 2,
           width: '100%', padding: '10px 12px',
           fontSize: 12, lineHeight: 1.5, fontFamily: 'inherit',
-          background: 'transparent',
-          color: hasToken ? 'transparent' : ink,
-          caretColor: ink,
+          color: ink, background: 'transparent',
           border: 'none', outline: 'none', resize: 'vertical',
           boxSizing: 'border-box', minHeight: 72,
-          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
         }}
       />
-      {/* Bouton pour insérer le badge si absent */}
+      {/* Bouton insérer si token absent */}
       {!hasToken && (
-        <div style={{ padding: '0 12px 8px', zIndex: 2, position: 'relative', display: 'flex', alignItems: 'center', gap: 6 }}>
+        <div style={{ padding: '0 12px 8px', display: 'flex', alignItems: 'center', gap: 6 }}>
           <span style={{ fontSize: 10, color: faint }}>Insérer le lien :</span>
           <button type="button" onClick={insertToken} style={{
             fontSize: 10, fontWeight: 700, color: blue, background: blueSoft,
