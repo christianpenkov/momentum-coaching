@@ -1640,7 +1640,7 @@ export default function PageLiens() {
               <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
             ) : (
               <PanneauActions
-                post={rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
+                post={selectedPost || rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
                 calendlyUrl={calendlyUrl} leadMagnets={leadMagnets}
                 onLmCreated={lm => setLeadMagnets(prev => [lm, ...prev])}
                 onPostUpdated={handlePostUpdated}
