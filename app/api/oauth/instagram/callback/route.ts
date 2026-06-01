@@ -72,15 +72,33 @@ export async function GET(request: NextRequest) {
   const igAccountId = meData.id ? String(meData.id) : (tokenData.user_id ? String(tokenData.user_id) : null);
   const accountLabel = meData.username ? `@${meData.username}` : null;
 
-  // Récupère aussi le page_id Facebook (Meta envoie cet ID dans entry.id du webhook)
+  // Récupère le page_id Facebook — Meta envoie cet ID dans entry.id du webhook
+  // Plusieurs tentatives car le champ varie selon le type de compte
   let pageId: string | null = null;
   if (igAccountId) {
-    const pageRes = await fetch(
-      `https://graph.instagram.com/v22.0/${igAccountId}?fields=page&access_token=${accessToken}`
-    );
+    // Tentative 1 : champ page (comptes Business liés à une Page FB)
+    const pageRes = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=page&access_token=${accessToken}`);
     const pageData = await pageRes.json();
     pageId = pageData?.page?.id ? String(pageData.page.id) : null;
-    console.log('[IG callback] page_id:', pageId);
+
+    // Tentative 2 : via l'API Facebook Graph (comptes avec page FB)
+    if (!pageId) {
+      const fbRes = await fetch(`https://graph.facebook.com/v21.0/me/accounts?access_token=${accessToken}`);
+      const fbData = await fbRes.json();
+      const page = fbData?.data?.[0];
+      if (page?.id) pageId = String(page.id);
+    }
+
+    // Tentative 3 : lire les subscribed_apps — Meta retourne parfois l'ID réel dans la réponse
+    if (!pageId) {
+      const subRes = await fetch(`https://graph.instagram.com/v21.0/${igAccountId}/subscribed_apps?access_token=${accessToken}`);
+      const subData = await subRes.json();
+      // Si l'abonnement existe, l'id dans data[0] peut être le page_id
+      const subId = subData?.data?.[0]?.id;
+      if (subId && String(subId) !== igAccountId) pageId = String(subId);
+    }
+
+    console.log('[IG callback] page_id résolu:', pageId ?? 'non trouvé (compte sans page FB)');
   }
 
   const expiresAt = expiresIn
