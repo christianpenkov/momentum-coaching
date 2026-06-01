@@ -138,6 +138,14 @@ export async function POST(request: Request) {
       }
 
       const { profile_id, access_token } = integ;
+
+      // Si le match s'est fait par ig_account_id (page_id absent ou différent), on le mémorise
+      if (String(integ.metadata?.page_id) !== igAccountId) {
+        await serviceSupabase.from('integrations')
+          .update({ metadata: { ...integ.metadata, page_id: igAccountId } })
+          .eq('profile_id', profile_id)
+          .eq('provider', 'instagram');
+      }
       pushEvent({ type: 'debug_profile_found', profile_id });
 
       // Filtre strict : cherche un content_link sur CE post précis avec un keyword qui matche
