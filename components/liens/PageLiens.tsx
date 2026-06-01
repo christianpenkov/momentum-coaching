@@ -775,7 +775,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
               {leadMagnets.map(lm => (
-                <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword && !keyword) setKeyword(lm.keyword); }} style={{
+                <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword) setKeyword(lm.keyword); }} style={{
                   padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
                   border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
                   background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
@@ -868,7 +868,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           : <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
               {leadMagnets.map(lm => (
-                <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword && !keyword) setKeyword(lm.keyword); }} style={{
+                <div key={lm.id} onClick={() => { setSelectedLmId(lm.id); if (lm.keyword) setKeyword(lm.keyword); }} style={{
                   padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
                   border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
                   background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
