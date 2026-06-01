@@ -96,12 +96,33 @@ export async function POST(request: Request) {
   // Meta envoie un tableau d'entries
   const entries = body?.entry || [];
 
+  // Charge tous les comptes IG une seule fois pour tous les entries
+  const { data: allIg } = await serviceSupabase
+    .from('integrations')
+    .select('profile_id, access_token, metadata')
+    .eq('provider', 'instagram');
+
   for (const entry of entries) {
     const igAccountId = String(entry.id);
 
-    // Events sur les changements (commentaires, mentions, etc.)
+    // Trouve le profil par page_id OU ig_account_id
+    const match = (allIg || []).find((r: any) =>
+      String(r.metadata?.page_id) === igAccountId ||
+      String(r.metadata?.ig_account_id) === igAccountId
+    );
+
+    // Auto-apprentissage : sauvegarde le page_id dès le premier event (même un ping)
+    if (match && String(match.metadata?.page_id) !== igAccountId) {
+      await serviceSupabase.from('integrations')
+        .update({ metadata: { ...match.metadata, page_id: igAccountId } })
+        .eq('profile_id', match.profile_id)
+        .eq('provider', 'instagram');
+      // Met à jour le cache local aussi
+      match.metadata = { ...match.metadata, page_id: igAccountId };
+    }
+
+    // Events sur les changements (commentaires)
     for (const change of entry.changes || []) {
-      console.log('[IGW field]', change.field, JSON.stringify(change.value).slice(0, 200));
       if (change.field !== 'comments') continue;
 
       const value = change.value;
@@ -117,19 +138,8 @@ export async function POST(request: Request) {
 
       if (!commentId || !commentText) continue;
 
-      // Log temps réel — event brut reçu
       pushEvent({ type: 'comment_received', commentId, commentText, commenterUsername, mediaId, timestamp });
 
-      // Trouve le profil : Meta envoie le page_id Facebook dans entry.id (pas l'ig_account_id)
-      // On cherche par page_id d'abord, puis ig_account_id en fallback
-      const { data: allIg } = await serviceSupabase
-        .from('integrations')
-        .select('profile_id, access_token, metadata')
-        .eq('provider', 'instagram');
-      const match = (allIg || []).find((r: any) =>
-        String(r.metadata?.page_id) === igAccountId ||
-        String(r.metadata?.ig_account_id) === igAccountId
-      );
       const integ = match || null;
 
       if (!integ) {
@@ -138,14 +148,6 @@ export async function POST(request: Request) {
       }
 
       const { profile_id, access_token } = integ;
-
-      // Si le match s'est fait par ig_account_id (page_id absent ou différent), on le mémorise
-      if (String(integ.metadata?.page_id) !== igAccountId) {
-        await serviceSupabase.from('integrations')
-          .update({ metadata: { ...integ.metadata, page_id: igAccountId } })
-          .eq('profile_id', profile_id)
-          .eq('provider', 'instagram');
-      }
       pushEvent({ type: 'debug_profile_found', profile_id });
 
       // Filtre strict : cherche un content_link sur CE post précis avec un keyword qui matche
