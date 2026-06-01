@@ -1820,8 +1820,11 @@ export default function PageLiens() {
               📄 Lead Magnets
               {leadMagnets.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: rightView?.type === 'lm-library' ? 'var(--green)' : BORDER, color: rightView?.type === 'lm-library' ? '#fff' : MUTED, borderRadius: 10, padding: '1px 6px' }}>{leadMagnets.length}</span>}
             </button>
-            <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: MUTED, cursor: 'pointer' }}>
+            <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`, background: SURFACE, color: MUTED, cursor: 'pointer', position: 'relative' }}>
               ⚙ Paramètres
+              {leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
+                <span style={{ position: 'absolute', top: -4, right: -4, width: 8, height: 8, borderRadius: '50%', background: AMBER, border: '2px solid var(--surface)' }} />
+              )}
             </button>
           </div>
         </div>
