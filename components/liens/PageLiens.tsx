@@ -1525,10 +1525,10 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                         <span style={{ fontSize: 10, fontWeight: 700, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px', letterSpacing: '0.04em' }}>#{lm.keyword}</span>
                       )}
                     </div>
-                    <div style={{ display: 'flex', gap: 4, flexShrink: 0 }}>
+                    <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
                       <button onClick={() => startEdit(lm)}
-                        style={{ fontSize: 11, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', padding: '2px 6px', borderRadius: 4 }}>
-                        ✏️
+                        style={{ fontSize: 11, fontWeight: 600, color: MUTED, background: 'none', border: `1px solid ${BORDER}`, borderRadius: 6, cursor: 'pointer', padding: '3px 10px', whiteSpace: 'nowrap' }}>
+                        Modifier
                       </button>
                       <button onClick={() => remove(lm.id)} disabled={deletingId === lm.id}
                         style={{ fontSize: 11, color: RED, background: 'none', border: 'none', cursor: 'pointer', opacity: deletingId === lm.id ? 0.5 : 1, padding: '2px 4px' }}>
