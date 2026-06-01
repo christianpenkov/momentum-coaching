@@ -92,6 +92,25 @@ export async function GET(request: NextRequest) {
     metadata: igAccountId ? { ig_account_id: igAccountId } : null,
   }, { onConflict: 'profile_id,provider' });
 
+  // Réabonner automatiquement au webhook comments + messages avec le nouveau token
+  if (igAccountId) {
+    try {
+      await fetch(
+        `https://graph.instagram.com/v21.0/${igAccountId}/subscribed_apps`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            subscribed_fields: 'comments,messages',
+            access_token: accessToken,
+          }),
+        }
+      );
+    } catch (e) {
+      console.error('[IG callback] register-webhook failed:', e);
+    }
+  }
+
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=instagram`);
