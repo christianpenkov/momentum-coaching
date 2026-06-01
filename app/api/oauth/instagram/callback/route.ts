@@ -101,6 +101,16 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  // Récupère le page_id existant en DB pour ne pas l'écraser si on n'a pas pu le résoudre
+  const { data: existing } = await serviceSupabase
+    .from('integrations')
+    .select('metadata')
+    .eq('profile_id', user.id)
+    .eq('provider', 'instagram')
+    .single();
+  const existingPageId = (existing?.metadata as any)?.page_id ?? null;
+  const resolvedPageId = pageId || existingPageId;
+
   await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'instagram',
@@ -109,7 +119,7 @@ export async function GET(request: NextRequest) {
     account_label: accountLabel,
     expires_at: expiresAt,
     connected_at: new Date().toISOString(),
-    metadata: igAccountId ? { ig_account_id: igAccountId, ...(pageId ? { page_id: pageId } : {}) } : null,
+    metadata: igAccountId ? { ig_account_id: igAccountId, ...(resolvedPageId ? { page_id: resolvedPageId } : {}) } : null,
   }, { onConflict: 'profile_id,provider' });
 
   // Réabonner aux deux niveaux webhook après chaque connexion
