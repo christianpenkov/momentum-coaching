@@ -72,26 +72,6 @@ export async function GET(request: NextRequest) {
   const igAccountId = meData.id ? String(meData.id) : (tokenData.user_id ? String(tokenData.user_id) : null);
   const accountLabel = meData.username ? `@${meData.username}` : null;
 
-  // Récupère le page_id Facebook — Meta envoie cet ID dans entry.id du webhook
-  // Plusieurs tentatives car le champ varie selon le type de compte
-  let pageId: string | null = null;
-  if (igAccountId) {
-    // Tentative 1 : champ page (comptes Business liés à une Page FB)
-    const pageRes = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=page&access_token=${accessToken}`);
-    const pageData = await pageRes.json();
-    pageId = pageData?.page?.id ? String(pageData.page.id) : null;
-
-    // Tentative 2 : via l'API Facebook Graph (comptes avec page FB)
-    if (!pageId) {
-      const fbRes = await fetch(`https://graph.facebook.com/v21.0/me/accounts?access_token=${accessToken}`);
-      const fbData = await fbRes.json();
-      const page = fbData?.data?.[0];
-      if (page?.id) pageId = String(page.id);
-    }
-
-    console.log('[IG callback] page_id résolu:', pageId ?? 'non trouvé — sera appris au 1er webhook');
-  }
-
   const expiresAt = expiresIn
     ? new Date(Date.now() + expiresIn * 1000).toISOString()
     : null;
@@ -101,16 +81,6 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
-  // Récupère le page_id existant en DB pour ne pas l'écraser si on n'a pas pu le résoudre
-  const { data: existing } = await serviceSupabase
-    .from('integrations')
-    .select('metadata')
-    .eq('profile_id', user.id)
-    .eq('provider', 'instagram')
-    .single();
-  const existingPageId = (existing?.metadata as any)?.page_id ?? null;
-  const resolvedPageId = pageId || existingPageId;
-
   await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'instagram',
@@ -119,7 +89,7 @@ export async function GET(request: NextRequest) {
     account_label: accountLabel,
     expires_at: expiresAt,
     connected_at: new Date().toISOString(),
-    metadata: igAccountId ? { ig_account_id: igAccountId, ...(resolvedPageId ? { page_id: resolvedPageId } : {}) } : null,
+    metadata: igAccountId ? { ig_account_id: igAccountId } : null,
   }, { onConflict: 'profile_id,provider' });
 
   // Réabonner aux deux niveaux webhook après chaque connexion

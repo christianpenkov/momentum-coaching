@@ -104,26 +104,14 @@ export async function POST(request: Request) {
 
   for (const entry of entries) {
     const igAccountId = String(entry.id);
-    console.log('[IGW] entry.id=', igAccountId, 'db_ids=', (allIg||[]).map((r:any)=>`ig:${r.metadata?.ig_account_id}|page:${r.metadata?.page_id}`).join(', '));
-
-    // Trouve le profil par page_id OU ig_account_id
+    // Trouve le profil par ig_account_id d'abord
     let resolvedMatch: any = (allIg || []).find((r: any) =>
-      String(r.metadata?.page_id) === igAccountId ||
       String(r.metadata?.ig_account_id) === igAccountId
     ) || null;
 
-    if (resolvedMatch) {
-      // Sauvegarde le page_id si ce n'est pas encore fait
-      if (String(resolvedMatch.metadata?.page_id) !== igAccountId) {
-        await serviceSupabase.from('integrations')
-          .update({ metadata: { ...resolvedMatch.metadata, page_id: igAccountId } })
-          .eq('profile_id', resolvedMatch.profile_id)
-          .eq('provider', 'instagram');
-        resolvedMatch.metadata = { ...resolvedMatch.metadata, page_id: igAccountId };
-      }
-    } else {
-      // page_id inconnu : teste chaque token pour trouver lequel est valide
-      // puis sauvegarde le page_id pour les prochains events
+    // Si pas de match direct : Meta envoie un page_id différent de l'ig_account_id
+    // On teste chaque token pour trouver lequel appartient à ce compte
+    if (!resolvedMatch) {
       for (const r of (allIg || [])) {
         try {
           const checkRes = await fetch(
@@ -131,13 +119,7 @@ export async function POST(request: Request) {
           );
           const checkData = await checkRes.json();
           if (checkData.id && !checkData.error) {
-            await serviceSupabase.from('integrations')
-              .update({ metadata: { ...r.metadata, page_id: igAccountId } })
-              .eq('profile_id', r.profile_id)
-              .eq('provider', 'instagram');
-            r.metadata = { ...r.metadata, page_id: igAccountId };
             resolvedMatch = r;
-            console.log('[IGW] page_id appris:', igAccountId, '-> profile:', r.profile_id);
             break;
           }
         } catch {}
