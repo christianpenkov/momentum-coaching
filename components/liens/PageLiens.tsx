@@ -130,10 +130,11 @@ function Spinner() {
 
 // ─── Modal Paramètres ─────────────────────────────────────────────────────────
 
-function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onCalendlyChange, initialCalendly }: {
+function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onCalendlyChange, initialCalendly, leadMagnets }: {
   open: boolean; onClose: () => void;
   profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
   onCalendlyChange: (url: string) => void; initialCalendly: string;
+  leadMagnets: LeadMagnet[];
 }) {
   const [calendlyUrl, setCalendlyUrl] = useState(initialCalendly);
   const [saved, setSaved] = useState(false);
@@ -143,6 +144,12 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
   const [genIg, setGenIg] = useState(false);
   const [genYt, setGenYt] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Lien LM bio
+  const [selectedLmId, setSelectedLmId] = useState('');
+  const [lmBioIg, setLmBioIg] = useState<string | null>(null);
+  const [lmBioYt, setLmBioYt] = useState<string | null>(null);
+  const [genLmIg, setGenLmIg] = useState(false);
+  const [genLmYt, setGenLmYt] = useState(false);
   const domain = domains[0]?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const isValid = calendlyUrl.trim().startsWith('http');
@@ -164,6 +171,18 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
     setLoading(true); setError(null);
     try {
       const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: `Bio ${platform === 'instagram' ? 'Instagram' : 'YouTube'}`, utmSource: domain, utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: `bio-${platform === 'instagram' ? 'ig' : 'yt'}` });
+      setResult(shortUrl);
+    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+  };
+
+  const genLmBio = async (platform: 'instagram' | 'youtube', setResult: (v: string) => void, setLoading: (v: boolean) => void) => {
+    if (!canGenerate || !selectedLmId) return;
+    const lm = leadMagnets.find(l => l.id === selectedLmId);
+    if (!lm) return;
+    setLoading(true); setError(null);
+    try {
+      const suffix = platform === 'instagram' ? 'ig' : 'yt';
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lm.url, title: `LM Bio ${suffix.toUpperCase()} — ${lm.name}`, utmSource: domain, utmMedium: 'bio', utmCampaign: `lm-bio-${suffix}`, path: `lm-bio-${suffix}` });
       setResult(shortUrl);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -218,6 +237,48 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
           {!canGenerate && domainsLoaded && <div style={{ fontSize: 11, color: RED, marginTop: 8 }}>⚠ Short.io non connecté — va dans Réglages.</div>}
           {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px', marginTop: 8 }}>{error}</div>}
         </div>
+
+        {/* Liens bio Lead Magnet */}
+        {leadMagnets.length > 0 && (
+          <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, marginTop: 4 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lien bio Lead Magnet</div>
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 11, color: MUTED, marginBottom: 6 }}>Lead magnet à mettre en bio</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {leadMagnets.map(lm => (
+                  <div key={lm.id} onClick={() => setSelectedLmId(lm.id)}
+                    style={{ padding: '8px 12px', borderRadius: 8, cursor: 'pointer', border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`, background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE2, transition: 'all .12s' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: INK }}>{lm.name}</div>
+                    <div style={{ fontSize: 11, color: FAINT }}>{lm.url}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {selectedLmId && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                {[
+                  { platform: 'instagram' as const, label: '📸 Bio Instagram', result: lmBioIg, setResult: setLmBioIg, loading: genLmIg, setLoading: setGenLmIg },
+                  { platform: 'youtube' as const, label: '▶️ Bio YouTube', result: lmBioYt, setResult: setLmBioYt, loading: genLmYt, setLoading: setGenLmYt },
+                ].map(({ platform, label, result, setResult, loading, setLoading }) => (
+                  <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{label}</div>
+                      <div style={{ fontSize: 11, color: result ? BLUE : FAINT, fontWeight: result ? 600 : 400, wordBreak: 'break-all' }}>
+                        {result || (domain ? `${domain}/lm-bio-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
+                      </div>
+                    </div>
+                    {result ? <CopyBtn url={result} /> :
+                      <button onClick={() => genLmBio(platform, setResult, setLoading)} disabled={loading || !canGenerate}
+                        style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: !canGenerate || loading ? 'not-allowed' : 'pointer', opacity: !canGenerate || loading ? 0.5 : 1, whiteSpace: 'nowrap' }}>
+                        {loading ? '...' : 'Générer'}
+                      </button>}
+                  </div>
+                ))}
+              </div>
+            )}
+            {!selectedLmId && <div style={{ fontSize: 11, color: FAINT }}>Sélectionne un lead magnet ci-dessus.</div>}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -1585,6 +1646,7 @@ export default function PageLiens() {
         open={paramOpen} onClose={() => setParamOpen(false)}
         profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
         onCalendlyChange={setCalendlyUrl} initialCalendly={calendlyUrl}
+        leadMagnets={leadMagnets}
       />
 
       <div className="liens-shell">
