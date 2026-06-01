@@ -93,17 +93,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 });
   }
 
-  // Log le body brut pour diagnostiquer ce que Meta envoie réellement
-  console.log('[IG Webhook] body recu:', JSON.stringify(body).slice(0, 500));
+  // Log le body brut complet pour diagnostic
+  console.log('[IG Webhook] body recu FULL:', JSON.stringify(body));
 
   // Meta envoie un tableau d'entries
   const entries = body?.entry || [];
+  console.log('[IG Webhook] entries count:', entries.length);
 
   for (const entry of entries) {
     const igAccountId = entry.id;
+    console.log('[IG Webhook] entry id:', igAccountId, '| changes:', JSON.stringify(entry.changes), '| messaging:', JSON.stringify(entry.messaging));
 
     // Events sur les changements (commentaires, mentions, etc.)
     for (const change of entry.changes || []) {
+      console.log('[IG Webhook] change.field:', change.field, '| value:', JSON.stringify(change.value).slice(0, 300));
       if (change.field !== 'comments') continue;
 
       const value = change.value;
