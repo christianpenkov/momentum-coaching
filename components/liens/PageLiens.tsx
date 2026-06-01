@@ -791,7 +791,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           ✏️ Modifier / Régénérer le Lead Magnet
         </button>
         <div style={{ marginLeft: 'auto' }}>
-          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} onDissociated={() => { setResult(null); setEditing(false); setKeyword(''); setDm1Text(`👋 Voici le lien comme promis ! {{lien_lm}}`); setDm1Saved(true); setDm2Text(''); setDm2Saved(true); }} />
+          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} onDissociated={() => { setResult(null); setEditing(false); setKeyword(''); setSelectedLmId(''); setDm1Text(`👋 Voici le lien comme promis ! {{lien_lm}}`); setDm1Saved(true); setDm2Text(''); setDm2Saved(true); }} />
         </div>
       </div>
     </div>
