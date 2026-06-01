@@ -7,15 +7,12 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-const KEYWORD = 'ok';
-
-// GET /api/instagram/test-full-workflow
-// Workflow complet :
-// 1. Récupère le dernier post IG
-// 2. Scan les commentaires → cherche le mot-clé "OK"
-// 3. Pour chaque commentaire matchant → envoie private reply (LM) + DM suivi (question)
-// 4. Stocke le lead en DB
-export async function GET() {
+// GET /api/instagram/test-full-workflow?keyword=GUIDE&media_id=OPTIONAL
+// Workflow complet + état abonnement webhook
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const KEYWORD = (searchParams.get('keyword') || 'ok').toLowerCase();
+  const targetMediaId = searchParams.get('media_id') || null;
   const steps: any[] = [];
 
   // Récupère l'utilisateur connecté et son token IG depuis la DB
@@ -41,22 +38,25 @@ export async function GET() {
     return NextResponse.json({ error: 'ig_account_id manquant dans les métadonnées de l\'intégration' }, { status: 404 });
   }
 
-  steps.push({ step: 0, action: `Compte IG connecté — ig_account_id: ${IG_ID}` });
+  // ÉTAPE 0 — État abonnement webhook
+  const subCheck = await fetch(`https://graph.instagram.com/v21.0/${IG_ID}/subscribed_apps?access_token=${TOKEN}`);
+  const subData = await subCheck.json();
+  steps.push({ step: 0, action: `Compte IG connecté — ig_account_id: ${IG_ID}`, webhook_subscriptions: subData });
 
-  // ÉTAPE 1 — Récupère le dernier post
-  steps.push({ step: 1, action: 'Récupération du dernier post IG' });
-  const mediaRes = await fetch(
-    `https://graph.instagram.com/v21.0/${IG_ID}/media?fields=id,permalink,timestamp,caption&limit=1&access_token=${TOKEN}`
-  );
-  const mediaData = await mediaRes.json();
-
-  if (mediaData.error) {
-    return NextResponse.json({ steps, error: 'Impossible de récupérer les posts', detail: mediaData.error }, { status: 400 });
-  }
-
-  const post = mediaData?.data?.[0];
-  if (!post) {
-    return NextResponse.json({ steps, error: 'Aucun post trouvé sur ce compte' }, { status: 404 });
+  // ÉTAPE 1 — Récupère le post ciblé ou le dernier post
+  steps.push({ step: 1, action: targetMediaId ? `Post ciblé : ${targetMediaId}` : 'Récupération du dernier post IG' });
+  let post: any;
+  if (targetMediaId) {
+    const mediaRes = await fetch(`https://graph.instagram.com/v21.0/${targetMediaId}?fields=id,permalink,timestamp,caption&access_token=${TOKEN}`);
+    const mediaData = await mediaRes.json();
+    if (mediaData.error) return NextResponse.json({ steps, error: 'Post introuvable', detail: mediaData.error }, { status: 400 });
+    post = mediaData;
+  } else {
+    const mediaRes = await fetch(`https://graph.instagram.com/v21.0/${IG_ID}/media?fields=id,permalink,timestamp,caption&limit=1&access_token=${TOKEN}`);
+    const mediaData = await mediaRes.json();
+    if (mediaData.error) return NextResponse.json({ steps, error: 'Impossible de récupérer les posts', detail: mediaData.error }, { status: 400 });
+    post = mediaData?.data?.[0];
+    if (!post) return NextResponse.json({ steps, error: 'Aucun post trouvé' }, { status: 404 });
   }
 
   steps.push({ step: 1, result: { postId: post.id, permalink: post.permalink, timestamp: post.timestamp } });
