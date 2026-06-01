@@ -97,11 +97,12 @@ export async function POST(request: Request) {
   const entries = body?.entry || [];
 
   for (const entry of entries) {
-    const igAccountId = entry.id;
+    const igAccountId = String(entry.id);
+    console.log('[IG Webhook] entry.id recu:', igAccountId);
 
     // Events sur les changements (commentaires, mentions, etc.)
     for (const change of entry.changes || []) {
-      console.log('[IG Webhook] change.field:', change.field, '| value:', JSON.stringify(change.value).slice(0, 300));
+      console.log('[IG Webhook] change.field:', change.field);
       if (change.field !== 'comments') continue;
 
       const value = change.value;
@@ -121,12 +122,25 @@ export async function POST(request: Request) {
       pushEvent({ type: 'comment_received', commentId, commentText, commenterUsername, mediaId, timestamp });
 
       // Trouve le profil qui possède ce compte IG
-      const { data: integ } = await serviceSupabase
+      // Double tentative : string ET number (Meta peut envoyer l'un ou l'autre)
+      let integ: { profile_id: string; access_token: string } | null = null;
+      const { data: d1 } = await serviceSupabase
         .from('integrations')
         .select('profile_id, access_token')
         .eq('provider', 'instagram')
         .contains('metadata', { ig_account_id: igAccountId })
         .single();
+      if (d1) { integ = d1; }
+      else {
+        // Fallback : cherche par cast numérique (au cas où stocké comme number)
+        const { data: allIg } = await serviceSupabase
+          .from('integrations')
+          .select('profile_id, access_token, metadata')
+          .eq('provider', 'instagram');
+        const match = (allIg || []).find((r: any) => String(r.metadata?.ig_account_id) === igAccountId);
+        if (match) integ = match;
+      }
+      console.log('[IG Webhook] profil trouvé:', integ ? integ.profile_id : `NON TROUVÉ — entry.id=${igAccountId}`);
 
       if (!integ) {
         pushEvent({ type: 'error', reason: 'profil_non_trouve', igAccountId });
