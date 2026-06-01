@@ -98,7 +98,7 @@ export async function POST(request: Request) {
 
   for (const entry of entries) {
     const igAccountId = String(entry.id);
-    console.log('[IG Webhook] entry.id recu:', igAccountId);
+    console.log('[IGW]', JSON.stringify({ id: igAccountId, changes: entry.changes?.length ?? 0, messaging: entry.messaging?.length ?? 0, keys: Object.keys(entry) }));
 
     // Events sur les changements (commentaires, mentions, etc.)
     for (const change of entry.changes || []) {
