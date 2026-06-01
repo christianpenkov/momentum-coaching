@@ -47,7 +47,6 @@ interface ContentLink {
   lm_short_url?: string | null;
   lm_keyword?: string | null;
   dm_opener_message?: string | null;
-  dm_lm_message?: string | null;
 }
 
 interface LeadMagnet {
@@ -344,95 +343,369 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   );
 }
 
-// ─── Dm1Editor : textarea React simple + bouton insérer token ─────────────────
+// ─── Dm1Editor : contentEditable avec badge {{lien_lm}} inline ────────────────
 
 const TOKEN = '{{lien_lm}}';
+
+function serializeEditor(el: HTMLDivElement): string {
+  let result = '';
+  el.childNodes.forEach(node => {
+    if (node.nodeType === Node.TEXT_NODE) {
+      result += node.textContent ?? '';
+    } else if (node.nodeType === Node.ELEMENT_NODE) {
+      const child = node as HTMLElement;
+      if (child.dataset.token === 'lien_lm') result += TOKEN;
+      else result += child.textContent ?? '';
+    }
+  });
+  return result;
+}
+
+// Retourne l'offset caractère global du curseur dans la string sérialisée
+function getCaretOffset(el: HTMLDivElement): number {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return -1;
+  const range = sel.getRangeAt(0);
+  if (!range.collapsed) return -1;
+  const { startContainer, startOffset } = range;
+
+  let offset = 0;
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      if (node === startContainer) {
+        return offset + startOffset;
+      }
+      offset += node.textContent?.length ?? 0;
+    } else {
+      const child = node as HTMLElement;
+      if (child.dataset?.token === 'lien_lm') {
+        // Le curseur peut être positionné sur le badge lui-même (startOffset 0 ou 1)
+        if (child === startContainer || child.contains(startContainer)) {
+          // Avant le badge si offset=0, après si offset=1
+          return startOffset === 0 ? offset : offset + TOKEN.length;
+        }
+        offset += TOKEN.length;
+      } else {
+        if (child === startContainer || child.contains(startContainer)) {
+          return offset + startOffset;
+        }
+        offset += child.textContent?.length ?? 0;
+      }
+    }
+  }
+  return offset;
+}
+
+// Replace le curseur à l'offset caractère global dans la string sérialisée
+function setCaretOffset(el: HTMLDivElement, targetOffset: number) {
+  const sel = window.getSelection();
+  if (!sel) return;
+  let remaining = targetOffset;
+
+  for (const node of Array.from(el.childNodes)) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const len = node.textContent?.length ?? 0;
+      if (remaining <= len) {
+        try {
+          const r = document.createRange();
+          r.setStart(node, remaining);
+          r.collapse(true);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        } catch {}
+        return;
+      }
+      remaining -= len;
+    } else {
+      const child = node as HTMLElement;
+      if (child.dataset?.token === 'lien_lm') {
+        if (remaining <= 0) {
+          try {
+            const r = document.createRange();
+            r.setStartBefore(child);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+          } catch {}
+          return;
+        }
+        remaining -= TOKEN.length;
+        if (remaining <= 0) {
+          try {
+            const r = document.createRange();
+            r.setStartAfter(child);
+            r.collapse(true);
+            sel.removeAllRanges();
+            sel.addRange(r);
+          } catch {}
+          return;
+        }
+      }
+    }
+  }
+  // Fallback : fin du contenu
+  try {
+    const r = document.createRange();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(r);
+  } catch {}
+}
+
+function buildNodes(value: string): (string | 'TOKEN')[] {
+  const parts = value.split(TOKEN);
+  const out: (string | 'TOKEN')[] = [];
+  parts.forEach((p, i) => {
+    if (p) out.push(p);
+    if (i < parts.length - 1) out.push('TOKEN');
+  });
+  return out;
+}
+
+function makeBadge(blue: string, blueSoft: string): HTMLSpanElement {
+  const badge = document.createElement('span');
+  badge.dataset.token = 'lien_lm';
+  badge.contentEditable = 'false';
+  badge.draggable = true;
+  badge.textContent = 'Lien LM';
+  Object.assign(badge.style, {
+    display: 'inline-flex', alignItems: 'center',
+    background: blueSoft, border: `1px solid ${blue}`, borderRadius: '5px',
+    padding: '1px 8px', margin: '0 1px', color: blue,
+    fontSize: '10px', fontWeight: '700', textTransform: 'uppercase',
+    letterSpacing: '0.04em', verticalAlign: 'middle', userSelect: 'none',
+    cursor: 'grab',
+  });
+  return badge;
+}
 
 function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink, faint }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string; faint: string;
 }) {
-  const taRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<HTMLDivElement>(null);
+  const isComposing = useRef(false);
+  const lastValue = useRef(value);
+  const draggingBadge = useRef<HTMLSpanElement | null>(null);
+  const caretRef = useRef<HTMLSpanElement | null>(null);
+  const skipNextSync = useRef(false);
 
-  const insertToken = useCallback(() => {
-    const ta = taRef.current;
-    if (!ta) return;
-    const start = ta.selectionStart ?? value.length;
-    const end = ta.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + TOKEN + value.slice(end);
-    onChange(next);
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + TOKEN.length, start + TOKEN.length);
+  const removeCaret = useCallback(() => {
+    caretRef.current?.parentNode?.removeChild(caretRef.current);
+  }, []);
+
+  const commitChange = useCallback(() => {
+    const el = editorRef.current;
+    if (!el) return;
+    const serialized = serializeEditor(el);
+    lastValue.current = serialized;
+    onChange(serialized);
+  }, [onChange]);
+
+  const syncDom = useCallback((val: string, caretOffset: number | undefined = undefined) => {
+    const el = editorRef.current;
+    if (!el) return;
+
+    el.innerHTML = '';
+    buildNodes(val).forEach(part => {
+      if (part === 'TOKEN') {
+        el.appendChild(makeBadge(blue, blueSoft));
+      } else {
+        el.appendChild(document.createTextNode(part));
+      }
     });
-  }, [value, onChange]);
+
+    if (caretOffset !== undefined) {
+      setCaretOffset(el, caretOffset);
+    } else {
+      // Fin du contenu
+      const sel = window.getSelection();
+      if (sel) {
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        r.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    }
+  }, [blue, blueSoft]);
+
+  useEffect(() => {
+    if (value !== lastValue.current) {
+      if (skipNextSync.current) {
+        skipNextSync.current = false;
+        lastValue.current = value;
+        return;
+      }
+      lastValue.current = value;
+      syncDom(value);
+    }
+  }, [value, syncDom]);
+
+  useEffect(() => {
+    syncDom(value);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleInput = useCallback(() => {
+    if (isComposing.current || !editorRef.current) return;
+    const el = editorRef.current;
+
+    // Capture l'offset curseur AVANT de modifier le DOM
+    const caretOff = getCaretOffset(el);
+    const serialized = serializeEditor(el);
+    if (serialized === lastValue.current) return;
+
+    // Si le badge a disparu (couper, coller, etc.) → on le remet à la fin
+    const prevHadToken = lastValue.current.includes(TOKEN);
+    const nowHasToken = serialized.includes(TOKEN);
+    let final = serialized;
+    if (prevHadToken && !nowHasToken) {
+      final = serialized + TOKEN;
+    }
+
+    lastValue.current = final;
+    // Toujours resync le DOM pour garantir la structure correcte
+    syncDom(final, caretOff >= 0 ? caretOff : undefined);
+    onChange(final);
+  }, [onChange, syncDom]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return;
+    const range = sel.getRangeAt(0);
+
+    // Bloque toute suppression qui toucherait le badge
+    if (e.key === 'Backspace' || e.key === 'Delete') {
+      const el = editorRef.current;
+      if (!el) return;
+
+      // Si sélection non-collapsed, vérifier qu'aucun badge n'est dans la sélection
+      if (!range.collapsed) {
+        const frag = range.cloneContents();
+        const hasBadge = Array.from(frag.querySelectorAll('[data-token="lien_lm"]')).length > 0;
+        if (hasBadge) { e.preventDefault(); return; }
+      }
+
+      if (e.key === 'Backspace' && range.collapsed) {
+        const prev = range.startContainer.previousSibling;
+        if (range.startOffset === 0 && prev && (prev as HTMLElement).dataset?.token === 'lien_lm') {
+          e.preventDefault(); return;
+        }
+      }
+      if (e.key === 'Delete' && range.collapsed) {
+        const textLen = range.startContainer.textContent?.length ?? 0;
+        const next = range.startContainer.nextSibling;
+        if (range.startOffset === textLen && next && (next as HTMLElement).dataset?.token === 'lien_lm') {
+          e.preventDefault(); return;
+        }
+      }
+    }
+  }, []);
+
+  // Drag & drop du badge dans l'éditeur
+  const handleDragStart = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.dataset?.token === 'lien_lm') {
+      draggingBadge.current = target as HTMLSpanElement;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', TOKEN);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    // Affiche un caret custom à la position de drop
+    const el = editorRef.current;
+    if (!el) return;
+    let range: Range | null = null;
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(e.clientX, e.clientY);
+    } else if ((document as any).caretPositionFromPoint) {
+      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+      if (pos) { range = document.createRange(); range.setStart(pos.offsetNode, pos.offset); range.collapse(true); }
+    }
+    if (!range || !el.contains(range.startContainer)) { removeCaret(); return; }
+
+    // Crée ou déplace le caret
+    if (!caretRef.current) {
+      const c = document.createElement('span');
+      c.id = '__drag-caret__';
+      Object.assign(c.style, {
+        display: 'inline-block', width: '2px', height: '1.2em',
+        background: blue, verticalAlign: 'text-bottom', pointerEvents: 'none',
+        animation: 'none', borderRadius: '1px', marginLeft: '-1px',
+      });
+      caretRef.current = c;
+    }
+    const caret = caretRef.current;
+    // Retire le caret de son ancienne position avant de le réinsérer
+    caret.parentNode?.removeChild(caret);
+    range.insertNode(caret);
+  }, [blue]);
+
+  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    removeCaret();
+    const el = editorRef.current;
+    if (!el || !draggingBadge.current) return;
+
+    // Capture la position de drop AVANT de toucher au DOM
+    let dropRange: Range | null = null;
+    if (document.caretRangeFromPoint) {
+      dropRange = document.caretRangeFromPoint(e.clientX, e.clientY);
+    } else if ((document as any).caretPositionFromPoint) {
+      const pos = (document as any).caretPositionFromPoint(e.clientX, e.clientY);
+      if (pos) { dropRange = document.createRange(); dropRange.setStart(pos.offsetNode, pos.offset); dropRange.collapse(true); }
+    }
+
+    // Retire le badge de sa position actuelle
+    const badge = draggingBadge.current;
+    badge.parentNode?.removeChild(badge);
+    draggingBadge.current = null;
+
+    // Insère le nouveau badge à la position capturée
+    const newBadge = makeBadge(blue, blueSoft);
+    if (dropRange && el.contains(dropRange.startContainer)) {
+      dropRange.insertNode(newBadge);
+    } else {
+      el.appendChild(newBadge);
+    }
+
+    // Sérialise le DOM tel quel, met à jour lastValue et notifie sans déclencher de resync
+    const serialized = serializeEditor(el);
+    lastValue.current = serialized;
+    skipNextSync.current = true;
+    onChange(serialized);
+  }, [blue, blueSoft, onChange, removeCaret]);
 
   return (
     <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
-      <textarea
-        ref={taRef}
-        value={value}
-        onChange={e => onChange(e.target.value)}
-        rows={3}
-        placeholder="Ex : 👋 Voici le lien comme promis ! {{lien_lm}}"
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={handleInput}
+        onCompositionStart={() => { isComposing.current = true; }}
+        onCompositionEnd={() => { isComposing.current = false; handleInput(); }}
+        onKeyDown={handleKeyDown}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDragLeave={removeCaret}
+        onDragEnd={removeCaret}
+        onDrop={handleDrop}
+        data-placeholder="Ex : 👋 Voici le lien comme promis !"
         style={{
-          width: '100%', padding: '10px 12px',
-          fontSize: 12, lineHeight: 1.6, fontFamily: 'inherit',
-          color: ink, background: 'transparent',
-          border: 'none', outline: 'none', resize: 'vertical',
-          boxSizing: 'border-box', minHeight: 72,
+          minHeight: 72, padding: '10px 12px', fontSize: 12, lineHeight: 1.6,
+          fontFamily: 'inherit', color: ink, outline: 'none',
+          whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+          borderRadius: 8,
         }}
       />
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 12px 8px' }}>
-        <span style={{ fontSize: 10, color: faint }}>Tape</span>
-        <button
-          type="button"
-          onClick={insertToken}
-          style={{
-            fontSize: 10, fontWeight: 700, color: blue,
-            background: blueSoft, border: `1px solid ${blue}`,
-            borderRadius: 5, padding: '2px 8px', cursor: 'pointer',
-            textTransform: 'uppercase', letterSpacing: '0.04em',
-          }}
-        >Lien LM</button>
-        <span style={{ fontSize: 10, color: faint }}>pour insérer le lien à la position du curseur</span>
-      </div>
-    </div>
-  );
-}
-
-// ─── Dm1TokenBar : chip pour insérer {{lien_lm}} dans un textarea ─────────────
-
-function Dm1TokenBar({ value, onChange, blue, blueSoft, faint }: {
-  value: string; onChange: (v: string) => void;
-  blue: string; blueSoft: string; faint: string;
-}) {
-  const taRef = useRef<HTMLTextAreaElement | null>(null);
-
-  const insert = () => {
-    // Trouve le textarea frère le plus proche
-    const container = taRef.current?.parentElement;
-    const ta = container?.querySelector('textarea') as HTMLTextAreaElement | null;
-    if (!ta) { onChange(value + TOKEN); return; }
-    const start = ta.selectionStart ?? value.length;
-    const end = ta.selectionEnd ?? value.length;
-    const next = value.slice(0, start) + TOKEN + value.slice(end);
-    onChange(next);
-    requestAnimationFrame(() => {
-      ta.focus();
-      ta.setSelectionRange(start + TOKEN.length, start + TOKEN.length);
-    });
-  };
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-      <span style={{ fontSize: 10, color: faint }}>Insérer :</span>
-      <button type="button" onClick={insert} style={{
-        fontSize: 10, fontWeight: 700, color: blue, background: blueSoft,
-        border: `1px solid ${blue}`, borderRadius: 5, padding: '2px 8px',
-        cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.04em',
-      }}>Lien LM</button>
-      <span style={{ fontSize: 10, color: faint }}>— le lien est inséré à la position du curseur</span>
+      <style>{`[contenteditable]:empty:before{content:attr(data-placeholder);color:${faint};}`}</style>
     </div>
   );
 }
@@ -465,7 +738,6 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
     setDm1Saved(true);
   }, [post.id]);
-
 
   if (isYT) return (
     <div style={{ background: SURFACE2, borderRadius: 10, padding: '16px', display: 'flex', gap: 12 }}>
@@ -581,16 +853,16 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le Lead Magnet</div>
           </div>
-          {/* Chip cliquable pour insérer {{lien_lm}} à la position du curseur */}
-          <Dm1TokenBar value={dm1Text} onChange={v => { setDm1Text(v); setDm1Saved(false); }} blue={BLUE} blueSoft={BLUE_SOFT} faint={FAINT} />
-          {/* Textarea identique à DM2 */}
-          <textarea
+          {/* Éditeur contentEditable avec badge {{lien_lm}} inline */}
+          <Dm1Editor
             value={dm1Text}
-            onChange={e => { setDm1Text(e.target.value); setDm1Saved(false); }}
-            rows={3}
-            placeholder="Ex : 👋 Voici le lien comme promis ! {{lien_lm}}"
-            style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm1Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
+            onChange={v => { setDm1Text(v); setDm1Saved(false); }}
+            saved={dm1Saved}
+            blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK} faint={FAINT}
           />
+          <div style={{ fontSize: 10, color: FAINT, marginTop: 6 }}>
+            Tu peux glisser le badge <strong style={{ color: BLUE }}>Lien LM</strong> n'importe où dans le message pour le repositionner.
+          </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={async () => {
               setDm1Saving(true);
@@ -599,7 +871,6 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
                   method: 'POST', headers: { 'content-type': 'application/json' },
                   body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_lm_message: dm1Text }),
                 });
-                onPostUpdated(post.id, { dmLmMessage: dm1Text });
                 setDm1Saved(true);
               } catch {} finally { setDm1Saving(false); }
             }} disabled={dm1Saving || dm1Saved}
@@ -1144,82 +1415,58 @@ export default function PageLiens() {
       .catch(() => {});
   }, [profileId]);
 
-  // Charger posts : d'abord depuis le cache Supabase (instantané), puis sync IG en arrière-plan
+  // Charger posts IG + YT + liens Short.io existants pour croiser hasDescLink / hasLeadMagnet
   useEffect(() => {
     if (!profileId) return;
-    let ytDone = false;
+    let igDone = false; let ytDone = false; let linksDone = false;
+    let igPosts: Post[] = [];
     let ytPosts: Post[] = [];
+    let shortioLinks: any[] = [];
 
-    // 1. Charge le cache Supabase immédiatement
-    fetch(`/api/client/posts?profileId=${profileId}`)
-      .then(r => r.json())
-      .then(data => {
-        if (data.posts && data.posts.length > 0) {
-          const cached: Post[] = data.posts.map((p: any) => ({
-            id: p.id,
-            caption: (p.caption || 'Publication Instagram').slice(0, 60),
-            platform: p.platform as 'IG' | 'YT',
-            thumbnail: p.thumbnail || null,
-            permalink: p.permalink || null,
-          }));
-          setPosts(prev => {
-            // Fusionne cache IG avec posts YT déjà chargés
-            const ytExisting = prev.filter(p => p.platform === 'YT');
-            const igCached = cached.filter(p => p.platform === 'IG');
-            return [...igCached, ...ytExisting];
-          });
-          setPostsLoading(false);
-        }
-      })
-      .catch(() => {});
+    const enrich = () => {
+      if (!igDone || !ytDone || !linksDone) return;
+      const all = [...igPosts, ...ytPosts].map(post => {
+        const descLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'post');
+        const lmLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'leadmagnet');
+        return {
+          ...post,
+          hasDescLink: !!descLink,
+          descLinkUrl: descLink?.shortUrl || undefined,
+          hasLeadMagnet: !!lmLink,
+          lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
+        };
+      });
+      setPosts(all);
+      setPostsLoading(false);
+    };
 
-    // 2. Sync IG en arrière-plan (met à jour le cache Supabase pour la prochaine visite)
     fetch(`/api/instagram/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        if (!data.posts) return;
-        // Fusionne les posts frais avec les champs déjà enrichis (dmLmMessage, lmKeyword, etc.)
-        setPosts(prev => {
-          const ytExisting = prev.filter(p => p.platform === 'YT');
-          const fresh: Post[] = data.posts.map((p: any) => {
-            const existing = prev.find(e => e.id === p.id);
-            return {
-              ...(existing || {}), // préserve les champs enrichis (dmLmMessage, lmKeyword, etc.)
-              id: p.id,
-              caption: (p.caption || 'Publication Instagram').slice(0, 60),
-              platform: 'IG' as const,
-              thumbnail: p.thumbnail || null,
-              permalink: p.permalink || null,
-            };
-          });
-          return [...fresh, ...ytExisting];
-        });
-        setPostsLoading(false);
-      })
-      .catch(() => { setPostsLoading(false); });
+        igPosts = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail, permalink: p.permalink || null }));
+      }).catch(() => {}).finally(() => { igDone = true; enrich(); });
 
-    // 3. Charge YouTube en parallèle
     fetch(`/api/youtube/stats?profileId=${profileId}`)
       .then(r => r.json())
       .then(data => {
-        ytPosts = (data.videos || []).map((v: any) => ({
-          id: v.id,
-          caption: (v.title || 'Vidéo YouTube').slice(0, 60),
-          platform: 'YT' as const,
-          thumbnail: v.thumbnail,
-          permalink: null,
-        }));
-      })
-      .catch(() => {})
-      .finally(() => {
-        ytDone = true;
-        setPosts(prev => {
-          const igExisting = prev.filter(p => p.platform === 'IG');
-          return [...igExisting, ...ytPosts];
-        });
-      });
+        ytPosts = (data.videos || []).map((v: any) => ({ id: v.id, caption: (v.title || 'Vidéo YouTube').slice(0, 60), platform: 'YT' as const, thumbnail: v.thumbnail }));
+      }).catch(() => {}).finally(() => { ytDone = true; enrich(); });
 
-    void ytDone; // évite le warning lint
+    fetch(`/api/shortio/stats?profileId=${profileId}`)
+      .then(r => r.json())
+      .then(data => {
+        shortioLinks = (data.links || []).map((l: any) => {
+          try {
+            const u = new URL(l.originalUrl || '');
+            return {
+              ...l,
+              postId: u.searchParams.get('utm_content') || null,
+              linkType: u.searchParams.get('utm_medium') || null,
+            };
+          } catch { return l; }
+        });
+      })
+      .catch(() => {}).finally(() => { linksDone = true; enrich(); });
   }, [profileId]);
 
   // Enrichir les posts avec les content_links — source de vérité principale
@@ -1237,7 +1484,6 @@ export default function PageLiens() {
         lmKeyword: cl.lm_keyword || undefined,
         lmShortUrl: cl.lm_short_url || undefined,
         dmOpenerMessage: cl.dm_opener_message || undefined,
-        dmLmMessage: cl.dm_lm_message || undefined,
       };
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1258,10 +1504,7 @@ export default function PageLiens() {
     return true;
   });
 
-  // Résout le post depuis l'array posts (toujours enrichi) plutôt que depuis rightView (copie figée au moment du clic)
-  const selectedPost = rightView?.type === 'post'
-    ? (posts.find(p => p.id === rightView.post.id) ?? rightView.post)
-    : null;
+  const selectedPost = rightView?.type === 'post' ? rightView.post : null;
 
   return (
     <>
