@@ -1,3 +1,4 @@
+'use server';
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
@@ -7,118 +8,64 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET(request: Request) {
+const safe = async (url: string, opts?: RequestInit) => {
+  try {
+    const r = await fetch(url, opts);
+    return await r.json();
+  } catch (e) { return { fetchError: String(e) }; }
+};
+
+export async function GET() {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const { searchParams } = new URL(request.url);
-  const profileId = searchParams.get('profileId');
-
-  let targetProfileId = user.id;
-  if (profileId && profileId !== user.id) {
-    const { data: clientRow } = await serviceSupabase
-      .from('clients')
-      .select('id')
-      .eq('profile_id', profileId)
-      .eq('coach_id', user.id)
-      .single();
-    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
-    targetProfileId = profileId;
-  }
-
   const { data: integ } = await serviceSupabase
     .from('integrations')
     .select('access_token, metadata')
-    .eq('profile_id', targetProfileId)
+    .eq('profile_id', user.id)
     .eq('provider', 'instagram')
     .single();
 
-  if (!integ?.access_token) return NextResponse.json({ error: 'Pas de token IG' }, { status: 404 });
+  if (!integ?.access_token) return NextResponse.json({ error: 'Pas de token IG en DB' }, { status: 404 });
 
   const token = integ.access_token;
-  const igAccountId: string = (integ.metadata as any)?.ig_account_id;
-  if (!igAccountId) return NextResponse.json({ error: 'Pas de ig_account_id' }, { status: 404 });
+  const igAccountId = String((integ.metadata as any)?.ig_account_id ?? '');
+  const pageId = String((integ.metadata as any)?.page_id ?? '');
 
-  const since = Math.floor((Date.now() - 30 * 24 * 60 * 60 * 1000) / 1000);
-  const until = Math.floor(Date.now() / 1000);
-  const safe = async (url: string) => {
-    try { const r = await fetch(url); return r.json(); } catch (e) { return { fetchError: String(e) }; }
-  };
+  // 1. /me — infos de base du compte
+  const me = await safe(`https://graph.instagram.com/v22.0/me?fields=id,username,account_type&access_token=${token}`);
 
-  // 0. /me v22
-  const meRes = await safe(
-    `https://graph.instagram.com/v22.0/me?fields=id,username,account_type,followers_count&access_token=${token}`
-  );
+  // 2. Posts du compte
+  const media = await safe(`https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,permalink,timestamp,caption&limit=5&access_token=${token}`);
 
-  // 0b. /me sans version (doc recommande ça pour Instagram Login)
-  const meNoVersionRes = await safe(
-    `https://graph.instagram.com/me?fields=id,username&access_token=${token}`
-  );
+  // 3. Abonnement webhook actif
+  const subscriptions = await safe(`https://graph.instagram.com/v21.0/${igAccountId}/subscribed_apps?access_token=${token}`);
 
-  // 0c. Test échange token long-terme
-  const longTokenTestRes = await safe(
-    `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${token}`
-  );
+  // 4. Tentative récupération page_id via /page
+  const pageField = await safe(`https://graph.instagram.com/v22.0/${igAccountId}?fields=page&access_token=${token}`);
 
-  // 0b. reach simple pour tester si le compte supporte les insights du tout
-  const reachTestRes = await safe(
-    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=day&since=${since}&until=${until}&access_token=${token}`
-  );
+  // 5. Tentative via /me/accounts (Facebook Graph)
+  const fbAccounts = await safe(`https://graph.facebook.com/v21.0/me/accounts?access_token=${token}`);
 
-  // 1. follower_count jour par jour
-  const followerCountRes = await safe(
-    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_count&period=day&since=${since}&until=${until}&access_token=${token}`
-  );
-
-  // 2. follower_demographics — toutes les breakdowns
-  const demoRes = await safe(
-    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`
-  );
-
-  // 3. follower_demographics sans breakdown (certains comptes ça marche autrement)
-  const demoSimpleRes = await safe(
-    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&access_token=${token}`
-  );
-
-  // 4. audience_gender_age (ancienne API) — parfois disponible sur certains comptes
-  const audienceRes = await safe(
-    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=audience_gender_age&period=lifetime&access_token=${token}`
-  );
-
-  // 5. follows_and_unfollows jour par jour (vérification structure brute)
-  const followsRes = await safe(
-    `https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follows_and_unfollows&period=day&since=${since}&until=${until}&access_token=${token}`
-  );
+  // 6. Abonnement app-level Meta
+  const appToken = `${process.env.INSTAGRAM_CLIENT_ID}|${process.env.INSTAGRAM_CLIENT_SECRET}`;
+  const appSubs = await safe(`https://graph.facebook.com/v21.0/${process.env.INSTAGRAM_CLIENT_ID}/subscriptions?access_token=${appToken}`);
 
   return NextResponse.json({
-    igAccountId,
-    me: meRes,
-    meNoVersion: meNoVersionRes,
-    longTokenTest: longTokenTestRes,
-    reachTest: reachTestRes,
-    followerCount: {
-      error: followerCountRes?.error || null,
-      dataLength: followerCountRes?.data?.length ?? 0,
-      sample: followerCountRes?.data?.slice(0, 3) ?? [],
-    },
-    demographics: {
-      error: demoRes?.error || null,
-      dataLength: demoRes?.data?.length ?? 0,
-      raw: demoRes,
-    },
-    demographicsSimple: {
-      error: demoSimpleRes?.error || null,
-      raw: demoSimpleRes,
-    },
-    audienceGenderAge: {
-      error: audienceRes?.error || null,
-      raw: audienceRes,
-    },
-    followsAndUnfollows: {
-      error: followsRes?.error || null,
-      dataLength: followsRes?.data?.length ?? 0,
-      sample: followsRes?.data?.slice(0, 3) ?? [],
+    stored: { igAccountId, pageId, tokenPrefix: token.slice(0, 20) },
+    me,
+    media: { count: media?.data?.length ?? 0, error: media?.error ?? null, posts: media?.data ?? [] },
+    webhookSubscriptions: subscriptions,
+    pageFieldFromApi: pageField,
+    fbAccounts,
+    appLevelSubscriptions: appSubs,
+    diagnosis: {
+      hasToken: !!token,
+      hasIgAccountId: !!igAccountId,
+      hasPageId: !!pageId,
+      canReadPosts: !media?.error,
+      isSubscribed: (subscriptions?.data?.length ?? 0) > 0,
     },
   });
 }
