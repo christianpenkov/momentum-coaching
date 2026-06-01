@@ -21,6 +21,9 @@ export async function GET(request: Request) {
   let targetProfileId = user.id;
   let isCoach = false;
 
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (profileId && !UUID_RE.test(profileId)) return NextResponse.json({ error: 'profileId invalide' }, { status: 400 });
+
   if (profileId && profileId !== user.id) {
     const { data: clientRow } = await serviceSupabase
       .from('clients')

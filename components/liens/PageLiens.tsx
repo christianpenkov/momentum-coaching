@@ -76,7 +76,8 @@ function normalizeUrl(url: string): string {
 }
 
 function isValidUrl(url: string): boolean {
-  return url.trim().length > 3;
+  const normalized = normalizeUrl(url.trim());
+  try { new URL(normalized); return true; } catch { return false; }
 }
 
 async function callShortio(payload: Record<string, unknown>): Promise<{ shortUrl: string }> {
@@ -705,7 +706,10 @@ function DissociateButton({ postId, platform, onPostUpdated, onDissociated }: {
         dmOpenerMessage: undefined, dmLmMessage: undefined,
       });
       onDissociated();
-    } catch {} finally { setLoading(false); setConfirm(false); }
+    } catch (e: any) {
+      console.error('[dissociate] erreur:', e?.message);
+      alert('Erreur lors de la dissociation. Réessaie.');
+    } finally { setLoading(false); setConfirm(false); }
   };
 
   if (confirm) return (
@@ -794,13 +798,15 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     }
     setLoading(true); setError(null);
     try {
+      // Short.io d'abord — si ça échoue, on ne crée pas de LM orphelin en DB
+      const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
+      // Short.io OK — on peut créer le LM en DB maintenant
       if (lmMode === 'new') {
         const res = await fetch('/api/client/lead-magnets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: lmName, url: lmUrl, keyword }) });
         const saved = await res.json();
         if (res.ok && saved.lead_magnet) { onLmCreated(saved.lead_magnet); resolvedLmId = saved.lead_magnet.id; }
       }
-      const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
       // Sauvegarder dans content_links
       await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -840,28 +846,33 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   const [dm2Saved, setDm2Saved] = useState(true);
   const [dm2Saving, setDm2Saving] = useState(false);
 
+  const [dm1Error, setDm1Error] = useState<string | null>(null);
+  const [dm2Error, setDm2Error] = useState<string | null>(null);
+
   const saveDm1 = async (msg: string) => {
-    setDm1Saving(true);
+    setDm1Saving(true); setDm1Error(null);
     try {
-      await fetch('/api/client/content-links', {
+      const res = await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_lm_message: msg }),
       });
+      if (!res.ok) throw new Error('Erreur sauvegarde');
       onPostUpdated(post.id, { dmLmMessage: msg });
       setDm1Saved(true);
-    } catch {} finally { setDm1Saving(false); }
+    } catch (e: any) { setDm1Error(e.message || 'Erreur'); } finally { setDm1Saving(false); }
   };
 
   const saveDm2 = async (msg: string) => {
-    setDm2Saving(true);
+    setDm2Saving(true); setDm2Error(null);
     try {
-      await fetch('/api/client/content-links', {
+      const res = await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_opener_message: msg }),
       });
+      if (!res.ok) throw new Error('Erreur sauvegarde');
       onPostUpdated(post.id, { dmOpenerMessage: msg });
       setDm2Saved(true);
-    } catch {} finally { setDm2Saving(false); }
+    } catch (e: any) { setDm2Error(e.message || 'Erreur'); } finally { setDm2Saving(false); }
   };
 
   if ((result || isExisting) && !editing) return (
@@ -891,6 +902,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
             saved={dm1Saved}
             blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
           />
+          {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm1Error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
             <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
               style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
@@ -913,6 +925,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           rows={3}
           style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
         />
+        {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm2Error}</div>}
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
           <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
             style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
@@ -1511,9 +1524,12 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   const remove = async (id: string) => {
     setDeletingId(id);
     try {
-      await fetch(`/api/client/lead-magnets?id=${id}`, { method: 'DELETE' });
+      const res = await fetch(`/api/client/lead-magnets?id=${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Erreur suppression');
       onDeleted(id);
-    } catch {} finally { setDeletingId(null); }
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de la suppression');
+    } finally { setDeletingId(null); }
   };
 
   return (
@@ -1721,6 +1737,7 @@ export default function PageLiens() {
   // Charger posts IG + YT + liens Short.io existants pour croiser hasDescLink / hasLeadMagnet
   useEffect(() => {
     if (!profileId) return;
+    let cancelled = false;
     let igDone = false; let ytDone = false; let linksDone = false;
     let igPosts: Post[] = [];
     let ytPosts: Post[] = [];
@@ -1739,7 +1756,7 @@ export default function PageLiens() {
           lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
         };
       });
-      // content_links sera appliqué par le useEffect en dessous dès que posts change
+      if (cancelled) return;
       setPosts(all);
       setPostsLoading(false);
     };
@@ -1771,6 +1788,8 @@ export default function PageLiens() {
         });
       })
       .catch(() => {}).finally(() => { linksDone = true; enrich(); });
+
+    return () => { cancelled = true; };
   }, [profileId]);
 
   // Enrichit les posts avec content_links — se déclenche quand l'un ou l'autre arrive

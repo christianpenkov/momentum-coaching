@@ -11,44 +11,6 @@ const serviceSupabase = createClient(
 const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN!;
 const APP_SECRET = process.env.INSTAGRAM_CLIENT_SECRET!;
 
-// Génère un lien Short.io avec UTM pour tracker la source exacte
-async function generateShortLink(profileId: string, igUsername: string, mediaId: string, calendlyUrl: string): Promise<string | null> {
-  const { data: shortio } = await serviceSupabase
-    .from('integrations')
-    .select('api_key, metadata')
-    .eq('profile_id', profileId)
-    .eq('provider', 'shortio')
-    .single();
-
-  if (!shortio?.api_key) return null;
-
-  const domain = (shortio.metadata as any)?.domain;
-  if (!domain) return null;
-
-  // UTM uniques par personne + par post
-  const slug = `${igUsername}_${mediaId}`.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 50);
-  const destUrl = new URL(calendlyUrl);
-  destUrl.searchParams.set('utm_source', 'ig');
-  destUrl.searchParams.set('utm_medium', 'dm');
-  destUrl.searchParams.set('utm_campaign', slug);
-
-  const res = await fetch('https://api.short.io/links', {
-    method: 'POST',
-    headers: {
-      authorization: shortio.api_key,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      domain,
-      originalURL: destUrl.toString(),
-      title: `DM — @${igUsername}`,
-    }),
-  });
-
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) return null;
-  return data.secureShortURL || data.shortURL || null;
-}
 
 // Vérifie la signature Meta pour sécuriser le webhook
 function verifySignature(body: string, signature: string | null): boolean {
@@ -57,7 +19,12 @@ function verifySignature(body: string, signature: string | null): boolean {
     .createHmac('sha256', APP_SECRET)
     .update(body)
     .digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+  try {
+    const sigBuf = Buffer.from(signature);
+    const expBuf = Buffer.from(expected);
+    if (sigBuf.length !== expBuf.length) return false;
+    return crypto.timingSafeEqual(sigBuf, expBuf);
+  } catch { return false; }
 }
 
 // GET — handshake de vérification Meta
@@ -80,8 +47,12 @@ export async function POST(request: Request) {
   const rawBody = await request.text();
   const signature = request.headers.get('x-hub-signature-256');
 
-  // Vérifie la signature (désactivé en mode test si APP_SECRET absent)
-  if (APP_SECRET && !verifySignature(rawBody, signature)) {
+  // Signature obligatoire en prod — si APP_SECRET manque, on rejette pour éviter des DMs forgés
+  if (!APP_SECRET) {
+    console.error('[IG Webhook] APP_SECRET manquant — rejet');
+    return NextResponse.json({ error: 'Configuration manquante' }, { status: 500 });
+  }
+  if (!verifySignature(rawBody, signature)) {
     console.error('[IG Webhook] Signature invalide');
     return NextResponse.json({ error: 'Signature invalide' }, { status: 401 });
   }
@@ -93,8 +64,9 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'JSON invalide' }, { status: 400 });
   }
 
-  // Meta envoie un tableau d'entries
+  // Meta envoie un tableau d'entries — try/catch global pour toujours retourner 200
   const entries = body?.entry || [];
+  try {
 
   // Charge tous les comptes IG une seule fois pour tous les entries
   const { data: allIg } = await serviceSupabase
@@ -252,10 +224,10 @@ export async function POST(request: Request) {
         }
       }
 
-      // Stocke le lead en DB
+      // Stocke le lead en DB — upsert pour idempotence (Meta peut envoyer le même event en double)
       await serviceSupabase
         .from('instagram_leads')
-        .insert({
+        .upsert({
           profile_id,
           source: 'comment',
           ig_username: commenterUsername,
@@ -267,11 +239,14 @@ export async function POST(request: Request) {
           detected_at: timestamp,
           lead_magnet_sent: leadMagnetSent,
           tracking_link: shortLink || null,
-        });
+        }, { onConflict: 'profile_id,source,ig_user_id,keyword_matched,media_id', ignoreDuplicates: true });
 
       console.log(`[IG Webhook] Lead stocké — @${commenterUsername}, mot-clé: ${matchedKeyword}`);
       pushEvent({ type: 'lead_stored', commenterUsername, keyword: matchedKeyword, leadMagnetSent });
     }
+  }
+  } catch (err) {
+    console.error('[IG Webhook] Erreur non gérée — Meta recevra quand même 200:', err);
   }
 
   // Meta exige toujours un 200 immédiat

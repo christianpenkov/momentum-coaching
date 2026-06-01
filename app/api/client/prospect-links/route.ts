@@ -28,8 +28,11 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const { ig_username, short_url, content_id } = await request.json();
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
+  const { ig_username, short_url, content_id } = body;
   if (!ig_username || !short_url) return NextResponse.json({ error: 'ig_username et short_url requis' }, { status: 400 });
+  if (ig_username.length > 100) return NextResponse.json({ error: 'ig_username trop long' }, { status: 400 });
 
   const { data, error } = await supa
     .from('prospect_links')
