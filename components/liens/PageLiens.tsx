@@ -449,6 +449,15 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
         sel.addRange(range);
       }
     } else {
+      // Garantir qu'il y a toujours un espace avant le token (évite "mot{{lien_lm}}")
+      const fixed = extracted.replace(/([\S])(\{\{lien_lm\}\})/g, '$1 $2');
+      if (fixed !== extracted) {
+        lastValue.current = fixed;
+        el.innerHTML = valueToHtml(fixed, blue, blueSoft);
+        attachBadgeDragListeners(el);
+        onChange(fixed);
+        return;
+      }
       lastValue.current = extracted;
     }
     onChange(extracted);
@@ -523,6 +532,50 @@ function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, 
   );
 }
 
+
+// ─── DissociateButton ────────────────────────────────────────────────────────
+
+function DissociateButton({ postId, platform, onPostUpdated }: {
+  postId: string; platform: string;
+  onPostUpdated: (postId: string, patch: Partial<Post>) => void;
+}) {
+  const [confirm, setConfirm] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const dissociate = async () => {
+    setLoading(true);
+    try {
+      await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          content_id: postId, platform,
+          lm_id: null, lm_short_url: null, lm_keyword: null,
+          dm_opener_message: null, dm_lm_message: null,
+        }),
+      });
+      onPostUpdated(postId, {
+        hasLeadMagnet: false, lmKeyword: undefined, lmShortUrl: undefined,
+        dmOpenerMessage: undefined, dmLmMessage: undefined,
+      });
+    } catch {} finally { setLoading(false); setConfirm(false); }
+  };
+
+  if (confirm) return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+      <span style={{ fontSize: 11, color: RED }}>Confirmer la dissociation ?</span>
+      <button onClick={dissociate} disabled={loading} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: RED, color: '#fff', cursor: 'pointer' }}>
+        {loading ? '...' : 'Oui, dissocier'}
+      </button>
+      <button onClick={() => setConfirm(false)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: 'pointer' }}>Annuler</button>
+    </div>
+  );
+
+  return (
+    <button onClick={() => setConfirm(true)} style={{ fontSize: 11, fontWeight: 600, color: RED, background: 'none', border: `1.5px solid ${RED}`, borderRadius: 8, cursor: 'pointer', padding: '6px 14px', whiteSpace: 'nowrap' }}>
+      🗑 Dissocier le Lead Magnet
+    </button>
+  );
+}
 
 // ─── TabLm ────────────────────────────────────────────────────────────────────
 
@@ -604,7 +657,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null }),
       });
       setResult(shortUrl);
-      onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl });
+      onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl, dmOpenerMessage: dmMessage || undefined });
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -720,7 +773,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       {lmUrl && <GeneratedUrlRow url={lmUrl} label="Lien lead magnet" />}
 
       {/* Boutons bas */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6, flexWrap: 'wrap' }}>
         {post.permalink && (
           <a href={post.permalink} target="_blank" rel="noreferrer"
             style={{ fontSize: 12, fontWeight: 600, color: '#c2185b', textDecoration: 'none', whiteSpace: 'nowrap', border: '1.5px solid #c2185b', borderRadius: 8, padding: '6px 14px' }}>
@@ -731,6 +784,9 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           style={{ fontSize: 12, fontWeight: 600, color: INK, background: 'none', border: `1.5px solid ${INK}`, borderRadius: 8, cursor: 'pointer', padding: '6px 14px', whiteSpace: 'nowrap' }}>
           ✏️ Modifier / Régénérer le Lead Magnet
         </button>
+        <div style={{ marginLeft: 'auto' }}>
+          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} />
+        </div>
       </div>
     </div>
   );
