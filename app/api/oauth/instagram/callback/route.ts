@@ -35,8 +35,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/client/settings?error=instagram_state`);
   }
 
-  // Échange le code contre un token court-terme (Instagram Business API)
-  const tokenRes = await fetch('https://api.instagram.com/oauth/access_token', {
+  // Échange le code contre un token — via Facebook Graph (Instagram Business API)
+  const tokenRes = await fetch('https://graph.facebook.com/v21.0/oauth/access_token', {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({
@@ -49,19 +49,13 @@ export async function GET(request: NextRequest) {
   });
 
   const tokenData = await tokenRes.json();
+  console.log('[IG callback] token exchange response:', JSON.stringify(tokenData));
   if (!tokenData.access_token) {
     return NextResponse.redirect(`${origin}/client/settings?error=instagram_token`);
   }
 
-  // Échange contre un token long-terme (60 jours)
-  const longTokenRes = await fetch(
-    `https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${process.env.INSTAGRAM_CLIENT_SECRET}&access_token=${tokenData.access_token}`
-  );
-  const longTokenData = await longTokenRes.json();
-  console.log('[IG callback] short token prefix:', tokenData.access_token?.slice(0, 20));
-  console.log('[IG callback] long token response:', JSON.stringify(longTokenData));
-  const accessToken = longTokenData.access_token || tokenData.access_token;
-  const expiresIn = longTokenData.expires_in || null;
+  const accessToken = tokenData.access_token;
+  const expiresIn = tokenData.expires_in || null;
 
   // Récupère l'ID réel + username via /me (ig_account_id)
   const meRes = await fetch(
