@@ -104,6 +104,7 @@ export async function POST(request: Request) {
 
   for (const entry of entries) {
     const igAccountId = String(entry.id);
+    console.log('[IGW] entry.id=', igAccountId, 'db_ids=', (allIg||[]).map((r:any)=>`ig:${r.metadata?.ig_account_id}|page:${r.metadata?.page_id}`).join(', '));
 
     // Trouve le profil par page_id OU ig_account_id
     const match = (allIg || []).find((r: any) =>
