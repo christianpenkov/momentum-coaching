@@ -1227,6 +1227,7 @@ export default function PageLiens() {
           lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
         };
       });
+      // content_links sera appliqué par le useEffect en dessous dès que posts change
       setPosts(all);
       setPostsLoading(false);
     };
@@ -1279,7 +1280,7 @@ export default function PageLiens() {
       };
     }));
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentLinks, postsLoading]);
+  }, [contentLinks]);
 
   const handlePostUpdated = (postId: string, patch: Partial<Post>) => {
     setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...patch } : p));
