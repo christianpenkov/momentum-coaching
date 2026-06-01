@@ -235,7 +235,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
   return (
     <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.45)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 14, padding: 24, width: 420, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,.18)', border: `1px solid ${BORDER}` }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 14, padding: 28, width: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,.18)', border: `1px solid ${BORDER}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: INK }}>Paramètres des liens</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: MUTED, lineHeight: 1, padding: '0 4px' }}>×</button>
@@ -259,8 +259,8 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
           <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liens bio permanents</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {[
-              { platform: 'instagram' as const, label: '📸 Bio Instagram', result: bioIg, setResult: setBioIg, loading: genIg, setLoading: setGenIg, path: 'bio-ig' },
-              { platform: 'youtube' as const, label: '▶️ Bio YouTube', result: bioYt, setResult: setBioYt, loading: genYt, setLoading: setGenYt, path: 'bio-yt' },
+              { platform: 'instagram' as const, label: 'Bio Instagram', result: bioIg, setResult: setBioIg, loading: genIg, setLoading: setGenIg, path: 'bio-ig' },
+              { platform: 'youtube' as const, label: 'Bio YouTube', result: bioYt, setResult: setBioYt, loading: genYt, setLoading: setGenYt, path: 'bio-yt' },
             ].map(({ platform, label, result, setResult, loading, setLoading }) => (
               <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -878,59 +878,65 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Statut LM */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, background: 'var(--green-soft)', borderRadius: 10, padding: '12px 14px' }}>
-        <span style={{ fontSize: 18, flexShrink: 0, marginTop: 1 }}>✅</span>
-        <div>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 3 }}>Lead magnet associé</div>
-          <div style={{ fontSize: 11, color: MUTED }}>Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong></div>
-          <div style={{ fontSize: 11, color: MUTED, marginTop: 2, lineHeight: 1.5 }}>
-            Quand quelqu'un commente ce mot, il reçoit le LM + le message d'ouverture en DM automatiquement. <strong>Rien à faire de plus sur Instagram.</strong>
-          </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--green-soft)', borderRadius: 8, padding: '10px 14px' }}>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>Lead magnet associé</span>
+          <span style={{ fontSize: 11, color: MUTED, marginLeft: 8 }}>Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong></span>
+        </div>
+        <div style={{ fontSize: 10, color: MUTED, textAlign: 'right', lineHeight: 1.4, flexShrink: 0, maxWidth: 200 }}>
+          Actif — DM envoyé automatiquement à chaque commentaire
         </div>
       </div>
 
-      {/* DM 1 — avec le LM (texte éditable + token {{lien_lm}} draggable) */}
+      {/* DM 1 — avec le LM */}
       {lmUrl && (
-        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: INK }}>DM 1 — envoyé avec le Lead Magnet</div>
+        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span style={{ fontSize: 12, fontWeight: 600, color: INK }}>DM 1</span>
+              <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyé avec le lead magnet</span>
+            </div>
           </div>
-          {/* Éditeur contentEditable avec badge {{lien_lm}} inline */}
-          <Dm1Editor
-            value={dm1Text}
-            onChange={v => { setDm1Text(v); setDm1Saved(false); }}
-            saved={dm1Saved}
-            blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
-          />
-          {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm1Error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-            <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
-              style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
-              {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
-            </button>
+          <div style={{ padding: '12px 14px' }}>
+            <Dm1Editor
+              value={dm1Text}
+              onChange={v => { setDm1Text(v); setDm1Saved(false); }}
+              saved={dm1Saved}
+              blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
+            />
+            {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm1Error}</div>}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+              <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
+                style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+                {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
+              </button>
+            </div>
           </div>
         </div>
       )}
 
-      {/* DM 2 — message d'ouverture (éditable inline) */}
-      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 4 }}>DM 2 — Message d'ouverture de discussion</div>
-        <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.5 }}>
-          Envoyé automatiquement juste après le DM avec le Lead Magnet.
+      {/* DM 2 — message d'ouverture */}
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
+        <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: INK }}>DM 2</span>
+          <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>message d'ouverture — envoyé juste après</span>
         </div>
-        <textarea
-          value={dm2Text}
-          onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
-          placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ? 🎯"`}
-          rows={3}
-          style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
-        />
-        {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm2Error}</div>}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-          <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
-            style={{ padding: '5px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
-            {dm2Saving ? '...' : dm2Saved ? '✓ Sauvegardé' : 'Sauvegarder les modifications'}
-          </button>
+        <div style={{ padding: '12px 14px' }}>
+          <textarea
+            value={dm2Text}
+            onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
+            placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
+            rows={3}
+            style={{ width: '100%', padding: '9px 11px', fontSize: 12, borderRadius: 7, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
+          />
+          {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm2Error}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
+              style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+              {dm2Saving ? '...' : dm2Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1539,40 +1545,43 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   return (
     <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
-        <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 4 }}>Mes lead magnets</div>
-        <div style={{ fontSize: 12, color: MUTED }}>Crée et gère ta bibliothèque de LM. Tu peux les réutiliser sur n'importe quel contenu.</div>
+        <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 2 }}>Mes lead magnets</div>
+        <div style={{ fontSize: 12, color: FAINT }}>Crée et gère ta bibliothèque de LM. Tu peux les réutiliser sur n'importe quel contenu.</div>
       </div>
 
       {/* Formulaire création */}
-      <div style={{ background: SURFACE2, borderRadius: 12, padding: '16px', display: 'flex', flexDirection: 'column', gap: 10, border: `1px solid ${BORDER}` }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nouveau lead magnet</div>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>Nom <span style={{ fontWeight: 400, color: FAINT }}>(optionnel)</span></div>
-          <input value={name} onChange={e => setName(e.target.value)} placeholder="Checklist closing, Guide tunnel…"
-            style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+      <div style={{ borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
+        <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nouveau lead magnet</span>
         </div>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>URL</div>
-          <input value={url} onChange={e => setUrl(e.target.value)} placeholder="notion.so/mon-guide ou https://…"
-            style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-        </div>
-        <div>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 4 }}>
-            Mot-clé déclencheur <span style={{ fontWeight: 400, color: FAINT }}>(optionnel — peut être changé par contenu)</span>
+        <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: MUTED, marginBottom: 4 }}>Nom <span style={{ color: FAINT, fontWeight: 400 }}>(optionnel)</span></div>
+              <input value={name} onChange={e => setName(e.target.value)} placeholder="Checklist closing, Guide tunnel…"
+                style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+            </div>
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 500, color: MUTED, marginBottom: 4 }}>Mot-clé <span style={{ color: FAINT, fontWeight: 400 }}>(optionnel)</span></div>
+              <input
+                value={keyword}
+                onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))}
+                placeholder="GUIDE, CHECKLIST…"
+                style={{ width: '100%', padding: '7px 10px', fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', borderRadius: 7, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
           </div>
-          <input
-            value={keyword}
-            onChange={e => setKeyword(e.target.value.toUpperCase().replace(/\s+/g, ''))}
-            placeholder="GUIDE, CHECKLIST, TUNNEL…"
-            style={{ width: '100%', padding: '8px 10px', fontSize: 12, fontWeight: 600, letterSpacing: '0.04em', borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }}
-          />
-          <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot, il reçoit ce LM en DM. Tu pourras le modifier pour chaque contenu.</div>
+          <div>
+            <div style={{ fontSize: 11, fontWeight: 500, color: MUTED, marginBottom: 4 }}>URL</div>
+            <input value={url} onChange={e => setUrl(e.target.value)} placeholder="notion.so/mon-guide ou https://…"
+              style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+          </div>
+          {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px' }}>{error}</div>}
+          <button onClick={create} disabled={saving || !isValidUrl(url)}
+            style={{ padding: '8px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: 'var(--green)', color: '#fff', cursor: !isValidUrl(url) || saving ? 'not-allowed' : 'pointer', opacity: !isValidUrl(url) || saving ? 0.4 : 1, transition: 'opacity .15s' }}>
+            {saving ? 'Sauvegarde...' : '+ Ajouter'}
+          </button>
         </div>
-        {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px' }}>{error}</div>}
-        <button onClick={create} disabled={saving || !isValidUrl(url)}
-          style={{ padding: '9px', fontSize: 12, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: !isValidUrl(url) || saving ? 'not-allowed' : 'pointer', opacity: !isValidUrl(url) || saving ? 0.4 : 1, transition: 'opacity .15s' }}>
-          {saving ? 'Sauvegarde...' : '+ Ajouter le lead magnet'}
-        </button>
       </div>
 
       {/* Liste */}
