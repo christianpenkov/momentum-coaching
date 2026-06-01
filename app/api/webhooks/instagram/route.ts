@@ -102,7 +102,7 @@ export async function POST(request: Request) {
 
     // Events sur les changements (commentaires, mentions, etc.)
     for (const change of entry.changes || []) {
-      console.log('[IG Webhook] change.field:', change.field);
+      console.log('[IGW field]', change.field, JSON.stringify(change.value).slice(0, 200));
       if (change.field !== 'comments') continue;
 
       const value = change.value;
