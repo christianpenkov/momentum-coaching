@@ -3781,15 +3781,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
   const lmEnvoyes = leads.filter(l => l.leadMagnetSent).length;
   const hookReplies = (leads as any[]).filter(l => l.hookReplied).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
-  // Liens Calendly envoyés depuis une conv LM = prospects dont le lead a reçu le LM
-  const lmCalendlyLinks = prospectLinks.filter((l: any) => {
-    const lead = leads.find(ml => ml.igUserId === l.igUserId);
-    return lead?.leadMagnetSent;
-  }).length;
-  const callsFromLM = prospectLinks.filter((l: any) => {
-    const lead = leads.find(ml => ml.igUserId === l.igUserId);
-    return lead?.leadMagnetSent && l.callBooked;
-  }).length;
+  // Liens Calendly envoyés DM = 1 lien unique par prospect généré depuis "Gérer mes liens"
+  const lmCalendlyLinks = prospectLinks.length;
+  const callsFromLM = prospectLinks.filter((l: any) => l.callBooked).length;
   const tauxLMCalendly = lmEnvoyes > 0 ? Math.round((lmCalendlyLinks / lmEnvoyes) * 100) : 0;
   const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
   const callsTotal = prospectLinks.filter((l: any) => l.callBooked).length;

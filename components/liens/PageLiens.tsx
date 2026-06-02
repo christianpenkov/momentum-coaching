@@ -1439,6 +1439,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
 
   const [history, setHistory] = useState<{ id: string; ig_username: string; short_url: string; content_id: string | null; created_at: string }[]>([]);
   const [historyCopied, setHistoryCopied] = useState<string | null>(null);
+  const [historySearch, setHistorySearch] = useState('');
 
   // Charge l'historique des liens générés
   useEffect(() => {
@@ -1606,18 +1607,39 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
           </div>
 
           {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
-          <button onClick={generate} disabled={loading || !canGenerate || !hasCalendly || !username.trim()}
-            style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-            {loading ? <><Spinner /> Génération...</> : 'Générer le lien prospect'}
-          </button>
+          {(() => {
+            const existing = username.trim() ? history.find(h => h.ig_username.toLowerCase() === username.trim().toLowerCase()) : null;
+            if (existing) return (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>
+                  Un lien existe déjà pour <strong>@{existing.ig_username}</strong> — retrouve-le dans la liste ci-dessous.
+                </div>
+                <GeneratedUrlRow url={existing.short_url} label="Lien existant" />
+              </div>
+            );
+            return (
+              <button onClick={generate} disabled={loading || !canGenerate || !hasCalendly || !username.trim()}
+                style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                {loading ? <><Spinner /> Génération...</> : 'Générer le lien prospect'}
+              </button>
+            );
+          })()}
         </>
       )}
 
       {/* Historique des liens générés */}
       {history.length > 0 && (
         <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Liens générés</div>
-          {history.map(h => {
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Liens générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
+          </div>
+          <input
+            value={historySearch}
+            onChange={e => setHistorySearch(e.target.value)}
+            placeholder="Rechercher un prospect..."
+            style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 7, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }}
+          />
+          {history.filter(h => !historySearch || h.ig_username.toLowerCase().includes(historySearch.toLowerCase())).map(h => {
             const post = posts.find(p => p.id === h.content_id);
             const copied = historyCopied === h.id;
             return (
