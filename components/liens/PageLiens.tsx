@@ -31,8 +31,16 @@ interface Post {
   permalink?: string | null;
   hasDescLink?: boolean;
   hasLeadMagnet?: boolean;
+  // Lien description — 3 liens séparés selon la destination
+  descCalendlyUrl?: string;
+  descCalendlyShortId?: string;
+  descLmUrl?: string;
+  descLmShortId?: string;
+  descLmLmId?: string;
+  descCustomUrl?: string;
+  descCustomShortId?: string;
+  // Compat ancienne colonne (pour affichage initial)
   descLinkUrl?: string;
-  descShortId?: string;
   descDestType?: string;
   lmKeyword?: string;
   lmShortUrl?: string;
@@ -400,118 +408,156 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
   const hasCalendly = calendlyUrl.trim().startsWith('http');
-  // IG: Calendly / LM / custom — YT: Calendly / custom seulement
   const destOptions = post.platform === 'IG'
     ? [{ key: 'calendly', label: 'Calendly' }, { key: 'leadmagnet', label: 'Lead magnet' }, { key: 'custom', label: 'URL custom' }]
     : [{ key: 'calendly', label: 'Calendly' }, { key: 'custom', label: 'URL custom' }];
 
-  // Résout destType + LM pré-sélectionné depuis la DB
-  const resolveInit = (p: Post) => {
-    const t = p.descDestType;
-    const destType: 'calendly' | 'leadmagnet' | 'custom' =
-      t === 'leadmagnet' ? 'leadmagnet' : t === 'custom' ? 'custom' : 'calendly';
-    let customUrl = '';
-    if (destType === 'leadmagnet' && p.hasLeadMagnet && leadMagnets.length > 0) {
-      const linked = leadMagnets.find(lm => lm.keyword === p.lmKeyword) || leadMagnets[0];
-      customUrl = linked?.url || '';
-    }
-    return { destType, customUrl };
-  };
-
-  const init = resolveInit(post);
-  const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>(init.destType);
-  const [customUrl, setCustomUrl] = useState(init.customUrl);
-  const [result, setResult] = useState<string | null>(post.descLinkUrl || null);
+  const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>('calendly');
+  // Pour lead magnet : ID du LM sélectionné (pas l'URL)
+  const [selectedLmId, setSelectedLmId] = useState<string>('');
+  const [customUrl, setCustomUrl] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const isExisting = !!post.descLinkUrl;
 
-  // Re-sync quand on change de contenu
+  // Résout l'URL courte affichée selon le type actif
+  const currentUrl = destType === 'calendly'
+    ? (post.descCalendlyUrl || null)
+    : destType === 'leadmagnet'
+      ? (post.descLmUrl || null)
+      : (post.descCustomUrl || null);
+
+  // Sync au changement de contenu
   useEffect(() => {
-    const { destType: dt, customUrl: cu } = resolveInit(post);
-    setDestType(dt);
-    setCustomUrl(cu);
-    setResult(post.descLinkUrl || null);
+    setDestType('calendly');
+    setSelectedLmId('');
+    setCustomUrl('');
     setError(null);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.id]);
 
-  const generate = async () => {
-    const validationError = validateDescParams({ canGenerate, destType, calendlyUrl, customUrl });
-    if (validationError) { setError(validationError); return; }
-    const destUrl = destType === 'calendly' ? calendlyUrl.trim() : normalizeUrl(customUrl);
-    const utms = { source: domain, medium: 'description', campaign: destType, content: post.id };
-    const captionSlug = slugify(post.caption.slice(0, 24));
-    // Path lisible selon la destination — différent pour chaque type pour éviter les 409 cross-type
-    const selectedLm = destType === 'leadmagnet' ? leadMagnets.find(lm => lm.url === customUrl) : null;
-    const path = destType === 'calendly'
-      ? `rdv-${captionSlug}`
-      : destType === 'leadmagnet' && selectedLm
-        ? `${slugify(selectedLm.keyword || selectedLm.name.slice(0, 16))}-${captionSlug}`
-        : `lien-${captionSlug}`;
-    // Title lisible (pas d'UTMs dans le nom — juste ce que c'est)
-    const title = destType === 'calendly'
-      ? `Prendre RDV — ${post.caption.slice(0, 40)}`
-      : destType === 'leadmagnet' && selectedLm
-        ? `${selectedLm.name} — ${post.caption.slice(0, 30)}`
-        : `Lien — ${post.caption.slice(0, 40)}`;
-    setLoading(true); setError(null);
-    try {
-      let shortId = post.descShortId || '';
-      let shortUrl = '';
+  // Pré-sélectionner le LM associé quand on passe sur l'onglet leadmagnet
+  useEffect(() => {
+    if (destType === 'leadmagnet' && !selectedLmId) {
+      const linked = post.descLmLmId
+        ? leadMagnets.find(lm => lm.id === post.descLmLmId)
+        : leadMagnets.find(lm => lm.keyword === post.lmKeyword);
+      if (linked) setSelectedLmId(linked.id);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [destType, post.id]);
 
-      if (shortId) {
-        // Cas nominal : on a déjà un ID Short.io — on met juste à jour la destination
-        const patchRes = await fetch('/api/shortio/links', {
-          method: 'PATCH', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title, ...{ utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content } }),
-        });
-        const patchData = await patchRes.json();
-        if (!patchRes.ok) throw new Error(patchData.error || 'Erreur mise à jour Short.io');
-        shortUrl = patchData.shortUrl;
-      } else {
-        // Pas d'ID connu : on crée (ou on récupère l'existant via 409)
-        const postRes = await fetch('/api/shortio/links', {
-          method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ profileId, domainId: domain, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content, path }),
-        });
-        const postData = await postRes.json();
-        if (!postRes.ok) throw new Error(postData.error || 'Erreur Short.io');
-        shortId = postData.id;
-        shortUrl = postData.shortUrl;
-
-        // Si le lien existait déjà (409 fallback), on a l'ID — on met à jour la destination
-        // pour garantir qu'elle correspond à ce qu'on vient de choisir
-        if (postData.existed && shortId) {
-          const patchRes = await fetch('/api/shortio/links', {
-            method: 'PATCH', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
-          });
-          const patchData = await patchRes.json();
-          if (patchRes.ok) shortUrl = patchData.shortUrl;
-        }
-      }
-
-      // Trouver le lm_id si destType = leadmagnet
-      const resolvedLmId = destType === 'leadmagnet'
-        ? (leadMagnets.find(lm => lm.url === customUrl)?.id || null)
-        : null;
-
-      await fetch('/api/client/content-links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          content_id: post.id, platform: post.platform,
-          desc_short_url: shortUrl, desc_short_id: shortId,
-          desc_dest_type: destType,
-          desc_utms: utms,
-          ...(resolvedLmId ? { lm_id: resolvedLmId } : {}),
-        }),
+  // Helpers Short.io : crée ou récupère+patch
+  const getOrCreateLink = async (path: string, destUrl: string, title: string, utms: Record<string, string>) => {
+    const postRes = await fetch('/api/shortio/links', {
+      method: 'POST', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profileId, domainId: domain, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content, path }),
+    });
+    const postData = await postRes.json();
+    if (!postRes.ok) throw new Error(postData.error || 'Erreur Short.io');
+    let { id: shortId, shortUrl } = postData;
+    // 409 fallback : lien existant récupéré → on force la bonne destination
+    if (postData.existed && shortId) {
+      const patchRes = await fetch('/api/shortio/links', {
+        method: 'PATCH', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
       });
-
-      setResult(shortUrl);
-      onPostUpdated(post.id, { hasDescLink: true, descLinkUrl: shortUrl, descShortId: shortId, descDestType: destType });
-    } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+      const patchData = await patchRes.json();
+      if (patchRes.ok) shortUrl = patchData.shortUrl;
+    }
+    return { shortId, shortUrl };
   };
+
+  const updateLink = async (shortId: string, destUrl: string, title: string, utms: Record<string, string>) => {
+    const patchRes = await fetch('/api/shortio/links', {
+      method: 'PATCH', headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
+    });
+    const patchData = await patchRes.json();
+    if (!patchRes.ok) throw new Error(patchData.error || 'Erreur Short.io');
+    return patchData.shortUrl as string;
+  };
+
+  const generate = async () => {
+    setError(null);
+    if (!canGenerate) { setError('Short.io non connecté — configure ta clé dans Réglages.'); return; }
+
+    const utms = { source: domain, medium: 'description', campaign: destType, content: post.id };
+    const postSlug = slugify(post.caption.slice(0, 20));
+    const suffix = post.id.slice(-4);
+
+    if (destType === 'calendly') {
+      if (!hasCalendly) { setError('Configure ton lien Calendly dans ⚙ Paramètres.'); return; }
+      setLoading(true);
+      try {
+        const destUrl = calendlyUrl.trim();
+        // Path : calendly-{slug-caption}-{4chars} — unique par contenu
+        const path = `calendly-${postSlug}-${suffix}`;
+        const title = `Prendre RDV — ${post.caption.slice(0, 40)}`;
+        let shortId = post.descCalendlyShortId || '';
+        let shortUrl = '';
+        if (shortId) {
+          shortUrl = await updateLink(shortId, destUrl, title, utms);
+        } else {
+          ({ shortId, shortUrl } = await getOrCreateLink(path, destUrl, title, utms));
+        }
+        await fetch('/api/client/content-links', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ content_id: post.id, platform: post.platform, desc_calendly_short_id: shortId, desc_calendly_short_url: shortUrl, desc_utms: utms }),
+        });
+        onPostUpdated(post.id, { hasDescLink: true, descCalendlyUrl: shortUrl, descCalendlyShortId: shortId });
+      } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+
+    } else if (destType === 'leadmagnet') {
+      const lm = leadMagnets.find(l => l.id === selectedLmId);
+      if (!lm) { setError('Sélectionne un lead magnet.'); return; }
+      setLoading(true);
+      try {
+        const destUrl = normalizeUrl(lm.url);
+        // Path : {nom-lm-slug}-{suffix} — lisible, identifie le LM
+        const lmSlug = slugify(lm.name.slice(0, 20));
+        const path = `${lmSlug}-${suffix}`;
+        const title = `${lm.name} — ${post.caption.slice(0, 35)}`;
+        let shortId = post.descLmShortId || '';
+        let shortUrl = '';
+        if (shortId) {
+          shortUrl = await updateLink(shortId, destUrl, title, utms);
+        } else {
+          ({ shortId, shortUrl } = await getOrCreateLink(path, destUrl, title, utms));
+        }
+        await fetch('/api/client/content-links', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ content_id: post.id, platform: post.platform, desc_lm_short_id: shortId, desc_lm_short_url: shortUrl, desc_lm_lm_id: lm.id, desc_utms: utms }),
+        });
+        onPostUpdated(post.id, { hasDescLink: true, descLmUrl: shortUrl, descLmShortId: shortId, descLmLmId: lm.id });
+      } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+
+    } else {
+      const url = customUrl.trim();
+      if (!isValidUrl(url)) { setError("L'URL de destination est requise."); return; }
+      setLoading(true);
+      try {
+        const destUrl = normalizeUrl(url);
+        // Path : lien-{slug-caption}-{suffix}
+        const path = `lien-${postSlug}-${suffix}`;
+        const title = `Lien — ${post.caption.slice(0, 40)}`;
+        let shortId = post.descCustomShortId || '';
+        let shortUrl = '';
+        if (shortId) {
+          shortUrl = await updateLink(shortId, destUrl, title, utms);
+        } else {
+          ({ shortId, shortUrl } = await getOrCreateLink(path, destUrl, title, utms));
+        }
+        await fetch('/api/client/content-links', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ content_id: post.id, platform: post.platform, desc_custom_short_id: shortId, desc_custom_short_url: shortUrl, desc_utms: utms }),
+        });
+        onPostUpdated(post.id, { hasDescLink: true, descCustomUrl: shortUrl, descCustomShortId: shortId });
+      } catch (e: any) { setError(e.message); } finally { setLoading(false); }
+    }
+  };
+
+  const canGenBtn = destType === 'calendly' ? hasCalendly
+    : destType === 'leadmagnet' ? !!selectedLmId
+    : isValidUrl(customUrl);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -519,7 +565,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Destination</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {destOptions.map(opt => (
-            <button key={opt.key} onClick={() => { setDestType(opt.key as any); setCustomUrl(''); }} style={{
+            <button key={opt.key} onClick={() => { setDestType(opt.key as any); setError(null); }} style={{
               padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
               border: `1.5px solid ${destType === opt.key ? BLUE : BORDER}`,
               background: destType === opt.key ? BLUE_SOFT : SURFACE,
@@ -538,14 +584,14 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
           <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
           {leadMagnets.length === 0
-            ? <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '10px 12px' }}>Aucun LM — crée-en un via le bouton 📄 Lead Magnets en haut.</div>
+            ? <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '10px 12px' }}>Aucun LM — crée-en un via Lead Magnets en haut.</div>
             : leadMagnets.map(lm => (
-                <div key={lm.id} onClick={() => setCustomUrl(lm.url === customUrl ? '' : lm.url)} style={{
+                <div key={lm.id} onClick={() => setSelectedLmId(lm.id === selectedLmId ? '' : lm.id)} style={{
                   padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
-                  border: `1.5px solid ${customUrl === lm.url ? BLUE : BORDER}`,
-                  background: customUrl === lm.url ? BLUE_SOFT : SURFACE, transition: 'all .12s',
+                  border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
+                  background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
                 }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: customUrl === lm.url ? BLUE : INK, marginBottom: 2 }}>{lm.name}</div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: selectedLmId === lm.id ? BLUE : INK, marginBottom: 2 }}>{lm.name}</div>
                   {lm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED }}>#{lm.keyword}</span>}
                 </div>
               ))}
@@ -559,22 +605,22 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
       {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
-      {/* Lien déjà généré */}
-      {result && (
+      {/* Lien existant pour ce type de destination */}
+      {currentUrl && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {post.permalink && (
+          {post.permalink && destType === 'calendly' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
               <span style={{ fontSize: 11, color: MUTED, flex: 1 }}>Vérifie que le lien est dans la description.</span>
               <a href={post.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: BLUE, textDecoration: 'none', whiteSpace: 'nowrap', padding: '4px 10px', border: `1px solid ${BLUE}`, borderRadius: 6 }}>Voir ↗</a>
             </div>
           )}
-          <GeneratedUrlRow url={result} label="Lien description" />
+          <GeneratedUrlRow url={currentUrl} label="Lien description" />
         </div>
       )}
 
-      <button onClick={generate} disabled={loading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim())}
-        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || (destType === 'calendly' ? !hasCalendly : !customUrl.trim()) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {loading ? <><Spinner /> Génération...</> : result ? 'Regénérer le lien' : 'Générer le lien description'}
+      <button onClick={generate} disabled={loading || !canGenerate || !canGenBtn}
+        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        {loading ? <><Spinner /> Génération...</> : currentUrl ? 'Regénérer le lien' : 'Générer le lien description'}
       </button>
     </div>
   );
@@ -1906,10 +1952,16 @@ export default function PageLiens() {
       if (!cl) return post;
       return {
         ...post,
-        hasDescLink: !!cl.desc_short_url,
+        hasDescLink: !!(cl as any).desc_calendly_short_url || !!(cl as any).desc_lm_short_url || !!(cl as any).desc_custom_short_url || !!cl.desc_short_url,
         descLinkUrl: cl.desc_short_url || undefined,
-        descShortId: (cl as any).desc_short_id || undefined,
         descDestType: cl.desc_dest_type || undefined,
+        descCalendlyUrl: (cl as any).desc_calendly_short_url || undefined,
+        descCalendlyShortId: (cl as any).desc_calendly_short_id || undefined,
+        descLmUrl: (cl as any).desc_lm_short_url || undefined,
+        descLmShortId: (cl as any).desc_lm_short_id || undefined,
+        descLmLmId: (cl as any).desc_lm_lm_id || undefined,
+        descCustomUrl: (cl as any).desc_custom_short_url || undefined,
+        descCustomShortId: (cl as any).desc_custom_short_id || undefined,
         hasLeadMagnet: !!cl.lm_short_url,
         lmKeyword: cl.lm_keyword || undefined,
         lmShortUrl: cl.lm_short_url || undefined,

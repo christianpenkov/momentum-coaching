@@ -28,7 +28,16 @@ export async function POST(request: Request) {
 
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
-  const { content_id, platform, desc_short_url, desc_short_id, desc_short_path, desc_utms, desc_dest_type, lm_id, lm_short_url, lm_keyword, dm_opener_message, dm_lm_message } = body;
+  const {
+    content_id, platform,
+    // Ancien format (compat)
+    desc_short_url, desc_short_id, desc_short_path, desc_utms, desc_dest_type,
+    // Nouveau format — 3 liens séparés
+    desc_calendly_short_id, desc_calendly_short_url,
+    desc_lm_short_id, desc_lm_short_url, desc_lm_lm_id,
+    desc_custom_short_id, desc_custom_short_url,
+    lm_id, lm_short_url, lm_keyword, dm_opener_message, dm_lm_message,
+  } = body;
 
   if (!content_id || !platform) return NextResponse.json({ error: 'content_id et platform requis' }, { status: 400 });
   if (dm_opener_message && dm_opener_message.length > 1000) return NextResponse.json({ error: 'dm_opener_message trop long (max 1000)' }, { status: 400 });
@@ -45,6 +54,13 @@ export async function POST(request: Request) {
       ...(desc_short_path !== undefined && { desc_short_path }),
       ...(desc_utms !== undefined && { desc_utms }),
       ...(desc_dest_type !== undefined && { desc_dest_type }),
+      ...(desc_calendly_short_id !== undefined && { desc_calendly_short_id }),
+      ...(desc_calendly_short_url !== undefined && { desc_calendly_short_url }),
+      ...(desc_lm_short_id !== undefined && { desc_lm_short_id }),
+      ...(desc_lm_short_url !== undefined && { desc_lm_short_url }),
+      ...(desc_lm_lm_id !== undefined && { desc_lm_lm_id }),
+      ...(desc_custom_short_id !== undefined && { desc_custom_short_id }),
+      ...(desc_custom_short_url !== undefined && { desc_custom_short_url }),
       ...(lm_id !== undefined && { lm_id }),
       ...(lm_short_url !== undefined && { lm_short_url }),
       ...(lm_keyword !== undefined && { lm_keyword }),
