@@ -280,15 +280,11 @@ function KanbanColumn({
 function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
-  stages: typeof IG_STAGES | typeof YT_STAGES,
 ): string {
-  if (!overrideKey) return naturalKey;
-  const naturalIdx = stages.findIndex(s => s.key === naturalKey);
-  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
-  // Si l'étape naturelle a DÉPASSÉ le manuel → suivre naturel (avancement auto)
-  // Si naturel === manuel ou naturel < manuel → garder l'override (permet le drag en arrière)
-  if (naturalIdx > overrideIdx) return naturalKey;
-  return overrideKey;
+  // L'override manuel est toujours prioritaire — drag en arrière ou en avant.
+  // Le naturel reprend uniquement s'il n'y a pas d'override.
+  if (overrideKey) return overrideKey;
+  return naturalKey;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -362,7 +358,7 @@ export default function PagePipeline() {
       }
 
       const overrideKey = getOverride(lead.ig_username, 'ig');
-      const stageKey = resolveStage(natural, overrideKey, IG_STAGES as unknown as typeof IG_STAGES);
+      const stageKey = resolveStage(natural, overrideKey);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
 
       igCards.push({
@@ -390,7 +386,7 @@ export default function PagePipeline() {
       if (call.deal_closed) natural = 'closed';
 
       const overrideKey = getOverride(call.id, 'yt');
-      const stageKey = resolveStage(natural, overrideKey, YT_STAGES as unknown as typeof YT_STAGES);
+      const stageKey = resolveStage(natural, overrideKey);
       const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
 
       ytCards.push({
