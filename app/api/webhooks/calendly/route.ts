@@ -58,7 +58,14 @@ export async function POST(request: NextRequest) {
     const eventName = resource.scheduled_event?.name || resource.event_type_name || 'Call coaching';
     const utmSource = resource.tracking?.utm_source || null;
     const utmMedium = resource.tracking?.utm_medium || null;
+    const utmCampaign = resource.tracking?.utm_campaign || null;
+    const utmContent = resource.tracking?.utm_content || null;
     const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
+
+    // utm_campaign = "lead-{ig_user_id}" → extraire l'ig_user_id pour jointure instagram_leads
+    const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
+    // utm_content = postId, utm_source = domaine Short.io, utm_medium = 'dm' → short_link_path
+    const shortLinkPath = utmContent || null;
 
     // Durée en minutes
     let duration: string | null = null;
@@ -111,7 +118,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (clientRow) {
-      await serviceSupabase.from('calls').upsert({
+      // Retrouver ig_lead_id si on a un ig_user_id dans les UTMs
+      let igLeadId: string | null = null;
+      if (igUserIdFromUtm) {
+        const { data: leadRow } = await serviceSupabase
+          .from('instagram_leads')
+          .select('id')
+          .eq('ig_user_id', igUserIdFromUtm)
+          .eq('profile_id', clientRow.id)
+          .order('detected_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        igLeadId = leadRow?.id ?? null;
+      }
+
+      const { data: callRow } = await serviceSupabase.from('calls').upsert({
         client_id: clientRow.id,
         calendly_event_uuid: eventUuid,
         calendly_uri: eventUri,
@@ -122,10 +143,23 @@ export async function POST(request: NextRequest) {
         invitee_email: inviteeEmail,
         invitee_name: inviteeName,
         source,
+        utm_campaign: utmCampaign,
+        utm_medium: utmMedium,
+        utm_content: utmContent,
+        short_link_path: shortLinkPath,
+        ig_lead_id: igLeadId,
         status: 'active',
         ready: 'pending',
         reminder_sent: false,
-      }, { onConflict: 'calendly_event_uuid' });
+      }, { onConflict: 'calendly_event_uuid' }).select('id').maybeSingle();
+
+      // Relier le lead au call dans l'autre sens
+      if (igLeadId && callRow?.id) {
+        await serviceSupabase
+          .from('instagram_leads')
+          .update({ calendly_event_uuid: eventUuid })
+          .eq('id', igLeadId);
+      }
     }
   }
 
