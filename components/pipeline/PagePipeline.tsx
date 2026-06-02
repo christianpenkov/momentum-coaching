@@ -113,15 +113,17 @@ interface CardData {
   stageKey: string;
   stageIdx: number;
   extra?: string;
+  noSource?: boolean;
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart,
+  card, stages, isDragging, onDragStart, platform,
 }: {
   card: CardData;
   stages: typeof IG_STAGES | typeof YT_STAGES;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent, cardKey: string) => void;
+  platform: 'ig' | 'yt';
 }) {
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
@@ -184,6 +186,21 @@ function PipelineCard({
           {card.extra}
         </div>
       )}
+
+      {platform === 'yt' && card.noSource && (
+        <div style={{
+          marginTop: 2,
+          padding: '5px 7px',
+          borderRadius: 6,
+          background: '#FEF3C7',
+          border: '1px solid #FCD34D',
+          fontSize: 10,
+          color: '#92400E',
+          lineHeight: 1.4,
+        }}>
+          ⚠️ Source inconnue — est-ce bien un lead ? Si oui, pense à ajouter la source sur ce call.
+        </div>
+      )}
     </div>
   );
 }
@@ -192,7 +209,7 @@ function PipelineCard({
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget,
+  isDropTarget, platform,
 }: {
   stage: typeof IG_STAGES[number] | typeof YT_STAGES[number];
   cards: CardData[];
@@ -203,6 +220,7 @@ function KanbanColumn({
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   isDropTarget: boolean;
+  platform: 'ig' | 'yt';
 }) {
   return (
     <div
@@ -274,6 +292,7 @@ function KanbanColumn({
             stages={stages}
             isDragging={draggingKey === card.key}
             onDragStart={onDragStart}
+            platform={platform}
           />
         ))}
       </div>
@@ -386,13 +405,10 @@ export default function PagePipeline() {
 
   const ytCards: CardData[] = [];
   if (data) {
-    // Calls YT = source contient "yt"/"youtube" OU utm_medium renseigné (bio, description, pinned…)
-    // Les calls sans UTM (bookés directement sans lien tracké) sont exclus
+    // Tous les calls non-IG apparaissent — ceux sans UTM sont marqués "sans source"
     const ytCalls = data.calls.filter(c => {
       const src = c.source?.toLowerCase() ?? '';
-      if (src.includes('yt') || src.includes('youtube')) return true;
-      if (c.utm_medium) return true;
-      return false;
+      return !src.startsWith('ig') && !c.ig_lead_id;
     });
     for (const call of ytCalls) {
       let natural: YtStageKey = 'call_booked';
@@ -408,11 +424,12 @@ export default function PagePipeline() {
         name: call.invitee_name || 'Prospect',
         sub: call.utm_medium
           ? `${call.utm_medium}${call.utm_content ? ` · ${call.utm_content.slice(0, 12)}` : ''}`
-          : call.source ?? 'YouTube',
+          : (call.source ?? ''),
         date: timeAgo(call.scheduled_at),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
         extra: call.revenue ? `${call.revenue.toLocaleString('fr-FR')} €` : undefined,
+        noSource: !call.source && !call.utm_medium && !call.utm_content,
       });
     }
   }
@@ -535,6 +552,7 @@ export default function PagePipeline() {
                   onDrop={handleDrop}
                   onDragOver={e => handleDragOver(e, stage.key)}
                   onDragLeave={e => handleDragLeave(stage.key)}
+                  platform={platform}
                 />
               );
             })}
