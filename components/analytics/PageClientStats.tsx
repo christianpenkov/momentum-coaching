@@ -1180,20 +1180,8 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
         <Card title="Reach par jour" sub={`${period} jours`}>
           <AreaChart data={ig.chartData} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} />
         </Card>
-        {heatmapRows.length > 0 ? (
-          <Card title="Abonnés en ligne" sub="Heure × Jour de la semaine">
-            <Heatmap rows={heatmapRows} colLabels={hours} />
-          </Card>
-        ) : (
-          <Card title="Interactions par jour" sub={`${period} jours`}>
-            <AreaChart data={igDays.map(d => ({ date: d.date, v: d.totalInteractions ?? d.accountsEngaged ?? 0 }))} areas={[{ key: 'v', label: 'Interactions', color: GREEN }]} xKey="date" height={200} />
-          </Card>
-        )}
-      </div>
-
-      {ig.chartData.some(d => d.followerCount != null) && (
-        <Card title="Abonnés / jour" sub={`${period} jours — progression`}>
-          <ResponsiveContainer width="100%" height={160}>
+        <Card title="Abonnés / jour" sub={`${period} jours`}>
+          <ResponsiveContainer width="100%" height={200}>
             <ReAreaChart data={ig.chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
@@ -1203,20 +1191,24 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
               </defs>
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} width={40} />
-              <Tooltip
-                content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  return (
-                    <div className="chart-tooltip">
-                      <div className="chart-tooltip-label">{label}</div>
-                      <div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong><span style={{ color: 'var(--muted)', marginLeft: 4 }}>abonnés</span></div>
-                    </div>
-                  );
-                }}
-              />
+              <Tooltip content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="chart-tooltip">
+                    <div className="chart-tooltip-label">{label}</div>
+                    <div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong><span style={{ color: 'var(--muted)', marginLeft: 4 }}>abonnés</span></div>
+                  </div>
+                );
+              }} />
               <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
+        </Card>
+      </div>
+
+      {heatmapRows.length > 0 && (
+        <Card title="Abonnés en ligne" sub="Heure × Jour de la semaine">
+          <Heatmap rows={heatmapRows} colLabels={hours} />
         </Card>
       )}
 
