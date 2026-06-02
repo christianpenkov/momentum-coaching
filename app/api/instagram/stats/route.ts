@@ -181,10 +181,14 @@ export async function GET(request: Request) {
     dataPointCount: ofValues.filter((e: any) => e.value && Object.keys(e.value).length > 0).length,
   };
 
-  // Chart reach + followers par jour
+  // Chart reach + followers + vues + interactions par jour
   const reachValues = insightMap['reach'] || [];
-  // follower_count = delta quotidien (nouveaux abonnés), pas le cumulatif
   const followerDeltaValues = insightMap['follower_count'] || [];
+  const viewsValues = insightMap['views'] || [];
+  const engagedValues = insightMap['accounts_engaged'] || [];
+  const interactionsValues = insightMap['total_interactions'] || [];
+  const websiteClicksValues = insightMap['website_clicks'] || [];
+  const profileViewsValues = insightMap['profile_views'] || [];
   const today = new Date();
   const chartData = reachValues.map((val: number, i: number) => {
     const d = new Date(today);
@@ -193,6 +197,11 @@ export async function GET(request: Request) {
       date: d.toISOString().split('T')[0],
       reach: val,
       followerCount: followerDeltaValues[i] ?? null,
+      views: viewsValues[i] ?? 0,
+      accountsEngaged: engagedValues[i] ?? 0,
+      totalInteractions: interactionsValues[i] ?? 0,
+      websiteClicks: websiteClicksValues[i] ?? 0,
+      profileViews: profileViewsValues[i] ?? 0,
     };
   });
 

@@ -36,7 +36,7 @@ interface IGStats {
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   profileViews30d: number; views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
-  chartData: { date: string; reach: number; followerCount?: number | null }[];
+  chartData: { date: string; reach: number; followerCount?: number | null; views?: number; accountsEngaged?: number; totalInteractions?: number; websiteClicks?: number; profileViews?: number }[];
   posts: IGPost[]; demographics: Record<string, { label: string; value: number }[]>;
   onlineFollowers: any;
 }
@@ -1099,12 +1099,12 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     'Publications': { data: pubsByDay, color: IG_COLOR },
     'Reach': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: IG_COLOR },
-    'Vues': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
-    'Interactions posts': { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(d.reach * engRate / 100) : 0 })), color: GREEN },
+    'Vues': { data: igDays.map(d => ({ date: d.date, v: d.views ?? 0 })), color: ACCENT },
+    'Interactions posts': { data: igDays.map(d => ({ date: d.date, v: d.totalInteractions ?? d.accountsEngaged ?? 0 })), color: GREEN },
     'Abonnés nets': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
-    'Clics site web': { data: igDays.map(d => ({ date: d.date, v: 0 })), color: BLUE },
-    'Vues profil': { data: igDays.map(d => ({ date: d.date, v: 0 })), color: BLUE },
-    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round((d.reach * engRate / 100) / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
+    'Clics site web': { data: igDays.map(d => ({ date: d.date, v: d.websiteClicks ?? 0 })), color: BLUE },
+    'Vues profil': { data: igDays.map(d => ({ date: d.date, v: d.profileViews ?? 0 })), color: BLUE },
+    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 && d.totalInteractions ? Math.round(d.totalInteractions / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
     'Viralité': { data: igDays.map(d => ({ date: d.date, v: viralPct ?? 0 })), color: viralPct && viralPct > 50 ? GREEN : AMBER, unit: '%' },
   };
@@ -1180,18 +1180,8 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
         <Card title="Reach par jour" sub={`${period} jours`}>
           <AreaChart data={ig.chartData} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} />
         </Card>
-        <Card title="Âge des abonnés">
-          {demoPieData.length > 0 ? (
-            <ResponsiveContainer width="100%" height={200}>
-              <PieChart>
-                <Pie data={demoPieData} cx="50%" cy="50%" innerRadius={50} outerRadius={80} dataKey="value" paddingAngle={2}>
-                  {demoPieData.map((_, i) => <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />)}
-                </Pie>
-                <Tooltip formatter={(v: any) => `${v} abonnés`} />
-                <Legend iconSize={10} wrapperStyle={{ fontSize: 11 }} />
-              </PieChart>
-            </ResponsiveContainer>
-          ) : <Empty msg="Données démographiques non disponibles (Meta peut nécessiter un compte professionnel actif)" />}
+        <Card title="Interactions par jour" sub={`${period} jours`}>
+          <AreaChart data={igDays.map(d => ({ date: d.date, v: d.totalInteractions ?? d.accountsEngaged ?? 0 }))} areas={[{ key: 'v', label: 'Interactions', color: GREEN }]} xKey="date" height={200} />
         </Card>
       </div>
 
