@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useQuery } from '@tanstack/react-query';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -294,24 +295,22 @@ function resolveStage(
 
 export default function PagePipeline() {
   const [tab, setTab] = useState<'ig' | 'yt'>('ig');
-  const [data, setData] = useState<PipelineData | null>(null);
-  const [loading, setLoading] = useState(true);
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const dropCounters = useRef<Record<string, number>>({});
 
+  const { data, isLoading: loading } = useQuery<PipelineData | null>({
+    queryKey: ['pipeline'],
+    queryFn: () => fetch('/api/client/pipeline').then(r => r.ok ? r.json() : null),
+    staleTime: 2 * 60 * 1000,
+  });
+
   useEffect(() => {
-    fetch('/api/client/pipeline')
-      .then(r => r.ok ? r.json() : null)
-      .then(d => {
-        if (d) {
-          setData(d);
-          setOverrides(d.overrides ?? []);
-        }
-      })
-      .finally(() => setLoading(false));
-  }, []);
+    if (data?.overrides) {
+      setOverrides(data.overrides);
+    }
+  }, [data?.overrides]);
 
   const getOverride = useCallback((key: string, platform: 'ig' | 'yt') =>
     overrides.find(o => o.prospect_key === key && o.platform === platform)?.stage ?? null,

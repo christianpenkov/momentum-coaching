@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
@@ -72,77 +73,75 @@ export default function PageClientAnalytics({ id }: Props) {
   const { getClient } = useSupabaseClients();
   const client = getClient(id);
 
-  const [stripeData, setStripeData] = useState<StripeData | null>(null);
-  const [stripeLoading, setStripeLoading] = useState(true);
-  const [hasStripe, setHasStripe] = useState<boolean | null>(null);
-
-  const [youtubeData, setYoutubeData] = useState<YoutubeData | null>(null);
-  const [youtubeLoading, setYoutubeLoading] = useState(true);
-  const [hasYoutube, setHasYoutube] = useState<boolean | null>(null);
-
-  const [igData, setIgData] = useState<IgData | null>(null);
-  const [igLoading, setIgLoading] = useState(true);
-  const [hasInstagram, setHasInstagram] = useState<boolean | null>(null);
-
-  const [leadsStats, setLeadsStats] = useState<{ dmCount30d: number; commentCount30d: number; total: number } | null>(null);
-  const [shortioData, setShortioData] = useState<any | null>(null);
-  const [shortioLoading, setShortioLoading] = useState(true);
-  const [hasShortio, setHasShortio] = useState<boolean | null>(null);
   const [showAllYt, setShowAllYt] = useState(false);
   const [showAllIg, setShowAllIg] = useState(false);
 
   const profileId = client?.profile_id;
 
-  useEffect(() => {
-    if (!profileId) return;
+  const { data: stripeResult, isLoading: stripeLoading } = useQuery({
+    queryKey: ['analytics-stripe', profileId],
+    queryFn: async () => {
+      const r = await fetch(`/api/stripe/client-data?profileId=${profileId}`);
+      if (r.status === 404) return { connected: false, data: null };
+      return { connected: true, data: r.ok ? await r.json() : null };
+    },
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const hasStripe = stripeResult?.connected ?? null;
+  const stripeData: StripeData | null = stripeResult?.data ?? null;
 
-    // Stripe
-    fetch(`/api/stripe/client-data?profileId=${profileId}`)
-      .then(r => {
-        if (r.status === 404) { setHasStripe(false); return null; }
-        setHasStripe(true);
-        return r.ok ? r.json() : null;
-      })
-      .then(data => { if (data) setStripeData(data); })
-      .finally(() => setStripeLoading(false));
+  const { data: youtubeResult, isLoading: youtubeLoading } = useQuery({
+    queryKey: ['analytics-youtube', profileId],
+    queryFn: async () => {
+      const r = await fetch(`/api/youtube/stats?profileId=${profileId}`);
+      if (r.status === 404) return { connected: false, data: null };
+      return { connected: true, data: r.ok ? await r.json() : null };
+    },
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const hasYoutube = youtubeResult?.connected ?? null;
+  const youtubeData: YoutubeData | null = youtubeResult?.data ?? null;
 
-    // YouTube
-    fetch(`/api/youtube/stats?profileId=${profileId}`)
-      .then(r => {
-        if (r.status === 404) { setHasYoutube(false); return null; }
-        setHasYoutube(true);
-        return r.ok ? r.json() : null;
-      })
-      .then(data => { if (data) setYoutubeData(data); })
-      .finally(() => setYoutubeLoading(false));
+  const { data: igResult, isLoading: igLoading } = useQuery({
+    queryKey: ['analytics-instagram', profileId],
+    queryFn: async () => {
+      const r = await fetch(`/api/instagram/stats?profileId=${profileId}`);
+      if (r.status === 404) return { connected: false, data: null };
+      const json = r.ok ? await r.json() : null;
+      return { connected: true, data: json && !json.error ? json : null };
+    },
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const hasInstagram = igResult?.connected ?? null;
+  const igData: IgData | null = igResult?.data ?? null;
 
-    // Instagram stats
-    fetch(`/api/instagram/stats?profileId=${profileId}`)
-      .then(r => {
-        if (r.status === 404) { setHasInstagram(false); return null; }
-        setHasInstagram(true);
-        return r.ok ? r.json() : null;
-      })
-      .then(data => { if (data && !data.error) setIgData(data); })
-      .finally(() => setIgLoading(false));
+  const { data: leadsResult } = useQuery({
+    queryKey: ['analytics-leads', profileId],
+    queryFn: async () => {
+      const r = await fetch(`/api/instagram/leads?profileId=${profileId}`);
+      return r.ok ? r.json() : null;
+    },
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const leadsStats: { dmCount30d: number; commentCount30d: number; total: number } | null =
+    leadsResult ? { dmCount30d: leadsResult.dmCount30d, commentCount30d: leadsResult.commentCount30d, total: leadsResult.total } : null;
 
-    // Leads stats (coach voit seulement les compteurs)
-    fetch(`/api/instagram/leads?profileId=${profileId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data) setLeadsStats({ dmCount30d: data.dmCount30d, commentCount30d: data.commentCount30d, total: data.total });
-      });
-
-    // Short.io
-    fetch(`/api/shortio/stats?profileId=${profileId}`)
-      .then(r => {
-        if (r.status === 404) { setHasShortio(false); return null; }
-        setHasShortio(true);
-        return r.ok ? r.json() : null;
-      })
-      .then(data => { if (data) setShortioData(data); })
-      .finally(() => setShortioLoading(false));
-  }, [profileId]);
+  const { data: shortioResult, isLoading: shortioLoading } = useQuery({
+    queryKey: ['analytics-shortio', profileId],
+    queryFn: async () => {
+      const r = await fetch(`/api/shortio/stats?profileId=${profileId}`);
+      if (r.status === 404) return { connected: false, data: null };
+      return { connected: true, data: r.ok ? await r.json() : null };
+    },
+    enabled: !!profileId,
+    staleTime: 15 * 60 * 1000,
+  });
+  const hasShortio = shortioResult?.connected ?? null;
+  const shortioData: any | null = shortioResult?.data ?? null;
 
   if (!client) return (
     <div className="page-content">
