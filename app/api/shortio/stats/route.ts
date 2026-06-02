@@ -7,6 +7,8 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
+
 async function getCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string | number } | null> {
   const { data: integ } = await serviceSupabase
     .from('integrations')
@@ -22,35 +24,12 @@ async function getCreds(profileId: string): Promise<{ apiKey: string; domain: st
   return { apiKey: integ.api_key, domain, domainId };
 }
 
-export async function GET(request: Request) {
-  const supabase = await createServerClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-
-  const { searchParams } = new URL(request.url);
-  const profileId = searchParams.get('profileId');
-
-  let targetProfileId = user.id;
-  if (profileId && profileId !== user.id) {
-    const { data: clientRow } = await serviceSupabase
-      .from('clients')
-      .select('id')
-      .eq('profile_id', profileId)
-      .eq('coach_id', user.id)
-      .single();
-    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
-    targetProfileId = profileId;
-  }
-
-  const creds = await getCreds(targetProfileId);
-  if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 404 });
-
+// Fetch complet Short.io — appelé seulement si cache expiré
+async function fetchFromShortio(creds: { apiKey: string; domain: string; domainId: string | number }) {
   const { apiKey, domain, domainId } = creds;
   const headers = { authorization: apiKey, accept: 'application/json' };
-
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  // Fetch domaine stats last30 + liste des liens en parallèle
   const [domainStatsRes, linksRes] = await Promise.all([
     fetch(`https://api-v2.short.io/statistics/domain/${domainId}?period=last30`, { headers }),
     fetch(`https://api.short.io/api/links?domain_id=${domainId}&limit=150`, { headers }),
@@ -62,53 +41,28 @@ export async function GET(request: Request) {
   ]);
 
   if (!domainStatsRes.ok) {
-    return NextResponse.json({ error: domainStats?.message || 'Erreur Short.io', raw: domainStats }, { status: 400 });
+    throw new Error(domainStats?.message || 'Erreur Short.io domaine');
   }
 
-  // Chart domaine : { x: ISO date, y: "nombre_string" }
   const domainChartRaw: { x: string; y: string }[] = domainStats.clickStatistics?.datasets?.[0]?.data || [];
   const domainChartData = domainChartRaw.map((pt) => ({
     date: pt.x.split('T')[0],
     clicks: Number(pt.y) || 0,
   }));
 
-  // Top pays domaine : { countryName, country, score }
-  const topCountries = (domainStats.country || [])
-    .filter((c: any) => c.score > 0)
-    .slice(0, 8)
+  const topCountries = (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8)
     .map((c: any) => ({ label: c.countryName || c.country || 'Inconnu', code: c.country, value: c.score }));
-
-  // Top referrers domaine : { refhost, score }
-  const topReferrers = (domainStats.referer || [])
-    .filter((r: any) => r.score > 0)
-    .slice(0, 8)
+  const topReferrers = (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8)
     .map((r: any) => ({ label: r.refhost || 'Direct', value: r.score }));
-
-  // Top browsers : { browser, score }
-  const topBrowsers = (domainStats.browser || [])
-    .filter((b: any) => b.score > 0)
-    .slice(0, 5)
+  const topBrowsers = (domainStats.browser || []).filter((b: any) => b.score > 0).slice(0, 5)
     .map((b: any) => ({ label: b.browser, value: b.score }));
-
-  // Top OS : { os, score }
-  const topOs = (domainStats.os || [])
-    .filter((o: any) => o.score > 0)
-    .slice(0, 5)
+  const topOs = (domainStats.os || []).filter((o: any) => o.score > 0).slice(0, 5)
     .map((o: any) => ({ label: o.os, value: o.score }));
-
-  // Top social : { social, score }
-  const topSocial = (domainStats.social || [])
-    .filter((s: any) => s.score > 0)
-    .slice(0, 5)
+  const topSocial = (domainStats.social || []).filter((s: any) => s.score > 0).slice(0, 5)
     .map((s: any) => ({ label: s.social || 'Direct', value: s.score }));
-
-  // Top villes : { name, countryCode, score }
-  const topCities = (domainStats.city || [])
-    .filter((c: any) => c.score > 0)
-    .slice(0, 5)
+  const topCities = (domainStats.city || []).filter((c: any) => c.score > 0).slice(0, 5)
     .map((c: any) => ({ label: `${c.name} (${c.countryCode})`, value: c.score }));
 
-  // Stats par lien individuel (top 20)
   const allLinks: any[] = linksData?.links || [];
   const totalLinks = Number(linksData?.count ?? allLinks.length);
 
@@ -117,25 +71,15 @@ export async function GET(request: Request) {
       try {
         const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${l.id}?period=last30`, { headers });
         const stats = await safeJson(statsRes);
-
-        // Chart par lien : même format { x, y }
         const chartRaw: { x: string; y: string }[] = stats.clickStatistics?.datasets?.[0]?.data || [];
-        const chartData = chartRaw
-          .filter((pt) => Number(pt.y) > 0)
-          .map((pt) => ({ date: pt.x.split('T')[0], clicks: Number(pt.y) || 0 }));
-
+        const chartData = chartRaw.map((pt) => ({ date: pt.x.split('T')[0], clicks: Number(pt.y) || 0 }));
         return {
-          id: l.id,
-          path: l.path || '',
+          id: l.id, path: l.path || '',
           shortUrl: l.secureShortURL || l.shortURL || `https://${domain}/${l.path}`,
-          originalUrl: l.originalURL || '',
-          title: l.title || l.path || '',
-          createdAt: l.createdAt || null,
-          clicks30d: Number(stats.totalClicks ?? 0),
-          humanClicks30d: Number(stats.humanClicks ?? 0),
+          originalUrl: l.originalURL || '', title: l.title || l.path || '', createdAt: l.createdAt || null,
+          clicks30d: Number(stats.totalClicks ?? 0), humanClicks30d: Number(stats.humanClicks ?? 0),
           clicksChange: stats.totalClicksChange !== undefined ? Number(stats.totalClicksChange) : null,
           chartData,
-          // Par lien : referer avec champ "referer" (pas "refhost")
           countries: (stats.country || []).filter((c: any) => c.score > 0).slice(0, 5).map((c: any) => ({ label: c.countryName || c.country, value: c.score })),
           referrers: (stats.referer || []).filter((r: any) => r.score > 0).slice(0, 5).map((r: any) => ({ label: r.referer || 'Direct', value: r.score })),
           browsers: (stats.browser || []).filter((b: any) => b.score > 0).slice(0, 5).map((b: any) => ({ label: b.browser, value: b.score })),
@@ -147,12 +91,9 @@ export async function GET(request: Request) {
         };
       } catch {
         return {
-          id: l.id,
-          path: l.path || '',
+          id: l.id, path: l.path || '',
           shortUrl: l.secureShortURL || l.shortURL || `https://${domain}/${l.path}`,
-          originalUrl: l.originalURL || '',
-          title: l.title || l.path || '',
-          createdAt: l.createdAt || null,
+          originalUrl: l.originalURL || '', title: l.title || l.path || '', createdAt: l.createdAt || null,
           clicks30d: 0, humanClicks30d: 0, clicksChange: null,
           chartData: [], countries: [], referrers: [], browsers: [], os: [], social: [], cities: [], utmMedium: [], utmSource: [],
         };
@@ -160,23 +101,85 @@ export async function GET(request: Request) {
     })
   );
 
-  // Tri par clics décroissant
   linksWithStats.sort((a, b) => b.clicks30d - a.clicks30d);
 
-  return NextResponse.json({
-    domain,
-    totalLinks,
+  return {
+    domain, totalLinks,
     clicks30d: Number(domainStats.clicks ?? 0),
     humanClicks30d: Number(domainStats.humanClicks ?? 0),
     clicksChange: domainStats.prevClicksChange !== undefined ? Number(domainStats.prevClicksChange) : null,
     clicksPerLink30d: parseFloat(domainStats.clicksPerLink ?? '0') || 0,
     chartData: domainChartData,
-    topCountries,
-    topReferrers,
-    topBrowsers,
-    topOs,
-    topSocial,
-    topCities,
+    topCountries, topReferrers, topBrowsers, topOs, topSocial, topCities,
     links: linksWithStats,
-  });
+  };
+}
+
+// Sauvegarde en cache DB (non bloquant — erreur silencieuse)
+async function saveCache(profileId: string, payload: object) {
+  await serviceSupabase.from('shortio_stats_cache').upsert({
+    profile_id: profileId,
+    payload,
+    fetched_at: new Date().toISOString(),
+  }, { onConflict: 'profile_id' });
+}
+
+export async function GET(request: Request) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const { searchParams } = new URL(request.url);
+  const profileId = searchParams.get('profileId');
+
+  let targetProfileId = user.id;
+  if (profileId && profileId !== user.id) {
+    const { data: clientRow } = await serviceSupabase
+      .from('clients').select('id')
+      .eq('profile_id', profileId).eq('coach_id', user.id).single();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    targetProfileId = profileId;
+  }
+
+  const creds = await getCreds(targetProfileId);
+  if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 404 });
+
+  // ── Stale-While-Revalidate ────────────────────────────────────────────────
+  const { data: cached } = await serviceSupabase
+    .from('shortio_stats_cache')
+    .select('payload, fetched_at')
+    .eq('profile_id', targetProfileId)
+    .single();
+
+  const cacheAge = cached?.fetched_at
+    ? Date.now() - new Date(cached.fetched_at).getTime()
+    : Infinity;
+
+  const cacheIsStale = cacheAge > CACHE_TTL_MS;
+
+  // Cache frais → réponse immédiate, aucun appel Short.io
+  if (cached && !cacheIsStale) {
+    return NextResponse.json(cached.payload);
+  }
+
+  // Cache expiré mais existant → SWR : répondre immédiatement avec stale data,
+  // déclencher le refresh en arrière-plan (fire-and-forget)
+  if (cached && cacheIsStale) {
+    // Fire-and-forget : pas de await → la réponse part immédiatement
+    fetchFromShortio(creds)
+      .then(fresh => saveCache(targetProfileId, fresh))
+      .catch(() => {}); // silencieux si Short.io est down
+
+    return NextResponse.json({ ...cached.payload, _stale: true });
+  }
+
+  // Aucun cache → premier chargement, on attend le fetch complet
+  try {
+    const payload = await fetchFromShortio(creds);
+    // Sauvegarde en background après la réponse
+    saveCache(targetProfileId, payload).catch(() => {});
+    return NextResponse.json(payload);
+  } catch (err: any) {
+    return NextResponse.json({ error: err.message || 'Erreur Short.io' }, { status: 400 });
+  }
 }

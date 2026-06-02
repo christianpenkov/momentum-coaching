@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
 import AreaChart from '@/components/charts/AreaChart';
@@ -5278,138 +5279,142 @@ function SectionControls({ period, setPeriod, periodIndex, setPeriodIndex }: {
   );
 }
 
+// ── Fetchers ────────────────────────────────────────────────────────────────
+
+async function fetchApi(url: string) {
+  const r = await fetch(url);
+  if (!r.ok) return null;
+  const d = await r.json();
+  return d?.error ? null : d;
+}
+
+async function fetchSupabaseStats(profileId?: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const targetId = profileId || user.id;
+
+  const [leadsRes, lmRes, calendlyRes] = await Promise.all([
+    supabase.from('instagram_leads')
+      .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
+      .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
+    supabase.from('lead_magnets')
+      .select('id, name, keyword, url').eq('profile_id', targetId).order('created_at', { ascending: true }),
+    supabase.from('integrations')
+      .select('metadata').eq('profile_id', targetId).eq('provider', 'calendly').maybeSingle(),
+  ]);
+
+  let callsRes: { data: any[] | null };
+  if (profileId) {
+    callsRes = await supabase.from('calls').select('*').eq('coach_id', user.id).order('scheduled_at', { ascending: false }).limit(500);
+  } else {
+    const { data: cr } = await supabase.from('clients').select('id').eq('profile_id', user.id).maybeSingle();
+    callsRes = cr
+      ? await supabase.from('calls').select('*').eq('client_id', cr.id).order('scheduled_at', { ascending: false }).limit(500)
+      : { data: [] };
+  }
+
+  // Déduplique leads par ig_user_id — dernière interaction
+  const seen = new Set<string>();
+  const igLeads: MockLead[] = (leadsRes.data ?? [])
+    .filter((l: any) => { if (!l.ig_user_id || seen.has(l.ig_user_id)) return false; seen.add(l.ig_user_id); return true; })
+    .map((l: any) => ({
+      igUserId: l.ig_user_id, igUsername: l.ig_username || 'Anonyme',
+      postId: l.media_id || '', postTitle: l.media_permalink || l.media_id || '',
+      postType: 'IG' as const, commentedAt: l.detected_at,
+      keyword: l.keyword_matched || '', leadMagnetSent: l.lead_magnet_sent || false,
+      hookReplied: l.hook_replied || false, trackingLink: l.tracking_link || null,
+    }));
+
+  const lmData = lmRes.data ?? [];
+  const calendlyUrl = (calendlyRes.data?.metadata as any)?.scheduling_url || null;
+  const destinations: DestinationLink[] = [
+    ...(calendlyUrl ? [{ id: 'calendly-main', label: 'Appel découverte', url: calendlyUrl, type: 'calendly' as const }] : []),
+    ...lmData.filter((lm: any) => lm.url).map((lm: any) => ({ id: `lm-${lm.id}`, label: lm.name, url: lm.url, type: 'leadmagnet' as const })),
+  ];
+
+  // callsRes peut être une Promise résolue (cas clientRow) ou un résultat direct
+  const callsData = (callsRes as any).data ?? [];
+
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData };
+}
+
 export default function PageClientStats({ profileId }: { profileId?: string } = {}) {
   const [tab, setTab] = useState(0);
   const [period, setPeriod] = useState<Period>(30);
   const [periodIndex, setPeriodIndex] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
-  const [ig, setIg] = useState<IGStats | null>(null);
-  const [yt, setYt] = useState<YTStats | null>(null);
-  const [stripe, setStripe] = useState<StripeStats | null>(null);
-  const [msgs, setMsgs] = useState<IGMessages | null>(null);
-  const [shortio, setShortio] = useState<ShortioStats | null>(null);
-  const [calls, setCalls] = useState<CallRecord[]>([]);
-  const [igLeads, setIgLeads] = useState<MockLead[]>([]);
-  const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
-  const [destinations, setDestinations] = useState<DestinationLink[]>([]);
-  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const supabase = createClient();
-    const q = profileId ? `?profileId=${profileId}` : '';
+  const q = profileId ? `?profileId=${profileId}` : '';
 
-    async function load() {
-      const safe = async (fn: () => Promise<Response>) => {
-        try { const r = await fn(); return r.ok ? r.json() : null; } catch { return null; }
-      };
+  // ── TanStack Query — lazy par onglet ─────────────────────────────────────
+  // Onglets : 0=Vue générale, 1=Instagram, 2=YouTube, 3=Funnel A, 4=Funnel B, 5=Business micro, 6=Revenus
 
-      const [igData, ytData, stripeData, msgsData, shortioData] = await Promise.all([
-        safe(() => fetch(`/api/instagram/stats${q}`)),
-        safe(() => fetch(`/api/youtube/stats${q}`)),
-        safe(() => fetch(`/api/stripe/client-data${q}`)),
-        safe(() => fetch(`/api/instagram/messages${q}`)),
-        safe(() => fetch(`/api/shortio/stats${q}`)),
-      ]);
+  // Données Supabase — toujours chargées (rapides, multi-onglets)
+  const { data: supaData } = useQuery({
+    queryKey: ['stats-supa', profileId],
+    queryFn: () => fetchSupabaseStats(profileId),
+    staleTime: 5 * 60 * 1000,
+  });
 
-      if (igData && !igData.error) setIg(igData);
-      if (ytData && !ytData.error) setYt(ytData);
-      if (stripeData && !stripeData.error) setStripe(stripeData);
-      if (msgsData && !msgsData.error) setMsgs(msgsData);
-      if (shortioData && !shortioData.error) setShortio(shortioData);
+  const igLeads: MockLead[] = supaData?.igLeads ?? [];
+  const leadMagnets: LeadMagnet[] = supaData?.leadMagnets ?? [];
+  const destinations: DestinationLink[] = supaData?.destinations ?? [];
+  const calls: CallRecord[] = supaData?.calls ?? [];
 
-      // Leads commentaires depuis Supabase
-      const { data: { user: u2 } } = await supabase.auth.getUser();
-      if (u2) {
-        const targetId = profileId || u2.id;
-        const { data: leadsData } = await supabase
-          .from('instagram_leads')
-          .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
-          .eq('profile_id', targetId)
-          .order('detected_at', { ascending: false })
-          .limit(500);
-        if (leadsData) {
-          // Déduplique par ig_user_id — dernière interaction (données déjà triées DESC)
-          const seen = new Set<string>();
-          const deduplicated = leadsData.filter((l: any) => {
-            if (!l.ig_user_id || seen.has(l.ig_user_id)) return false;
-            seen.add(l.ig_user_id);
-            return true;
-          });
-          setIgLeads(deduplicated.map((l: any) => ({
-            igUserId: l.ig_user_id,
-            igUsername: l.ig_username || 'Anonyme',
-            postId: l.media_id || '',
-            postTitle: l.media_permalink || l.media_id || '',
-            postType: 'IG',
-            commentedAt: l.detected_at,
-            keyword: l.keyword_matched || '',
-            leadMagnetSent: l.lead_magnet_sent || false,
-            hookReplied: l.hook_replied || false,
-            trackingLink: l.tracking_link || null,
-          })));
-        }
+  // Instagram — onglets 0, 1, 3, 4
+  const { data: igRaw, isLoading: igLoading } = useQuery<IGStats | null>({
+    queryKey: ['stats-ig', profileId],
+    queryFn: () => fetchApi(`/api/instagram/stats${q}`),
+    enabled: [0, 1, 3, 4].includes(tab),
+    staleTime: 5 * 60 * 1000,
+  });
+  const ig: IGStats | null = igRaw ?? null;
 
-        // Charger les lead magnets configurés
-        const { data: lmData } = await supabase
-          .from('lead_magnets')
-          .select('id, name, keyword, url')
-          .eq('profile_id', targetId)
-          .order('created_at', { ascending: true });
-        if (lmData) setLeadMagnets(lmData);
+  // YouTube — onglets 0, 2, 3, 4
+  const { data: ytRaw, isLoading: ytLoading } = useQuery<YTStats | null>({
+    queryKey: ['stats-yt', profileId],
+    queryFn: () => fetchApi(`/api/youtube/stats${q}`),
+    enabled: [0, 2, 3, 4].includes(tab),
+    staleTime: 5 * 60 * 1000,
+  });
+  const yt: YTStats | null = ytRaw ?? null;
 
-        // Construire les destinations depuis les vraies données (Calendly + lead magnets)
-        const { data: calendlyInteg } = await supabase
-          .from('integrations')
-          .select('metadata')
-          .eq('profile_id', targetId)
-          .eq('provider', 'calendly')
-          .maybeSingle();
-        const calendlyUrl = (calendlyInteg?.metadata as any)?.scheduling_url || null;
-        const dests: DestinationLink[] = [];
-        if (calendlyUrl) {
-          dests.push({ id: 'calendly-main', label: 'Appel découverte', url: calendlyUrl, type: 'calendly' });
-        }
-        if (lmData) {
-          for (const lm of lmData) {
-            if (lm.url) dests.push({ id: `lm-${lm.id}`, label: lm.name, url: lm.url, type: 'leadmagnet' });
-          }
-        }
-        setDestinations(dests);
-      }
+  // Stripe — onglets 0, 6
+  const { data: stripeRaw } = useQuery<StripeStats | null>({
+    queryKey: ['stats-stripe', profileId],
+    queryFn: () => fetchApi(`/api/stripe/client-data${q}`),
+    enabled: [0, 6].includes(tab),
+    staleTime: 5 * 60 * 1000,
+  });
+  const stripe: StripeStats | null = stripeRaw ?? null;
 
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        if (profileId) {
-          const { data } = await supabase
-            .from('calls')
-            .select('*')
-            .eq('coach_id', user.id)
-            .order('scheduled_at', { ascending: false })
-            .limit(500);
-          if (data) setCalls(data);
-        } else {
-          const { data: clientRow } = await supabase
-            .from('clients')
-            .select('id')
-            .eq('profile_id', user.id)
-            .maybeSingle();
-          if (clientRow) {
-            const { data } = await supabase
-              .from('calls')
-              .select('*')
-              .eq('client_id', clientRow.id)
-              .order('scheduled_at', { ascending: false })
-              .limit(500);
-            if (data) setCalls(data);
-          }
-        }
-      }
+  // Messages IG — onglets 0, 3, 4, 5
+  const { data: msgsRaw } = useQuery<IGMessages | null>({
+    queryKey: ['stats-msgs', profileId],
+    queryFn: () => fetchApi(`/api/instagram/messages${q}`),
+    enabled: [0, 3, 4, 5].includes(tab),
+    staleTime: 5 * 60 * 1000,
+  });
+  const msgs: IGMessages | null = msgsRaw ?? null;
 
-      setLoading(false);
-    }
+  // Short.io — onglet 5 uniquement (le plus lent — cache SWR 15min)
+  const { data: shortioRaw, isLoading: shortioLoading } = useQuery<ShortioStats | null>({
+    queryKey: ['stats-shortio', profileId],
+    queryFn: () => fetchApi(`/api/shortio/stats${q}`),
+    enabled: tab === 5,
+    staleTime: 15 * 60 * 1000,
+  });
+  const shortio: ShortioStats | null = shortioRaw ?? null;
 
-    load();
-  }, [profileId]);
+  // Loading : vrai seulement si les données du tab actuel manquent encore
+  const loading = (() => {
+    if (!supaData) return true;
+    if (tab === 1 && igLoading) return true;
+    if (tab === 2 && ytLoading) return true;
+    if (tab === 5 && shortioLoading) return true;
+    return false;
+  })();
 
   const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Business micro', 'Revenus'];
 
