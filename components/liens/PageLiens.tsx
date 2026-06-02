@@ -597,7 +597,10 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
               {assocLm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginLeft: 8 }}>#{assocLm.keyword}</span>}
             </div>
             {lmUrl
-              ? <CopyBtn url={lmUrl} />
+              ? <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                  <span style={{ fontSize: 11, color: BLUE, fontWeight: 600, maxWidth: 220, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{lmUrl}</span>
+                  <CopyBtn url={lmUrl} />
+                </div>
               : <button onClick={() => { setSelectedLmId(assocLm.id); generate(assocLm.id); }} disabled={loading || !canGenerate}
                   style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: loading || !canGenerate ? 'not-allowed' : 'pointer', opacity: loading || !canGenerate ? 0.4 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
                   {loading ? <Spinner /> : 'Générer'}
