@@ -980,6 +980,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       setDm2Text(dmMessage || '');
       setDm2Saved(true);
       onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl, dmOpenerMessage: dmMessage || undefined });
+      setEditing(false);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -994,7 +995,16 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setDmEdited(v !== savedDmMessage);
   };
 
-  const handleEditClick = () => setEditing(true);
+  const handleEditClick = () => {
+    // Pré-sélectionner le LM actuellement associé au post
+    if (!selectedLmId && post.descLmLmId) {
+      setSelectedLmId(post.descLmLmId);
+    } else if (!selectedLmId && post.lmKeyword) {
+      const linked = leadMagnets.find(lm => lm.keyword === post.lmKeyword);
+      if (linked) setSelectedLmId(linked.id);
+    }
+    setEditing(true);
+  };
   const handleCancelEdit = () => {
     if (dmEdited) { setConfirmLeave(true); return; }
     setEditing(false);
@@ -1232,7 +1242,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
 
       <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
         style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {loading ? <><Spinner /> Génération...</> : (result || isExisting) ? 'Régénérer le lien LM' : 'Associer le lead magnet'}
+        {loading ? <><Spinner /> Sauvegarde...</> : editing ? 'Sauvegarder les modifications' : (result || isExisting) ? 'Régénérer le lien LM' : 'Associer le lead magnet'}
       </button>
     </div>
   );
