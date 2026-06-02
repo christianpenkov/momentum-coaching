@@ -3666,16 +3666,17 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profileId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period: globalPeriod, profileId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
   destinations: DestinationLink[];
+  period: Period;
   profileId?: string;
 }) {
-  const [sPeriod, setSPeriod] = useState<ShortPeriod>(30);
+  const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour la stat Calendly DM
@@ -3821,8 +3822,14 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
       };
     }
     if (chartFilter === 'dm') {
-      const val = prospectLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
-      return { date: d.date, clicks: val };
+      // Courbe Calendly = clics sur liens prospect DM
+      const calendly = prospectLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
+      // Courbe LM = clics sur les shortlinks des tracking_link des leads
+      const lmUrls = new Set(leads.filter(l => l.trackingLink).map(l => l.trackingLink!));
+      const lm = shortio.links
+        .filter((l: any) => lmUrls.has(l.shortUrl) || lmUrls.has(l.originalUrl))
+        .reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
+      return { date: d.date, calendly, lm };
     }
     return d;
   });
@@ -3914,13 +3921,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
 
       {/* ── Section 0 : Stats globales ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
-        <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" action={
-          <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3 }}>
-            {([7, 30] as ShortPeriod[]).map(p => (
-              <button key={p} onClick={() => setSPeriod(p)} style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: 'pointer', border: 'none', background: sPeriod === p ? 'var(--surface)' : 'transparent', color: sPeriod === p ? 'var(--ink)' : 'var(--faint)', transition: 'all .15s' }}>{p}j</button>
-            ))}
-          </div>
-        } />
+        <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" />
         {(() => {
           // Taux d'activation DM :
           // LM% = clics reçus sur liens LM (tracking_link dans instagram_leads) / LM envoyés
@@ -4047,6 +4048,38 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
               }} />
               <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
               <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
+            </ReAreaChart>
+          </ResponsiveContainer>
+        ) : chartFilter === 'dm' ? (
+          <ResponsiveContainer width="100%" height={160}>
+            <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+              <defs>
+                <linearGradient id="grad-dm-calendly" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={BLUE} stopOpacity={0.15} />
+                  <stop offset="95%" stopColor={BLUE} stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id="grad-dm-lm" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={AMBER} stopOpacity={0.15} />
+                  <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+              <Tooltip content={({ active, payload, label }) => {
+                if (!active || !payload?.length) return null;
+                return (
+                  <div className="chart-tooltip">
+                    <div className="chart-tooltip-label">{label}</div>
+                    {payload.map((p: any, i: number) => (
+                      <div key={i} className="chart-tooltip-row" style={{ color: p.color }}>
+                        <span>{p.name}</span><strong style={{ marginLeft: 8 }}>{p.value}</strong>
+                      </div>
+                    ))}
+                  </div>
+                );
+              }} />
+              <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         ) : (
@@ -4954,73 +4987,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
         );
       })()}
 
-      {/* ── Section 3 : Pipeline prospects DM ── */}
-      <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
-        <SectionHead
-          title="Pipeline prospects DM"
-          sub="Un lien par prospect — du clic au closing"
-          action={
-            <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center' }}>
-              {selectedContentId && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, fontWeight: 600, color: BLUE, background: BLUE + '12', borderRadius: 6, padding: '4px 10px' }}>
-                  Filtré par : {selectedContentTitle}…
-                  <button onClick={() => { setSelectedContentId(null); setDetailModal(null); }} style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 14, color: BLUE, lineHeight: 1, padding: 0, marginLeft: 2 }}>×</button>
-                </div>
-              )}
-              {(['all', 'pending', 'booked', 'closed', 'noshow'] as ProspectStatus[]).map(f => (
-                <button key={f} onClick={() => setProspectFilter(f)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${prospectFilter === f ? BLUE : 'var(--border)'}`, background: prospectFilter === f ? BLUE + '12' : 'transparent', color: prospectFilter === f ? BLUE : 'var(--muted)', transition: 'all .12s', whiteSpace: 'nowrap' }}>
-                  {statusLabel[f]}
-                </button>
-              ))}
-            </div>
-          }
-        />
-        {filteredProspects.length === 0
-          ? <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucun prospect correspondant.</div>
-          : (
-            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-              <thead>
-                <tr>
-                  {['Prospect', 'Contenu source', 'Canal', 'Lien créé', 'Statut', 'Revenue'].map((h, i) => (
-                    <th key={i} style={{ textAlign: i >= 4 ? 'right' : 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {[...filteredProspects].sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()).map((l: any, i: number) => {
-                  const sourcePost = [...igPosts.map(p => ({ id: p.id, title: p.caption?.slice(0, 28), platform: 'IG' })), ...ytVideos.map(v => ({ id: v.id, title: v.title.slice(0, 28), platform: 'YT' }))]
-                    .find(p => p.id === l.postId);
-                  const lead = leads.find(ml => ml.igUserId === l.igUserId);
-                  const canal = lead?.leadMagnetSent ? 'LM' : (l.dmType === 'organic' ? 'DM organique' : 'Cold DM');
-                  const canalColor = lead?.leadMagnetSent ? AMBER : (l.dmType === 'organic' ? '#10B981' : BLUE);
-                  const st = getProspectStatus(l);
-                  const statusMap: Record<string, string> = { closed: 'Closé', booked: 'Call booké', pending: 'En attente', noshow: 'No-show' };
-                  const daysAgo = Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000);
-                  return (
-                    <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                      <td style={{ padding: '9px 10px', fontSize: 12, fontWeight: 700 }}>@{l.igUsername}</td>
-                      <td style={{ padding: '9px 10px', fontSize: 11, color: 'var(--muted)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        {sourcePost
-                          ? <><span style={{ fontSize: 9, fontWeight: 700, color: sourcePost.platform === 'IG' ? ACCENT : RED, background: (sourcePost.platform === 'IG' ? ACCENT : RED) + '18', borderRadius: 3, padding: '1px 4px', marginRight: 4 }}>{sourcePost.platform}</span>{sourcePost.title}…</>
-                          : '—'}
-                      </td>
-                      <td style={{ padding: '9px 10px' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: canalColor, background: canalColor + '18', borderRadius: 4, padding: '2px 6px' }}>{canal}</span>
-                      </td>
-                      <td style={{ padding: '9px 10px', fontSize: 11, color: 'var(--muted)' }}>il y a {daysAgo}j</td>
-                      <td style={{ padding: '9px 10px', textAlign: 'right' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: statusColor[st] || 'var(--muted)', background: (statusColor[st] || 'var(--muted)') + '18', borderRadius: 4, padding: '2px 7px' }}>{statusMap[st]}</span>
-                      </td>
-                      <td style={{ padding: '9px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: l.revenue ? GREEN : 'var(--faint)' }}>{l.revenue ? fmtEur(l.revenue) : '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          )}
-      </div>
+
 
       {/* ── Modal création lien ── */}
       {showCreate && (
@@ -5463,7 +5430,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
           {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} leads={igLeads} />}
-          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} profileId={profileId} />}
+          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} period={period} profileId={profileId} />}
           {tab === 6 && <TabRevenues stripe={stripe} period={period} />}
         </>
       )}
