@@ -3789,6 +3789,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   // Si sPeriod < 30 → somme les N derniers points du chartData journalier.
   // Si sPeriod === 30 → utilise humanClicks30d (valeur agrégée déjà fournie par l'API).
   const linkClics = (l: any): number => {
+    if (!l) return 0;
     if (sPeriod === 30) return l.humanClicks30d || 0;
     const pts: { clicks: number }[] = l.chartData || [];
     return pts.slice(-sPeriod).reduce((s, p) => s + (p.clicks || 0), 0);
