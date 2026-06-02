@@ -212,6 +212,7 @@ function KanbanColumn({
         flexDirection: 'column',
         gap: 6,
         transition: 'background .1s',
+        alignSelf: 'stretch',
       }}
     >
       {/* Header */}
@@ -243,6 +244,7 @@ function KanbanColumn({
       {/* Drop zone */}
       <div style={{
         display: 'flex', flexDirection: 'column', gap: 5,
+        flex: 1,
         minHeight: 80,
         padding: isDropTarget ? '4px' : '0',
         borderRadius: 8,
@@ -497,7 +499,7 @@ export default function PagePipeline() {
           paddingBottom: 16,
         }}>
           <div style={{
-            display: 'flex', gap: 8, alignItems: 'flex-start',
+            display: 'flex', gap: 8, alignItems: 'stretch',
             minWidth: 'max-content', height: '100%',
           }}>
             {stages.map(stage => {
