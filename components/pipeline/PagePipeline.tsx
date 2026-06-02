@@ -285,9 +285,9 @@ function resolveStage(
   if (!overrideKey) return naturalKey;
   const naturalIdx = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
-  // Si l'étape naturelle a rattrapé ou dépassé le manuel → suivre naturel
-  if (naturalIdx >= overrideIdx) return naturalKey;
-  // Sinon garder le manuel
+  // Si l'étape naturelle a DÉPASSÉ le manuel → suivre naturel (avancement auto)
+  // Si naturel === manuel ou naturel < manuel → garder l'override (permet le drag en arrière)
+  if (naturalIdx > overrideIdx) return naturalKey;
   return overrideKey;
 }
 
