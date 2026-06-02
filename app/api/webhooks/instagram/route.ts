@@ -98,6 +98,43 @@ export async function POST(request: Request) {
       }
     }
 
+    // ── Events messaging (DMs entrants) — détection réponse au message d'accroche ──
+    for (const messaging of entry.messaging || []) {
+      const senderId = String(messaging.sender?.id || '');
+      const recipientId = String(messaging.recipient?.id || '');
+      const msgText: string = messaging.message?.text || '';
+      const isEcho = !!messaging.message?.is_echo; // true = DM envoyé par nous, false = DM reçu
+
+      // On ne traite que les messages REÇUS (pas nos propres envois)
+      if (isEcho || !senderId || !msgText) continue;
+
+      // Le sender est le prospect — cherche un lead avec cet ig_user_id
+      // qui a reçu le LM (lead_magnet_sent = true) et n'a pas encore répondu
+      if (!resolvedMatch) continue;
+      const { profile_id: pid } = resolvedMatch;
+
+      const { data: leadToUpdate } = await serviceSupabase
+        .from('instagram_leads')
+        .select('id, hook_replied')
+        .eq('profile_id', pid)
+        .eq('ig_user_id', senderId)
+        .eq('lead_magnet_sent', true)
+        .eq('hook_replied', false)
+        .order('detected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (leadToUpdate) {
+        await serviceSupabase
+          .from('instagram_leads')
+          .update({ hook_replied: true })
+          .eq('id', leadToUpdate.id);
+
+        console.log(`[IG Webhook] hook_replied=true — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}`);
+        pushEvent({ type: 'hook_replied', ig_user_id: senderId, lead_id: leadToUpdate.id });
+      }
+    }
+
     // Events sur les changements (commentaires)
     for (const change of entry.changes || []) {
       if (change.field !== 'comments') continue;
