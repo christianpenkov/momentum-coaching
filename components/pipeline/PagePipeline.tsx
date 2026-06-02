@@ -462,7 +462,7 @@ export default function PagePipeline() {
           </p>
           {!loading && (
             <p className="page-sub" style={{ fontSize: 11, marginTop: 2 }}>
-              Le pipeline se met à jour tout seul · glisse une carte pour forcer sa position
+              Le pipeline se met à jour tout seul · glisse une carte pour la déplacer, le système reprendra sa position dès qu&apos;un nouvel événement sera détecté
             </p>
           )}
         </div>
