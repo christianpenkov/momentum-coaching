@@ -1141,7 +1141,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           { label: 'Abonnés', value: fmt(ig.followers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés' },
           { label: 'Publications', value: fmt(postsInPeriod), sub: `${period}j`, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: `${period}j`, color: 'var(--ink)', key: 'Reach' },
-          { label: 'Vues', value: fmt(igViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues' },
+          { label: 'Clics site web', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
           { label: 'Interactions posts', value: fmt(igEngagedP), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
         ].map(s => (
           <div key={s.key ?? s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
@@ -1158,11 +1158,11 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
       {/* Ligne 2 — 5 stats performance */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
-          { label: 'Clics site web', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Reach rate', value: fmtPct(reachRate), sub: 'personnes / abonnés', color: 'var(--ink)', key: 'Reach rate' },
-          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'non disponible via Meta', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Viralité' },
+          { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
+          { label: 'Vues profil', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues profil' },
+          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Viralité' },
         ].map(s => (
           <div key={s.key} onClick={() => openStatModal(s.key, s.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
