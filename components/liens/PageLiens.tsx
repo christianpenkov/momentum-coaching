@@ -1440,6 +1440,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
   const [history, setHistory] = useState<{ id: string; ig_username: string; short_url: string; content_id: string | null; created_at: string }[]>([]);
   const [historyCopied, setHistoryCopied] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState('');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Charge l'historique des liens générés
   useEffect(() => {
@@ -1642,8 +1643,9 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
           {history.filter(h => !historySearch || h.ig_username.toLowerCase().includes(historySearch.toLowerCase())).map(h => {
             const post = posts.find(p => p.id === h.content_id);
             const copied = historyCopied === h.id;
+            const isDeleting = deletingId === h.id;
             return (
-              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}`, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>@{h.ig_username}</span>
@@ -1657,6 +1659,19 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                   onClick={() => { navigator.clipboard.writeText(h.short_url); setHistoryCopied(h.id); setTimeout(() => setHistoryCopied(null), 2000); }}
                   style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, border: `1px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : BG, color: copied ? 'var(--green)' : MUTED, cursor: 'pointer', transition: 'all .15s' }}>
                   {copied ? '✓ Copié' : 'Copier'}
+                </button>
+                <button
+                  onClick={async () => {
+                    if (isDeleting) return;
+                    setDeletingId(h.id);
+                    try {
+                      await fetch(`/api/client/prospect-links?id=${h.id}`, { method: 'DELETE' });
+                      setHistory(prev => prev.filter(x => x.id !== h.id));
+                    } finally { setDeletingId(null); }
+                  }}
+                  title="Supprimer ce lien"
+                  style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 6, border: 'none', background: 'none', color: MUTED, cursor: 'pointer', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
+                  ×
                 </button>
               </div>
             );
