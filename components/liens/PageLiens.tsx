@@ -202,7 +202,9 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
     if (!isValid || !canGenerate) return;
     setLoading(true); setError(null);
     try {
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: `Bio ${platform === 'instagram' ? 'Instagram' : 'YouTube'}`, utmSource: domain, utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: `bio-${platform === 'instagram' ? 'ig' : 'yt'}` });
+      const bioLabel = platform === 'instagram' ? 'Prendre RDV' : 'Prendre RDV';
+      const bioPath = platform === 'instagram' ? 'bio-ig' : 'bio-yt';
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: bioLabel, utmSource: domain, utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: bioPath });
       setResult(shortUrl);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -214,12 +216,13 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
     const key = `${lmId}-${platform}`;
     setGenLmLoading(prev => ({ ...prev, [key]: true })); setError(null);
     try {
+      const lmBioSlug = slugify(lm.name.split(/\s+/).slice(0, 3).join('-'));
       const { shortUrl } = await callShortio({
         profileId, domainId: domain, originalUrl: lm.url,
-        title: `LM Bio ${platform.toUpperCase()} — ${lm.name}`,
+        title: lm.name,
         utmSource: domain, utmMedium: 'bio',
         utmCampaign: `lm-bio-${platform}`,
-        path: `lm-bio-${platform}-${slugify(lm.name.split(/\s+/).slice(0, 2).join('-'))}`,
+        path: `${lmBioSlug}-${platform === 'ig' ? 'ig' : 'yt'}`,
       });
       // Sauvegarde en DB
       await fetch('/api/client/lead-magnets', {
@@ -438,7 +441,20 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     if (validationError) { setError(validationError); return; }
     const destUrl = destType === 'calendly' ? calendlyUrl.trim() : normalizeUrl(customUrl);
     const utms = { source: domain, medium: 'description', campaign: destType, content: post.id };
-    const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
+    const captionSlug = slugify(post.caption.slice(0, 24));
+    // Path lisible selon la destination — différent pour chaque type pour éviter les 409 cross-type
+    const selectedLm = destType === 'leadmagnet' ? leadMagnets.find(lm => lm.url === customUrl) : null;
+    const path = destType === 'calendly'
+      ? `rdv-${captionSlug}`
+      : destType === 'leadmagnet' && selectedLm
+        ? `${slugify(selectedLm.keyword || selectedLm.name.slice(0, 16))}-${captionSlug}`
+        : `lien-${captionSlug}`;
+    // Title lisible (pas d'UTMs dans le nom — juste ce que c'est)
+    const title = destType === 'calendly'
+      ? `Prendre RDV — ${post.caption.slice(0, 40)}`
+      : destType === 'leadmagnet' && selectedLm
+        ? `${selectedLm.name} — ${post.caption.slice(0, 30)}`
+        : `Lien — ${post.caption.slice(0, 40)}`;
     setLoading(true); setError(null);
     try {
       let shortId = post.descShortId || '';
@@ -448,7 +464,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         // Cas nominal : on a déjà un ID Short.io — on met juste à jour la destination
         const patchRes = await fetch('/api/shortio/links', {
           method: 'PATCH', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, ...{ utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content } }),
+          body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title, ...{ utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content } }),
         });
         const patchData = await patchRes.json();
         if (!patchRes.ok) throw new Error(patchData.error || 'Erreur mise à jour Short.io');
@@ -457,7 +473,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         // Pas d'ID connu : on crée (ou on récupère l'existant via 409)
         const postRes = await fetch('/api/shortio/links', {
           method: 'POST', headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ profileId, domainId: domain, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content, path }),
+          body: JSON.stringify({ profileId, domainId: domain, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content, path }),
         });
         const postData = await postRes.json();
         if (!postRes.ok) throw new Error(postData.error || 'Erreur Short.io');
@@ -469,7 +485,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         if (postData.existed && shortId) {
           const patchRes = await fetch('/api/shortio/links', {
             method: 'PATCH', headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
+            body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
           });
           const patchData = await patchRes.json();
           if (patchRes.ok) shortUrl = patchData.shortUrl;
@@ -872,8 +888,10 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setLoading(true); setError(null);
     try {
       // Short.io d'abord — si ça échoue, on ne crée pas de LM orphelin en DB
-      const path = `lm-${slugify(keyword)}-${post.id.slice(-4)}`;
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: `LM — ${lmName} · ${post.caption.slice(0, 30)}`, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: `lm-${slugify(keyword)}`, utmContent: post.id, path });
+      // Path : {keyword}-{slug-caption} — lisible, sans "lm-" ni UTMs dans le nom
+      const path = `${slugify(keyword)}-${slugify(post.caption.slice(0, 20))}`;
+      const lmTitle = `${lmName} — ${post.caption.slice(0, 40)}`;
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: lmTitle, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: slugify(keyword), utmContent: post.id, path });
       // Short.io OK — on peut créer le LM en DB maintenant
       if (lmMode === 'new') {
         const res = await fetch('/api/client/lead-magnets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: lmName, url: lmUrl, keyword }) });
@@ -1355,7 +1373,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
       const { shortUrl } = await callShortio({
         profileId, domainId: domain,
         originalUrl: calendlyUrl.trim(),
-        title: `Calendly — @${username}`,
+        title: `RDV avec @${username}`,
         utmSource: domain, utmMedium: 'dm',
         utmCampaign: `prospect-${us}`,
         utmContent: resolvedPostId,
