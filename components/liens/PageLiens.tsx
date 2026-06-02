@@ -476,7 +476,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     return patchData.shortUrl as string;
   };
 
-  const generate = async () => {
+  const generate = async (forceLmId?: string) => {
     setError(null);
     if (!canGenerate) { setError('Short.io non connecté — configure ta clé dans Réglages.'); return; }
 
@@ -505,7 +505,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
       } catch (e: any) { setError(e.message); } finally { setLoading(false); }
 
     } else if (destType === 'leadmagnet') {
-      const lm = leadMagnets.find(l => l.id === selectedLmId);
+      const lm = leadMagnets.find(l => l.id === (forceLmId || selectedLmId));
       if (!lm) { setError('Sélectionne un lead magnet.'); return; }
       setLoading(true);
       try {
@@ -578,23 +578,46 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
           ? <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>→ <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span></div>
           : <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans ⚙ Paramètres.</div>
       )}
+      {/* Lead magnet : liste avec bouton Générer inline + lien copier une fois généré */}
       {destType === 'leadmagnet' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 2 }}>Choisir un lead magnet</div>
           {leadMagnets.length === 0
             ? <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '10px 12px' }}>Aucun LM — crée-en un via Lead Magnets en haut.</div>
-            : leadMagnets.map(lm => (
-                <div key={lm.id} onClick={() => setSelectedLmId(lm.id === selectedLmId ? '' : lm.id)} style={{
-                  padding: '10px 12px', borderRadius: 8, cursor: 'pointer',
-                  border: `1.5px solid ${selectedLmId === lm.id ? BLUE : BORDER}`,
-                  background: selectedLmId === lm.id ? BLUE_SOFT : SURFACE, transition: 'all .12s',
-                }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: selectedLmId === lm.id ? BLUE : INK, marginBottom: 2 }}>{lm.name}</div>
-                  {lm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED }}>#{lm.keyword}</span>}
-                </div>
-              ))}
+            : leadMagnets.map(lm => {
+                const isThisLm = post.descLmLmId === lm.id;
+                const lmUrl = isThisLm ? post.descLmUrl : null;
+                return (
+                  <div key={lm.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8,
+                    border: `1.5px solid ${isThisLm ? BLUE : BORDER}`,
+                    background: isThisLm ? BLUE_SOFT : SURFACE,
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: isThisLm ? BLUE : INK }}>{lm.name}</span>
+                      {lm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginLeft: 8 }}>#{lm.keyword}</span>}
+                    </div>
+                    {lmUrl
+                      ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                          <span style={{ fontSize: 11, color: BLUE, fontWeight: 600 }}>{lmUrl}</span>
+                          <CopyBtn url={lmUrl} />
+                        </div>
+                      )
+                      : (
+                        <button
+                          onClick={() => { setSelectedLmId(lm.id); generate(lm.id); }}
+                          disabled={loading || !canGenerate}
+                          style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: loading || !canGenerate ? 'not-allowed' : 'pointer', opacity: loading || !canGenerate ? 0.4 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                          {loading && selectedLmId === lm.id ? <Spinner /> : 'Générer'}
+                        </button>
+                      )
+                    }
+                  </div>
+                );
+              })}
         </div>
       )}
+
       {destType === 'custom' && (
         <input value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="https://..."
           style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
@@ -603,10 +626,10 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
       {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
-      {/* Lien existant pour ce type de destination */}
-      {currentUrl && (
+      {/* Lien Calendly — affiché + vérification post */}
+      {destType === 'calendly' && currentUrl && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-          {post.permalink && destType === 'calendly' && (
+          {post.permalink && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
               <span style={{ fontSize: 11, color: MUTED, flex: 1 }}>Vérifie que le lien est dans la description.</span>
               <a href={post.permalink} target="_blank" rel="noreferrer" style={{ fontSize: 11, fontWeight: 600, color: BLUE, textDecoration: 'none', whiteSpace: 'nowrap', padding: '4px 10px', border: `1px solid ${BLUE}`, borderRadius: 6 }}>Voir ↗</a>
@@ -616,11 +639,22 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         </div>
       )}
 
-      {/* Calendly : une seule génération, pas de regénération */}
-      {destType === 'calendly' && currentUrl ? null : (
-        <button onClick={generate} disabled={loading || !canGenerate || !canGenBtn}
+      {/* Lien custom — affiché si généré */}
+      {destType === 'custom' && currentUrl && (
+        <GeneratedUrlRow url={currentUrl} label="Lien description" />
+      )}
+
+      {/* Bouton générer — Calendly (une fois) et Custom uniquement */}
+      {destType === 'calendly' && !currentUrl && (
+        <button onClick={() => generate()} disabled={loading || !canGenerate || !canGenBtn}
           style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-          {loading ? <><Spinner /> Génération...</> : (currentUrl && destType !== 'calendly') ? 'Regénérer le lien' : 'Générer le lien description'}
+          {loading ? <><Spinner /> Génération...</> : 'Générer le lien description'}
+        </button>
+      )}
+      {destType === 'custom' && (
+        <button onClick={() => generate()} disabled={loading || !canGenerate || !canGenBtn}
+          style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {loading ? <><Spinner /> Génération...</> : currentUrl ? 'Regénérer le lien' : 'Générer le lien description'}
         </button>
       )}
     </div>
