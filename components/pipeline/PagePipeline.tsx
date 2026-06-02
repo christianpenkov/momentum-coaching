@@ -386,12 +386,13 @@ export default function PagePipeline() {
 
   const ytCards: CardData[] = [];
   if (data) {
-    // Tous les calls qui ne viennent pas d'IG : YT description, bio, liens directs, sans source
+    // Calls YT = source contient "yt"/"youtube" OU utm_medium renseigné (bio, description, pinned…)
+    // Les calls sans UTM (bookés directement sans lien tracké) sont exclus
     const ytCalls = data.calls.filter(c => {
       const src = c.source?.toLowerCase() ?? '';
-      // Exclure uniquement les calls IG trackés (ig_lead_id ou source ig*)
-      if (src.startsWith('ig')) return false;
-      return true;
+      if (src.includes('yt') || src.includes('youtube')) return true;
+      if (c.utm_medium) return true;
+      return false;
     });
     for (const call of ytCalls) {
       let natural: YtStageKey = 'call_booked';
