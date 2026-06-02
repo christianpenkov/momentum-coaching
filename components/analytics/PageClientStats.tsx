@@ -5332,16 +5332,25 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           .eq('profile_id', targetId)
           .order('detected_at', { ascending: false })
           .limit(500);
-        if (leadsData) setIgLeads(leadsData.map((l: any) => ({
-          igUserId: l.ig_user_id,
-          igUsername: l.ig_username || 'Anonyme',
-          postId: l.media_id || '',
-          postTitle: l.media_permalink || l.media_id || '',
-          postType: 'IG',
-          commentedAt: l.detected_at,
-          keyword: l.keyword_matched || '',
-          leadMagnetSent: l.lead_magnet_sent || false,
-        })));
+        if (leadsData) {
+          // Déduplique par ig_user_id — dernière interaction (données déjà triées DESC)
+          const seen = new Set<string>();
+          const deduplicated = leadsData.filter((l: any) => {
+            if (!l.ig_user_id || seen.has(l.ig_user_id)) return false;
+            seen.add(l.ig_user_id);
+            return true;
+          });
+          setIgLeads(deduplicated.map((l: any) => ({
+            igUserId: l.ig_user_id,
+            igUsername: l.ig_username || 'Anonyme',
+            postId: l.media_id || '',
+            postTitle: l.media_permalink || l.media_id || '',
+            postType: 'IG',
+            commentedAt: l.detected_at,
+            keyword: l.keyword_matched || '',
+            leadMagnetSent: l.lead_magnet_sent || false,
+          })));
+        }
 
         // Charger les lead magnets configurés
         const { data: lmData } = await supabase
