@@ -19,11 +19,11 @@ export async function GET() {
       .eq('lead_magnet_sent', true)
       .order('detected_at', { ascending: false }),
     supa.from('prospect_links')
-      .select('id, ig_username, short_url, content_id, created_at')
+      .select('id, ig_username, short_url, content_id, created_at, short_link_path')
       .eq('profile_id', user.id)
       .order('created_at', { ascending: false }),
     supa.from('calls')
-      .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, deal_closed, revenue, source, ig_lead_id, utm_content, created_at')
+      .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, deal_closed, revenue, source, ig_lead_id, utm_content, utm_medium, short_link_path, created_at')
       .or(`coach_id.eq.${user.id},client_id.in.(select id from clients where profile_id = '${user.id}')`)
       .order('scheduled_at', { ascending: false }),
     supa.from('pipeline_overrides')

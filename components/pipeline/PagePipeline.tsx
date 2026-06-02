@@ -22,6 +22,7 @@ interface ProspectLink {
   id: string;
   ig_username: string;
   short_url: string;
+  short_link_path: string | null;
   content_id: string | null;
   created_at: string;
   humanClicks30d?: number;
@@ -39,6 +40,8 @@ interface Call {
   source: string | null;
   ig_lead_id: string | null;
   utm_content: string | null;
+  utm_medium: string | null;
+  short_link_path: string | null;
   created_at: string;
 }
 
@@ -351,11 +354,13 @@ export default function PagePipeline() {
       // Vérifier si le lien Calendly a été cliqué (via shortio — pas dispo directement ici, on check prospect humanClicks)
       if (prospect && (prospect as any).humanClicks30d > 0) natural = 'link_clicked';
 
-      const call = data.calls.find(c =>
-        c.ig_lead_id === lead.id ||
-        c.invitee_email?.toLowerCase().includes(lead.ig_username.toLowerCase()) ||
-        (c.source?.startsWith('ig'))
-      );
+      // Priorité : ig_lead_id direct, puis lien short_link_path partagé avec prospect_link
+      const call = data.calls.find(c => {
+        if (c.ig_lead_id === lead.id) return true;
+        if (prospect && c.short_link_path && prospect.short_link_path &&
+          c.short_link_path === prospect.short_link_path) return true;
+        return false;
+      });
       if (call) {
         natural = 'call_booked';
         if (new Date(call.scheduled_at) < new Date() && call.status === 'active' && !call.no_show) natural = 'showed_up';
@@ -381,10 +386,13 @@ export default function PagePipeline() {
 
   const ytCards: CardData[] = [];
   if (data) {
-    const ytCalls = data.calls.filter(c =>
-      c.source?.startsWith('yt') || c.source?.startsWith('youtube') ||
-      (!c.source?.startsWith('ig') && c.utm_content)
-    );
+    // Tous les calls qui ne viennent pas d'IG : YT description, bio, liens directs, sans source
+    const ytCalls = data.calls.filter(c => {
+      const src = c.source?.toLowerCase() ?? '';
+      // Exclure uniquement les calls IG trackés (ig_lead_id ou source ig*)
+      if (src.startsWith('ig')) return false;
+      return true;
+    });
     for (const call of ytCalls) {
       let natural: YtStageKey = 'call_booked';
       if (new Date(call.scheduled_at) < new Date() && call.status === 'active' && !call.no_show) natural = 'showed_up';
@@ -397,7 +405,9 @@ export default function PagePipeline() {
       ytCards.push({
         key: call.id,
         name: call.invitee_name || 'Prospect',
-        sub: call.utm_content ? `Vidéo ·${call.utm_content.slice(0, 10)}` : 'YouTube',
+        sub: call.utm_medium
+          ? `${call.utm_medium}${call.utm_content ? ` · ${call.utm_content.slice(0, 12)}` : ''}`
+          : call.source ?? 'YouTube',
         date: timeAgo(call.scheduled_at),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
