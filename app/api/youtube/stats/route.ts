@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { gunzipSync } from 'zlib';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -65,6 +66,70 @@ function getStartDate(daysAgo: number) {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
   return d.toISOString().split('T')[0];
+}
+
+// Récupère les CTR par vidéo depuis la Reporting API (channel_reach_basic_a1)
+// Agrège tous les rapports disponibles (30 derniers jours max) pour avoir des données complètes
+async function fetchCtrByVideo(accessToken: string): Promise<Record<string, number | null>> {
+  const auth = { Authorization: `Bearer ${accessToken}` };
+  try {
+    const jobsRes = await fetch('https://youtubereporting.googleapis.com/v1/jobs', { headers: auth });
+    if (!jobsRes.ok) return {};
+    const jobsData = await jobsRes.json();
+    const reachJob = (jobsData.jobs || []).find((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
+    if (!reachJob) return {};
+
+    const reportsRes = await fetch(
+      `https://youtubereporting.googleapis.com/v1/jobs/${reachJob.id}/reports`,
+      { headers: auth }
+    );
+    if (!reportsRes.ok) return {};
+    const reportsData = await reportsRes.json();
+    const reports: any[] = (reportsData.reports || [])
+      .sort((a: any, b: any) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime())
+      .slice(0, 30); // 30 derniers rapports journaliers = ~30 jours
+
+    // Télécharger tous les rapports en parallèle
+    const csvTexts = await Promise.all(reports.map(async (report: any) => {
+      try {
+        const dlRes = await fetch(report.downloadUrl, { headers: auth });
+        if (!dlRes.ok) return '';
+        const buffer = Buffer.from(await dlRes.arrayBuffer());
+        try { return gunzipSync(buffer).toString('utf-8'); } catch { return buffer.toString('utf-8'); }
+      } catch { return ''; }
+    }));
+
+    // Agréger impressions et CTR par video_id sur tous les rapports
+    const byVideo: Record<string, { impressions: number; ctrSum: number; ctrCount: number }> = {};
+    for (const csv of csvTexts) {
+      if (!csv) continue;
+      const lines = csv.trim().split('\n');
+      if (lines.length < 2) continue;
+      const headers = lines[0].split(',').map((h: string) => h.trim().replace(/^"|"$/g, ''));
+      const idxVideo = headers.indexOf('video_id');
+      const idxImpr = headers.indexOf('video_thumbnail_impressions');
+      const idxCtr  = headers.indexOf('video_thumbnail_impressions_ctr');
+      if (idxVideo === -1 || idxImpr === -1 || idxCtr === -1) continue;
+
+      for (const line of lines.slice(1)) {
+        const cols = line.split(',').map((v: string) => v.trim().replace(/^"|"$/g, ''));
+        const videoId = cols[idxVideo];
+        if (!videoId) continue;
+        const impr = parseFloat(cols[idxImpr]) || 0;
+        const ctr  = parseFloat(cols[idxCtr])  || 0;
+        if (!byVideo[videoId]) byVideo[videoId] = { impressions: 0, ctrSum: 0, ctrCount: 0 };
+        byVideo[videoId].impressions += impr;
+        if (impr > 0) { byVideo[videoId].ctrSum += ctr; byVideo[videoId].ctrCount++; }
+      }
+    }
+
+    // Convertir en CTR moyen en % par vidéo
+    const result: Record<string, number | null> = {};
+    for (const [videoId, s] of Object.entries(byVideo)) {
+      result[videoId] = s.ctrCount > 0 ? parseFloat((s.ctrSum / s.ctrCount * 100).toFixed(2)) : null;
+    }
+    return result;
+  } catch { return {}; }
 }
 
 export async function GET(request: Request) {
@@ -203,7 +268,7 @@ export async function GET(request: Request) {
 
   if (videoIds.length > 0) {
     const videoIdsStr = videoIds.join(',');
-    const [detailsRes, analyticsVideosRes, subsAllTimeRes] = await Promise.all([
+    const [detailsRes, analyticsVideosRes, subsAllTimeRes, ctrByVideo] = await Promise.all([
       fetch(
         `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIdsStr}`,
         { headers: authHeader }
@@ -218,6 +283,8 @@ export async function GET(request: Request) {
         `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,subscribersGained,subscribersLost&dimensions=video&maxResults=50`,
         { headers: authHeader }
       ),
+      // CTR par vidéo depuis la Reporting API (channel_reach_basic_a1)
+      fetchCtrByVideo(accessToken),
     ]);
 
     const detailsData = await detailsRes.json();
@@ -275,7 +342,7 @@ export async function GET(request: Request) {
         subsGained30d: a.subsGained30d,
         subsGainedTotal: st.subsGainedTotal,
         subsLostTotal: st.subsLostTotal,
-        ctr: null, // Alimenté via Reporting API (channel_reach_basic_a1) — disponible ~24h après connexion
+        ctr: ctrByVideo[v.id] ?? null,
         url: `https://www.youtube.com/watch?v=${v.id}`,
       };
     });
