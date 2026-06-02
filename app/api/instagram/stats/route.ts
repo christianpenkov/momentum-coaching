@@ -64,33 +64,6 @@ export async function GET(request: Request) {
     targetProfileId = profileId;
   }
 
-  // Vérifie si le cache est frais (< 6h) — sauf si force=true
-  const forceRefresh = searchParams.get('force') === 'true';
-  if (!forceRefresh) {
-    const { data: cached } = await serviceSupabase
-      .from('cached_ig_stats')
-      .select('account, aggregated, chart_data, demographics, online_followers, posts, cached_at')
-      .eq('profile_id', targetProfileId)
-      .single();
-
-    if (cached) {
-      const ageMs = Date.now() - new Date(cached.cached_at).getTime();
-      const SIX_HOURS = 6 * 60 * 60 * 1000;
-      if (ageMs < SIX_HOURS) {
-        return NextResponse.json({
-          ...cached.account,
-          ...cached.aggregated,
-          chartData: cached.chart_data,
-          demographics: cached.demographics,
-          onlineFollowers: cached.online_followers,
-          posts: cached.posts,
-          _cached: true,
-          _cachedAt: cached.cached_at,
-        });
-      }
-    }
-  }
-
   const creds = await getRefreshedToken(targetProfileId);
   if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
@@ -314,20 +287,7 @@ export async function GET(request: Request) {
     })
   );
 
-  // Upsert des posts dans cached_posts — en arrière-plan
-  const postsToCache = mediaWithInsights.map((p: any) => ({
-    id: p.id,
-    profile_id: targetProfileId,
-    platform: 'IG',
-    caption: p.caption || null,
-    thumbnail: p.thumbnail || null,
-    permalink: p.permalink || null,
-    cached_at: new Date().toISOString(),
-  }));
-  void serviceSupabase.from('cached_posts').upsert(postsToCache, { onConflict: 'id,profile_id' });
-
-  // Upsert du cache stats complet — en arrière-plan
-  const accountPayload = {
+  return NextResponse.json({
     username: accountData.username,
     name: accountData.name,
     profilePicture: accountData.profile_picture_url || null,
@@ -335,25 +295,15 @@ export async function GET(request: Request) {
     following: accountData.follows_count || 0,
     mediaCount: accountData.media_count || 0,
     biography: accountData.biography || '',
-  };
-  const aggregatedPayload = {
-    reach30d, accountsEngaged30d, totalInteractions30d, followsUnfollows30d,
-    profileLinksTaps30d, websiteClicks30d, profileViews30d, views30d, viewsFollowerBreakdown,
-  };
-  void serviceSupabase.from('cached_ig_stats').upsert({
-    profile_id: targetProfileId,
-    account: accountPayload,
-    aggregated: aggregatedPayload,
-    chart_data: chartData,
-    demographics,
-    online_followers: onlineFollowers,
-    posts: mediaWithInsights,
-    cached_at: new Date().toISOString(),
-  }, { onConflict: 'profile_id' });
-
-  return NextResponse.json({
-    ...accountPayload,
-    ...aggregatedPayload,
+    reach30d,
+    accountsEngaged30d,
+    totalInteractions30d,
+    followsUnfollows30d,
+    profileLinksTaps30d,
+    websiteClicks30d,
+    profileViews30d,
+    views30d,
+    viewsFollowerBreakdown,
     chartData,
     posts: mediaWithInsights,
     demographics,

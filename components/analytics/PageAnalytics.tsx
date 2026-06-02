@@ -3168,38 +3168,65 @@ export default function PageAnalytics({ profileId }: { profileId?: string } = {}
   const [msgs, setMsgs] = useState<IGMessages | null>(null);
   const [shortio, setShortio] = useState<ShortioStats | null>(null);
   const [calls, setCalls] = useState<CallRecord[]>([]);
-  const [loadingIg, setLoadingIg] = useState(true);
-  const [loadingYt, setLoadingYt] = useState(true);
-  const [loadingStripe, setLoadingStripe] = useState(true);
-  const [loadingMsgs, setLoadingMsgs] = useState(true);
-  const [loadingShortio, setLoadingShortio] = useState(true);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const supabase = createClient();
     const q = profileId ? `?profileId=${profileId}` : '';
-    const safe = async (fn: () => Promise<Response>) => {
-      try { const r = await fn(); return r.ok ? r.json() : null; } catch { return null; }
-    };
 
-    safe(() => fetch(`/api/instagram/stats${q}`)).then(d => { if (d && !d.error) setIg(d); setLoadingIg(false); });
-    safe(() => fetch(`/api/youtube/stats${q}`)).then(d => { if (d && !d.error) setYt(d); setLoadingYt(false); });
-    safe(() => fetch(`/api/stripe/client-data${q}`)).then(d => { if (d && !d.error) setStripe(d); setLoadingStripe(false); });
-    safe(() => fetch(`/api/instagram/messages${q}`)).then(d => { if (d && !d.error) setMsgs(d); setLoadingMsgs(false); });
-    safe(() => fetch(`/api/shortio/stats${q}`)).then(d => { if (d && !d.error) setShortio(d); setLoadingShortio(false); });
+    async function load() {
+      const safe = async (fn: () => Promise<Response>) => {
+        try { const r = await fn(); return r.ok ? r.json() : null; } catch { return null; }
+      };
 
-    supabase.auth.getUser().then(async ({ data: { user } }) => {
-      if (!user) return;
-      if (profileId) {
-        const { data } = await supabase.from('calls').select('*').eq('coach_id', user.id).order('scheduled_at', { ascending: false }).limit(500);
-        if (data) setCalls(data);
-      } else {
-        const { data: clientRow } = await supabase.from('clients').select('id').eq('profile_id', user.id).maybeSingle();
-        if (clientRow) {
-          const { data } = await supabase.from('calls').select('*').eq('client_id', clientRow.id).order('scheduled_at', { ascending: false }).limit(500);
+      const [igData, ytData, stripeData, msgsData, shortioData] = await Promise.all([
+        safe(() => fetch(`/api/instagram/stats${q}`)),
+        safe(() => fetch(`/api/youtube/stats${q}`)),
+        safe(() => fetch(`/api/stripe/client-data${q}`)),
+        safe(() => fetch(`/api/instagram/messages${q}`)),
+        safe(() => fetch(`/api/shortio/stats${q}`)),
+      ]);
+
+      if (igData && !igData.error) setIg(igData);
+      if (ytData && !ytData.error) setYt(ytData);
+      if (stripeData && !stripeData.error) setStripe(stripeData);
+      if (msgsData && !msgsData.error) setMsgs(msgsData);
+      if (shortioData && !shortioData.error) setShortio(shortioData);
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        if (profileId) {
+          // Mode coach : calls de l'élève filtrés par coach_id (le coach connecté)
+          const { data } = await supabase
+            .from('calls')
+            .select('*')
+            .eq('coach_id', user.id)
+            .order('scheduled_at', { ascending: false })
+            .limit(500);
           if (data) setCalls(data);
+        } else {
+          // Mode élève : calls via client_id → profile_id de l'élève connecté
+          const { data: clientRow } = await supabase
+            .from('clients')
+            .select('id')
+            .eq('profile_id', user.id)
+            .maybeSingle();
+          if (clientRow) {
+            const { data } = await supabase
+              .from('calls')
+              .select('*')
+              .eq('client_id', clientRow.id)
+              .order('scheduled_at', { ascending: false })
+              .limit(500);
+            if (data) setCalls(data);
+          }
         }
       }
-    });
+
+      setLoading(false);
+    }
+
+    load();
   }, [profileId]);
 
   const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Revenus', 'Short.io'];
@@ -3234,13 +3261,17 @@ export default function PageAnalytics({ profileId }: { profileId?: string } = {}
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
-      {tab === 0 && (loadingIg ? <Loading /> : <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} />)}
-      {tab === 1 && (loadingIg ? <Loading /> : <TabInstagram ig={ig} period={period} />)}
-      {tab === 2 && (loadingYt ? <Loading /> : <TabYouTube yt={yt} period={period} />)}
-      {tab === 3 && (loadingMsgs ? <Loading /> : <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} />)}
-      {tab === 4 && (loadingMsgs ? <Loading /> : <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} />)}
-      {tab === 5 && (loadingStripe ? <Loading /> : <TabRevenues stripe={stripe} period={period} />)}
-      {tab === 6 && (loadingShortio ? <Loading /> : <TabShortio shortio={shortio} period={period} />)}
+      {loading ? <Loading /> : (
+        <>
+          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} />}
+          {tab === 1 && <TabInstagram ig={ig} period={period} />}
+          {tab === 2 && <TabYouTube yt={yt} period={period} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} />}
+          {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} />}
+          {tab === 5 && <TabRevenues stripe={stripe} period={period} />}
+          {tab === 6 && <TabShortio shortio={shortio} period={period} />}
+        </>
+      )}
     </div>
   );
 }

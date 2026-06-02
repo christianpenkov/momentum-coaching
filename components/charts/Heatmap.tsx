@@ -34,9 +34,9 @@ export default function Heatmap({ rows, maxValue, colLabels }: HeatmapProps) {
         <thead>
           {colLabels && (
             <tr>
-              <th style={{ width: 80, minWidth: 80 }} />
+              <th style={{ width: 36, minWidth: 36 }} />
               {colLabels.map((l, i) => (
-                <th key={i} style={{ fontSize: 10, fontWeight: 500, color: 'var(--muted)', textAlign: 'center', padding: '0 2px 4px' }}>
+                <th key={i} style={{ fontSize: 10, fontWeight: 500, color: 'var(--muted)', textAlign: 'center', padding: 0, width: 26, minWidth: 26 }}>
                   {l}
                 </th>
               ))}
@@ -46,16 +46,16 @@ export default function Heatmap({ rows, maxValue, colLabels }: HeatmapProps) {
         <tbody>
           {rows.map((row, ri) => (
             <tr key={ri}>
-              <td style={{ fontSize: 11, color: 'var(--muted)', paddingRight: 8, whiteSpace: 'nowrap', width: 80, minWidth: 80 }}>
+              <td style={{ fontSize: 11, color: 'var(--muted)', paddingRight: 6, whiteSpace: 'nowrap', width: 36, minWidth: 36, textAlign: 'right' }}>
                 {row.name}
               </td>
               {row.cells.map((cell, ci) => {
                 const level = getLevel(cell.value, max);
                 return (
-                  <td key={ci} title={`${cell.label}: ${cell.value}`}>
+                  <td key={ci} title={`${cell.label}: ${cell.value}`} style={{ padding: 0, width: 26, minWidth: 26 }}>
                     <div
                       className={`heatmap-cell${level > 0 ? ` l${level}` : ''}`}
-                      style={{ width: 20, height: 20, borderRadius: 3 }}
+                      style={{ width: 20, height: 20, borderRadius: 3, margin: '0 auto' }}
                     />
                   </td>
                 );

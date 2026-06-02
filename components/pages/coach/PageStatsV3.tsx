@@ -1945,11 +1945,14 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytViewsD  = periodIndex === 0 ? (ytViews || cur.ytViews) : cur.ytViews;
   const ytClicsD  = cur.ytClics;
 
+  // Clics totaux IG = bio + liens description contenu (postLinks IG)
+  const igPostClics = shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
+  const igTotalClicsD = igBioD + igPostClics;
+
   const igFunnelSteps = [
     { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD), rawValue: igReachD },
-    { label: 'Leads commentaires', value: fmt(igLeadsD), sub: 'mots-clés détectés', rawValue: igLeadsD, rate: (igLeadsD / igReachD) * 100 },
-    { label: 'Clics bio → Calendly', value: fmt(igBioD), sub: 'Short.io', rawValue: igBioD, rate: (igBioD / igReachD) * 100 },
-    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igBioD > 0 ? (igBookes / igBioD) * 100 : 0 },
+    { label: 'Clics liens Calendly', value: fmt(igTotalClicsD), sub: 'bio + descr. + LM', rawValue: igTotalClicsD, rate: igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0 },
+    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0 },
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igHonores > 0 ? (igCloses / igHonores) * 100 : 0 },
     { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
@@ -2759,9 +2762,9 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio }: { msgs: IGMes
 }
 
 function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: Period }) {
+  const [payFilter, setPayFilter] = useState<'all' | 'succeeded' | 'failed'>('all');
   if (!stripe) return <Empty msg="Connecte ton compte Stripe pour voir les revenus." />;
 
-  const arr = stripe.mrr * 12;
   const avgBasket = stripe.recentPayments.length > 0
     ? stripe.recentPayments.filter(p => p.status === 'succeeded').reduce((s, p) => s + p.amount, 0) / stripe.recentPayments.filter(p => p.status === 'succeeded').length
     : 0;
@@ -2769,38 +2772,84 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
     ? pct(stripe.recentPayments.filter(p => p.status !== 'succeeded').length, stripe.recentPayments.length)
     : 0;
 
-  // MRR simulé sur 12 semaines
-  const mrrData = Array.from({ length: 12 }, (_, i) => ({ week: `S${i + 1}`, mrr: Math.round(stripe.mrr * (0.88 + i * 0.01)) }));
+  // Cash contracté = deals signés (mock : recentPayments succeeded)
+  const cashContracte = stripe.recentPayments.filter(p => p.status === 'succeeded').reduce((s, p) => s + p.amount, 0);
+  // Cash collecté = paiements reçus (mock cohérent : légèrement inférieur car délais)
+  const cashCollecte = Math.round(cashContracte * 0.87);
+  const tauxCollecte = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
+  const tauxCollecteColor = tauxCollecte >= 90 ? GREEN : tauxCollecte >= 70 ? AMBER : RED;
+
+  // Graphique 12 semaines — cash contracté vs collecté
+  const cashData = Array.from({ length: 12 }, (_, i) => ({
+    week: `S${i + 1}`,
+    contracte: Math.round(cashContracte * (0.75 + i * 0.022)),
+    collecte: Math.round(cashCollecte * (0.72 + i * 0.024)),
+  }));
 
   // CA par mois simulé sur 3 mois
   const caData = [
-    { month: 'Mars', ca: Math.round(stripe.monthlyRevenue * 0.85) },
-    { month: 'Avril', ca: Math.round(stripe.monthlyRevenue * 0.92) },
-    { month: 'Mai', ca: stripe.monthlyRevenue },
+    { month: 'Mars', ca: Math.round(stripe.monthlyRevenue * 0.85), collecte: Math.round(cashCollecte * 0.80) },
+    { month: 'Avril', ca: Math.round(stripe.monthlyRevenue * 0.92), collecte: Math.round(cashCollecte * 0.88) },
+    { month: 'Mai', ca: stripe.monthlyRevenue, collecte: cashCollecte },
   ];
 
   return (
     <div className="stack">
-      <StatGrid>
-        <Stat label="MRR" value={fmtEur(stripe.mrr)} color={GREEN} />
-        <Stat label="ARR" value={fmtEur(arr)} sub="MRR × 12" />
-        <Stat label="CA ce mois" value={fmtEur(stripe.monthlyRevenue)} />
-        <Stat label="Abonnements actifs" value={fmt(stripe.activeSubscriptions)} />
-        <Stat label="Solde disponible" value={fmtEur(stripe.availableBalance)} />
-        <Stat label="Panier moyen" value={fmtEur(Math.round(avgBasket))} sub="moyenne paiements" />
-        <Stat label="Taux d'échec" value={fmtPct(failedPct)} color={failedPct > 5 ? RED : GREEN} sub="paiements échoués" />
-      </StatGrid>
+      {/* Toutes les cards sur une ligne */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashContracte)}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals signés ce mois</div>
+        </div>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ce mois</div>
+        </div>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux de collecte</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: tauxCollecteColor, lineHeight: 1 }}>{tauxCollecte}%</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>collecté / contracté</div>
+        </div>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Solde disponible</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(stripe.availableBalance)}</div>
+        </div>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>moyenne paiements</div>
+        </div>
+      </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="MRR" sub="12 semaines">
-          <AreaChart data={mrrData} areas={[{ key: 'mrr', label: 'MRR', color: GREEN }]} xKey="week" height={200} formatter={fmtEur} />
+        <Card title="Cash contracté vs collecté" sub="12 semaines">
+          <AreaChart
+            data={cashData}
+            areas={[
+              { key: 'contracte', label: 'Cash contracté', color: BLUE },
+              { key: 'collecte',  label: 'Cash collecté',  color: GREEN },
+            ]}
+            xKey="week"
+            height={200}
+            formatter={fmtEur}
+          />
         </Card>
         <Card title="CA par mois" sub="3 derniers mois">
-          <BarChart data={caData} bars={[{ key: 'ca', label: 'CA', color: ACCENT }]} xKey="month" height={200} formatter={fmtEur} />
+          <BarChart data={caData} bars={[{ key: 'ca', label: 'CA contracté', color: ACCENT }, { key: 'collecte', label: 'Cash collecté', color: GREEN }]} xKey="month" height={200} formatter={fmtEur} />
         </Card>
       </div>
 
-      <Card title="Derniers paiements">
+      <div className="card">
+        <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div className="card-title">Derniers paiements</div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {([['all', 'Tous'], ['succeeded', 'Réussis'], ['failed', 'Échoués']] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setPayFilter(key)} style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: `1px solid ${payFilter === key ? (key === 'failed' ? RED : key === 'succeeded' ? GREEN : 'var(--ink)') : 'var(--border)'}`, background: payFilter === key ? (key === 'failed' ? RED + '15' : key === 'succeeded' ? GREEN + '15' : 'var(--surface-2)') : 'transparent', color: payFilter === key ? (key === 'failed' ? RED : key === 'succeeded' ? GREEN : 'var(--ink)') : 'var(--muted)', transition: 'all .12s' }}>{label}</button>
+            ))}
+          </div>
+        </div>
         <table className="table" style={{ width: '100%' }}>
           <thead>
             <tr>
@@ -2810,7 +2859,7 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
             </tr>
           </thead>
           <tbody>
-            {stripe.recentPayments.map((p, i) => (
+            {stripe.recentPayments.filter(p => payFilter === 'all' || (payFilter === 'succeeded' ? p.status === 'succeeded' : p.status !== 'succeeded')).map((p, i) => (
               <tr key={i} style={{ borderTop: '1px solid var(--border-soft)' }}>
                 <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
                 <td style={{ padding: '10px', fontSize: 12 }}>{p.description || '—'}</td>
@@ -2824,7 +2873,7 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
             ))}
           </tbody>
         </table>
-      </Card>
+      </div>
     </div>
   );
 }
@@ -3772,6 +3821,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
   const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all');
   const [filterHas, setFilterHas] = useState<Set<SortKey>>(new Set());
   const [filterSearch, setFilterSearch] = useState('');
+  const [showAllTable, setShowAllTable] = useState(false);
   // Modal détail contenu
   const [detailModal, setDetailModal] = useState<any | null>(null);
   const [domains, setDomains] = useState<ShortDomain[]>([]);
@@ -3855,6 +3905,8 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
   const dmClics = prospectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
   const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
   const lmEnvoyes = MOCK_LEADS.filter(l => l.leadMagnetSent).length;
+  const hookReplies = MOCK_LEADS.filter((l: any) => l.hookReplied).length;
+  const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
   // Liens Calendly envoyés depuis une conv LM = prospects dont le lead a reçu le LM
   const lmCalendlyLinks = prospectLinks.filter((l: any) => {
     const lead = MOCK_LEADS.find(ml => ml.igUserId === l.igUserId);
@@ -3898,7 +3950,9 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
   // ── Section 2 : tableau consolidé par contenu ──
   const allPostIds = Array.from(new Set([
     ...postLinks.map((l: any) => l.postId + '|' + l.postPlatform),
-    ...prospectLinks.map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
+    ...prospectLinks
+      .filter((l: any) => l.postId && !['bio-ig', 'bio-yt'].includes(l.postId))
+      .map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
     ...MOCK_LEADS.filter(lead => lead.leadMagnetSent).map(lead => lead.postId + '|' + lead.postType),
   ]));
 
@@ -3917,6 +3971,10 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
     const clicsDesc = descLink?.humanClicks30d || 0;
     const lmDetectes = leads.length;
     const lmSent = leads.filter(l => l.leadMagnetSent).length;
+    // Clics sur le lien LM reçu en DM (~60% des LM envoyés ouvrent le lien — mock cohérent)
+    const lmClics = lmSent > 0 ? Math.round(lmSent * 0.62) : 0;
+    // Réponses au message d'accroche après réception du LM (~35% des cliqueurs répondent — mock cohérent)
+    const lmReponses = lmClics > 0 ? Math.round(lmClics * 0.38) : 0;
     const dmCount = dmProspects.length;
     const callsBooked = dmProspects.filter((l: any) => l.callBooked).length;
     const callsHonored = callsBooked; // mock : tous honorés pour simplifier
@@ -3924,7 +3982,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
     const revenue = dmProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, vuesParCall };
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, vuesParCall };
   }).sort((a, b) => b.revenue - a.revenue || (b.clicsDesc + b.dmCount) - (a.clicsDesc + a.dmCount));
 
   // ── Section 3 : pipeline prospects ──
@@ -4007,7 +4065,25 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
-              {/* 2 — Liens envoyés */}
+              {/* 2 — Leads commentaires */}
+              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Leads commentaires</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>mots-clés détectés</div>
+              </div>
+
+              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+
+              {/* 3 — Réponses message d'accroche */}
+              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Réponses accroche LM DM</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: hookReplies > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{fmt(hookReplies)}</div>
+                <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{lmEnvoyes > 0 ? `${tauxHookReply}% des LM envoyés` : 'réponses au message d\'accroche'}</div>
+              </div>
+
+              <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
+
+              {/* 4 — Liens envoyés */}
               <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Liens envoyés Calendly</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(activeLiens)}</div>
@@ -4016,7 +4092,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
-              {/* 3 — Taux d'activation */}
+              {/* 5 — Taux d'activation */}
               <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxActivation}%</div>
@@ -4025,7 +4101,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
-              {/* 4 — Calls bookés depuis liens */}
+              {/* 5 — Calls bookés depuis liens */}
               <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Calls bookés</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
@@ -4049,12 +4125,12 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
             <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#1E3A8A" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#1E3A8A" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#F06292" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#F06292" stopOpacity={0} />
                 </linearGradient>
                 <linearGradient id="grad-chart-yt" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#F97316" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#F97316" stopOpacity={0} />
+                  <stop offset="5%" stopColor="#B91C1C" stopOpacity={0.15} />
+                  <stop offset="95%" stopColor="#B91C1C" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
@@ -4072,8 +4148,8 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                   </div>
                 );
               }} />
-              <Area type="monotone" dataKey="ig" name="Instagram" stroke="#1E3A8A" strokeWidth={2} fill="url(#grad-chart-ig)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#1E3A8A' }} isAnimationActive={false} />
-              <Area type="monotone" dataKey="yt" name="YouTube" stroke="#F97316" strokeWidth={2} fill="url(#grad-chart-yt)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#F97316' }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         ) : (
@@ -4161,9 +4237,9 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
             </svg>
           );
           const rows: SourceRow[] = [
-            { label: 'Bio IG', badge: 'IG', badgeColor: '#E1306C', liens: null, liensLabel: null, clics: bioIG?.humanClicks30d ?? null, booked: bioIGBooked, honored: bioIGHonored, closed: bioIGClosed, revenue: bioIGRevenue, isContentType: true },
+            { label: 'Bio IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: bioIG?.humanClicks30d ?? null, booked: bioIGBooked, honored: bioIGHonored, closed: bioIGClosed, revenue: bioIGRevenue, isContentType: true },
             { label: 'Bio YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: bioYT?.humanClicks30d ?? null, booked: bioYTBooked, honored: bioYTHonored, closed: bioYTClosed, revenue: bioYTRevenue, isContentType: true },
-            { label: 'Lien contenu IG', badge: 'IG', badgeColor: '#E1306C', liens: null, liensLabel: null, clics: igContentClics, booked: igContentBooked, honored: igContentHonored, closed: igContentClosed, revenue: igContentRevenue, isContentType: true },
+            { label: 'Lien contenu IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: igContentClics, booked: igContentBooked, honored: igContentHonored, closed: igContentClosed, revenue: igContentRevenue, isContentType: true },
             { label: 'Lien contenu YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: ytContentClics, booked: ytContentBooked, honored: ytContentHonored, closed: ytContentClosed, revenue: ytContentRevenue, isContentType: true },
             { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0), booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
             { label: 'Cold DM', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (sortant <ArrowOut />)</span>, badge: 'DM', badgeColor: BLUE, liens: coldDMLinks.length, liensLabel: 'liens envoyés', clics: coldDMLinks.length > 0 ? coldClics : null, booked: coldBooked, honored: coldHonored, closed: coldClosed, revenue: coldRevenue, isContentType: false },
@@ -4266,6 +4342,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                     <TH right>Calls honorés</TH>
                     <TH right>Closés</TH>
                     <TH right>Revenue</TH>
+                    <TH right>Rev / call</TH>
                   </tr>
                 </thead>
                 <tbody>
@@ -4328,6 +4405,11 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                             ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(row.revenue)}</span>
                             : <span style={{ color: 'var(--faint)' }}>—</span>}
                         </TD>
+                        <TD right>
+                          {row.honored > 0 && row.revenue > 0
+                            ? <span style={{ fontWeight: 700, color: 'var(--ink)' }}>{fmtEur(Math.round(row.revenue / row.honored))}</span>
+                            : <span style={{ color: 'var(--faint)' }}>—</span>}
+                        </TD>
                       </tr>
                     );
                   })}
@@ -4339,6 +4421,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                     <TD right><span style={{ fontWeight: 800 }}>{totHonored > 0 ? totHonored : <span style={{ color: 'var(--faint)' }}>—</span>}</span></TD>
                     <TD right><span style={{ fontWeight: 800 }}>{totClosed > 0 ? totClosed : <span style={{ color: 'var(--faint)' }}>—</span>}</span></TD>
                     <TD right>{totRevenue > 0 ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(totRevenue)}</span> : <span style={{ color: 'var(--faint)' }}>—</span>}</TD>
+                    <TD right>{totHonored > 0 && totRevenue > 0 ? <span style={{ fontWeight: 800, color: 'var(--ink)' }}>{fmtEur(Math.round(totRevenue / totHonored))}</span> : <span style={{ color: 'var(--faint)' }}>—</span>}</TD>
                   </tr>
                 </tbody>
               </table>
@@ -4402,6 +4485,8 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                 {([
                   ['clicsDesc',    'Clics desc.'],
                   ['lmDetectes',   'Commentaires LM'],
+                  ['lmClics',      'Clics LM'],
+                  ['lmReponses',   'Réponses LM'],
                   ['dmCount',      'Liens DM'],
                   ['callsBooked',  'Calls bookés'],
                   ['callsHonored', 'Calls honorés'],
@@ -4419,28 +4504,29 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                 })}
               </tr>
             </thead>
-            <tbody>
-              {consolidatedRows
-                .filter(row => {
-                  if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
-                  if (filterSearch && !row.title.toLowerCase().includes(filterSearch.toLowerCase())) return false;
-                  for (const k of filterHas) {
-                    const val = row[k as keyof typeof row];
-                    if (!val || val === 0) return false;
-                  }
-                  return true;
-                })
-                .sort((a, b) => {
-                  const av = (a[sortKey as keyof typeof a] as number) || 0;
-                  const bv = (b[sortKey as keyof typeof b] as number) || 0;
-                  return sortDir === 'desc' ? bv - av : av - bv;
-                })
-                .map((row, i) => {
+            {(() => {
+                const filteredRows = consolidatedRows
+                  .filter(row => {
+                    if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
+                    if (filterSearch && !row.title.toLowerCase().includes(filterSearch.toLowerCase())) return false;
+                    for (const k of filterHas) {
+                      const val = row[k as keyof typeof row];
+                      if (!val || val === 0) return false;
+                    }
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    const av = (a[sortKey as keyof typeof a] as number) || 0;
+                    const bv = (b[sortKey as keyof typeof b] as number) || 0;
+                    return sortDir === 'desc' ? bv - av : av - bv;
+                  });
+
+                const ContentRow = ({ row, i, onClose }: { row: typeof filteredRows[0]; i: number; onClose?: () => void }) => {
                   const platformColor = row.platform === 'IG' ? ACCENT : RED;
                   const isSelected = selectedContentId === row.postId;
                   return (
                     <tr key={i}
-                      onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); }}
+                      onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); onClose?.(); }}
                       style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
                       onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
                       onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
@@ -4455,6 +4541,8 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                       </td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
@@ -4463,11 +4551,107 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
                     </tr>
                   );
-                })}
-            </tbody>
+                };
+
+                return <tbody>{filteredRows.slice(0, 7).map((row, i) => <ContentRow key={i} row={row} i={i} />)}</tbody>;
+              })()}
           </table>
         </div>
+
+        {/* Bouton Voir tout */}
+        {consolidatedRows.length > 7 && (
+          <div style={{ marginTop: 12, textAlign: 'center' }}>
+            <button onClick={() => setShowAllTable(true)} style={{ padding: '7px 20px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', transition: 'all .15s' }}>
+              Voir tout ({consolidatedRows.length} contenus)
+            </button>
+          </div>
+        )}
       </div>
+
+      {/* ── Modal "Voir tout" Performance par contenu ── */}
+      {showAllTable && createPortal(
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9998, display: 'flex', alignItems: 'flex-start', justifyContent: 'center', padding: '32px 16px', overflowY: 'auto' }}
+          onClick={() => setShowAllTable(false)}>
+          <div style={{ width: '100%', maxWidth: 1200, background: 'var(--surface)', borderRadius: 14, padding: '24px 28px', boxShadow: '0 20px 60px rgba(0,0,0,.25)' }}
+            onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
+              <div>
+                <div style={{ fontSize: 16, fontWeight: 700 }}>Performance par contenu</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>{consolidatedRows.length} contenus</div>
+              </div>
+              <button onClick={() => setShowAllTable(false)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
+            </div>
+            <div style={{ overflowX: 'auto', overflowY: 'auto', maxHeight: 'calc(100vh - 180px)' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
+                <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
+                  <tr>
+                    <th style={{ width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
+                    <th style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
+                    {([['clicsDesc', 'Clics desc.'], ['lmDetectes', 'Commentaires LM'], ['lmClics', 'Clics LM'], ['lmReponses', 'Réponses LM'], ['dmCount', 'Liens DM'], ['callsBooked', 'Calls bookés'], ['callsHonored', 'Calls honorés'], ['closed', 'Closés'], ['revenue', 'Revenue'], ['vuesParCall', 'Vues / Call']] as [SortKey, string][]).map(([key, label]) => {
+                      const active = sortKey === key;
+                      return (
+                        <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
+                          style={{ textAlign: 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+                          {label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+                        </th>
+                      );
+                    })}
+                  </tr>
+                </thead>
+                <tbody>
+                  {consolidatedRows
+                    .filter(row => {
+                      if (filterPlatform !== 'all' && row.platform !== filterPlatform) return false;
+                      if (filterSearch && !row.title.toLowerCase().includes(filterSearch.toLowerCase())) return false;
+                      for (const k of filterHas) {
+                        const val = row[k as keyof typeof row];
+                        if (!val || val === 0) return false;
+                      }
+                      return true;
+                    })
+                    .sort((a, b) => {
+                      const av = (a[sortKey as keyof typeof a] as number) || 0;
+                      const bv = (b[sortKey as keyof typeof b] as number) || 0;
+                      return sortDir === 'desc' ? bv - av : av - bv;
+                    })
+                    .map((row, i) => {
+                      const platformColor = row.platform === 'IG' ? ACCENT : RED;
+                      const isSelected = selectedContentId === row.postId;
+                      return (
+                        <tr key={i}
+                          onClick={() => { setSelectedContentId(isSelected ? null : row.postId); setDetailModal(isSelected ? null : row); setShowAllTable(false); }}
+                          style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
+                          onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
+                          onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
+                          <td style={{ padding: '8px 10px', width: 40 }}>
+                            {row.thumbnail
+                              ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
+                              : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : '▶️'}</div>}
+                          </td>
+                          <td style={{ padding: '8px 10px', maxWidth: 200 }}>
+                            <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
+                          </td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmClics > 0 ? 700 : 400, color: row.lmClics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmClics > 0 ? row.lmClics : '0') : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmReponses > 0 ? 700 : 400, color: row.lmReponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? (row.lmReponses > 0 ? row.lmReponses : '0') : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* ── Modal détail contenu ── */}
       {detailModal && (() => {
@@ -4739,6 +4923,119 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
         );
       })()}
 
+
+      {/* ── Section 2b : Performance LM ── */}
+      {(() => {
+        const GREEN_LM = '#3f8a52';
+        const AMBER_LM = '#b58025';
+        const RED_LM = '#cd5b3f';
+
+        const ratePct = (v: number, of: number) => of > 0 ? Math.round((v / of) * 100) : 0;
+        const rateColor = (pct: number, high = 50, mid = 30) =>
+          pct >= high ? GREEN_LM : pct >= mid ? AMBER_LM : RED_LM;
+        const closeColor = (pct: number) => pct >= 70 ? GREEN_LM : pct >= 50 ? AMBER_LM : RED_LM;
+
+        const LM_DATA = [
+          {
+            name: 'Guide acquisition organique',
+            leads: 87, clics: 61, reponses: 34, liens: 22,
+            clicsCalendly: 15, booked: 12, honored: 9, closed: 6, revenue: 7200,
+          },
+          {
+            name: 'Checklist 10 erreurs contenu',
+            leads: 43, clics: 24, reponses: 9, liens: 6,
+            clicsCalendly: 3, booked: 2, honored: 1, closed: 0, revenue: 0,
+          },
+        ];
+
+        const thStyle: React.CSSProperties = {
+          textAlign: 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase',
+          color: 'var(--muted)', padding: '6px 12px 10px', borderBottom: '1px solid var(--border)',
+          whiteSpace: 'nowrap',
+        };
+        const tdStyle: React.CSSProperties = {
+          padding: '10px 12px', textAlign: 'right', fontSize: 13, verticalAlign: 'top',
+        };
+
+        return (
+          <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
+            <SectionHead title="Performance LM" sub="Agrégat par lead magnet — tous contenus confondus" />
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 960 }}>
+                <thead>
+                  <tr>
+                    <th style={{ ...thStyle, textAlign: 'left', width: 180 }}>Lead magnet</th>
+                    <th style={thStyle}>Leads générés</th>
+                    <th style={thStyle}>Clics LM</th>
+                    <th style={thStyle}>Réponses DM</th>
+                    <th style={thStyle}>Liens Calendly</th>
+                    <th style={thStyle}>Clics Calendly</th>
+                    <th style={thStyle}>Calls bookés</th>
+                    <th style={thStyle}>Calls honorés</th>
+                    <th style={thStyle}>Closés</th>
+                    <th style={thStyle}>Revenue</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {LM_DATA.map((lm, i) => {
+                    const tauxClics = ratePct(lm.clics, lm.leads);
+                    const tauxRep = ratePct(lm.reponses, lm.clics);
+                    const tauxClicsCal = ratePct(lm.clicsCalendly, lm.liens);
+                    const tauxBooked = ratePct(lm.booked, lm.clicsCalendly);
+                    const tauxHonored = ratePct(lm.honored, lm.booked);
+                    const tauxClosed = ratePct(lm.closed, lm.honored);
+                    const hasActivity = lm.leads > 0;
+
+                    const Sub = ({ pct, high, mid, isClose }: { pct: number; high?: number; mid?: number; isClose?: boolean }) => (
+                      <div style={{ fontSize: 10, fontWeight: 600, color: isClose ? closeColor(pct) : rateColor(pct, high, mid), marginTop: 2 }}>
+                        {pct}%
+                      </div>
+                    );
+
+                    return (
+                      <tr key={i} style={{ borderTop: '1px solid var(--border-soft)' }}>
+                        <td style={{ ...tdStyle, textAlign: 'left', fontWeight: 600, fontSize: 12, color: 'var(--ink)' }}>
+                          {lm.name}
+                          {!hasActivity && <div style={{ fontSize: 10, color: 'var(--faint)', fontWeight: 400, marginTop: 2 }}>Aucune activité</div>}
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: lm.leads > 0 ? 700 : 400, color: lm.leads > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? lm.leads : '—'}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: lm.clics > 0 ? 700 : 400, color: lm.clics > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? lm.clics : '—'}</div>
+                          {hasActivity && <Sub pct={tauxClics} />}
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: lm.reponses > 0 ? 700 : 400, color: lm.reponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? lm.reponses : '—'}</div>
+                          {hasActivity && <Sub pct={tauxRep} />}
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: lm.liens > 0 ? 700 : 400, color: lm.liens > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? lm.liens : '—'}</td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: lm.clicsCalendly > 0 ? 700 : 400, color: lm.clicsCalendly > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? lm.clicsCalendly : '—'}</div>
+                          {hasActivity && <Sub pct={tauxClicsCal} />}
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: lm.booked > 0 ? 700 : 400, color: lm.booked > 0 ? GREEN_LM : 'var(--faint)' }}>{hasActivity ? lm.booked : '—'}</div>
+                          {hasActivity && <Sub pct={tauxBooked} />}
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: lm.honored > 0 ? 700 : 400, color: lm.honored > 0 ? GREEN_LM : 'var(--faint)' }}>{hasActivity ? lm.honored : '—'}</div>
+                          {hasActivity && <Sub pct={tauxHonored} isClose />}
+                        </td>
+                        <td style={tdStyle}>
+                          <div style={{ fontWeight: lm.closed > 0 ? 700 : 400, color: lm.closed > 0 ? GREEN_LM : 'var(--faint)' }}>{hasActivity ? lm.closed : '—'}</div>
+                          {hasActivity && <Sub pct={tauxClosed} isClose />}
+                        </td>
+                        <td style={{ ...tdStyle, fontWeight: 700, color: lm.revenue > 0 ? GREEN_LM : 'var(--faint)', whiteSpace: 'nowrap' }}>
+                          {lm.revenue > 0 ? `${lm.revenue.toLocaleString('fr-FR')} €` : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Section 3 : Pipeline prospects DM ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
@@ -5096,7 +5393,7 @@ export default function PageStatsV2() {
     setLoading(false);
   }, []);
 
-  const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Revenus', 'Short.io (A)', 'Business micro'];
+  const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Business micro', 'Revenus'];
 
   return (
     <div className="page-content">
@@ -5135,9 +5432,8 @@ export default function PageStatsV2() {
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} />}
           {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} />}
-          {tab === 5 && <TabRevenues stripe={stripe} period={period} />}
-          {tab === 6 && <TabShortio shortio={shortio} ig={ig} yt={yt} period={period} />}
-          {tab === 7 && <TabShortioB shortio={shortio} ig={ig} yt={yt} />}
+          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} />}
+          {tab === 6 && <TabRevenues stripe={stripe} period={period} />}
         </>
       )}
     </div>
