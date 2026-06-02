@@ -578,45 +578,34 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
           ? <div style={{ fontSize: 11, color: MUTED, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>→ <span style={{ fontWeight: 600, color: INK }}>{calendlyUrl}</span></div>
           : <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 8, padding: '10px 12px' }}>⚠ Configure ton lien Calendly dans ⚙ Paramètres.</div>
       )}
-      {/* Lead magnet : liste avec bouton Générer inline + lien copier une fois généré */}
-      {destType === 'leadmagnet' && (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {leadMagnets.length === 0
-            ? <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '10px 12px' }}>Aucun LM — crée-en un via Lead Magnets en haut.</div>
-            : leadMagnets.map(lm => {
-                const isThisLm = post.descLmLmId === lm.id;
-                const lmUrl = isThisLm ? post.descLmUrl : null;
-                return (
-                  <div key={lm.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8,
-                    border: `1.5px solid ${isThisLm ? BLUE : BORDER}`,
-                    background: isThisLm ? BLUE_SOFT : SURFACE,
-                  }}>
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <span style={{ fontSize: 12, fontWeight: 600, color: isThisLm ? BLUE : INK }}>{lm.name}</span>
-                      {lm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginLeft: 8 }}>#{lm.keyword}</span>}
-                    </div>
-                    {lmUrl
-                      ? (
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-                          <span style={{ fontSize: 11, color: BLUE, fontWeight: 600 }}>{lmUrl}</span>
-                          <CopyBtn url={lmUrl} />
-                        </div>
-                      )
-                      : (
-                        <button
-                          onClick={() => { setSelectedLmId(lm.id); generate(lm.id); }}
-                          disabled={loading || !canGenerate}
-                          style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: loading || !canGenerate ? 'not-allowed' : 'pointer', opacity: loading || !canGenerate ? 0.4 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
-                          {loading && selectedLmId === lm.id ? <Spinner /> : 'Générer'}
-                        </button>
-                      )
-                    }
-                  </div>
-                );
-              })}
-        </div>
-      )}
+      {/* Lead magnet : uniquement le LM associé à ce contenu */}
+      {destType === 'leadmagnet' && (() => {
+        // Trouve le LM associé : d'abord via desc_lm_lm_id, sinon via lm_keyword de l'onglet LM
+        const assocLm = leadMagnets.find(lm => lm.id === post.descLmLmId)
+          || (post.lmKeyword ? leadMagnets.find(lm => lm.keyword === post.lmKeyword) : undefined)
+          || (post.hasLeadMagnet ? leadMagnets[0] : undefined);
+        if (!assocLm) return (
+          <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '10px 12px' }}>
+            Associe d'abord un lead magnet à ce contenu via l'onglet <strong>Lead magnet</strong>.
+          </div>
+        );
+        const lmUrl = post.descLmUrl || null;
+        return (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', borderRadius: 8, border: `1.5px solid ${BLUE}`, background: BLUE_SOFT }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: BLUE }}>{assocLm.name}</span>
+              {assocLm.keyword && <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, marginLeft: 8 }}>#{assocLm.keyword}</span>}
+            </div>
+            {lmUrl
+              ? <CopyBtn url={lmUrl} />
+              : <button onClick={() => { setSelectedLmId(assocLm.id); generate(assocLm.id); }} disabled={loading || !canGenerate}
+                  style={{ fontSize: 11, fontWeight: 600, padding: '4px 12px', borderRadius: 6, border: 'none', background: BLUE, color: '#fff', cursor: loading || !canGenerate ? 'not-allowed' : 'pointer', opacity: loading || !canGenerate ? 0.4 : 1, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                  {loading ? <Spinner /> : 'Générer'}
+                </button>
+            }
+          </div>
+        );
+      })()}
 
       {destType === 'custom' && (
         <input value={customUrl} onChange={e => setCustomUrl(e.target.value)} placeholder="https://..."
