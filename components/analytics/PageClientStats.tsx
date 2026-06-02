@@ -3664,18 +3664,24 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, prospectLinksDb, profileId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profileId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
   destinations: DestinationLink[];
-  prospectLinksDb: { id: string; created_at: string }[];
   profileId?: string;
 }) {
   const [sPeriod, setSPeriod] = useState<ShortPeriod>(30);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
+
+  // Rechargé à chaque montage de l'onglet — source de vérité pour la stat Calendly DM
+  const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string }[]>([]);
+  useEffect(() => {
+    const url = profileId ? `/api/client/prospect-links?profileId=${profileId}` : '/api/client/prospect-links';
+    fetch(url).then(r => r.ok ? r.json() : null).then(d => { if (d?.links) setProspectLinksDb(d.links); }).catch(() => {});
+  }, [profileId]);
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   const [prospectFilter, setProspectFilter] = useState<ProspectStatus>('all');
   const [showCreate, setShowCreate] = useState(false);
@@ -5295,7 +5301,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const [igLeads, setIgLeads] = useState<MockLead[]>([]);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
   const [destinations, setDestinations] = useState<DestinationLink[]>([]);
-  const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -5307,15 +5312,13 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
         try { const r = await fn(); return r.ok ? r.json() : null; } catch { return null; }
       };
 
-      const [igData, ytData, stripeData, msgsData, shortioData, prospectLinksData] = await Promise.all([
+      const [igData, ytData, stripeData, msgsData, shortioData] = await Promise.all([
         safe(() => fetch(`/api/instagram/stats${q}`)),
         safe(() => fetch(`/api/youtube/stats${q}`)),
         safe(() => fetch(`/api/stripe/client-data${q}`)),
         safe(() => fetch(`/api/instagram/messages${q}`)),
         safe(() => fetch(`/api/shortio/stats${q}`)),
-        safe(() => fetch('/api/client/prospect-links')),
       ]);
-      if (prospectLinksData?.links) setProspectLinksDb(prospectLinksData.links);
 
       if (igData && !igData.error) setIg(igData);
       if (ytData && !ytData.error) setYt(ytData);
@@ -5454,7 +5457,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
           {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} leads={igLeads} />}
-          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} prospectLinksDb={prospectLinksDb} profileId={profileId} />}
+          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} profileId={profileId} />}
           {tab === 6 && <TabRevenues stripe={stripe} period={period} />}
         </>
       )}
