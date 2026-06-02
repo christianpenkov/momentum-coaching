@@ -131,6 +131,7 @@ function PipelineCard({
   return (
     <div
       draggable
+      data-pipeline-card
       onDragStart={e => onDragStart(e, card.key)}
       style={{
         background: 'var(--surface)',
@@ -141,7 +142,7 @@ function PipelineCard({
         opacity: isDragging ? 0.45 : 1,
         transition: 'opacity .15s, box-shadow .12s, border-color .12s',
         userSelect: 'none',
-        pointerEvents: isDragging ? 'none' : 'auto',
+        pointerEvents: 'auto',
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
@@ -443,7 +444,8 @@ export default function PagePipeline() {
   const handleDragStart = (e: React.DragEvent, cardKey: string) => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', cardKey);
-    setDraggingKey(cardKey);
+    // Laisser le navigateur capturer le ghost avant de masquer la carte
+    setTimeout(() => setDraggingKey(cardKey), 0);
   };
 
   const handleDragEnd = () => { setDraggingKey(null); setDropTarget(null); dropCounters.current = {}; };
@@ -523,6 +525,11 @@ export default function PagePipeline() {
           ))}
         </div>
       </div>
+
+      {/* Bloque pointer events sur les cartes non-draggées pendant un drag */}
+      {draggingKey && (
+        <style>{`[data-pipeline-card] { pointer-events: none !important; }`}</style>
+      )}
 
       {/* Kanban board */}
       {loading ? (
