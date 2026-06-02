@@ -458,8 +458,13 @@ export default function PagePipeline() {
         <div>
           <h1 className="page-title" style={{ marginBottom: 2 }}>Pipeline Leads</h1>
           <p className="page-sub" style={{ fontSize: 12 }}>
-            {loading ? 'Chargement…' : `${totalProspects} prospect${totalProspects !== 1 ? 's' : ''} · Position auto — glisse pour déplacer manuellement, reprend en auto au prochain signal`}
+            {loading ? 'Chargement…' : `${totalProspects} prospect${totalProspects !== 1 ? 's' : ''}`}
           </p>
+          {!loading && (
+            <p className="page-sub" style={{ fontSize: 11, marginTop: 2 }}>
+              Position auto · glisse pour déplacer, reprend en auto au prochain signal
+            </p>
+          )}
         </div>
 
         {/* Onglets */}
