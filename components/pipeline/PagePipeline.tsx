@@ -136,6 +136,7 @@ function PipelineCard({
         opacity: isDragging ? 0.45 : 1,
         transition: 'opacity .15s, box-shadow .12s, border-color .12s',
         userSelect: 'none',
+        pointerEvents: isDragging ? 'none' : 'auto',
         display: 'flex',
         flexDirection: 'column',
         gap: 6,
@@ -202,9 +203,6 @@ function KanbanColumn({
 }) {
   return (
     <div
-      onDrop={e => onDrop(e, stage.key)}
-      onDragOver={onDragOver}
-      onDragLeave={onDragLeave}
       style={{
         width: 220,
         flexShrink: 0,
@@ -223,6 +221,7 @@ function KanbanColumn({
         background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
         border: `1px solid ${isDropTarget ? stage.color + '55' : 'var(--border)'}`,
         transition: 'all .12s',
+        flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
@@ -241,17 +240,21 @@ function KanbanColumn({
         </span>
       </div>
 
-      {/* Drop zone */}
-      <div style={{
-        display: 'flex', flexDirection: 'column', gap: 5,
-        flex: 1,
-        minHeight: 80,
-        padding: isDropTarget ? '4px' : '0',
-        borderRadius: 8,
-        background: isDropTarget ? stage.lightBg + 'BB' : 'transparent',
-        border: isDropTarget ? `1.5px dashed ${stage.color}66` : '1.5px dashed transparent',
-        transition: 'all .12s',
-      }}>
+      {/* Drop zone — reçoit tous les events drag sur toute la hauteur */}
+      <div
+        onDrop={e => onDrop(e, stage.key)}
+        onDragOver={onDragOver}
+        onDragLeave={onDragLeave}
+        style={{
+          display: 'flex', flexDirection: 'column', gap: 5,
+          flex: 1,
+          minHeight: 80,
+          padding: isDropTarget ? '4px' : '0',
+          borderRadius: 8,
+          background: isDropTarget ? stage.lightBg + 'BB' : 'transparent',
+          border: isDropTarget ? `1.5px dashed ${stage.color}66` : '1.5px dashed transparent',
+          transition: 'all .12s',
+        }}>
         {cards.length === 0 && !isDropTarget && (
           <div style={{
             border: '1px dashed var(--border)', borderRadius: 7,
