@@ -2897,6 +2897,8 @@ interface MockLead {
   commentedAt: string;
   keyword: string;
   leadMagnetSent: boolean;
+  hookReplied?: boolean;
+  trackingLink?: string | null;
 }
 
 interface DestinationLink {
@@ -3851,13 +3853,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
     const clicsDesc = descLink?.humanClicks30d || 0;
     const lmDetectes = postLeads.length;
     const lmSent = postLeads.filter((l: MockLead) => l.leadMagnetSent).length;
-    // Clics sur le lien LM reçu en DM (~60% des LM envoyés ouvrent le lien — mock cohérent)
-    const lmClics = lmSent > 0 ? Math.round(lmSent * 0.62) : 0;
-    // Réponses au message d'accroche après réception du LM (~35% des cliqueurs répondent — mock cohérent)
-    const lmReponses = lmClics > 0 ? Math.round(lmClics * 0.38) : 0;
+    // Clics LM réels = clics sur les shortlinks de tracking envoyés à ces leads
+    const postLmUrls = new Set(postLeads.filter(l => l.trackingLink).map(l => l.trackingLink!));
+    const lmClics = shortio.links
+      .filter((l: any) => postLmUrls.has(l.shortUrl) || postLmUrls.has(l.originalUrl))
+      .reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+    // Réponses au message d'accroche = hook_replied dans instagram_leads
+    const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
     const callsBooked = dmProspects.filter((l: any) => l.callBooked).length;
-    const callsHonored = callsBooked; // mock : tous honorés pour simplifier
+    const callsHonored = dmProspects.filter((l: any) => l.callBooked && l.honored !== false).length;
     const closed = dmProspects.filter((l: any) => l.dealClosed === true).length;
     const revenue = dmProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
@@ -3920,8 +3925,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
           // Taux d'activation DM :
           // LM% = clics reçus sur liens LM (tracking_link dans instagram_leads) / LM envoyés
           // Calendly% = clics reçus sur liens Calendly prospect / liens Calendly générés
+          // Clics LM = clics sur les shortlinks envoyés en DM avec le LM (tracking_link des leads)
+          const lmTrackingUrls = new Set(leads.filter(l => l.trackingLink).map(l => l.trackingLink!));
           const lmClics = shortio.links
-            .filter((l: any) => l.utmMedium?.[0]?.label === 'leadmagnet' || l.linkType === 'lm')
+            .filter((l: any) => lmTrackingUrls.has(l.shortUrl) || lmTrackingUrls.has(l.originalUrl))
             .reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
           const calendlyClics = prospectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
@@ -5329,7 +5336,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
         const targetId = profileId || u2.id;
         const { data: leadsData } = await supabase
           .from('instagram_leads')
-          .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, detected_at, source')
+          .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
           .eq('profile_id', targetId)
           .order('detected_at', { ascending: false })
           .limit(500);
@@ -5350,6 +5357,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
             commentedAt: l.detected_at,
             keyword: l.keyword_matched || '',
             leadMagnetSent: l.lead_magnet_sent || false,
+            hookReplied: l.hook_replied || false,
+            trackingLink: l.tracking_link || null,
           })));
         }
 
