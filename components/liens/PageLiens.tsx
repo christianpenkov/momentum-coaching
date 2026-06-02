@@ -419,13 +419,12 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Résout l'URL courte affichée selon le type actif
-  // Fallback sur l'ancienne colonne desc_short_url pour les liens existants avant la migration
+  // Résout l'URL courte affichée selon le type actif — 3 liens indépendants
   const currentUrl = destType === 'calendly'
-    ? (post.descCalendlyUrl || (post.descDestType === 'calendly' ? post.descLinkUrl : null) || null)
+    ? (post.descCalendlyUrl || null)
     : destType === 'leadmagnet'
-      ? (post.descLmUrl || (post.descDestType === 'leadmagnet' ? post.descLinkUrl : null) || null)
-      : (post.descCustomUrl || (post.descDestType === 'custom' ? post.descLinkUrl : null) || null);
+      ? (post.descLmUrl || null)
+      : (post.descCustomUrl || null);
 
   // Sync au changement de contenu
   useEffect(() => {
