@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 
 // ─── Design tokens (alignés sur globals.css) ──────────────────────────────────
@@ -1921,107 +1922,122 @@ export default function PageLiens() {
   const { user } = useUser();
   const profileId = user?.id || '';
 
-  const [domains, setDomains] = useState<ShortDomain[]>([]);
-  const [domainsLoaded, setDomainsLoaded] = useState(false);
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [postsLoading, setPostsLoading] = useState(true);
-  const [calendlyUrl, setCalendlyUrl] = useState('');
-  const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
-  const [lmLoading, setLmLoading] = useState(true);
-  const [contentLinks, setContentLinks] = useState<ContentLink[]>([]);
   const [rightView, setRightView] = useState<RightView>(null);
   const [paramOpen, setParamOpen] = useState(false);
   const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all'); // 'all' = pas de filtre
   const [search, setSearch] = useState('');
 
-  // Charger domaines + settings + lead magnets
-  useEffect(() => {
-    if (!profileId) return;
-    fetch(`/api/shortio/domains?profileId=${profileId}`)
-      .then(r => r.json())
-      .then(data => { setDomains(data.domains?.length ? data.domains : []); })
-      .catch(() => setDomains([]))
-      .finally(() => setDomainsLoaded(true));
+  // ── Mutations locales (optimistic UI sur les lead magnets) ────────────────
+  const [lmOverrides, setLmOverrides] = useState<LeadMagnet[] | null>(null);
+  const [calendlyOverride, setCalendlyOverride] = useState<string | null>(null);
+  const [postsOverrides, setPostsOverrides] = useState<Map<string, Partial<Post>>>(new Map());
 
-    fetch('/api/client/settings')
-      .then(r => r.json())
-      .then(data => { if (data.calendly_url) setCalendlyUrl(data.calendly_url); })
-      .catch(() => {});
+  // ── Queries TanStack ──────────────────────────────────────────────────────
+  const { data: domainsData, isLoading: domainsLoading } = useQuery({
+    queryKey: ['liens-domains', profileId],
+    queryFn: () => fetch(`/api/shortio/domains?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
 
-    fetch('/api/client/lead-magnets')
-      .then(r => r.json())
-      .then(data => { setLeadMagnets(data.lead_magnets ?? []); })
-      .catch(() => {})
-      .finally(() => setLmLoading(false));
+  const { data: settingsData } = useQuery({
+    queryKey: ['liens-settings'],
+    queryFn: () => fetch('/api/client/settings').then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
 
-    fetch('/api/client/content-links')
-      .then(r => r.json())
-      .then(data => { setContentLinks(data.content_links ?? []); })
-      .catch(() => {});
-  }, [profileId]);
+  const { data: lmData, isLoading: lmQueryLoading } = useQuery({
+    queryKey: ['liens-lm'],
+    queryFn: () => fetch('/api/client/lead-magnets').then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  // Charger posts IG + YT + liens Short.io existants pour croiser hasDescLink / hasLeadMagnet
-  useEffect(() => {
-    if (!profileId) return;
-    let cancelled = false;
-    let igDone = false; let ytDone = false; let linksDone = false;
-    let igPosts: Post[] = [];
-    let ytPosts: Post[] = [];
-    let shortioLinks: any[] = [];
+  const { data: contentLinksData } = useQuery({
+    queryKey: ['liens-content-links'],
+    queryFn: () => fetch('/api/client/content-links').then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
 
-    const enrich = () => {
-      if (!igDone || !ytDone || !linksDone) return;
-      const all = [...igPosts, ...ytPosts].map(post => {
-        const descLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'post');
-        const lmLink = shortioLinks.find(l => l.postId === post.id && l.linkType === 'leadmagnet');
+  const { data: igData, isLoading: igLoading } = useQuery({
+    queryKey: ['liens-ig', profileId],
+    queryFn: () => fetch(`/api/instagram/stats?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: ytData, isLoading: ytLoading } = useQuery({
+    queryKey: ['liens-yt', profileId],
+    queryFn: () => fetch(`/api/youtube/stats?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const { data: shortioData, isLoading: shortioLoading } = useQuery({
+    queryKey: ['liens-shortio', profileId],
+    queryFn: () => fetch(`/api/shortio/stats?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 15 * 60 * 1000,
+  });
+
+  // ── Dérivations depuis les queries ───────────────────────────────────────
+  const domains: ShortDomain[] = domainsData?.domains?.length ? domainsData.domains : [];
+  const domainsLoaded = !domainsLoading;
+
+  const calendlyUrl = calendlyOverride ?? (settingsData?.calendly_url || '');
+
+  const leadMagnetsFromQuery: LeadMagnet[] = lmData?.lead_magnets ?? [];
+  const leadMagnets: LeadMagnet[] = lmOverrides ?? leadMagnetsFromQuery;
+  const lmLoading = lmQueryLoading;
+
+  const contentLinks: ContentLink[] = contentLinksData?.content_links ?? [];
+
+  const postsLoading = igLoading || ytLoading || shortioLoading;
+
+  const posts: Post[] = useMemo(() => {
+    const igPosts: Post[] = (igData?.posts || []).map((p: any) => ({
+      id: p.id,
+      caption: (p.caption || 'Publication Instagram').slice(0, 60),
+      platform: 'IG' as const,
+      thumbnail: p.thumbnail,
+      permalink: p.permalink || null,
+    }));
+
+    const ytPosts: Post[] = (ytData?.videos || []).map((v: any) => ({
+      id: v.id,
+      caption: (v.title || 'Vidéo YouTube').slice(0, 60),
+      platform: 'YT' as const,
+      thumbnail: v.thumbnail,
+    }));
+
+    const shortioLinks = (shortioData?.links || []).map((l: any) => {
+      try {
+        const u = new URL(l.originalUrl || '');
         return {
-          ...post,
-          hasDescLink: !!descLink,
-          descLinkUrl: descLink?.shortUrl || undefined,
-          hasLeadMagnet: !!lmLink,
-          lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
+          ...l,
+          postId: u.searchParams.get('utm_content') || null,
+          linkType: u.searchParams.get('utm_medium') || null,
         };
-      });
-      if (cancelled) return;
-      setPosts(all);
-      setPostsLoading(false);
-    };
+      } catch { return l; }
+    });
 
-    fetch(`/api/instagram/stats?profileId=${profileId}`)
-      .then(r => r.json())
-      .then(data => {
-        igPosts = (data.posts || []).map((p: any) => ({ id: p.id, caption: (p.caption || 'Publication Instagram').slice(0, 60), platform: 'IG' as const, thumbnail: p.thumbnail, permalink: p.permalink || null }));
-      }).catch(() => {}).finally(() => { igDone = true; enrich(); });
+    // Croise igPosts + ytPosts + shortioLinks (logique enrich() originale)
+    const enrichedFromShortio = [...igPosts, ...ytPosts].map(post => {
+      const descLink = shortioLinks.find((l: any) => l.postId === post.id && l.linkType === 'post');
+      const lmLink = shortioLinks.find((l: any) => l.postId === post.id && l.linkType === 'leadmagnet');
+      return {
+        ...post,
+        hasDescLink: !!descLink,
+        descLinkUrl: descLink?.shortUrl || undefined,
+        hasLeadMagnet: !!lmLink,
+        lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
+      };
+    });
 
-    fetch(`/api/youtube/stats?profileId=${profileId}`)
-      .then(r => r.json())
-      .then(data => {
-        ytPosts = (data.videos || []).map((v: any) => ({ id: v.id, caption: (v.title || 'Vidéo YouTube').slice(0, 60), platform: 'YT' as const, thumbnail: v.thumbnail }));
-      }).catch(() => {}).finally(() => { ytDone = true; enrich(); });
-
-    fetch(`/api/shortio/stats?profileId=${profileId}`)
-      .then(r => r.json())
-      .then(data => {
-        shortioLinks = (data.links || []).map((l: any) => {
-          try {
-            const u = new URL(l.originalUrl || '');
-            return {
-              ...l,
-              postId: u.searchParams.get('utm_content') || null,
-              linkType: u.searchParams.get('utm_medium') || null,
-            };
-          } catch { return l; }
-        });
-      })
-      .catch(() => {}).finally(() => { linksDone = true; enrich(); });
-
-    return () => { cancelled = true; };
-  }, [profileId]);
-
-  // Enrichit les posts avec content_links — se déclenche quand l'un ou l'autre arrive
-  useEffect(() => {
-    if (!contentLinks.length || !posts.length) return;
-    setPosts(prev => prev.map(post => {
+    // Enrichit ensuite avec content_links (logique useEffect originale)
+    const enrichedWithCl = enrichedFromShortio.map(post => {
       const cl = contentLinks.find(c => c.content_id === post.id);
       if (!cl) return post;
       return {
@@ -2042,12 +2058,22 @@ export default function PageLiens() {
         dmOpenerMessage: cl.dm_opener_message || undefined,
         dmLmMessage: cl.dm_lm_message || undefined,
       };
-    }));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [contentLinks, postsLoading]);
+    });
+
+    // Applique les overrides optimistes locaux
+    if (postsOverrides.size === 0) return enrichedWithCl;
+    return enrichedWithCl.map(post => {
+      const override = postsOverrides.get(post.id);
+      return override ? { ...post, ...override } : post;
+    });
+  }, [igData, ytData, shortioData, contentLinks, postsOverrides]);
 
   const handlePostUpdated = (postId: string, patch: Partial<Post>) => {
-    setPosts(prev => prev.map(p => p.id === postId ? { ...p, ...patch } : p));
+    setPostsOverrides(prev => {
+      const next = new Map(prev);
+      next.set(postId, { ...(prev.get(postId) ?? {}), ...patch });
+      return next;
+    });
     // Mettre à jour rightView si c'est le post sélectionné
     setRightView(prev => {
       if (!prev || prev.type !== 'post' || prev.post.id !== postId) return prev;
@@ -2073,9 +2099,9 @@ export default function PageLiens() {
       <ModalParametres
         open={paramOpen} onClose={() => { setParamOpen(false); }}
         profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
-        onCalendlyChange={setCalendlyUrl} initialCalendly={calendlyUrl}
+        onCalendlyChange={(url: string) => setCalendlyOverride(url)} initialCalendly={calendlyUrl}
         leadMagnets={leadMagnets}
-        onLmUpdated={lm => setLeadMagnets(prev => prev.map(l => l.id === lm.id ? lm : l))}
+        onLmUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
       />
 
       <div className="liens-shell">
@@ -2208,9 +2234,9 @@ export default function PageLiens() {
             ) : rightView.type === 'lm-library' ? (
               <PanneauLeadMagnets
                 leadMagnets={leadMagnets} lmLoading={lmLoading}
-                onCreated={lm => setLeadMagnets(prev => [lm, ...prev])}
-                onDeleted={id => setLeadMagnets(prev => prev.filter(l => l.id !== id))}
-                onUpdated={lm => setLeadMagnets(prev => prev.map(l => l.id === lm.id ? lm : l))}
+                onCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
+                onDeleted={(id: string) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).filter(l => l.id !== id))}
+                onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
               />
             ) : rightView.type === 'prospect' ? (
               <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
@@ -2218,7 +2244,7 @@ export default function PageLiens() {
               <PanneauActions
                 post={selectedPost || rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
                 calendlyUrl={calendlyUrl} leadMagnets={leadMagnets}
-                onLmCreated={lm => setLeadMagnets(prev => [lm, ...prev])}
+                onLmCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
                 onPostUpdated={handlePostUpdated}
               />
             )}
