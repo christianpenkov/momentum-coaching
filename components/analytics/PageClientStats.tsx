@@ -1903,42 +1903,6 @@ function FunnelHorizontal({ platform, color, steps }: {
   );
 }
 
-// ── Données mock historiques pour la navigation par période ──────────────────
-// Chaque entrée représente une période (7j ou 30j) dans le passé
-// index 0 = période la plus récente (actuelle), index 1 = précédente, etc.
-const MOCK_HISTORY_7D = [
-  // période actuelle (S0)
-  { igReach: 68400, igLeads: 5, igBio: 3, igBookes: 2, igHonores: 1, igCloses: 1, igRev: 1200, ytViews: 11800, ytClics: 34, ytBookes: 1, ytHonores: 1, ytCloses: 1, ytRev: 2400 },
-  // S-1
-  { igReach: 72100, igLeads: 4, igBio: 2, igBookes: 2, igHonores: 2, igCloses: 1, igRev: 1200, ytViews: 9400,  ytClics: 28, ytBookes: 1, ytHonores: 1, ytCloses: 0, ytRev: 0    },
-  // S-2
-  { igReach: 61800, igLeads: 6, igBio: 3, igBookes: 2, igHonores: 2, igCloses: 1, igRev: 1200, ytViews: 13200, ytClics: 38, ytBookes: 1, ytHonores: 1, ytCloses: 1, ytRev: 1800 },
-  // S-3
-  { igReach: 58200, igLeads: 3, igBio: 2, igBookes: 1, igHonores: 1, igCloses: 0, igRev: 0,    ytViews: 8600,  ytClics: 24, ytBookes: 1, ytHonores: 0, ytCloses: 0, ytRev: 0    },
-  // S-4
-  { igReach: 54600, igLeads: 4, igBio: 2, igBookes: 1, igHonores: 1, igCloses: 1, igRev: 1200, ytViews: 10200, ytClics: 29, ytBookes: 1, ytHonores: 1, ytCloses: 0, ytRev: 0    },
-  // S-5
-  { igReach: 49800, igLeads: 2, igBio: 1, igBookes: 1, igHonores: 0, igCloses: 0, igRev: 0,    ytViews: 7800,  ytClics: 22, ytBookes: 0, ytHonores: 0, ytCloses: 0, ytRev: 0    },
-  // S-6
-  { igReach: 46200, igLeads: 3, igBio: 1, igBookes: 1, igHonores: 1, igCloses: 1, igRev: 1200, ytViews: 9100,  ytClics: 26, ytBookes: 1, ytHonores: 1, ytCloses: 1, ytRev: 1800 },
-  // S-7
-  { igReach: 44800, igLeads: 2, igBio: 1, igBookes: 1, igHonores: 1, igCloses: 0, igRev: 0,    ytViews: 8400,  ytClics: 24, ytBookes: 0, ytHonores: 0, ytCloses: 0, ytRev: 0    },
-];
-
-const MOCK_HISTORY_30D = [
-  // M0 — mois actuel
-  { igReach: 284500, igLeads: 18, igBio: 11, igBookes: 7, igHonores: 5, igCloses: 3, igRev: 3600, ytViews: 48200, ytClics: 138, ytBookes: 4, ytHonores: 4, ytCloses: 2, ytRev: 4200 },
-  // M-1
-  { igReach: 248000, igLeads: 14, igBio: 9,  igBookes: 5, igHonores: 4, igCloses: 2, igRev: 2400, ytViews: 41600, ytClics: 112, ytBookes: 3, ytHonores: 3, ytCloses: 2, ytRev: 3600 },
-  // M-2
-  { igReach: 218400, igLeads: 11, igBio: 7,  igBookes: 4, igHonores: 3, igCloses: 2, igRev: 2400, ytViews: 36200, ytClics: 94,  ytBookes: 2, ytHonores: 2, ytCloses: 1, ytRev: 1800 },
-  // M-3
-  { igReach: 194200, igLeads: 9,  igBio: 5,  igBookes: 3, igHonores: 2, igCloses: 1, igRev: 1200, ytViews: 29800, ytClics: 78,  ytBookes: 2, ytHonores: 2, ytCloses: 1, ytRev: 1800 },
-  // M-4
-  { igReach: 172600, igLeads: 7,  igBio: 4,  igBookes: 2, igHonores: 2, igCloses: 1, igRev: 1200, ytViews: 24100, ytClics: 62,  ytBookes: 1, ytHonores: 1, ytCloses: 0, ytRev: 0    },
-  // M-5
-  { igReach: 148000, igLeads: 5,  igBio: 3,  igBookes: 2, igHonores: 1, igCloses: 1, igRev: 1200, ytViews: 18400, ytClics: 48,  ytBookes: 1, ytHonores: 1, ytCloses: 1, ytRev: 1800 },
-];
 
 function periodLabel(period: number, index: number): string {
   const now = new Date();
@@ -2151,53 +2115,57 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   onClick={e => e.stopPropagation()}
                 >
                   {(() => {
-                    const mHistory = period === 7 ? MOCK_HISTORY_7D : MOCK_HISTORY_30D;
-                    const mMaxIndex = mHistory.length - 1;
                     const mn = period;
-                    const h = mHistory[Math.min(periodIndex, mMaxIndex)];
 
-                    // Génère n points jour-par-jour à partir d'un total, avec seed déterministe
-                    const spread = (total: number, n: number, seed: number): number[] => {
-                      if (total === 0) return Array(n).fill(0);
-                      const pts = Array.from({ length: n }, (_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
-                      const sum = pts.reduce((a, b) => a + b, 0);
-                      let distributed = pts.map(p => Math.round((p / sum) * total));
-                      const diff = total - distributed.reduce((a, b) => a + b, 0);
-                      distributed[n - 1] += diff;
-                      return distributed;
-                    };
-
-                    const dates = Array.from({ length: mn }, (_, i) => {
-                      const d = new Date(); d.setDate(d.getDate() - (periodIndex * mn) - (mn - 1 - i));
-                      return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-                    });
-
-                    const toData = (vals: number[]) => dates.map((date, i) => ({ date, v: vals[i] }));
-
-                    const totalBookes7 = h.igBookes + h.ytBookes;
-                    const totalHonores7 = h.igHonores + h.ytHonores;
-                    const totalCloses7 = h.igCloses + h.ytCloses;
-                    const totalRev7 = h.igRev + h.ytRev;
-                    const totalNS7 = Math.round(totalBookes7 * 0.12);
+                    const totalBookes7 = igBookes + ytBookes;
+                    const totalHonores7 = igHonores + ytHonores;
+                    const totalCloses7 = igCloses + ytCloses;
+                    const totalRev7 = igRev + ytRev;
+                    const totalNS7 = igNoShows + ytNoShows;
                     const revPerCall7 = totalHonores7 > 0 ? Math.round(totalRev7 / totalHonores7) : 0;
+
+                    // Pour les graphiques temporels, on utilise les vrais chartData quand disponibles
+                    const igChartSlice = ig?.chartData.slice(-mn) || [];
+                    const ytChartSlice = yt?.chartData.slice(-mn) || [];
+
+                    const toCallsData = (subset: CallRecord[], key: 'booked' | 'honored' | 'closed' | 'rev') => {
+                      const dates2 = Array.from({ length: mn }, (_, i) => {
+                        const d = new Date(); d.setDate(d.getDate() - (mn - 1 - i));
+                        return d.toISOString().split('T')[0];
+                      });
+                      return dates2.map(date => {
+                        const dayStart = new Date(date).getTime();
+                        const dayEnd = dayStart + 86400000;
+                        const daySubset = subset.filter(c => {
+                          const t = new Date(c.scheduled_at).getTime();
+                          return t >= dayStart && t < dayEnd;
+                        });
+                        let v = 0;
+                        if (key === 'booked') v = daySubset.filter(c => c.status === 'active').length;
+                        else if (key === 'honored') v = daySubset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+                        else if (key === 'closed') v = daySubset.filter(c => c.deal_closed).length;
+                        else if (key === 'rev') v = daySubset.reduce((s, c) => s + (c.revenue || 0), 0);
+                        return { date: new Date(date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v };
+                      });
+                    };
 
                     const modalCharts: { data: { date: string; v: number }[]; color: string; fmtV: (v: number) => string }[] = [
                       // 0 Calls bookés
-                      { color: 'var(--ink)', fmtV: String, data: toData(spread(totalBookes7, mn, 1)) },
+                      { color: 'var(--ink)', fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'booked') },
                       // 1 Calls honorés
-                      { color: AMBER, fmtV: String, data: toData(spread(totalHonores7, mn, 2)) },
+                      { color: AMBER, fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'honored') },
                       // 2 Deals closés
-                      { color: GREEN, fmtV: String, data: toData(spread(totalCloses7, mn, 3)) },
+                      { color: GREEN, fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'closed') },
                       // 3 Revenue total
-                      { color: GREEN, fmtV: (v) => `${v} €`, data: toData(spread(totalRev7, mn, 4)) },
-                      // 4 Rev / call — valeur moyenne lissée
-                      { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: dates.map((date, i) => ({ date, v: revPerCall7 * (0.88 + Math.sin(i * 1.3 + 5) * 0.12) })) },
+                      { color: GREEN, fmtV: (v) => `${v} €`, data: toCallsData([...callsIG, ...callsYT], 'rev') },
+                      // 4 Rev / call — moyenne sur la période
+                      { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: toCallsData([...callsIG, ...callsYT], 'honored').map(pt => ({ date: pt.date, v: pt.v > 0 ? revPerCall7 : 0 })) },
                       // 5 No-show
-                      { color: RED, fmtV: String, data: toData(spread(totalNS7, mn, 6)) },
+                      { color: RED, fmtV: String, data: toCallsData([...callsIG, ...callsYT].filter(c => c.no_show), 'booked') },
                       // 6 Calls IG
-                      { color: IG_COLOR, fmtV: String, data: toData(spread(h.igBookes, mn, 7)) },
+                      { color: IG_COLOR, fmtV: String, data: toCallsData(callsIG, 'booked') },
                       // 7 Calls YT
-                      { color: YT_COLOR, fmtV: String, data: toData(spread(h.ytBookes, mn, 8)) },
+                      { color: YT_COLOR, fmtV: String, data: toCallsData(callsYT, 'booked') },
                     ];
                     const chart = modalCharts[expandedHero!];
                     return (<>
@@ -2452,9 +2420,6 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[] } | null>(null);
 
   const now = new Date();
-  const history = period === 7 ? MOCK_HISTORY_7D : MOCK_HISTORY_30D;
-  const cur = history[periodIndex];
-  const prev = history[periodIndex + 1] || null;
 
   const callsIG = calls.filter(c => c.source?.startsWith('ig') || c.source?.startsWith('instagram'));
   const callsYT = calls.filter(c => c.source?.startsWith('yt') || c.source?.startsWith('youtube'));
@@ -2468,20 +2433,20 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const igCallsLive = calcCalls(callsIG);
   const ytCallsLive = calcCalls(callsYT);
 
-  const igBookes  = periodIndex === 0 ? (igCallsLive.bookes  || cur.igBookes)  : cur.igBookes;
-  const igHonores = periodIndex === 0 ? (igCallsLive.honores || cur.igHonores) : cur.igHonores;
-  const igCloses  = periodIndex === 0 ? (igCallsLive.closes  || cur.igCloses)  : cur.igCloses;
-  const igRev     = periodIndex === 0 ? (igCallsLive.rev     || cur.igRev)     : cur.igRev;
-  const igReachD  = periodIndex === 0 ? (ig?.reach30d        || cur.igReach)   : cur.igReach;
-  const igLeadsD  = periodIndex === 0 ? (msgs?.leadCount     || cur.igLeads)   : cur.igLeads;
-  const igBioD    = periodIndex === 0 ? (ig?.profileLinksTaps30d || cur.igBio) : cur.igBio;
+  const igBookes  = igCallsLive.bookes;
+  const igHonores = igCallsLive.honores;
+  const igCloses  = igCallsLive.closes;
+  const igRev     = igCallsLive.rev;
+  const igReachD  = ig?.reach30d || 0;
+  const igLeadsD  = msgs?.leadCount || 0;
+  const igBioD    = ig?.profileLinksTaps30d || 0;
 
-  const ytBookes  = periodIndex === 0 ? (ytCallsLive.bookes  || cur.ytBookes)  : cur.ytBookes;
-  const ytHonores = periodIndex === 0 ? (ytCallsLive.honores || cur.ytHonores) : cur.ytHonores;
-  const ytCloses  = periodIndex === 0 ? (ytCallsLive.closes  || cur.ytCloses)  : cur.ytCloses;
-  const ytRev     = periodIndex === 0 ? (ytCallsLive.rev     || cur.ytRev)     : cur.ytRev;
-  const ytViewsD  = periodIndex === 0 ? (yt?.views30d        || cur.ytViews)   : cur.ytViews;
-  const ytClicsD  = cur.ytClics;
+  const ytBookes  = ytCallsLive.bookes;
+  const ytHonores = ytCallsLive.honores;
+  const ytCloses  = ytCallsLive.closes;
+  const ytRev     = ytCallsLive.rev;
+  const ytViewsD  = yt?.views30d || 0;
+  const ytClicsD  = 0;
 
   const totalBookes  = igBookes + ytBookes;
   const totalHonores = igHonores + ytHonores;
@@ -2510,37 +2475,31 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
     { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
 
-  const dIgCloseRate = prev ? delta(igHonores > 0 ? Math.round((igCloses / igHonores) * 100) : 0, prev.igHonores > 0 ? Math.round((prev.igCloses / prev.igHonores) * 100) : 0) : null;
-  const dYtCloseRate = prev ? delta(ytHonores > 0 ? Math.round((ytCloses / ytHonores) * 100) : 0, prev.ytHonores > 0 ? Math.round((prev.ytCloses / prev.ytHonores) * 100) : 0) : null;
-  const dIgRev = prev ? delta(igRev, prev.igRev) : null;
-  const dYtRev = prev ? delta(ytRev, prev.ytRev) : null;
-
-  const igNoShows = periodIndex === 0 ? (igCallsLive.noShows || Math.round(cur.igBookes * 0.12)) : Math.round(cur.igBookes * 0.12);
-  const ytNoShows = periodIndex === 0 ? (ytCallsLive.noShows || Math.round(cur.ytBookes * 0.12)) : Math.round(cur.ytBookes * 0.12);
+  const igNoShows = igCallsLive.noShows;
+  const ytNoShows = ytCallsLive.noShows;
   const igNoShowRate = igBookes > 0 ? pct(igNoShows, igBookes) : 0;
   const ytNoShowRate = ytBookes > 0 ? pct(ytNoShows, ytBookes) : 0;
-  const prevIgNoShowRate = prev && prev.igBookes > 0 ? pct(Math.round(prev.igBookes * 0.12), prev.igBookes) : null;
-  const prevYtNoShowRate = prev && prev.ytBookes > 0 ? pct(Math.round(prev.ytBookes * 0.12), prev.ytBookes) : null;
 
-  const effRows = [
+  type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean };
+  const effRows: { platform: string; color: string; metrics: EffMetric[] }[] = [
     {
       platform: 'Instagram', color: IG_COLOR,
       metrics: [
-        { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: prev && prev.igBookes > 0 ? fmt(Math.round(prev.igReach / prev.igBookes)) : null, delta: prev && prev.igBookes > 0 ? delta(Math.round(igReachD / igBookes), Math.round(prev.igReach / prev.igBookes)) : null, lowerIsBetter: true },
-        { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: prevIgNoShowRate !== null ? `${prevIgNoShowRate}%` : null, delta: prevIgNoShowRate !== null ? delta(igNoShowRate, prevIgNoShowRate) : null, lowerIsBetter: true },
-        { label: 'Close rate', value: igHonores > 0 ? `${pct(igCloses, igHonores)}%` : '—', prevValue: prev && prev.igHonores > 0 ? `${pct(prev.igCloses, prev.igHonores)}%` : null, delta: dIgCloseRate, lowerIsBetter: false },
-        { label: 'Rev / call honoré', value: igHonores > 0 ? fmtEur(Math.round(igRev / igHonores)) : '—', prevValue: prev && prev.igHonores > 0 ? fmtEur(Math.round(prev.igRev / prev.igHonores)) : null, delta: prev && prev.igHonores > 0 ? delta(Math.round(igRev / igHonores), Math.round(prev.igRev / prev.igHonores)) : null, lowerIsBetter: false },
-        { label: 'Revenue total', value: fmtEur(igRev), prevValue: prev ? fmtEur(prev.igRev) : null, delta: dIgRev, lowerIsBetter: false },
+        { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'Close rate', value: igHonores > 0 ? `${pct(igCloses, igHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Rev / call honoré', value: igHonores > 0 ? fmtEur(Math.round(igRev / igHonores)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Revenue total', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
     {
       platform: 'YouTube', color: YT_COLOR,
       metrics: [
-        { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: prev && prev.ytBookes > 0 ? fmt(Math.round(prev.ytViews / prev.ytBookes)) : null, delta: prev && prev.ytBookes > 0 ? delta(Math.round(ytViewsD / ytBookes), Math.round(prev.ytViews / prev.ytBookes)) : null, lowerIsBetter: true },
-        { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: prevYtNoShowRate !== null ? `${prevYtNoShowRate}%` : null, delta: prevYtNoShowRate !== null ? delta(ytNoShowRate, prevYtNoShowRate) : null, lowerIsBetter: true },
-        { label: 'Close rate', value: ytHonores > 0 ? `${pct(ytCloses, ytHonores)}%` : '—', prevValue: prev && prev.ytHonores > 0 ? `${pct(prev.ytCloses, prev.ytHonores)}%` : null, delta: dYtCloseRate, lowerIsBetter: false },
-        { label: 'Rev / call honoré', value: ytHonores > 0 ? fmtEur(Math.round(ytRev / ytHonores)) : '—', prevValue: prev && prev.ytHonores > 0 ? fmtEur(Math.round(prev.ytRev / prev.ytHonores)) : null, delta: prev && prev.ytHonores > 0 ? delta(Math.round(ytRev / ytHonores), Math.round(prev.ytRev / prev.ytHonores)) : null, lowerIsBetter: false },
-        { label: 'Revenue total', value: fmtEur(ytRev), prevValue: prev ? fmtEur(prev.ytRev) : null, delta: dYtRev, lowerIsBetter: false },
+        { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
+        { label: 'Close rate', value: ytHonores > 0 ? `${pct(ytCloses, ytHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Rev / call honoré', value: ytHonores > 0 ? fmtEur(Math.round(ytRev / ytHonores)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
   ];
@@ -2947,27 +2906,6 @@ interface DestinationLink {
   type: 'calendly' | 'leadmagnet' | 'other';
 }
 
-// Mock leads commentaires — en prod ces données viennent de la table `leads`
-const leads: MockLead[] = [
-  { igUserId: 'ig_001', igUsername: 'thomas.biz',       postId: '1',  postTitle: 'Comment j\'ai closé 3 clients en 1 semaine',         postType: 'IG', commentedAt: new Date(Date.now() - 8*86400000).toISOString(),  keyword: 'COACHING',   leadMagnetSent: true },
-  { igUserId: 'ig_002', igUsername: 'sarah.mindset',    postId: '2',  postTitle: 'Le mindset qui m\'a tout changé',                    postType: 'IG', commentedAt: new Date(Date.now() - 5*86400000).toISOString(),  keyword: 'GUIDE',      leadMagnetSent: true },
-  { igUserId: 'ig_003', igUsername: 'lucas_b_officiel', postId: 'v1', postTitle: 'Comment créer une offre à 3000€ irrésistible',       postType: 'YT', commentedAt: new Date(Date.now() - 3*86400000).toISOString(),  keyword: 'COACHING',   leadMagnetSent: true },
-  { igUserId: 'ig_004', igUsername: 'emma.dev',         postId: '5',  postTitle: 'Témoignage client — de 0 à 5k€/mois en 3 mois',     postType: 'IG', commentedAt: new Date(Date.now() - 11*86400000).toISOString(), keyword: 'PROGRAMME',  leadMagnetSent: true },
-  { igUserId: 'ig_005', igUsername: 'mehdi_academy',    postId: 'v2', postTitle: 'Tunnel de vente Instagram — tuto complet 2025',      postType: 'YT', commentedAt: new Date(Date.now() - 14*86400000).toISOString(), keyword: 'COACHING',   leadMagnetSent: true },
-  { igUserId: 'ig_006', igUsername: 'julie_coaching',   postId: '1',  postTitle: 'Comment j\'ai closé 3 clients en 1 semaine',         postType: 'IG', commentedAt: new Date(Date.now() - 2*86400000).toISOString(),  keyword: 'CHECKLIST',  leadMagnetSent: false },
-  { igUserId: 'ig_007', igUsername: 'alex.freedom',     postId: '5',  postTitle: 'Témoignage client — de 0 à 5k€/mois en 3 mois',     postType: 'IG', commentedAt: new Date(Date.now() - 6*86400000).toISOString(),  keyword: 'PROGRAMME',  leadMagnetSent: true },
-  { igUserId: 'ig_008', igUsername: 'chloe_success',    postId: 'v3', postTitle: 'Script DM qui converti #shorts',                    postType: 'YT', commentedAt: new Date(Date.now() - 4*86400000).toISOString(),  keyword: 'GUIDE',      leadMagnetSent: true },
-  { igUserId: 'ig_009', igUsername: 'romain.sales',     postId: '6',  postTitle: 'Pourquoi tu rates tes calls de vente',               postType: 'IG', commentedAt: new Date(Date.now() - 9*86400000).toISOString(),  keyword: 'COACHING',   leadMagnetSent: true },
-  { igUserId: 'ig_010', igUsername: 'inès_entreprise',  postId: 'v4', postTitle: 'Ma méthode pour closer 80% de mes calls',            postType: 'YT', commentedAt: new Date(Date.now() - 7*86400000).toISOString(),  keyword: 'CHECKLIST',  leadMagnetSent: false },
-];
-
-// Mock destinations — en prod ces données viennent de la config de l'élève
-const MOCK_DESTINATIONS: DestinationLink[] = [
-  { id: 'dest_1', label: 'Appel découverte 30min', url: 'https://calendly.com/quennel/discovery', type: 'calendly' },
-  { id: 'dest_2', label: 'Appel stratégie 60min', url: 'https://calendly.com/quennel/strategy', type: 'calendly' },
-  { id: 'dest_3', label: 'Lead magnet — Checklist closing', url: 'https://quennel.com/checklist-closing', type: 'leadmagnet' },
-  { id: 'dest_4', label: 'Lead magnet — Guide tunnel de vente', url: 'https://quennel.com/guide-tunnel', type: 'leadmagnet' },
-];
 
 function TabShortio({ shortio, ig, yt, profileId, period }: {
   shortio: ShortioStats | null;
@@ -2986,7 +2924,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
   const [selectedDomain, setSelectedDomain] = useState<ShortDomain | null>(null);
   const [selectedLead, setSelectedLead] = useState<MockLead | null>(null);
   const [leadSearch, setLeadSearch] = useState('');
-  const [selectedDest, setSelectedDest] = useState<DestinationLink>(MOCK_DESTINATIONS[0]);
+  const [selectedDest, setSelectedDest] = useState<DestinationLink | null>(null);
   const [manualUsername, setManualUsername] = useState('');
   const [manualPostId, setManualPostId] = useState('');
   const [customPath, setCustomPath] = useState('');
@@ -3000,7 +2938,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
     setSelectedLead(null); setLeadSearch('');
     setManualUsername(''); setManualPostId(''); setCustomPath('');
     setCreateMode('lead');
-    setSelectedDest(MOCK_DESTINATIONS[0]);
+    setSelectedDest(null);
   };
 
   const openCreate = async () => {
@@ -3044,8 +2982,8 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
         body: JSON.stringify({
           profileId,
           domainId: selectedDomain.hostname,
-          originalUrl: selectedDest.url,
-          title: `${selectedDest.label} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
+          originalUrl: selectedDest?.url ?? '',
+          title: `${selectedDest?.label ?? ''} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
           utmSource: selectedDomain.hostname,
           utmMedium: 'dm',
           utmCampaign: `lead-${igId}`,
@@ -3070,7 +3008,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const filteredLeads = leads.filter(l =>
+  const filteredLeads = ([] as MockLead[]).filter(l =>
     !leadSearch || l.igUsername.toLowerCase().includes(leadSearch.toLowerCase()) || l.postTitle.toLowerCase().includes(leadSearch.toLowerCase())
   );
 
@@ -3099,14 +3037,13 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
   const allPostIds = Array.from(new Set([
     ...postLinks.map((l: any) => l.postId + '|' + l.postPlatform),
     ...prospectLinks.map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
-    ...leads.filter(lead => lead.leadMagnetSent).map(lead => lead.postId + '|' + lead.postType),
   ]));
 
   const consolidatedRows = allPostIds.map(key => {
     const [postId, platform] = key.split('|');
     const descLink = postLinks.find((l: any) => l.postId === postId);
     const dmLinks = prospectLinks.filter((l: any) => l.postId === postId);
-    const postLeads = leads.filter(lead => lead.postId === postId);
+    const postLeads: MockLead[] = [];
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
     const title = igPost?.caption || ytVideo?.title || descLink?.title || postId;
@@ -3452,7 +3389,6 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
                   <div>
                     <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>
                       Sélectionne le prospect
-                      <span style={{ fontWeight: 400, marginLeft: 6 }}>({leads.length} leads en attente)</span>
                     </div>
                     <input
                       type="text"
@@ -3532,14 +3468,14 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Destination</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {MOCK_DESTINATIONS.map(dest => (
+                    {([] as DestinationLink[]).map(dest => (
                       <div
                         key={dest.id}
                         onClick={() => setSelectedDest(dest)}
                         style={{
                           padding: '9px 12px', borderRadius: 8, cursor: 'pointer',
-                          border: `1px solid ${selectedDest.id === dest.id ? BLUE : 'var(--border)'}`,
-                          background: selectedDest.id === dest.id ? BLUE + '0e' : 'transparent',
+                          border: `1px solid ${selectedDest?.id === dest.id ? BLUE : 'var(--border)'}`,
+                          background: selectedDest?.id === dest.id ? BLUE + '0e' : 'transparent',
                           display: 'flex', alignItems: 'center', gap: 10, transition: 'all .12s',
                         }}
                       >
@@ -3719,121 +3655,7 @@ const MOCK_YT: YTStats = {
   ],
 };
 
-const MOCK_STRIPE: StripeStats = {
-  mrr: 11400, monthlyRevenue: 13200, activeSubscriptions: 8, availableBalance: 4820,
-  recentPayments: [
-    { id: 'p1', amount: 1800, currency: 'eur', description: 'Coaching Premium — Thomas R.', date: new Date(Date.now() - 2*86400000).toISOString(), status: 'succeeded' },
-    { id: 'p2', amount: 1800, currency: 'eur', description: 'Coaching Premium — Sarah M.', date: new Date(Date.now() - 3*86400000).toISOString(), status: 'succeeded' },
-    { id: 'p3', amount: 1200, currency: 'eur', description: 'Coaching Standard — Lucas B.', date: new Date(Date.now() - 5*86400000).toISOString(), status: 'succeeded' },
-    { id: 'p4', amount: 1200, currency: 'eur', description: 'Coaching Standard — Emma D.', date: new Date(Date.now() - 7*86400000).toISOString(), status: 'succeeded' },
-    { id: 'p5', amount: 1800, currency: 'eur', description: 'Coaching Premium — Mehdi A.', date: new Date(Date.now() - 9*86400000).toISOString(), status: 'succeeded' },
-    { id: 'p6', amount: 1200, currency: 'eur', description: 'Coaching Standard — Julie F.', date: new Date(Date.now() - 12*86400000).toISOString(), status: 'failed' },
-    { id: 'p7', amount: 1800, currency: 'eur', description: 'Coaching Premium — Kevin L.', date: new Date(Date.now() - 14*86400000).toISOString(), status: 'succeeded' },
-  ],
-};
 
-const MOCK_MSGS: IGMessages = {
-  totalThreads30d: 148, repliedThreads: 124, responseRate: 83.8, leadCount: 18,
-  keywordCounts: { 'coaching': 38, 'tarif': 31, 'accompagnement': 28, 'résultats': 24, 'programme': 19, 'call': 17, 'aide': 14 },
-  threads: [
-    { threadId: 't1', updatedAt: new Date(Date.now() - 1*3600000).toISOString(), messageCount: 8, hasReply: true, participant: 'thomas_entreprise', preview: 'Bonjour, je suis intéressé par votre programme coaching...', isLead: true },
-    { threadId: 't2', updatedAt: new Date(Date.now() - 3*3600000).toISOString(), messageCount: 3, hasReply: false, participant: 'sarah.mindset', preview: 'C\'est quoi le tarif pour 3 mois ?', isLead: true },
-    { threadId: 't3', updatedAt: new Date(Date.now() - 6*3600000).toISOString(), messageCount: 12, hasReply: true, participant: 'lucas_b_officiel', preview: 'Merci pour ta réponse ! Je voulais te dire que...', isLead: false },
-    { threadId: 't4', updatedAt: new Date(Date.now() - 1*86400000).toISOString(), messageCount: 5, hasReply: true, participant: 'emma.dev', preview: 'Est-ce que tu fais des sessions individuelles ?', isLead: true },
-    { threadId: 't5', updatedAt: new Date(Date.now() - 1.5*86400000).toISOString(), messageCount: 2, hasReply: false, participant: 'mehdi_academy', preview: 'J\'ai vu ta vidéo sur les tunnels de vente, incroyable !', isLead: false },
-    { threadId: 't6', updatedAt: new Date(Date.now() - 2*86400000).toISOString(), messageCount: 7, hasReply: true, participant: 'julie_coaching', preview: 'Tu peux me parler de ton accompagnement ?', isLead: true },
-  ],
-};
-
-// Logique calls :
-// 11 bookés actifs (status active) + 1 canceled = 12 au total
-// 2 à venir (c1, c2) → pas encore honorés ni no-show
-// 9 passés actifs dont 2 no-shows (c4, c9) → 7 honorés
-// 5 deals closés sur 7 honorés = 71% closing
-// Revenue total IG : 1200+1200+1200 = 3600€ / YT : 1800+2400 = 4200€ → total 7800€
-const MOCK_CALLS: CallRecord[] = [
-  // À venir — pas encore honorés
-  { id: 'c1',  scheduled_at: new Date(Date.now() + 3*86400000).toISOString(),   status: 'active',   invitee_name: 'Thomas Renard',    invitee_email: 'thomas@email.com',   duration: 60, source: 'ig_bio' },
-  { id: 'c2',  scheduled_at: new Date(Date.now() + 6*86400000).toISOString(),   status: 'active',   invitee_name: 'Sarah Martin',     invitee_email: 'sarah@email.com',    duration: 60, source: 'yt_description' },
-  // Passés — no-show (2)
-  { id: 'c4',  scheduled_at: new Date(Date.now() - 4*86400000).toISOString(),   status: 'active',   invitee_name: 'Emma Dupont',      invitee_email: 'emma@email.com',     duration: 60, source: 'ig_story',      no_show: true },
-  { id: 'c9',  scheduled_at: new Date(Date.now() - 15*86400000).toISOString(),  status: 'active',   invitee_name: 'Antoine Morel',    invitee_email: 'antoine@email.com',  duration: 60, source: 'ig_bio',        no_show: true },
-  // Passés honorés — deal closé (5)
-  { id: 'c6',  scheduled_at: new Date(Date.now() - 7*86400000).toISOString(),   status: 'active',   invitee_name: 'Julie Fontaine',   invitee_email: 'julie@email.com',    duration: 60, source: 'ig_bio',        deal_closed: true, revenue: 1200 },
-  { id: 'c8',  scheduled_at: new Date(Date.now() - 10*86400000).toISOString(),  status: 'active',   invitee_name: 'Camille Rey',      invitee_email: 'camille@email.com',  duration: 60, source: 'ig_reel',       deal_closed: true, revenue: 1200 },
-  { id: 'c14', scheduled_at: new Date(Date.now() - 13*86400000).toISOString(),  status: 'active',   invitee_name: 'Yasmine Benali',   invitee_email: 'yasmine@email.com',  duration: 60, source: 'ig_story',      deal_closed: true, revenue: 1200 },
-  { id: 'c7',  scheduled_at: new Date(Date.now() - 17*86400000).toISOString(),  status: 'active',   invitee_name: 'Kevin Laurent',    invitee_email: 'kevin@email.com',    duration: 60, source: 'yt_description', deal_closed: true, revenue: 1800 },
-  { id: 'c10', scheduled_at: new Date(Date.now() - 21*86400000).toISOString(),  status: 'active',   invitee_name: 'Léa Petit',        invitee_email: 'lea@email.com',      duration: 60, source: 'yt_description', deal_closed: true, revenue: 2400 },
-  // Passés honorés — pas closé (2)
-  { id: 'c3',  scheduled_at: new Date(Date.now() - 5*86400000).toISOString(),   status: 'active',   invitee_name: 'Lucas Bernard',    invitee_email: 'lucas@email.com',    duration: 60, source: 'ig_reel',       deal_closed: false },
-  { id: 'c5',  scheduled_at: new Date(Date.now() - 8*86400000).toISOString(),   status: 'active',   invitee_name: 'Mehdi Amrani',     invitee_email: 'mehdi@email.com',    duration: 60, source: 'yt_description', deal_closed: false },
-  // Annulé non rebooké (abandon avant call)
-  { id: 'c12', scheduled_at: new Date(Date.now() - 12*86400000).toISOString(),  status: 'canceled', invitee_name: 'Inès Garnier',     invitee_email: 'ines@email.com',     duration: 60, source: 'ig_bio' },
-  // Annulé + rebooké (le nouveau call = c1, même personne)
-  { id: 'c13', scheduled_at: new Date(Date.now() - 6*86400000).toISOString(),   status: 'canceled', invitee_name: 'Thomas Renard',    invitee_email: 'thomas@email.com',   duration: 60, source: 'ig_bio', rescheduled: true },
-];
-// Résultat : 11 actifs + 2 canceled (1 abandon, 1 rebooké) = 13 calls au total
-// Bookés (active) = 11 | À venir = 2 | Passés = 9 | No-show = 2 | Honorés = 7 | Closés = 5 (71%) | Revenue = 7 800€
-// IG : 7 actifs (2 no-show, 3 closés, 2 pas closés) | YT : 4 actifs (2 closés, 2 pas closés)
-// c13 (Thomas Renard rebooké) est lié à c1 — ne pas compter en double dans les bookés
-
-const mkLink = (id: number, path: string, url: string, title: string, daysAgo: number, clicks: number, change: number | null, refs: string[], linkType: string, extra: Record<string, any> = {}) => ({
-  id, path, shortUrl: `qnl.link/${path}`, originalUrl: url, title,
-  createdAt: new Date(Date.now() - daysAgo * 86400000).toISOString(),
-  clicks30d: clicks, humanClicks30d: Math.round(clicks * 0.91), clicksChange: change,
-  chartData: makeDays(30, Math.round(clicks / 30), Math.round(clicks / 60)).map(d => ({ date: d.date, clicks: d.value })),
-  countries: [{ label: 'France', value: Math.round(clicks * 0.72) }],
-  referrers: refs.map((r, i) => ({ label: r, value: Math.round(clicks * [0.55, 0.25, 0.12, 0.08][i] || clicks * 0.05) })),
-  browsers: [], os: [], social: [], cities: [], utmMedium: [], utmSource: [],
-  linkType, ...extra,
-});
-
-const MOCK_SHORTIO: ShortioStats = {
-  domain: 'qnl.link', totalLinks: 18, clicks30d: 1184, humanClicks30d: 1076,
-  clicksChange: 18.2, clicksPerLink30d: 65.8,
-  chartData: makeDays(30, 38, 14).map(d => ({ date: d.date, clicks: d.value })),
-  topCountries: [{ label: 'France', value: 824 }, { label: 'Belgique', value: 142 }, { label: 'Suisse', value: 78 }, { label: 'Canada', value: 48 }, { label: 'Maroc', value: 32 }],
-  topReferrers: [{ label: 'instagram.com', value: 618 }, { label: 'Direct', value: 248 }, { label: 'youtube.com', value: 142 }, { label: 't.co', value: 42 }, { label: 'linktr.ee', value: 26 }],
-  topBrowsers: [], topOs: [], topSocial: [], topCities: [],
-  links: [
-    // ── Bios fixes ──
-    mkLink(1, 'ig', 'https://calendly.com/quennel/discovery', 'Bio Instagram', 90, 284, 12.4, ['instagram.com', 'Direct', 'linktr.ee'], 'bio', { bioType: 'instagram' }),
-    mkLink(2, 'yt-bio', 'https://calendly.com/quennel/discovery', 'Bio YouTube', 90, 148, 8.2, ['youtube.com', 'Direct', 'google.com'], 'bio', { bioType: 'youtube' }),
-    // ── Posts IG ──
-    mkLink(20, 'r-closer-3-clients', 'https://calendly.com/quennel/discovery', 'Comment j\'ai closé 3 clients en 1 semaine 🔥', 2, 182, 34.1, ['instagram.com', 'Direct'], 'post', { postId: '1', postPlatform: 'IG', postType: 'Reel' }),
-    mkLink(21, 'r-mindset', 'https://calendly.com/quennel/discovery', 'Le mindset qui m\'a tout changé', 5, 214, 28.6, ['instagram.com', 'Direct'], 'post', { postId: '2', postPlatform: 'IG', postType: 'Reel' }),
-    mkLink(22, 'r-3-erreurs', 'https://calendly.com/quennel/discovery', '3 erreurs qui tuent ton business en ligne', 9, 98, -4.2, ['instagram.com', 'Direct'], 'post', { postId: '3', postPlatform: 'IG', postType: 'Reel' }),
-    mkLink(23, 'r-routine', 'https://calendly.com/quennel/discovery', 'Routine matinale pour entrepreneurs', 12, 42, 2.1, ['instagram.com', 'Direct'], 'post', { postId: '4', postPlatform: 'IG', postType: 'Image' }),
-    mkLink(24, 'r-temoignage', 'https://calendly.com/quennel/discovery', 'Témoignage client — de 0 à 5k€/mois en 3 mois', 16, 312, 52.4, ['instagram.com', 'Direct'], 'post', { postId: '5', postPlatform: 'IG', postType: 'Reel' }),
-    mkLink(25, 'r-calls-vente', 'https://calendly.com/quennel/discovery', 'Pourquoi tu rates tes calls de vente', 20, 124, 8.8, ['instagram.com', 'Direct'], 'post', { postId: '6', postPlatform: 'IG', postType: 'Reel' }),
-    // ── Vidéos YT ──
-    mkLink(30, 'yt-offre-3000', 'https://calendly.com/quennel/discovery', 'Comment créer une offre à 3000€ irrésistible', 8, 148, 22.4, ['youtube.com', 'Direct', 'google.com'], 'post', { postId: 'v1', postPlatform: 'YT', postType: 'Vidéo' }),
-    mkLink(31, 'yt-tunnel', 'https://calendly.com/quennel/discovery', 'Tunnel de vente Instagram — tuto complet 2025', 22, 96, 6.1, ['youtube.com', 'Direct', 'google.com'], 'post', { postId: 'v2', postPlatform: 'YT', postType: 'Vidéo' }),
-    mkLink(32, 'yt-script-dm', 'https://calendly.com/quennel/discovery', 'Script DM qui converti #shorts', 4, 284, 84.2, ['youtube.com', 'instagram.com', 'Direct'], 'post', { postId: 'v3', postPlatform: 'YT', postType: 'Short' }),
-    mkLink(33, 'yt-closer-80', 'https://calendly.com/quennel/discovery', 'Ma méthode pour closer 80% de mes calls', 35, 62, -2.4, ['youtube.com', 'Direct'], 'post', { postId: 'v4', postPlatform: 'YT', postType: 'Vidéo' }),
-    mkLink(34, 'yt-mindset', 'https://calendly.com/quennel/discovery', 'Mindset millionnaire — 5 habitudes', 48, 38, 1.2, ['youtube.com', 'Direct'], 'post', { postId: 'v5', postPlatform: 'YT', postType: 'Vidéo' }),
-    // ── Prospects DM ──
-    // Via bio IG
-    mkLink(15, 'bio-prospect-1', 'https://calendly.com/quennel/discovery', 'Calendly — @marc.digital', 18, 5, null, ['Direct'], 'prospect', { igUsername: 'marc.digital', igUserId: 'ig_011', postId: 'bio-ig', clickToCallDays: 1, callBooked: true, dealClosed: true, revenue: 2400, dmType: 'organic' }),
-    mkLink(16, 'bio-prospect-2', 'https://calendly.com/quennel/discovery', 'Calendly — @nadia.coach', 12, 3, null, ['Direct'], 'prospect', { igUsername: 'nadia.coach', igUserId: 'ig_012', postId: 'bio-ig', clickToCallDays: 4, callBooked: true, dealClosed: false, dmType: 'organic' }),
-    // Via bio YT
-    mkLink(17, 'bio-yt-prospect', 'https://calendly.com/quennel/discovery', 'Calendly — @pierre_entrepreneur', 25, 4, null, ['Direct'], 'prospect', { igUsername: 'pierre_entrepreneur', igUserId: 'ig_013', postId: 'bio-yt', clickToCallDays: 3, callBooked: true, dealClosed: true, revenue: 1500, dmType: 'organic' }),
-    // Contenus IG
-    mkLink(10, 'thomas-biz', 'https://calendly.com/quennel/discovery', 'Calendly — @thomas.biz', 8, 4, null, ['Direct'], 'prospect', { igUsername: 'thomas.biz', igUserId: 'ig_001', postId: '1', clickToCallDays: 3, dmType: null }),
-    mkLink(11, 'sarah-mindset', 'https://calendly.com/quennel/discovery', 'Calendly — @sarah.mindset', 14, 3, null, ['Direct'], 'prospect', { igUsername: 'sarah.mindset', igUserId: 'ig_002', postId: '2', clickToCallDays: 5, callBooked: true, dealClosed: true, revenue: 1200, dmType: 'organic' }),
-    mkLink(40, 'romain-sales', 'https://calendly.com/quennel/discovery', 'Calendly — @romain.sales', 9, 5, null, ['Direct'], 'prospect', { igUsername: 'romain.sales', igUserId: 'ig_009', postId: '6', clickToCallDays: 2, callBooked: true, dealClosed: true, revenue: 900, dmType: 'cold' }),
-    mkLink(41, 'alex-freedom', 'https://calendly.com/quennel/discovery', 'Calendly — @alex.freedom', 6, 2, null, ['Direct'], 'prospect', { igUsername: 'alex.freedom', igUserId: 'ig_007', postId: '5', clickToCallDays: 7, callBooked: true, dealClosed: true, revenue: 1600, dmType: 'organic' }),
-    mkLink(42, 'lea-growth', 'https://calendly.com/quennel/discovery', 'Calendly — @lea.growth', 15, 3, null, ['Direct'], 'prospect', { igUsername: 'lea.growth', igUserId: 'ig_014', postId: '3', clickToCallDays: 4, callBooked: true, dealClosed: false, dmType: 'cold' }),
-    mkLink(43, 'oscar-biz', 'https://calendly.com/quennel/discovery', 'Calendly — @oscar.biz', 20, 4, null, ['Direct'], 'prospect', { igUsername: 'oscar.biz', igUserId: 'ig_015', postId: '4', clickToCallDays: null, dmType: 'cold' }),
-    // Contenus YT
-    mkLink(12, 'kevin-laurent', 'https://calendly.com/quennel/discovery', 'Calendly — @kevin_laurent', 22, 6, null, ['Direct'], 'prospect', { igUsername: 'kevin_laurent', igUserId: 'ig_003', postId: 'v1', clickToCallDays: 2, callBooked: true, dealClosed: true, revenue: 1800, dmType: 'cold' }),
-    mkLink(13, 'mehdi-academy', 'https://calendly.com/quennel/discovery', 'Calendly — @mehdi_academy', 11, 2, null, ['Direct'], 'prospect', { igUsername: 'mehdi_academy', igUserId: 'ig_005', postId: 'v2', clickToCallDays: 6, callBooked: true, dealClosed: false, dmType: 'cold' }),
-    mkLink(14, 'emma-dev', 'https://calendly.com/quennel/discovery', 'Calendly — @emma.dev', 4, 1, null, ['Direct'], 'prospect', { igUsername: 'emma.dev', igUserId: 'ig_004', postId: '5', clickToCallDays: null, dmType: 'organic' }),
-    mkLink(44, 'chloe-success', 'https://calendly.com/quennel/discovery', 'Calendly — @chloe_success', 4, 3, null, ['Direct'], 'prospect', { igUsername: 'chloe_success', igUserId: 'ig_008', postId: 'v3', clickToCallDays: 3, callBooked: true, dealClosed: true, revenue: 2100, dmType: 'organic' }),
-    mkLink(45, 'ines-entreprise', 'https://calendly.com/quennel/discovery', 'Calendly — @inès_entreprise', 7, 2, null, ['Direct'], 'prospect', { igUsername: 'inès_entreprise', igUserId: 'ig_010', postId: 'v4', clickToCallDays: 5, callBooked: true, dealClosed: false, dmType: 'cold' }),
-    mkLink(46, 'fabien-mindset', 'https://calendly.com/quennel/discovery', 'Calendly — @fabien.mindset', 19, 4, null, ['Direct'], 'prospect', { igUsername: 'fabien.mindset', igUserId: 'ig_016', postId: 'v5', clickToCallDays: 2, callBooked: true, dealClosed: true, revenue: 1200, dmType: 'cold' }),
-  ],
-} as any;
 
 // ── TabShortioB ──────────────────────────────────────────────────────────────
 
@@ -3842,12 +3664,13 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, profileId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profileId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
+  destinations: DestinationLink[];
   profileId?: string;
 }) {
   const [sPeriod, setSPeriod] = useState<ShortPeriod>(30);
@@ -3879,7 +3702,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, profileId }: {
   const [selectedDomain, setSelectedDomain] = useState<ShortDomain | null>(null);
   const [selectedLead, setSelectedLead] = useState<MockLead | null>(null);
   const [leadSearch, setLeadSearch] = useState('');
-  const [selectedDest, setSelectedDest] = useState<DestinationLink>(MOCK_DESTINATIONS[0]);
+  const [selectedDest, setSelectedDest] = useState<DestinationLink | null>(null);
   const [manualUsername, setManualUsername] = useState('');
   const [manualPostId, setManualPostId] = useState('');
   const [customPath, setCustomPath] = useState('');
@@ -3893,7 +3716,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, profileId }: {
     setCreatedLink(null); setSelectedLead(null); setLeadSearch('');
     setIsColdDM(false); setDetectedDmType(null);
     setManualUsername(''); setManualPostId(''); setCustomPath('');
-    setCreateMode('lead'); setSelectedDest(MOCK_DESTINATIONS[0]);
+    setCreateMode('lead'); setSelectedDest(destinations[0] ?? null);
   };
 
   const openCreate = async () => {
@@ -3914,6 +3737,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, profileId }: {
 
   const handleCreate = async () => {
     if (!selectedDomain) return;
+    if (!selectedDest) return;
     if (createMode === 'lead' && !selectedLead) return;
     if (createMode === 'manual' && !manualUsername.trim()) return;
     setCreating(true);
@@ -5271,8 +5095,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, profileId }: {
                 <div>
                   <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Destination</div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {MOCK_DESTINATIONS.map(dest => (
-                      <div key={dest.id} onClick={() => setSelectedDest(dest)} style={{ padding: '9px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${selectedDest.id === dest.id ? BLUE : 'var(--border)'}`, background: selectedDest.id === dest.id ? BLUE + '0e' : 'transparent', display: 'flex', alignItems: 'center', gap: 10, transition: 'all .12s' }}>
+                    {destinations.length === 0 && (
+                      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>Aucune destination configurée (Calendly ou lead magnet)</div>
+                    )}
+                    {destinations.map(dest => (
+                      <div key={dest.id} onClick={() => setSelectedDest(dest)} style={{ padding: '9px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${selectedDest?.id === dest.id ? BLUE : 'var(--border)'}`, background: selectedDest?.id === dest.id ? BLUE + '0e' : 'transparent', display: 'flex', alignItems: 'center', gap: 10, transition: 'all .12s' }}>
                         <span style={{ fontSize: 14 }}>{dest.type === 'calendly' ? '📅' : '📄'}</span>
                         <div>
                           <div style={{ fontSize: 12, fontWeight: 600 }}>{dest.label}</div>
@@ -5331,7 +5158,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, profileId }: {
                   )}
                 </div>
 
-                <button onClick={handleCreate} disabled={creating || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')} style={{ width: '100%', padding: '11px', fontSize: 13, fontWeight: 700, borderRadius: 9, cursor: 'pointer', border: 'none', background: BLUE, color: '#fff', opacity: (creating || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')) ? 0.5 : 1, transition: 'opacity .15s' }}>
+                <button onClick={handleCreate} disabled={creating || !selectedDest || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')} style={{ width: '100%', padding: '11px', fontSize: 13, fontWeight: 700, borderRadius: 9, cursor: 'pointer', border: 'none', background: BLUE, color: '#fff', opacity: (creating || !selectedDest || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')) ? 0.5 : 1, transition: 'opacity .15s' }}>
                   {creating ? 'Création…' : 'Créer le lien tracké'}
                 </button>
               </div>
@@ -5349,8 +5176,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
   modalOpen: boolean;
 }) {
-  const history = period === 7 ? MOCK_HISTORY_7D : MOCK_HISTORY_30D;
-  const maxIndex = history.length - 1;
+  const maxIndex = 0;
 
   const STICKY_TOP = 56;
   const ORIGIN_TOP = 96;
@@ -5424,8 +5250,7 @@ function SectionControls({ period, setPeriod, periodIndex, setPeriodIndex }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
 }) {
-  const history = period === 7 ? MOCK_HISTORY_7D : MOCK_HISTORY_30D;
-  const maxIndex = history.length - 1;
+  const maxIndex = 0;
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
@@ -5471,6 +5296,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const [calls, setCalls] = useState<CallRecord[]>([]);
   const [igLeads, setIgLeads] = useState<MockLead[]>([]);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
+  const [destinations, setDestinations] = useState<DestinationLink[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -5524,6 +5350,25 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           .eq('profile_id', targetId)
           .order('created_at', { ascending: true });
         if (lmData) setLeadMagnets(lmData);
+
+        // Construire les destinations depuis les vraies données (Calendly + lead magnets)
+        const { data: calendlyInteg } = await supabase
+          .from('integrations')
+          .select('metadata')
+          .eq('profile_id', targetId)
+          .eq('provider', 'calendly')
+          .maybeSingle();
+        const calendlyUrl = (calendlyInteg?.metadata as any)?.scheduling_url || null;
+        const dests: DestinationLink[] = [];
+        if (calendlyUrl) {
+          dests.push({ id: 'calendly-main', label: 'Appel découverte', url: calendlyUrl, type: 'calendly' });
+        }
+        if (lmData) {
+          for (const lm of lmData) {
+            if (lm.url) dests.push({ id: `lm-${lm.id}`, label: lm.name, url: lm.url, type: 'leadmagnet' });
+          }
+        }
+        setDestinations(dests);
       }
 
       const { data: { user } } = await supabase.auth.getUser();
@@ -5599,7 +5444,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
           {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} leads={igLeads} />}
-          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} profileId={profileId} />}
+          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} profileId={profileId} />}
           {tab === 6 && <TabRevenues stripe={stripe} period={period} />}
         </>
       )}
