@@ -3907,14 +3907,6 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
   return (
     <div className="stack">
 
-      {/* ── Bouton global fixe ── */}
-      <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: -8 }}>
-        <button onClick={openCreate} style={{ padding: '9px 18px', fontSize: 13, fontWeight: 600, borderRadius: 9, cursor: 'pointer', background: BLUE, color: '#fff', border: 'none', boxShadow: '0 2px 8px rgba(107,124,222,.35)', transition: 'opacity .15s' }}
-          onMouseEnter={e => (e.currentTarget.style.opacity = '.85')} onMouseLeave={e => (e.currentTarget.style.opacity = '1')}>
-          + Générer un lien
-        </button>
-      </div>
-
       {/* ── Section 0 : Stats globales ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
         <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" action={
@@ -3925,12 +3917,17 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
           </div>
         } />
         {(() => {
-          // Clics sur les sources "actives" (DM + LM) — où l'élève a la main
-          const activeLinks = prospectLinks; // tous les liens DM + LM
-          const activeClics = activeLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
-          const activeLiens = activeLinks.length + lmEnvoyes; // liens envoyés = prospects DM + LM envoyés
-          const tauxActivation = activeLiens > 0 ? Math.round((activeClics / activeLiens) * 100) : 0;
-          const tauxActColor = tauxActivation >= 50 ? GREEN : tauxActivation >= 25 ? AMBER : RED;
+          // Taux d'activation DM :
+          // LM% = clics reçus sur liens LM (tracking_link dans instagram_leads) / LM envoyés
+          // Calendly% = clics reçus sur liens Calendly prospect / liens Calendly générés
+          const lmClics = shortio.links
+            .filter((l: any) => l.utmMedium?.[0]?.label === 'leadmagnet' || l.linkType === 'lm')
+            .reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const calendlyClics = prospectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
+          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyClics / lmCalendlyLinks) * 100) : 0;
+          const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
+          const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
 
           return (
             <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'stretch' }}>
@@ -3969,24 +3966,24 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, profil
               {/* 4 — Liens Calendly envoyés DM */}
               <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Liens Calendly envoyés DM</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(activeLiens)}</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(lmCalendlyLinks)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>activité commerciale brute</div>
               </div>
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
-              {/* 5 — Taux d'activation — LM vs Calendly */}
+              {/* 5 — Taux d'activation DM */}
               <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation</div>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation DM</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                   <div>
                     <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>LM</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxLMCalendly >= 50 ? GREEN : tauxLMCalendly >= 25 ? AMBER : RED, lineHeight: 1 }}>{tauxLMCalendly}%</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxLmColor, lineHeight: 1 }}>{tauxLmClic}%</div>
                   </div>
                   <div style={{ width: 1, height: 28, background: 'var(--border)' }} />
                   <div>
                     <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>Calendly</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxActivation}%</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: tauxActColor, lineHeight: 1 }}>{tauxCalendlyClic}%</div>
                   </div>
                 </div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>clics / liens envoyés</div>
