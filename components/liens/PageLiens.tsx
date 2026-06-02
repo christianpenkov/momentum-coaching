@@ -210,8 +210,8 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
     if (!isValid || !canGenerate) return;
     setLoading(true); setError(null);
     try {
-      const bioLabel = platform === 'instagram' ? 'Prendre RDV' : 'Prendre RDV';
-      const bioPath = platform === 'instagram' ? 'bio-ig' : 'bio-yt';
+      const bioLabel = 'Prendre RDV';
+      const bioPath = platform === 'instagram' ? 'bio-calendly-ig' : 'bio-calendly-yt';
       const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: bioLabel, utmSource: domain, utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: bioPath });
       setResult(shortUrl);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
@@ -269,17 +269,17 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
         {/* Liens bio */}
         <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liens bio permanents</div>
+          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liens bio Calendly</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {[
-              { platform: 'instagram' as const, label: 'Bio Instagram', result: bioIg, setResult: setBioIg, loading: genIg, setLoading: setGenIg, path: 'bio-ig' },
-              { platform: 'youtube' as const, label: 'Bio YouTube', result: bioYt, setResult: setBioYt, loading: genYt, setLoading: setGenYt, path: 'bio-yt' },
+              { platform: 'instagram' as const, label: 'Bio Instagram', result: bioIg, setResult: setBioIg, loading: genIg, setLoading: setGenIg, path: 'bio-calendly-ig' },
+              { platform: 'youtube' as const, label: 'Bio YouTube', result: bioYt, setResult: setBioYt, loading: genYt, setLoading: setGenYt, path: 'bio-calendly-yt' },
             ].map(({ platform, label, result, setResult, loading, setLoading }) => (
               <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{label}</div>
                   <div style={{ fontSize: 11, color: result ? BLUE : FAINT, fontWeight: result ? 600 : 400, wordBreak: 'break-all' }}>
-                    {result || (domain ? `${domain}/bio-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
+                    {result || (domain ? `${domain}/bio-calendly-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
                   </div>
                 </div>
                 {result
