@@ -32,6 +32,7 @@ interface Post {
   hasDescLink?: boolean;
   hasLeadMagnet?: boolean;
   descLinkUrl?: string;
+  descShortId?: string;
   descDestType?: string;
   lmKeyword?: string;
   lmShortUrl?: string;
@@ -436,16 +437,63 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     const validationError = validateDescParams({ canGenerate, destType, calendlyUrl, customUrl });
     if (validationError) { setError(validationError); return; }
     const destUrl = destType === 'calendly' ? calendlyUrl.trim() : normalizeUrl(customUrl);
+    const utms = { source: domain, medium: 'description', campaign: destType, content: post.id };
+    const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
     setLoading(true); setError(null);
     try {
-      const path = `desc-${slugify(post.caption.slice(0, 20))}-${post.id.slice(-4)}`;
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: domain, utmMedium: 'description', utmCampaign: destType, utmContent: post.id, path });
+      let shortId = post.descShortId || '';
+      let shortUrl = '';
+
+      if (shortId) {
+        // Cas nominal : on a déjà un ID Short.io — on met juste à jour la destination
+        const patchRes = await fetch('/api/shortio/links', {
+          method: 'PATCH', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, ...{ utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content } }),
+        });
+        const patchData = await patchRes.json();
+        if (!patchRes.ok) throw new Error(patchData.error || 'Erreur mise à jour Short.io');
+        shortUrl = patchData.shortUrl;
+      } else {
+        // Pas d'ID connu : on crée (ou on récupère l'existant via 409)
+        const postRes = await fetch('/api/shortio/links', {
+          method: 'POST', headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ profileId, domainId: domain, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content, path }),
+        });
+        const postData = await postRes.json();
+        if (!postRes.ok) throw new Error(postData.error || 'Erreur Short.io');
+        shortId = postData.id;
+        shortUrl = postData.shortUrl;
+
+        // Si le lien existait déjà (409 fallback), on a l'ID — on met à jour la destination
+        // pour garantir qu'elle correspond à ce qu'on vient de choisir
+        if (postData.existed && shortId) {
+          const patchRes = await fetch('/api/shortio/links', {
+            method: 'PATCH', headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({ profileId, shortId, originalUrl: destUrl, title: `Description — ${post.caption.slice(0, 40)}`, utmSource: utms.source, utmMedium: utms.medium, utmCampaign: utms.campaign, utmContent: utms.content }),
+          });
+          const patchData = await patchRes.json();
+          if (patchRes.ok) shortUrl = patchData.shortUrl;
+        }
+      }
+
+      // Trouver le lm_id si destType = leadmagnet
+      const resolvedLmId = destType === 'leadmagnet'
+        ? (leadMagnets.find(lm => lm.url === customUrl)?.id || null)
+        : null;
+
       await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, desc_short_url: shortUrl, desc_dest_type: destType }),
+        body: JSON.stringify({
+          content_id: post.id, platform: post.platform,
+          desc_short_url: shortUrl, desc_short_id: shortId,
+          desc_dest_type: destType,
+          desc_utms: utms,
+          ...(resolvedLmId ? { lm_id: resolvedLmId } : {}),
+        }),
       });
+
       setResult(shortUrl);
-      onPostUpdated(post.id, { hasDescLink: true, descLinkUrl: shortUrl, descDestType: destType });
+      onPostUpdated(post.id, { hasDescLink: true, descLinkUrl: shortUrl, descShortId: shortId, descDestType: destType });
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -1842,6 +1890,7 @@ export default function PageLiens() {
         ...post,
         hasDescLink: !!cl.desc_short_url,
         descLinkUrl: cl.desc_short_url || undefined,
+        descShortId: (cl as any).desc_short_id || undefined,
         descDestType: cl.desc_dest_type || undefined,
         hasLeadMagnet: !!cl.lm_short_url,
         lmKeyword: cl.lm_keyword || undefined,

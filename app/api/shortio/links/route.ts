@@ -18,6 +18,28 @@ async function getCreds(profileId: string): Promise<{ apiKey: string; domainId: 
   return { apiKey: integ.api_key, domainId: (integ.metadata as any)?.domain_id ?? null };
 }
 
+function buildDestUrl(originalUrl: string, utms: { source?: string; medium?: string; campaign?: string; content?: string }) {
+  const url = new URL(originalUrl);
+  if (utms.source) url.searchParams.set('utm_source', utms.source);
+  if (utms.medium) url.searchParams.set('utm_medium', utms.medium);
+  if (utms.campaign) url.searchParams.set('utm_campaign', utms.campaign);
+  if (utms.content) url.searchParams.set('utm_content', utms.content);
+  return url.toString();
+}
+
+async function resolveProfileId(user: { id: string }, profileId: string): Promise<string | null> {
+  if (!profileId || profileId === user.id) return user.id;
+  const { data: clientRow } = await serviceSupabase
+    .from('clients')
+    .select('id')
+    .eq('profile_id', profileId)
+    .eq('coach_id', user.id)
+    .single();
+  return clientRow ? profileId : null;
+}
+
+// POST — crée un nouveau lien. Si 409 (path existant), récupère l'ID existant et le retourne
+// pour que l'appelant puisse faire un PATCH ensuite.
 export async function POST(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -26,52 +48,31 @@ export async function POST(request: Request) {
   const body = await request.json();
   const { profileId, domainId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent, path } = body;
 
-  let targetProfileId = user.id;
-  if (profileId && profileId !== user.id) {
-    const { data: clientRow } = await serviceSupabase
-      .from('clients')
-      .select('id')
-      .eq('profile_id', profileId)
-      .eq('coach_id', user.id)
-      .single();
-    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
-    targetProfileId = profileId;
-  }
+  const targetProfileId = await resolveProfileId(user, profileId);
+  if (!targetProfileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
   const creds = await getCreds(targetProfileId);
-  if (!creds) {
-    console.error('[shortio/links] Clé API manquante pour profileId:', targetProfileId);
-    return NextResponse.json({ error: 'no_token', profileId: targetProfileId }, { status: 400 });
-  }
+  if (!creds) return NextResponse.json({ error: 'no_token', profileId: targetProfileId }, { status: 400 });
   const { apiKey, domainId: numericDomainId } = creds;
 
-  // Build the destination URL with UTM params
-  const destUrl = new URL(originalUrl);
-  if (utmSource) destUrl.searchParams.set('utm_source', utmSource);
-  if (utmMedium) destUrl.searchParams.set('utm_medium', utmMedium);
-  if (utmCampaign) destUrl.searchParams.set('utm_campaign', utmCampaign);
-  if (utmContent) destUrl.searchParams.set('utm_content', utmContent);
+  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent });
 
   const payload: Record<string, any> = {
     domain: domainId,
-    originalURL: destUrl.toString(),
-    title: title || utmCampaign || 'Lien Calendly',
+    originalURL: destUrl,
+    title: title || utmCampaign || 'Lien',
   };
   if (path) payload.path = path;
 
   const res = await fetch('https://api.short.io/links', {
     method: 'POST',
-    headers: {
-      authorization: apiKey,
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
+    headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
     body: JSON.stringify(payload),
   });
 
   const data = await res.json().catch(() => ({}));
 
-  // 409 = path déjà utilisé → récupère le lien existant et le retourne
+  // 409 = path déjà utilisé → récupère l'ID existant pour permettre un PATCH ultérieur
   if (res.status === 409 && path && numericDomainId) {
     const existingRes = await fetch(
       `https://api.short.io/api/links?domain_id=${numericDomainId}&limit=150`,
@@ -91,7 +92,7 @@ export async function POST(request: Request) {
   }
 
   if (!res.ok) {
-    console.error('[shortio/links] Erreur Short.io', res.status, JSON.stringify(data), JSON.stringify(payload));
+    console.error('[shortio/links POST]', res.status, JSON.stringify(data));
     return NextResponse.json({ error: data?.message || `Erreur Short.io HTTP ${res.status}`, details: data }, { status: 400 });
   }
 
@@ -99,6 +100,49 @@ export async function POST(request: Request) {
     id: data.id,
     shortUrl: data.secureShortURL || data.shortURL || data.shortUrl,
     path: data.path,
+    originalUrl: data.originalURL,
+  });
+}
+
+// PATCH — modifie la destination d'un lien existant (par son ID Short.io)
+export async function PATCH(request: Request) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const body = await request.json();
+  const { profileId, shortId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent } = body;
+
+  if (!shortId) return NextResponse.json({ error: 'shortId requis' }, { status: 400 });
+
+  const targetProfileId = await resolveProfileId(user, profileId);
+  if (!targetProfileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  const creds = await getCreds(targetProfileId);
+  if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 400 });
+  const { apiKey } = creds;
+
+  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent });
+
+  const res = await fetch(`https://api.short.io/links/${shortId}`, {
+    method: 'POST',
+    headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      originalURL: destUrl,
+      ...(title ? { title } : {}),
+    }),
+  });
+
+  const data = await res.json().catch(() => ({}));
+
+  if (!res.ok) {
+    console.error('[shortio/links PATCH]', res.status, JSON.stringify(data));
+    return NextResponse.json({ error: data?.message || `Erreur Short.io HTTP ${res.status}` }, { status: 400 });
+  }
+
+  return NextResponse.json({
+    id: data.id,
+    shortUrl: data.secureShortURL || data.shortURL || data.shortUrl,
     originalUrl: data.originalURL,
   });
 }
