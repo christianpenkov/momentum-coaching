@@ -1958,7 +1958,8 @@ function delta(current: number, previous: number): { value: number; label: strin
   };
 }
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[] }) {
+  const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   const [expandedHero, setExpandedHero] = useState<number | null>(null);
   const [heroSnapshot, setHeroSnapshot] = useState<{ label: string; value: string; sub: string } | null>(null);
@@ -2441,7 +2442,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
 // ─── TAB "Funnel (détail)" — contrôles inline par section ───────────────────
 
-function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null }) {
+function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFromProp }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; leads?: MockLead[] }) {
+  const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [period, setPeriod] = useState<Period>(30);
   const [periodIndex, setPeriodIndex] = useState(0);
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
@@ -5499,19 +5501,19 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       if (u2) {
         const targetId = profileId || u2.id;
         const { data: leadsData } = await supabase
-          .from('leads')
-          .select('ig_user_id, ig_username, post_id, post_title, post_type, commented_at, keyword, lead_magnet_sent, hook_replied')
+          .from('instagram_leads')
+          .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, detected_at, source')
           .eq('profile_id', targetId)
-          .order('commented_at', { ascending: false })
+          .order('detected_at', { ascending: false })
           .limit(500);
         if (leadsData) setIgLeads(leadsData.map((l: any) => ({
           igUserId: l.ig_user_id,
-          igUsername: l.ig_username,
-          postId: l.post_id,
-          postTitle: l.post_title || '',
-          postType: l.post_type || 'IG',
-          commentedAt: l.commented_at,
-          keyword: l.keyword || '',
+          igUsername: l.ig_username || 'Anonyme',
+          postId: l.media_id || '',
+          postTitle: l.media_permalink || l.media_id || '',
+          postType: 'IG',
+          commentedAt: l.detected_at,
+          keyword: l.keyword_matched || '',
           leadMagnetSent: l.lead_magnet_sent || false,
         })));
 
@@ -5595,8 +5597,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} />}
-          {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
+          {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} leads={igLeads} />}
           {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} profileId={profileId} />}
           {tab === 6 && <TabRevenues stripe={stripe} period={period} />}
         </>
