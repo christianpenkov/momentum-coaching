@@ -3783,16 +3783,33 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   const postLinks   = shortio.links.filter((l: any) => l.linkType === 'post');
   const prospectLinks = shortio.links.filter((l: any) => l.linkType === 'prospect');
 
+  // Helper : clics sur un lien Short.io pour la période courante.
+  // Si sPeriod < 30 → somme les N derniers points du chartData journalier.
+  // Si sPeriod === 30 → utilise humanClicks30d (valeur agrégée déjà fournie par l'API).
+  const linkClics = (l: any): number => {
+    if (sPeriod === 30) return l.humanClicks30d || 0;
+    const pts: { clicks: number }[] = l.chartData || [];
+    return pts.slice(-sPeriod).reduce((s, p) => s + (p.clicks || 0), 0);
+  };
+
+  // Helper : clics agrégés domaine pour la période
+  const domainClicsPeriod = sPeriod === 30
+    ? shortio.humanClicks30d
+    : (shortio.chartData || []).slice(-sPeriod).reduce((s: number, d: any) => s + (d.clicks || 0), 0);
+
+  // Filtre leads par période
+  const periodCutoff = Date.now() - sPeriod * 24 * 60 * 60 * 1000;
+  const leadsInPeriod = leads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
+
   // ── Section 0 : KPIs ──
-  const totalClics = shortio.humanClicks30d;
+  const totalClics = domainClicsPeriod;
   const dmLinks = prospectLinks.length;
-  const dmClics = prospectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+  const dmClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
   const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
-  const lmEnvoyes = leads.filter(l => l.leadMagnetSent).length;
-  const hookReplies = (leads as any[]).filter(l => l.hookReplied).length;
+  const lmEnvoyes = leadsInPeriod.filter(l => l.leadMagnetSent).length;
+  const hookReplies = leadsInPeriod.filter(l => l.hookReplied).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
   // Liens Calendly envoyés DM = prospect_links Supabase filtrés par période (source de vérité)
-  const periodCutoff = Date.now() - sPeriod * 24 * 60 * 60 * 1000;
   const lmCalendlyLinks = prospectLinksDb.length > 0
     ? prospectLinksDb.filter(l => new Date(l.created_at).getTime() >= periodCutoff).length
     : prospectLinks.length;
@@ -3801,15 +3818,19 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
   const callsTotal = prospectLinks.filter((l: any) => l.callBooked).length;
 
-  // ── Graphique filtré ──
-  const chartData = shortio.chartData.map((d, i) => {
+  // ── Graphique filtré — limité à sPeriod jours ──
+  // offset : si sPeriod=7, les 7 derniers points du domaine correspondent aux indices [23..29]
+  const chartOffset = shortio.chartData.length - (sPeriod === 7 ? 7 : shortio.chartData.length);
+  const chartRaw = shortio.chartData.slice(chartOffset);
+  const chartData = chartRaw.map((d, i) => {
+    const li = chartOffset + i; // index réel dans l.chartData[30 pts]
     if (chartFilter === 'bio') {
       const igBioLinks = bioLinks.filter((l: any) => l.bioType === 'instagram');
       const ytBioLinks = bioLinks.filter((l: any) => l.bioType === 'youtube');
       return {
         date: d.date,
-        ig: igBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
-        yt: ytBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
+        ig: igBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
+        yt: ytBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
       };
     }
     if (chartFilter === 'content') {
@@ -3817,18 +3838,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
       const ytPostLinks = postLinks.filter((l: any) => l.postPlatform === 'YT');
       return {
         date: d.date,
-        ig: igPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
-        yt: ytPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0),
+        ig: igPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
+        yt: ytPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
       };
     }
     if (chartFilter === 'dm') {
-      // Courbe Calendly = clics sur liens prospect DM
-      const calendly = prospectLinks.reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
-      // Courbe LM = clics sur les shortlinks des tracking_link des leads
-      const lmUrls = new Set(leads.filter(l => l.trackingLink).map(l => l.trackingLink!));
+      const calendly = prospectLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0);
+      const lmUrls = new Set(leadsInPeriod.filter(l => l.trackingLink).map(l => l.trackingLink!));
       const lm = shortio.links
         .filter((l: any) => lmUrls.has(l.shortUrl) || lmUrls.has(l.originalUrl))
-        .reduce((s: number, l: any) => s + (l.chartData?.[i]?.clicks || 0), 0);
+        .reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0);
       return { date: d.date, calendly, lm };
     }
     return d;
@@ -3857,14 +3876,15 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo?.isShort ? 'Short' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
 
-    const clicsDesc = descLink?.humanClicks30d || 0;
-    const lmDetectes = postLeads.length;
-    const lmSent = postLeads.filter((l: MockLead) => l.leadMagnetSent).length;
-    // Clics LM réels = clics sur les shortlinks de tracking envoyés à ces leads
-    const postLmUrls = new Set(postLeads.filter(l => l.trackingLink).map(l => l.trackingLink!));
+    const clicsDesc = linkClics(descLink) || 0;
+    const postLeadsInPeriod = postLeads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
+    const lmDetectes = postLeadsInPeriod.length;
+    const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
+    // Clics LM réels = clics sur les shortlinks de tracking envoyés à ces leads (filtrés par période)
+    const postLmUrls = new Set(postLeadsInPeriod.filter(l => l.trackingLink).map(l => l.trackingLink!));
     const lmClics = shortio.links
       .filter((l: any) => postLmUrls.has(l.shortUrl) || postLmUrls.has(l.originalUrl))
-      .reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+      .reduce((s: number, l: any) => s + linkClics(l), 0);
     // Réponses au message d'accroche = hook_replied dans instagram_leads
     const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
@@ -3927,11 +3947,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
           // LM% = clics reçus sur liens LM (tracking_link dans instagram_leads) / LM envoyés
           // Calendly% = clics reçus sur liens Calendly prospect / liens Calendly générés
           // Clics LM = clics sur les shortlinks envoyés en DM avec le LM (tracking_link des leads)
-          const lmTrackingUrls = new Set(leads.filter(l => l.trackingLink).map(l => l.trackingLink!));
+          const lmTrackingUrls = new Set(leadsInPeriod.filter(l => l.trackingLink).map(l => l.trackingLink!));
           const lmClics = shortio.links
             .filter((l: any) => lmTrackingUrls.has(l.shortUrl) || lmTrackingUrls.has(l.originalUrl))
-            .reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
-          const calendlyClics = prospectLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+            .reduce((s: number, l: any) => s + linkClics(l), 0);
+          const calendlyClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
           const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyClics / lmCalendlyLinks) * 100) : 0;
           const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
