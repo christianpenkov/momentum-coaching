@@ -420,11 +420,12 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   const [error, setError] = useState<string | null>(null);
 
   // Résout l'URL courte affichée selon le type actif
+  // Fallback sur l'ancienne colonne desc_short_url pour les liens existants avant la migration
   const currentUrl = destType === 'calendly'
-    ? (post.descCalendlyUrl || null)
+    ? (post.descCalendlyUrl || (post.descDestType === 'calendly' ? post.descLinkUrl : null) || null)
     : destType === 'leadmagnet'
-      ? (post.descLmUrl || null)
-      : (post.descCustomUrl || null);
+      ? (post.descLmUrl || (post.descDestType === 'leadmagnet' ? post.descLinkUrl : null) || null)
+      : (post.descCustomUrl || (post.descDestType === 'custom' ? post.descLinkUrl : null) || null);
 
   // Sync au changement de contenu
   useEffect(() => {
@@ -489,16 +490,14 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
       setLoading(true);
       try {
         const destUrl = calendlyUrl.trim();
-        // Path : calendly-{slug-caption}-{4chars} — unique par contenu
-        const path = `calendly-${postSlug}-${suffix}`;
-        const title = `Prendre RDV — ${post.caption.slice(0, 40)}`;
+        // Path : prendre-rdv-{4chars} — lisible, unique par contenu, une seule génération
+        const path = `prendre-rdv-${suffix}`;
+        const title = `Prendre RDV`;
         let shortId = post.descCalendlyShortId || '';
         let shortUrl = '';
-        if (shortId) {
-          shortUrl = await updateLink(shortId, destUrl, title, utms);
-        } else {
-          ({ shortId, shortUrl } = await getOrCreateLink(path, destUrl, title, utms));
-        }
+        // Calendly : on ne regénère jamais si le lien existe déjà
+        if (shortId) { setError(null); setLoading(false); return; }
+        ({ shortId, shortUrl } = await getOrCreateLink(path, destUrl, title, utms));
         await fetch('/api/client/content-links', {
           method: 'POST', headers: { 'content-type': 'application/json' },
           body: JSON.stringify({ content_id: post.id, platform: post.platform, desc_calendly_short_id: shortId, desc_calendly_short_url: shortUrl, desc_utms: utms }),
@@ -618,10 +617,13 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         </div>
       )}
 
-      <button onClick={generate} disabled={loading || !canGenerate || !canGenBtn}
-        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-        {loading ? <><Spinner /> Génération...</> : currentUrl ? 'Regénérer le lien' : 'Générer le lien description'}
-      </button>
+      {/* Calendly : une seule génération, pas de regénération */}
+      {destType === 'calendly' && currentUrl ? null : (
+        <button onClick={generate} disabled={loading || !canGenerate || !canGenBtn}
+          style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          {loading ? <><Spinner /> Génération...</> : (currentUrl && destType !== 'calendly') ? 'Regénérer le lien' : 'Générer le lien description'}
+        </button>
+      )}
     </div>
   );
 }
