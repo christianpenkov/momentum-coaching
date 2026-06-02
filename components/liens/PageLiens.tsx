@@ -32,6 +32,7 @@ interface Post {
   hasDescLink?: boolean;
   hasLeadMagnet?: boolean;
   descLinkUrl?: string;
+  descDestType?: string;
   lmKeyword?: string;
   lmShortUrl?: string;
   dmOpenerMessage?: string;
@@ -400,12 +401,36 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     ? [{ key: 'calendly', label: 'Calendly' }, { key: 'leadmagnet', label: 'Lead magnet' }, { key: 'custom', label: 'URL custom' }]
     : [{ key: 'calendly', label: 'Calendly' }, { key: 'custom', label: 'URL custom' }];
 
-  const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>('calendly');
-  const [customUrl, setCustomUrl] = useState('');
+  // Résout destType + LM pré-sélectionné depuis la DB
+  const resolveInit = (p: Post) => {
+    const t = p.descDestType;
+    const destType: 'calendly' | 'leadmagnet' | 'custom' =
+      t === 'leadmagnet' ? 'leadmagnet' : t === 'custom' ? 'custom' : 'calendly';
+    let customUrl = '';
+    if (destType === 'leadmagnet' && p.hasLeadMagnet && leadMagnets.length > 0) {
+      const linked = leadMagnets.find(lm => lm.keyword === p.lmKeyword) || leadMagnets[0];
+      customUrl = linked?.url || '';
+    }
+    return { destType, customUrl };
+  };
+
+  const init = resolveInit(post);
+  const [destType, setDestType] = useState<'calendly' | 'leadmagnet' | 'custom'>(init.destType);
+  const [customUrl, setCustomUrl] = useState(init.customUrl);
   const [result, setResult] = useState<string | null>(post.descLinkUrl || null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isExisting = !!post.descLinkUrl;
+
+  // Re-sync quand on change de contenu
+  useEffect(() => {
+    const { destType: dt, customUrl: cu } = resolveInit(post);
+    setDestType(dt);
+    setCustomUrl(cu);
+    setResult(post.descLinkUrl || null);
+    setError(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post.id]);
 
   const generate = async () => {
     const validationError = validateDescParams({ canGenerate, destType, calendlyUrl, customUrl });
@@ -420,7 +445,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
         body: JSON.stringify({ content_id: post.id, platform: post.platform, desc_short_url: shortUrl, desc_dest_type: destType }),
       });
       setResult(shortUrl);
-      onPostUpdated(post.id, { hasDescLink: true, descLinkUrl: shortUrl });
+      onPostUpdated(post.id, { hasDescLink: true, descLinkUrl: shortUrl, descDestType: destType });
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
 
@@ -1817,6 +1842,7 @@ export default function PageLiens() {
         ...post,
         hasDescLink: !!cl.desc_short_url,
         descLinkUrl: cl.desc_short_url || undefined,
+        descDestType: cl.desc_dest_type || undefined,
         hasLeadMagnet: !!cl.lm_short_url,
         lmKeyword: cl.lm_keyword || undefined,
         lmShortUrl: cl.lm_short_url || undefined,
