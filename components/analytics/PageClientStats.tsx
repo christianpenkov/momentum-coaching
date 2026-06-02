@@ -3780,9 +3780,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   const igPosts = ig?.posts || [];
   const ytVideos = yt?.videos || [];
 
-  const bioLinks    = shortio.links.filter((l: any) => l.linkType === 'bio');
-  const postLinks   = shortio.links.filter((l: any) => l.linkType === 'post');
-  const prospectLinks = shortio.links.filter((l: any) => l.linkType === 'prospect');
+  const allShortioLinks: any[] = shortio.links ?? [];
+  const bioLinks    = allShortioLinks.filter((l: any) => l.linkType === 'bio');
+  const postLinks   = allShortioLinks.filter((l: any) => l.linkType === 'post');
+  const prospectLinks = allShortioLinks.filter((l: any) => l.linkType === 'prospect');
 
   // Helper : clics sur un lien Short.io pour la période courante.
   // Si sPeriod < 30 → somme les N derniers points du chartData journalier.
@@ -3795,8 +3796,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
 
   // Helper : clics agrégés domaine pour la période
   const domainClicsPeriod = sPeriod === 30
-    ? shortio.humanClicks30d
-    : (shortio.chartData || []).slice(-sPeriod).reduce((s: number, d: any) => s + (d.clicks || 0), 0);
+    ? (shortio.humanClicks30d ?? 0)
+    : (shortio.chartData ?? []).slice(-sPeriod).reduce((s: number, d: any) => s + (d.clicks || 0), 0);
 
   // Filtre leads par période
   const periodCutoff = Date.now() - sPeriod * 24 * 60 * 60 * 1000;
@@ -3821,8 +3822,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
 
   // ── Graphique filtré — limité à sPeriod jours ──
   // offset : si sPeriod=7, les 7 derniers points du domaine correspondent aux indices [23..29]
-  const chartOffset = shortio.chartData.length - (sPeriod === 7 ? 7 : shortio.chartData.length);
-  const chartRaw = shortio.chartData.slice(chartOffset);
+  const shortioChart = shortio.chartData ?? [];
+  const chartOffset = shortioChart.length - (sPeriod === 7 ? 7 : shortioChart.length);
+  const chartRaw = shortioChart.slice(chartOffset);
   const chartData = chartRaw.map((d, i) => {
     const li = chartOffset + i; // index réel dans l.chartData[30 pts]
     if (chartFilter === 'bio') {
@@ -5289,6 +5291,7 @@ async function fetchApi(url: string) {
 }
 
 async function fetchSupabaseStats(profileId?: string) {
+  try {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -5333,10 +5336,10 @@ async function fetchSupabaseStats(profileId?: string) {
     ...lmData.filter((lm: any) => lm.url).map((lm: any) => ({ id: `lm-${lm.id}`, label: lm.name, url: lm.url, type: 'leadmagnet' as const })),
   ];
 
-  // callsRes peut être une Promise résolue (cas clientRow) ou un résultat direct
-  const callsData = (callsRes as any).data ?? [];
+  const callsData = callsRes.data ?? [];
 
   return { igLeads, leadMagnets: lmData, destinations, calls: callsData };
+  } catch { return null; }
 }
 
 export default function PageClientStats({ profileId }: { profileId?: string } = {}) {
