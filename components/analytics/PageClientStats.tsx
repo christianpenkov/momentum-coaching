@@ -3664,14 +3664,14 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, prospectLinksCount, profileId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, prospectLinksDb, profileId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
   destinations: DestinationLink[];
-  prospectLinksCount: number | null;
+  prospectLinksDb: { id: string; created_at: string }[];
   profileId?: string;
 }) {
   const [sPeriod, setSPeriod] = useState<ShortPeriod>(30);
@@ -3782,8 +3782,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, prospe
   const lmEnvoyes = leads.filter(l => l.leadMagnetSent).length;
   const hookReplies = (leads as any[]).filter(l => l.hookReplied).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
-  // Liens Calendly envoyés DM = count depuis prospect_links Supabase (source de vérité)
-  const lmCalendlyLinks = prospectLinksCount ?? prospectLinks.length;
+  // Liens Calendly envoyés DM = prospect_links Supabase filtrés par période (source de vérité)
+  const periodCutoff = Date.now() - sPeriod * 24 * 60 * 60 * 1000;
+  const lmCalendlyLinks = prospectLinksDb.length > 0
+    ? prospectLinksDb.filter(l => new Date(l.created_at).getTime() >= periodCutoff).length
+    : prospectLinks.length;
   const callsFromLM = prospectLinks.filter((l: any) => l.callBooked).length;
   const tauxLMCalendly = lmEnvoyes > 0 ? Math.round((lmCalendlyLinks / lmEnvoyes) * 100) : 0;
   const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
@@ -5292,7 +5295,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const [igLeads, setIgLeads] = useState<MockLead[]>([]);
   const [leadMagnets, setLeadMagnets] = useState<LeadMagnet[]>([]);
   const [destinations, setDestinations] = useState<DestinationLink[]>([]);
-  const [prospectLinksCount, setProspectLinksCount] = useState<number | null>(null);
+  const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string }[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -5312,7 +5315,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
         safe(() => fetch(`/api/shortio/stats${q}`)),
         safe(() => fetch('/api/client/prospect-links')),
       ]);
-      if (prospectLinksData?.links) setProspectLinksCount(prospectLinksData.links.length);
+      if (prospectLinksData?.links) setProspectLinksDb(prospectLinksData.links);
 
       if (igData && !igData.error) setIg(igData);
       if (ytData && !ytData.error) setYt(ytData);
@@ -5451,7 +5454,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
           {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} leads={igLeads} />}
-          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} prospectLinksCount={prospectLinksCount} profileId={profileId} />}
+          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} prospectLinksDb={prospectLinksDb} profileId={profileId} />}
           {tab === 6 && <TabRevenues stripe={stripe} period={period} />}
         </>
       )}
