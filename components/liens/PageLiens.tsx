@@ -1632,7 +1632,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
       {history.length > 0 && (
         <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Liens générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
+            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Liens Calendly générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
           </div>
           <input
             value={historySearch}
