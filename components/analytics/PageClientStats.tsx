@@ -945,7 +945,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
                     <stop offset="95%" stopColor={item.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong></div></div>;
@@ -1170,17 +1170,18 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
         {[
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés · max 100%', color: 'var(--ink)', key: 'Reach rate', tooltip: '% de tes abonnés touchés par tes publications. 100% = tous tes abonnés ont vu au moins un contenu.' },
+          { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate', tooltip: 'Quel pourcentage de tes abonnés est touché par tes contenus. 100% = tous tes abonnés ont été atteints par au moins une publication.' },
           { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null, tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
         ].map(s => (
-          <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
-            style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
+          <div key={s.label}
+            onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
+            title={(s as any).tooltip ?? undefined}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: (s.key || (s as any).tooltip) ? 'help' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
-            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <div style={{ marginBottom: 8 }}>
               <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
-              {(s as any).tooltip && <span style={{ fontSize: 11, color: 'var(--faint)', cursor: 'help', flexShrink: 0 }} title={(s as any).tooltip}>ⓘ</span>}
-              {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 2 }}>{s.sub}</span>}
+              {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
           </div>
@@ -1584,7 +1585,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${period} jours`}>
+        <Card title="Vues / jour" sub={`${period} jours · données J-3 (latence API YouTube)`}>
           <ResponsiveContainer width="100%" height={220}>
             <ComposedChart data={ytDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
@@ -1608,7 +1609,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
       </div>
 
       {ytDays.some(d => d.netSubs !== undefined) && (
-        <Card title="Abonnés nets / jour" sub={`${period} jours`}>
+        <Card title="Abonnés nets / jour" sub={`${period} jours · données J-3`}>
           <ResponsiveContainer width="100%" height={160}>
             <ComposedChart data={ytDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
