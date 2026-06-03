@@ -2103,8 +2103,14 @@ export default function PageLiens() {
     ? (posts.find(p => p.id === rightView.post.id) ?? rightView.post)
     : null;
 
-  // Mobile : onglet actif (liens | generer)
+  // Mobile : onglet actif + overlay détail
   const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+
+  const openMobileDetail = (view: RightView) => {
+    setRightView(view);
+    setMobileDetailOpen(true);
+  };
 
   return (
     <>
@@ -2178,7 +2184,7 @@ export default function PageLiens() {
         <div className="liens-mobile-panel" style={{ display: 'none', flex: 1, overflowY: 'auto', padding: '16px 14px' }}>
           {mobileTab === 'generer' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <button onClick={() => { setRightView({ type: 'prospect' }); }} style={{
+              <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
                 width: '100%', padding: '14px 16px', fontSize: 14, fontWeight: 700, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
                 border: `1.5px solid ${BLUE}`, background: BLUE_SOFT, color: BLUE,
               }}>
@@ -2187,7 +2193,7 @@ export default function PageLiens() {
               </button>
               <div style={{ fontSize: 12, color: MUTED, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>Liens par contenu</div>
               {filteredPosts.slice(0, 20).map(post => (
-                <button key={post.id} onClick={() => setRightView({ type: 'post', post })} style={{
+                <button key={post.id} onClick={() => openMobileDetail({ type: 'post', post })} style={{
                   width: '100%', padding: '12px 14px', fontSize: 13, fontWeight: 600, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
                   border: `1px solid ${BORDER}`, background: SURFACE, color: INK,
                 }}>
@@ -2208,7 +2214,7 @@ export default function PageLiens() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…"
                 style={{ width: '100%', padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
               {filteredPosts.map(post => (
-                <button key={post.id} onClick={() => setRightView({ type: 'post', post })} style={{
+                <button key={post.id} onClick={() => openMobileDetail({ type: 'post', post })} style={{
                   width: '100%', padding: '12px 14px', fontSize: 13, fontWeight: 500, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
                   border: `1px solid ${BORDER}`, background: SURFACE, color: INK,
                 }}>
@@ -2227,6 +2233,52 @@ export default function PageLiens() {
             </div>
           )}
         </div>
+
+        {/* ── Drawer mobile — s'ouvre au-dessus quand on clique un item ── */}
+        {mobileDetailOpen && rightView && (
+          <div style={{
+            position: 'fixed', inset: 0, zIndex: 200,
+            background: BG, overflowY: 'auto',
+            paddingBottom: 'calc(56px + env(safe-area-inset-bottom))',
+          }}>
+            {/* Header retour */}
+            <div style={{
+              position: 'sticky', top: 0, zIndex: 10,
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 16px', background: SURFACE,
+              borderBottom: `1px solid ${BORDER}`,
+            }}>
+              <button onClick={() => setMobileDetailOpen(false)} style={{
+                display: 'flex', alignItems: 'center', gap: 6,
+                background: 'none', border: 'none', cursor: 'pointer',
+                fontSize: 14, fontWeight: 600, color: BLUE, padding: '4px 0',
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+                Retour
+              </button>
+            </div>
+            {/* Contenu du panneau droit */}
+            <div style={{ padding: '16px' }}>
+              {rightView.type === 'lm-library' ? (
+                <PanneauLeadMagnets
+                  leadMagnets={leadMagnets} lmLoading={lmLoading}
+                  onCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
+                  onDeleted={(id: string) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).filter(l => l.id !== id))}
+                  onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
+                />
+              ) : rightView.type === 'prospect' ? (
+                <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
+              ) : (
+                <PanneauActions
+                  post={selectedPost || rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
+                  calendlyUrl={calendlyUrl} leadMagnets={leadMagnets}
+                  onLmCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
+                  onPostUpdated={handlePostUpdated}
+                />
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Body : 2 colonnes */}
         <div className="liens-desktop-only" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
