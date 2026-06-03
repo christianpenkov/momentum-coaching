@@ -7,7 +7,7 @@ import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
-import { useCallback } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -44,13 +44,13 @@ function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boo
 
 export default function PageClientView() {
   const { data: client, loading } = useClientSelfData();
-  const supabase = createClient();
+  const [taskOverrides, setTaskOverrides] = useState<Record<string, boolean>>({});
+  const supabase = useRef(createClient()).current;
 
   const toggleTask = useCallback(async (taskId: string, done: boolean) => {
+    setTaskOverrides(prev => ({ ...prev, [taskId]: done }));
     await supabase.from('tasks').update({ done }).eq('id', taskId);
-    // Refresh via page reload léger — le hook re-fetche au prochain mount
-    window.location.reload();
-  }, []);
+  }, [supabase]);
 
   if (loading) {
     return (
@@ -74,7 +74,7 @@ export default function PageClientView() {
     );
   }
 
-  const tasks = client.tasks;
+  const tasks = client.tasks.map(t => ({ ...t, done: taskOverrides[t.id] ?? t.done }));
   const last = client.latestMetrics;
   const prev = client.prevMetrics;
   const doneCount = tasks.filter(t => t.done).length;

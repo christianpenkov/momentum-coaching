@@ -1105,6 +1105,12 @@ a { color: inherit; text-decoration: none; }
     transition: bottom 50ms linear;
     z-index: 20;
   }
+
+  /* Zone messages : padding-bottom = hauteur input bar (~70px) + nav + clavier */
+  .chat-messages-zone {
+    padding-bottom: calc(var(--keyboard-h, 0px) + 64px + env(safe-area-inset-bottom) + 76px) !important;
+    transition: padding-bottom 50ms linear;
+  }
 }
 .liens-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
 

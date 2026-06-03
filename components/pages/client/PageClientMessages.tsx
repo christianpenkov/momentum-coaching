@@ -127,22 +127,25 @@ function AudioBubble({ url, duration, isMe }: { url: string; duration?: number; 
 
 // ─── RecordingOverlay ─────────────────────────────────────────────────────────
 
-function RecordingOverlay({ onCancel, elapsed }: { onCancel: () => void; elapsed: number }) {
+function RecordingOverlay({ onCancel, onSend, elapsed }: { onCancel: () => void; onSend: () => void; elapsed: number }) {
   return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12,
-      flex: 1, padding: '0 8px',
-    }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
       <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)', animation: 'pulse-rec 1s ease-in-out infinite', flexShrink: 0 }} />
-      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', minWidth: 36 }}>
         {formatDuration(elapsed)}
       </span>
       <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>Enregistrement…</span>
       <button
         onClick={onCancel}
-        style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', background: 'none', border: `1px solid var(--red)`, borderRadius: 16, padding: '4px 12px', cursor: 'pointer' }}
+        style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', background: 'none', border: `1px solid var(--red)`, borderRadius: 16, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}
       >
         Annuler
+      </button>
+      <button
+        onClick={onSend}
+        style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
       </button>
     </div>
   );
@@ -440,12 +443,11 @@ export default function PageClientMessages() {
         </div>
 
         {/* ── Zone messages ── */}
-        <div style={{
+        <div className="chat-messages-zone" style={{
           flex: 1,
           overflowY: 'auto',
           overflowX: 'hidden',
           padding: '12px 16px',
-          paddingBottom: '12px',
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
@@ -518,17 +520,15 @@ export default function PageClientMessages() {
           flexShrink: 0,
         }}>
           {isRecording ? (
-            <RecordingOverlay elapsed={recordingElapsed} onCancel={cancelRecording} />
+            <RecordingOverlay elapsed={recordingElapsed} onCancel={cancelRecording} onSend={stopRecording} />
           ) : (
             <>
               {/* Bouton micro — visible uniquement si champ vide et MediaRecorder dispo */}
               {mediaRecorderSupported && !input.trim() && (
                 <button
-                  onMouseDown={startRecording}
-                  onMouseUp={stopRecording}
-                  onTouchStart={(e) => { e.preventDefault(); startRecording(); }}
-                  onTouchEnd={(e) => { e.preventDefault(); stopRecording(); }}
+                  onClick={startRecording}
                   type="button"
+                  title="Maintenir pour enregistrer"
                   style={{
                     width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
                     background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
