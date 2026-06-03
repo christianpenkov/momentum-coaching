@@ -42,7 +42,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Momentum" />
-        <meta name="theme-color" content="#1a1815" />
+        <meta name="theme-color" content="#fbfbf7" />
         <link rel="apple-touch-icon" href="/favicon-momentum.png" />
       </head>
       <body>

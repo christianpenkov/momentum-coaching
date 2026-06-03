@@ -108,7 +108,15 @@ export default function PageClientMessages() {
   }
 
   return (
-    <div className="chat-shell" style={{ flexDirection: 'column', background: 'var(--bg)', height: '100%', display: 'flex' }}>
+    <div style={{
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      minHeight: 0,
+      background: 'var(--bg)',
+      /* Sur iOS, on laisse le layout flex se comprimer quand le clavier s'ouvre */
+      position: 'relative',
+    }}>
       {/* Header coach */}
       <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)', zIndex: 2 }}>
         <div className="avatar" style={{ width: 40, height: 40, fontSize: 14, flexShrink: 0 }}>{coachInitials}</div>

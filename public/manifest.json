@@ -4,8 +4,8 @@
   "description": "Plateforme de coaching Momentum",
   "start_url": "/client",
   "display": "standalone",
-  "background_color": "#fbfbf7",
-  "theme_color": "#1a1815",
+  "background_color": "#ffffff",
+  "theme_color": "#fbfbf7",
   "orientation": "portrait",
   "icons": [
     {
