@@ -77,17 +77,20 @@ export async function GET(request: Request) {
 
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  const [accountRes, mediaRes, insightsRes, demoRes, onlineFollowersRes, viewsBreakdownRes] = await Promise.all([
+  const [accountRes, mediaRes, insightsRes, engagedRes, demoRes, onlineFollowersRes, viewsBreakdownRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,is_shared_to_feed,video_duration&limit=100&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks&period=day&since=${since}&until=${until}&access_token=${token}`),
+    // reach, follower_count, website_clicks fonctionnent en period=day
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,follows_and_unfollows,profile_links_taps,website_clicks&period=day&since=${since}&until=${until}&access_token=${token}`),
+    // accounts_engaged + total_interactions nécessitent metric_type=total_value (period=day sans ça retourne data:[])
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=lifetime&since=${ofSince}&until=${ofUntil}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&metric_type=total_value&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`),
   ]);
 
-  const [accountData, mediaData, insightsData, demoData, onlineFollowersData, viewsBreakdownData] = await Promise.all([
-    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(demoRes), safeJson(onlineFollowersRes), safeJson(viewsBreakdownRes),
+  const [accountData, mediaData, insightsData, engagedData, demoData, onlineFollowersData, viewsBreakdownData] = await Promise.all([
+    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(engagedRes), safeJson(demoRes), safeJson(onlineFollowersRes), safeJson(viewsBreakdownRes),
   ]);
 
   if (accountData.error) {
@@ -107,8 +110,9 @@ export async function GET(request: Request) {
   const sum = (arr: number[]) => (arr || []).reduce((a, b) => a + b, 0);
 
   const reach30d = sum(insightMap['reach'] || []);
-  const accountsEngaged30d = sum(insightMap['accounts_engaged'] || []);
-  const totalInteractions30d = sum(insightMap['total_interactions'] || []);
+  // accounts_engaged + total_interactions via metric_type=total_value (seul format qui fonctionne)
+  const accountsEngaged30d = (engagedData?.data || []).find((m: any) => m.name === 'accounts_engaged')?.total_value?.value ?? 0;
+  const totalInteractions30d = (engagedData?.data || []).find((m: any) => m.name === 'total_interactions')?.total_value?.value ?? 0;
   // follows_and_unfollows peut être vide sur certains comptes — on fall back sur follower_count (delta quotidien)
   const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []) || sum(insightMap['follower_count'] || []);
   const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
