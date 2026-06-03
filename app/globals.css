@@ -1080,7 +1080,7 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
 }
 
-/* Desktop : chat-shell remplit toute la zone app-body */
+/* ── Chat shell — desktop ── */
 .chat-shell {
   display: flex;
   flex-direction: column;
@@ -1088,28 +1088,39 @@ a { color: inherit; text-decoration: none; }
   min-height: 0;
 }
 
-/* Sur mobile le chat est position:fixed — main-content doit être vide */
+/* ── Chat shell — mobile : position fixed ancré aux 4 coins ── */
 @media (max-width: 767px) {
+  /* main-content se vide complètement — le shell sort du flux */
   .main-content:has(.chat-shell) {
     padding: 0 !important;
-    overflow: visible !important;
+    overflow: hidden !important;
     height: 0 !important;
+    min-height: 0 !important;
   }
 
-  /* Input bar : fixed au-dessus de la bottom-nav sur mobile */
-  .chat-input-bar {
+  /* Shell fixé sous la topbar, au-dessus de la nav */
+  .chat-shell {
     position: fixed !important;
+    top: 52px;
     left: 0;
     right: 0;
-    bottom: calc(var(--keyboard-h, 0px) + 64px + env(safe-area-inset-bottom) + 6px);
-    transition: bottom 50ms linear;
-    z-index: 20;
+    bottom: calc(64px + env(safe-area-inset-bottom) + 6px);
+    height: auto !important;
+    z-index: 10;
+    overflow: hidden;
+    display: flex !important;
+    flex-direction: column !important;
   }
 
-  /* Zone messages : padding-bottom = hauteur input bar (~70px) + nav + clavier */
+  /* Zone messages scrollable — pas de padding extra, input bar dans le flux */
   .chat-messages-zone {
-    padding-bottom: calc(var(--keyboard-h, 0px) + 64px + env(safe-area-inset-bottom) + 76px) !important;
-    transition: padding-bottom 50ms linear;
+    padding-bottom: 12px !important;
+  }
+
+  /* Input bar collée en bas du shell — le shell monte avec le clavier */
+  .chat-input-bar {
+    position: relative !important;
+    flex-shrink: 0;
   }
 }
 .liens-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
@@ -1475,19 +1486,16 @@ a { color: inherit; text-decoration: none; }
   .bottom-nav {
     display: flex;
     position: fixed;
-    bottom: var(--keyboard-h, 0px);
+    bottom: 0;
     left: 0;
     right: 0;
-    /* 64px de nav + safe-area home indicator + 6px marge supplémentaire */
     height: calc(64px + env(safe-area-inset-bottom) + 6px);
     padding-bottom: calc(env(safe-area-inset-bottom) + 6px);
     background: var(--surface);
     border-top: 1px solid var(--border);
-    z-index: 300; /* au-dessus de TOUT — drawer inclus */
+    z-index: 300;
     align-items: stretch;
-    /* transform: none — évite le stacking context qui bloque bottom: var(--keyboard-h) */
     transform: none;
-    transition: bottom 50ms linear;
   }
 
   .bottom-nav-item {

@@ -13,10 +13,16 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     if (!vv) return;
 
     function update() {
-      const vvh = vv!.height;
       const keyboardH = Math.max(0, window.innerHeight - vv!.height - vv!.offsetTop);
-      document.documentElement.style.setProperty('--vvh', `${vvh}px`);
+      document.documentElement.style.setProperty('--vvh', `${vv!.height}px`);
       document.documentElement.style.setProperty('--keyboard-h', `${keyboardH}px`);
+
+      // Repositionne le chat-shell quand le clavier monte sur iOS
+      const chatShell = document.querySelector('.chat-shell') as HTMLElement | null;
+      if (chatShell && window.innerWidth <= 767) {
+        const navH = 64 + 6; // nav height sans safe-area
+        chatShell.style.bottom = `${keyboardH + navH}px`;
+      }
     }
 
     update();
