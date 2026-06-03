@@ -373,29 +373,34 @@ export default function PagePipeline() {
   }, []);
 
   // ── Build IG cards ──────────────────────────────────────────────────────────
+  // Source de vérité = union instagram_leads ∪ prospect_links
+  // Un username dans prospect_links sans lead = cold DM direct → démarre en "calendly_sent"
 
   const igCards: CardData[] = [];
   if (data) {
     const seen = new Set<string>();
-    for (const lead of data.leads) {
-      if (seen.has(lead.ig_username)) continue;
-      seen.add(lead.ig_username);
 
-      // Étape naturelle
-      let natural: IgStageKey = 'lm_sent';
-      if (lead.hook_replied) natural = 'in_convo';
+    // Collecte tous les usernames à afficher
+    const allUsernames = new Set<string>([
+      ...data.leads.map(l => l.ig_username.toLowerCase()),
+      ...data.prospects.map(p => p.ig_username.toLowerCase()),
+    ]);
 
-      const prospect = data.prospects.find(p =>
-        p.ig_username.toLowerCase() === lead.ig_username.toLowerCase()
-      );
+    for (const username of allUsernames) {
+      if (seen.has(username)) continue;
+      seen.add(username);
+
+      const lead = data.leads.find(l => l.ig_username.toLowerCase() === username);
+      const prospect = data.prospects.find(p => p.ig_username.toLowerCase() === username);
+
+      // Étape naturelle — part du signal le plus bas disponible
+      let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
+      if (lead?.hook_replied) natural = 'in_convo';
       if (prospect) natural = 'calendly_sent';
-
-      // Vérifier si le lien Calendly a été cliqué (via shortio — pas dispo directement ici, on check prospect humanClicks)
       if (prospect && (prospect as any).humanClicks30d > 0) natural = 'link_clicked';
 
-      // Priorité : ig_lead_id direct, puis lien short_link_path partagé avec prospect_link
       const call = data.calls.find(c => {
-        if (c.ig_lead_id === lead.id) return true;
+        if (lead && c.ig_lead_id === lead.id) return true;
         if (prospect && c.short_link_path && prospect.short_link_path &&
           c.short_link_path === prospect.short_link_path) return true;
         return false;
@@ -406,15 +411,17 @@ export default function PagePipeline() {
         if (call.deal_closed) natural = 'closed';
       }
 
-      const overrideKey = getOverride(lead.ig_username, 'ig');
+      const overrideKey = getOverride(username, 'ig');
       const stageKey = resolveStage(natural, overrideKey);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
+      const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
+      const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
 
       igCards.push({
-        key: lead.ig_username,
-        name: lead.ig_username,
-        sub: lead.keyword_matched ? `#${lead.keyword_matched}` : '',
-        date: timeAgo(lead.detected_at),
+        key: username,
+        name: username,
+        sub,
+        date: timeAgo(detectedAt),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
       });
