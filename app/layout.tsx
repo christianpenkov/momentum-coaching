@@ -19,6 +19,12 @@ const ibmPlexMono = IBM_Plex_Mono({
 export const metadata: Metadata = {
   title: 'Momentum — Plateforme coaching',
   description: 'Infrastructure de delivery pour coachs premium 1:1',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'Momentum',
+  },
   icons: {
     icon: [
       { url: '/favicon-momentum.png', type: 'image/png' },

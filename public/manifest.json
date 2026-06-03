@@ -1,0 +1,24 @@
+{
+  "name": "Momentum",
+  "short_name": "Momentum",
+  "description": "Plateforme de coaching Momentum",
+  "start_url": "/client",
+  "display": "standalone",
+  "background_color": "#fbfbf7",
+  "theme_color": "#1a1815",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/favicon-momentum.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/logo-momentum.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

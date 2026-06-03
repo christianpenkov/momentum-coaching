@@ -2,6 +2,7 @@
 
 import TopBar from '@/components/layout/TopBar';
 import SidebarClient from '@/components/layout/SidebarClient';
+import BottomNav from '@/components/layout/BottomNav';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider } from '@/lib/UserContext';
 
@@ -16,6 +17,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
             <PageTransition>{children}</PageTransition>
           </main>
         </div>
+        <BottomNav />
       </div>
     </UserProvider>
   );
