@@ -2762,29 +2762,29 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
 
 function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: Period }) {
   const [payFilter, setPayFilter] = useState<'all' | 'succeeded' | 'failed'>('all');
+  const [revPeriod, setRevPeriod] = useState<7 | 30>(30);
   if (!stripe) return <Empty msg="Connecte ton compte Stripe pour voir les revenus." />;
 
-  const succeeded = stripe.recentPayments.filter(p => p.status === 'succeeded');
-  const failed = stripe.recentPayments.filter(p => p.status !== 'succeeded');
+  const cutoff = new Date(Date.now() - revPeriod * 86400000);
+  const allInPeriod = stripe.recentPayments.filter(p => new Date(p.date) >= cutoff);
+  const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
+  const failed = allInPeriod.filter(p => p.status !== 'succeeded');
 
-  // Toutes les données viennent directement de Stripe — pas d'estimation
   const cashCollecte = succeeded.reduce((s, p) => s + p.amount, 0);
   const avgBasket = succeeded.length > 0 ? cashCollecte / succeeded.length : 0;
-  const failedPct = stripe.recentPayments.length > 0 ? pct(failed.length, stripe.recentPayments.length) : 0;
+  const failedPct = allInPeriod.length > 0 ? pct(failed.length, allInPeriod.length) : 0;
 
-  // Revenus par mois depuis recentPayments (données réelles)
-  const byMonth: Record<string, number> = {};
-  for (const p of succeeded) {
-    const key = new Date(p.date).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
-    byMonth[key] = (byMonth[key] ?? 0) + p.amount;
-  }
-  const caData = Object.entries(byMonth)
-    .sort(([a], [b]) => {
-      const parse = (s: string) => { const [m, y] = s.split(' '); return new Date(`20${y}-${['janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'].indexOf(m.replace('.',''))+1}-01`).getTime(); };
-      return parse(a) - parse(b);
-    })
-    .slice(-6)
-    .map(([month, ca]) => ({ month, ca }));
+  // Revenus par jour sur la période sélectionnée
+  const today = new Date();
+  const revenueByDay: { date: string; ca: number }[] = Array.from({ length: revPeriod }, (_, i) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - (revPeriod - 1 - i));
+    const iso = d.toISOString().split('T')[0];
+    const ca = succeeded
+      .filter(p => p.date.startsWith(iso))
+      .reduce((s, p) => s + p.amount, 0);
+    return { date: iso, ca };
+  });
 
   return (
     <div className="stack">
@@ -2811,11 +2811,19 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
         </div>
       </div>
 
-      {caData.length > 0 && (
-        <Card title="Revenus par mois" sub="depuis les paiements Stripe">
-          <BarChart data={caData} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="month" height={200} formatter={fmtEur} />
-        </Card>
-      )}
+      <Card title="Revenus / jour" sub={`${revPeriod} derniers jours · paiements Stripe`}>
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          {([7, 30] as const).map(p => (
+            <button key={p} onClick={() => setRevPeriod(p)} style={{
+              padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
+              border: `1px solid ${revPeriod === p ? 'var(--ink)' : 'var(--border)'}`,
+              background: revPeriod === p ? 'var(--ink)' : 'transparent',
+              color: revPeriod === p ? '#fff' : 'var(--muted)', transition: 'all .12s',
+            }}>{p}j</button>
+          ))}
+        </div>
+        <BarChart data={revenueByDay} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} />
+      </Card>
 
       <div className="card">
         <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
