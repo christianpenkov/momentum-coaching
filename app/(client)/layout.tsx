@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import TopBar from '@/components/layout/TopBar';
 import SidebarClient from '@/components/layout/SidebarClient';
 import BottomNav from '@/components/layout/BottomNav';
@@ -8,25 +8,29 @@ import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider } from '@/lib/UserContext';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
-  const [viewportHeight, setViewportHeight] = useState<string>('100%');
-  const [keyboardOpen, setKeyboardOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    const mobile = window.innerWidth <= 767;
-    setIsMobile(mobile);
-    if (!mobile) return;
-
+    if (window.innerWidth > 767) return;
     const vv = window.visualViewport;
     if (!vv) return;
 
     function update() {
       const vvh = vv!.height;
       const kbH = Math.max(0, window.innerHeight - vvh);
-      setViewportHeight(`${vvh}px`);
-      setKeyboardOpen(kbH > 60);
 
-      // Hack WebKit : forcer le scroll à 0,0 pour contrer le décalage Safari au focus
+      // Ajuste la hauteur du shell directement via le DOM — pas de re-render
+      if (shellRef.current) {
+        shellRef.current.style.height = `${vvh}px`;
+      }
+
+      // Masque/affiche la nav via le DOM — pas de re-render
+      if (navRef.current) {
+        navRef.current.style.display = kbH > 60 ? 'none' : '';
+      }
+
+      // Hack WebKit : empêche le décalage de Safari au focus
       if (
         document.activeElement?.tagName === 'INPUT' ||
         document.activeElement?.tagName === 'TEXTAREA'
@@ -44,56 +48,21 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     };
   }, []);
 
-  // Desktop : layout classique
-  if (!isMobile) {
-    return (
-      <UserProvider>
-        <div className="app-shell">
-          <TopBar />
-          <div className="app-body">
-            <SidebarClient />
-            <main className="main-content">
-              <PageTransition>{children}</PageTransition>
-            </main>
-          </div>
-          <BottomNav />
-        </div>
-      </UserProvider>
-    );
-  }
-
-  // Mobile PWA : shell flex-box avec hauteur = visualViewport.height
   return (
     <UserProvider>
-      <div
-        style={{
-          display: 'flex',
-          flexDirection: 'column',
-          width: '100vw',
-          height: viewportHeight,
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          overflow: 'hidden',
-          boxSizing: 'border-box',
-          background: 'var(--bg)',
-        }}
-      >
-        {/* TopBar — hauteur fixe 52px */}
+      {/* Shell unique — desktop et mobile, jamais de remount */}
+      <div ref={shellRef} className="app-shell-pwa">
         <TopBar />
-
-        {/* Zone centrale — prend tout l'espace restant */}
-        <div style={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
-          <main
-            className="main-content"
-            style={{ flex: 1, minWidth: 0, overflow: 'hidden', position: 'relative' }}
-          >
+        <div className="app-body-pwa">
+          <SidebarClient />
+          <main className="main-content">
             <PageTransition>{children}</PageTransition>
           </main>
         </div>
-
-        {/* BottomNav — disparaît quand le clavier est ouvert */}
-        {!keyboardOpen && <BottomNav />}
+        {/* div wrapper pour pouvoir cacher/afficher via ref sans remount */}
+        <div ref={navRef} className="bottom-nav-wrapper">
+          <BottomNav />
+        </div>
       </div>
     </UserProvider>
   );

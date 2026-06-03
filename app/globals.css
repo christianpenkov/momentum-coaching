@@ -1094,6 +1094,30 @@ a { color: inherit; text-decoration: none; }
 /* App shell (layout) */
 .app-shell { display: flex; flex-direction: column; height: 100vh; }
 .app-body { display: flex; flex: 1; min-height: 0; overflow: hidden; }
+
+/* PWA shell — même structure, hauteur ajustée par JS via ref sur mobile */
+.app-shell-pwa {
+  display: flex;
+  flex-direction: column;
+  height: 100vh; /* fallback desktop */
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%;
+  overflow: hidden;
+  background: var(--bg);
+}
+.app-body-pwa {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+/* Desktop : sidebar visible */
+@media (min-width: 768px) {
+  .app-shell-pwa { position: relative; height: 100vh; }
+}
+/* bottom-nav-wrapper : juste un passthrough */
+.bottom-nav-wrapper { display: contents; }
 .main-content {
   flex: 1; min-width: 0;
   padding: 26px 32px 60px;
