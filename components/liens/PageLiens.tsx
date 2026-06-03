@@ -1527,10 +1527,19 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                   {leadsLoading ? (
                     <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT }}>Chargement...</div>
                   ) : filteredLeads.length === 0 ? (
-                    <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT, fontStyle: 'italic' }}>
-                      Aucun lead existant — tu peux quand même générer un lien pour ce pseudo
+                    <div style={{ fontSize: 12, color: FAINT, padding: '6px 12px', borderBottom: `1px solid ${BORDER}` }}>Aucun lead existant</div>
+                  ) : null}
+                  {!leadsLoading && filteredLeads.length === 0 && (
+                    <div
+                      onMouseDown={() => { setShowLeads(false); }}
+                      style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#2563EB', cursor: 'pointer', transition: 'background .12s' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = '#EFF6FF')}
+                      onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      + Créer un lead
                     </div>
-                  ) : filteredLeads.map(l => (
+                  )}
+                  {!leadsLoading && filteredLeads.length > 0 && filteredLeads.map(l => (
                     <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setUsernameSearch(''); setShowLeads(false); if (l.media_id) { setPostId(l.media_id); setPostMode('lead'); } }}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
                       onMouseEnter={e => (e.currentTarget.style.background = SURFACE2)}
