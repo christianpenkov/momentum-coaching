@@ -1,11 +1,22 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
-import { useEffect } from 'react';
 import type { Call } from '@/lib/supabase/types';
+
+function useIsMobile() {
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    setIsMobile(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+}
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function toDateKey(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
@@ -86,6 +97,7 @@ export default function PageClientCalendar() {
 
   const todayKey = toDateKey(new Date());
   const selectedEvents = selectedDay ? (eventsByDate[selectedDay] || []) : [];
+  const isMobile = useIsMobile();
 
   if (loading) {
     return (
@@ -135,7 +147,66 @@ export default function PageClientCalendar() {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20, alignItems: 'start' }}>
+      {/* Vue liste mobile — événements à venir triés chronologiquement */}
+      {isMobile && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {events
+            .filter(ev => ev.date >= todayKey)
+            .sort((a, b) => a.date.localeCompare(b.date))
+            .slice(0, 20)
+            .reduce((acc, ev) => {
+              const last = acc[acc.length - 1];
+              if (!last || last.date !== ev.date) acc.push({ date: ev.date, evs: [ev] });
+              else last.evs.push(ev);
+              return acc;
+            }, [] as { date: string; evs: CalEvent[] }[])
+            .map(({ date, evs }) => {
+              const d = new Date(date + 'T12:00:00');
+              const isToday = date === todayKey;
+              const isTomorrow = date === (() => { const t = new Date(); t.setDate(t.getDate() + 1); return toDateKey(t); })();
+              const label = isToday ? "Aujourd'hui" : isTomorrow ? 'Demain' : d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+              return (
+                <div key={date}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? 'var(--accent)' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, paddingLeft: 2 }}>
+                    {label}
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {evs.map((ev, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderRadius: 12, background: ev.type === 'call' ? 'var(--accent-soft)' : 'var(--surface)', border: `1px solid ${ev.type === 'call' ? 'var(--border)' : 'var(--border)'}` }}>
+                        <div style={{ width: 36, height: 36, borderRadius: 10, background: ev.type === 'call' ? 'var(--accent)' : 'var(--amber-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={ev.type === 'call' ? '#fff' : 'var(--amber)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            {ev.type === 'call'
+                              ? <><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07A19.5 19.5 0 0 1 4.69 12 19.79 19.79 0 0 1 1.61 3.44 2 2 0 0 1 3.6 1.27h3a2 2 0 0 1 2 1.72c.127.96.361 1.903.7 2.81a2 2 0 0 1-.45 2.11L7.91 8.91a16 16 0 0 0 6 6l.91-.91a2 2 0 0 1 2.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0 1 22 16.92z"/></>
+                              : <><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></>
+                            }
+                          </svg>
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>{ev.label}</div>
+                          {ev.time && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{ev.time}</div>}
+                        </div>
+                        {ev.type === 'call' && ev.ready && (
+                          <span className={`pill pill-${ev.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10, flexShrink: 0 }}>
+                            {ev.ready === 'ready' ? 'Prêt' : 'En attente'}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          {events.filter(ev => ev.date >= todayKey).length === 0 && (
+            <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--muted)', fontSize: 13 }}>
+              <div style={{ fontSize: 28, marginBottom: 10 }}>📅</div>
+              Aucun événement à venir
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Vue calendrier desktop */}
+      {!isMobile && <div style={{ display: 'grid', gridTemplateColumns: '1fr 280px', gap: 20, alignItems: 'start' }}>
         {/* Calendrier */}
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '16px 20px', borderBottom: '1px solid var(--border)' }}>
@@ -235,7 +306,7 @@ export default function PageClientCalendar() {
             </div>
           )}
         </div>
-      </div>
+      </div>}
     </div>
   );
 }

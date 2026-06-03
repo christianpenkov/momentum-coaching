@@ -1344,19 +1344,18 @@ a { color: inherit; text-decoration: none; }
   /* Masque la sidebar desktop */
   .sidebar { display: none !important; }
 
-  /* TopBar mobile — plus compacte */
-  .topbar {
-    height: 52px;
-    padding: 0 16px;
-  }
+  /* TopBar mobile */
+  .topbar { height: 52px; padding: 0 16px; }
+  .topbar-tagline { display: none; }
 
   /* App shell — padding-bottom pour la nav mobile */
   .main-content {
-    padding: 16px 16px 80px !important;
+    padding: 12px 14px 80px !important;
   }
 
   /* Cartes — padding réduit */
   .card { padding: 14px; }
+  .card-head { margin-bottom: 12px; }
 
   /* Grilles → une colonne */
   .grid-dash,
@@ -1368,6 +1367,22 @@ a { color: inherit; text-decoration: none; }
   .grid-brief-2 {
     grid-template-columns: 1fr !important;
   }
+
+  /* Page titles */
+  .page-title { font-size: 20px !important; }
+  .page-sub { font-size: 12px !important; }
+
+  /* Stack spacing réduit */
+  .stack { gap: 14px !important; }
+
+  /* Chat mobile — plein écran sans décalage */
+  .chat-shell {
+    height: calc(100vh - 52px - 56px - env(safe-area-inset-bottom)) !important;
+  }
+
+  /* Touch targets */
+  .btn-primary, .btn-ghost { min-height: 44px; }
+  .task-check { width: 22px !important; height: 22px !important; }
 }
 
 /* ── Bottom Navigation Bar (mobile uniquement) ──────────────────────────────── */

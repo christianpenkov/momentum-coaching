@@ -108,33 +108,38 @@ export default function PageClientMessages() {
   }
 
   return (
-    <div className="chat-shell" style={{ flexDirection: 'column', background: 'var(--bg)', height: '100%' }}>
-      {/* Header */}
-      <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)', zIndex: 2 }}>
-        <div className="avatar" style={{ width: 38, height: 38, fontSize: 14 }}>{coachInitials}</div>
+    <div className="chat-shell" style={{ flexDirection: 'column', background: 'var(--bg)', height: '100%', display: 'flex' }}>
+      {/* Header coach */}
+      <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)', zIndex: 2 }}>
+        <div className="avatar" style={{ width: 40, height: 40, fontSize: 14, flexShrink: 0 }}>{coachInitials}</div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--accent)' }}>{coachName}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)' }}>Ton coach</div>
+          <div style={{ fontSize: 11, color: 'var(--green)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', display: 'inline-block' }} />
+            Ton coach
+          </div>
         </div>
       </div>
 
       {/* Messages */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: '16px', display: 'flex', flexDirection: 'column', gap: 12, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
         {loading ? (
           <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, paddingTop: 40 }}>
             <Icon name="refresh-cw" size={16} /> Chargement…
           </div>
         ) : messages.length === 0 ? (
-          <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, paddingTop: 40 }}>
-            Aucun message pour le moment. Envoie un message à ton coach !
+          <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, paddingTop: 60 }}>
+            <div style={{ fontSize: 32, marginBottom: 12 }}>💬</div>
+            <div style={{ fontWeight: 600, marginBottom: 6 }}>Aucun message</div>
+            <div style={{ fontSize: 12 }}>Envoie un premier message à ton coach !</div>
           </div>
         ) : (
           messages.map((msg) => {
             const isMe = msg.sender_id === userId;
             return (
               <div key={msg.id} className={`message-bubble${isMe ? ' outgoing' : ''}`}
-                style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '75%' }}>
-                <div style={{ fontSize: 13, lineHeight: 1.5 }}>{msg.text}</div>
+                style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '80%' }}>
+                <div style={{ fontSize: 14, lineHeight: 1.5 }}>{msg.text}</div>
                 <div style={{ fontSize: 10, marginTop: 4, textAlign: 'right', color: isMe ? 'rgba(255,255,255,0.6)' : 'var(--muted)' }}>
                   {formatTime(msg.created_at)}
                 </div>
@@ -145,18 +150,18 @@ export default function PageClientMessages() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Saisie */}
-      <div style={{ padding: '14px 24px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'flex-end', flexShrink: 0, background: 'var(--surface)' }}>
+      {/* Saisie — ancrée au bas, au-dessus de la bottom nav */}
+      <div style={{ padding: '10px 12px', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'flex-end', flexShrink: 0, background: 'var(--surface)' }}>
         <textarea
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-          placeholder="Écrire à votre coach…"
-          style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 10, padding: '10px 14px', fontSize: 13, fontFamily: 'inherit', lineHeight: 1.5, outline: 'none', background: 'var(--surface-2)', color: 'var(--accent)', minHeight: 44 }}
+          placeholder="Écrire à ton coach…"
+          style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 22, padding: '11px 16px', fontSize: 14, fontFamily: 'inherit', lineHeight: 1.5, outline: 'none', background: 'var(--surface-2)', color: 'var(--accent)', minHeight: 44, maxHeight: 120 }}
           rows={1}
         />
-        <button className="btn-primary" onClick={() => sendMessage(input)} type="button" style={{ padding: '11px 16px', flexShrink: 0 }}>
-          <Icon name="send" size={15} />
+        <button className="btn-primary" onClick={() => sendMessage(input)} type="button" style={{ width: 44, height: 44, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Icon name="send" size={16} />
         </button>
       </div>
     </div>

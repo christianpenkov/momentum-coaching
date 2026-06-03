@@ -83,43 +83,43 @@ export default function PageClientView() {
   return (
     <div className="page-content">
       {/* Header élève */}
-      <div style={{ background: 'linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%)', borderRadius: 16, padding: '28px 32px', marginBottom: 24, border: '1px solid var(--border)' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 24, flexWrap: 'wrap' }}>
+      <div style={{ background: 'linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%)', borderRadius: 16, padding: 'clamp(16px, 4vw, 28px) clamp(14px, 5vw, 32px)', marginBottom: 20, border: '1px solid var(--border)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(12px, 4vw, 24px)', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            <Ring value={progress} size={96} stroke={8} />
+            <Ring value={progress} size={80} stroke={7} />
             <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', pointerEvents: 'none' }}>
-              <span style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', lineHeight: 1 }}>{progress}%</span>
-              <span style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>progression</span>
+              <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--accent)', lineHeight: 1 }}>{progress}%</span>
+              <span style={{ fontSize: 9, color: 'var(--muted)', marginTop: 1 }}>prog.</span>
             </div>
           </div>
-          <div style={{ flex: 1, minWidth: 200 }}>
-            <div style={{ fontSize: 15, color: 'var(--muted)', marginBottom: 2, fontWeight: 400 }}>Bonjour,</div>
-            <h1 style={{ fontSize: 32, fontWeight: 800, color: 'var(--accent)', marginBottom: 6, lineHeight: 1.05 }}>{client.name}</h1>
-            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14 }}>
-              {client.niche || 'Infopreneur'} · Semaine <strong style={{ color: 'var(--accent)' }}>{client.week}</strong> sur ton parcours
+          <div style={{ flex: 1, minWidth: 140 }}>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 1 }}>Bonjour,</div>
+            <h1 style={{ fontSize: 'clamp(22px, 6vw, 32px)', fontWeight: 800, color: 'var(--accent)', marginBottom: 4, lineHeight: 1.05 }}>{client.name}</h1>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+              {client.niche || 'Infopreneur'} · Sem. <strong style={{ color: 'var(--accent)' }}>{client.week}</strong>
             </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 600 }}>
-                🎯 {doneCount}/{tasks.length} tâches
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                {doneCount}/{tasks.length} tâches
               </span>
               {last && (
-                <span style={{ fontSize: 12, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 600 }}>
-                  📈 {last.followers_ig.toLocaleString('fr-FR')} abonnés IG
+                <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {last.followers_ig.toLocaleString('fr-FR')} abonnés
                 </span>
               )}
               {last && last.stripe_mrr > 0 && (
-                <span style={{ fontSize: 12, color: 'var(--green)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '5px 12px', borderRadius: 20, fontWeight: 700 }}>
-                  💰 {last.stripe_mrr.toLocaleString('fr-FR')} € MRR
+                <span style={{ fontSize: 11, color: 'var(--green)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 700, whiteSpace: 'nowrap' }}>
+                  {last.stripe_mrr.toLocaleString('fr-FR')} € MRR
                 </span>
               )}
             </div>
           </div>
           {client.next_call && (
-            <div style={{ textAlign: 'center', padding: '18px 28px', background: 'var(--surface)', borderRadius: 14, border: '1px solid var(--border)', flexShrink: 0 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Prochain call</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginBottom: 10 }}>{client.next_call}</div>
-              <Link href="/client/calls" className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', gap: 5 }}>
-                Détails <Icon name="chevR" size={12} />
+            <div style={{ padding: '12px 16px', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', flexShrink: 0 }}>
+              <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Prochain call</div>
+              <div style={{ fontSize: 'clamp(13px, 3.5vw, 18px)', fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>{client.next_call}</div>
+              <Link href="/client/calls" className="btn-ghost" style={{ fontSize: 11, display: 'inline-flex', gap: 4 }}>
+                Détails <Icon name="chevR" size={11} />
               </Link>
             </div>
           )}
