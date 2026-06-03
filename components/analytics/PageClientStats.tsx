@@ -1585,7 +1585,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${period} jours · données J-3 (latence API YouTube)`}>
+        <Card title="Vues / jour" sub={`${period} jours · données J-3`}>
           <ResponsiveContainer width="100%" height={220}>
             <ComposedChart data={ytDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
