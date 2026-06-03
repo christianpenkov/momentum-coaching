@@ -34,7 +34,7 @@ interface IGStats {
   followers: number; following: number; mediaCount: number; biography: string;
   reach30d: number; accountsEngaged30d: number; totalInteractions30d: number;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
-  profileViews30d: number; views30d: number;
+  profileViews30d: number; views30d: number; // profileViews30d toujours 0 — Meta ne retourne plus cette métrique
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
   chartData: { date: string; reach: number; followerCount?: number | null; views?: number; accountsEngaged?: number; totalInteractions?: number; websiteClicks?: number; profileViews?: number }[];
   posts: IGPost[]; demographics: Record<string, { label: string; value: number }[]>;
@@ -1078,7 +1078,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
   const igEngagedP = period === 30 ? ig.accountsEngaged30d : Math.round(ig.accountsEngaged30d * period / 30);
   const igViewsP = period === 30 ? ig.views30d : Math.round(ig.views30d * period / 30);
   const igWebClicksP = period === 30 ? ig.websiteClicks30d : Math.round(ig.websiteClicks30d * period / 30);
-  const igProfileViewsP = period === 30 ? ig.profileViews30d : Math.round(ig.profileViews30d * period / 30);
+
 
   const engRate = igReachP > 0 ? pct(igEngagedP, igReachP) : 0;
   const reachRate = pct(igReachP, ig.followers);
@@ -1162,7 +1162,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
-          { label: 'Vues profil', value: fmt(igProfileViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues profil' },
+          { label: 'Clics lien bio', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
           { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Viralité' },
         ].map(s => (
           <div key={s.key} onClick={() => openStatModal(s.key, s.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}

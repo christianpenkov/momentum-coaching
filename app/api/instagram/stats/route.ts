@@ -80,10 +80,10 @@ export async function GET(request: Request) {
   const [accountRes, mediaRes, insightsRes, demoRes, onlineFollowersRes, viewsBreakdownRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,is_shared_to_feed,video_duration&limit=100&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,views,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,accounts_engaged,total_interactions,follows_and_unfollows,profile_links_taps,website_clicks&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=lifetime&since=${ofSince}&until=${ofUntil}&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&period=day&since=${since}&until=${until}&breakdown=follow_type&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&metric_type=total_value&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`),
   ]);
 
   const [accountData, mediaData, insightsData, demoData, onlineFollowersData, viewsBreakdownData] = await Promise.all([
@@ -113,7 +113,7 @@ export async function GET(request: Request) {
   const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []) || sum(insightMap['follower_count'] || []);
   const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
   const websiteClicks30d = sum(insightMap['website_clicks'] || []);
-  const profileViews30d = sum(insightMap['profile_views'] || []);
+  const profileViews30d = 0; // supprimé — Meta ne retourne plus cette métrique
   const views30d = sum(insightMap['views'] || []);
 
   // Views breakdown follower_type : part abonnés vs non-abonnés (viralité)
@@ -188,7 +188,7 @@ export async function GET(request: Request) {
   const engagedValues = insightMap['accounts_engaged'] || [];
   const interactionsValues = insightMap['total_interactions'] || [];
   const websiteClicksValues = insightMap['website_clicks'] || [];
-  const profileViewsValues = insightMap['profile_views'] || [];
+  const profileViewsValues: number[] = [];
   const today = new Date();
   const chartData = reachValues.map((val: number, i: number) => {
     const d = new Date(today);
