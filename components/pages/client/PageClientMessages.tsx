@@ -215,12 +215,13 @@ export default function PageClientMessages() {
         );
       }
 
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .select('id, text, sender_id, created_at, type, audio_url, duration_s')
         .eq('client_id', clientRow.id)
         .order('created_at', { ascending: true });
 
+      if (error) console.error('messages fetch error:', error.message, error.code);
       setMessages((data as Msg[]) || []);
       setLoading(false);
     }
