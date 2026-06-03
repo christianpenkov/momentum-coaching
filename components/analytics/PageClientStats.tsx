@@ -1077,7 +1077,6 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
   const igFollowerDeltaP = igDaysSlice.reduce((s, d) => s + (d.followerCount ?? 0), 0);
   const igEngagedP = period === 30 ? ig.accountsEngaged30d : Math.round(ig.accountsEngaged30d * period / 30);
   const igViewsP = period === 30 ? ig.views30d : Math.round(ig.views30d * period / 30);
-  const igWebClicksP = period === 30 ? ig.websiteClicks30d : Math.round(ig.websiteClicks30d * period / 30);
 
 
   const engRate = igReachP > 0 ? pct(igEngagedP, igReachP) : 0;
@@ -1110,7 +1109,6 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
     'Abonnés nets': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
-    'Clics site web': { data: igDays.map(d => ({ date: d.date, v: d.websiteClicks ?? 0 })), color: BLUE },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
@@ -1142,16 +1140,15 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
   return (
     <div className="stack">
-      {/* Ligne 1 — 5 stats audience */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+      {/* Ligne 1 — 4 stats audience */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
           { label: 'Abonnés', value: fmt(ig.followers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés' },
           { label: 'Publications', value: fmt(postsInPeriod), sub: `${period}j`, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: `${period}j`, color: 'var(--ink)', key: 'Reach' },
-          { label: 'Clics site web', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
           { label: 'Interactions posts', value: fmt(igEngagedP), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
         ].map(s => (
-          <div key={s.key ?? s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
+          <div key={s.key} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ marginBottom: 8 }}>
@@ -1162,13 +1159,12 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           </div>
         ))}
       </div>
-      {/* Ligne 2 — 5 stats performance */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
+      {/* Ligne 2 — 4 stats performance */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10 }}>
         {[
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
-          { label: 'Clics lien bio', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: null },
           { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null },
         ].map(s => (
           <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
