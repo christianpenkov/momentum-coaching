@@ -118,6 +118,12 @@ const fmtMs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
 function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0; }
 
+// Format axe X : "13 févr." — pas d'année, espacé uniformément
+const fmtAxisDate = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
+};
+
 const ACCENT = 'var(--accent)';
 const GREEN = '#3f8a52';
 const AMBER = '#b58025';
@@ -547,7 +553,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
                     <stop offset="95%" stopColor={item.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} width={36} />
                 <Tooltip
                   content={({ active, payload, label }) => {
@@ -612,7 +618,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
                     <stop offset="95%" stopColor={item.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} width={36} />
                 <Tooltip
                   content={({ active, payload, label }) => {
@@ -1164,15 +1170,17 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
         {[
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
-          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null },
+          { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés · max 100%', color: 'var(--ink)', key: 'Reach rate', tooltip: '% de tes abonnés touchés par tes publications. 100% = tous tes abonnés ont vu au moins un contenu.' },
+          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null, tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
         ].map(s => (
-          <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
+          <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
+            style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
-            <div style={{ marginBottom: 8 }}>
+            <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
-              {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
+              {(s as any).tooltip && <span style={{ fontSize: 11, color: 'var(--faint)', cursor: 'help', flexShrink: 0 }} title={(s as any).tooltip}>ⓘ</span>}
+              {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 2 }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
           </div>
@@ -1181,18 +1189,18 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${period} jours`}>
-          <AreaChart data={ig.chartData} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} />
+          <AreaChart data={igDays} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} />
         </Card>
         <Card title="Abonnés / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={200}>
-            <ReAreaChart data={ig.chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={ACCENT} stopOpacity={0.2} />
                   <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -1270,7 +1278,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
                     <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
@@ -1483,12 +1491,12 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
           { label: 'Subs nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j — +${fmt(ytSubsGainedP)} / -${fmt(ytSubsLostP)}`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Subs nets' },
           { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
-          null, // carte Vues/sub custom Shorts vs Longues
+          null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
           if (s === null) return (
             <div key="vues-sub" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div style={{ marginBottom: 10 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>Vues / sub gagné</span>
+                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>Vues pour 1 sub gagné</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -1498,7 +1506,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
                 </div>
                 <div style={{ width: 1, height: 32, background: 'var(--border)', flexShrink: 0, marginTop: 14 }} />
                 <div>
-                  <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 3 }}>Longues</div>
+                  <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 3 }}>Vidéos</div>
                   <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{viewsPerSubLong !== null ? fmt(viewsPerSubLong) : '—'}</div>
                 </div>
               </div>
@@ -1522,7 +1530,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
                 <div style={{ width: 1, height: 12, background: 'var(--border)', flexShrink: 0 }} />
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
                   <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ytLongCount)}</span>
-                  <span style={{ fontSize: 10, color: 'var(--ink)', whiteSpace: 'nowrap' }}>Longues</span>
+                  <span style={{ fontSize: 10, color: 'var(--ink)', whiteSpace: 'nowrap' }}>Vidéos</span>
                 </div>
               </div>
             )}
@@ -1578,9 +1586,9 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
         <Card title="Vues / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={220}>
-            <ComposedChart data={yt.chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <ComposedChart data={ytDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} />
               <Bar dataKey="views" name="Vues" fill={ACCENT} radius={[2, 2, 0, 0]} opacity={0.8} />
@@ -1599,12 +1607,12 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
         </Card>
       </div>
 
-      {yt.chartData.some(d => d.netSubs !== undefined) && (
+      {ytDays.some(d => d.netSubs !== undefined) && (
         <Card title="Abonnés nets / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={160}>
-            <ComposedChart data={yt.chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+            <ComposedChart data={ytDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} />
               <Bar dataKey="netSubs" name="Subs nets" fill={GREEN} radius={[2, 2, 0, 0]} opacity={0.85} />
@@ -1728,7 +1736,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
                           <stop offset="95%" stopColor={color2} stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                       <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={isWatchTime ? 50 : 36} tickFormatter={(v: number) => isWatchTime ? fmtSec(v) : fmt(v)} />
                       <Tooltip content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null;
@@ -1758,7 +1766,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -2170,7 +2178,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                               <stop offset="95%" stopColor={chart.color} stopOpacity={0} />
                             </linearGradient>
                           </defs>
-                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                          <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                           <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
                           <Tooltip content={({ active, payload, label }) => {
                             if (!active || !payload?.length) return null;
@@ -2270,7 +2278,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     <stop offset="95%" stopColor={expandedEff.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
@@ -2565,7 +2573,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
                       <stop offset="95%" stopColor={heroCharts[expandedHero!].color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -2656,7 +2664,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
                     <stop offset="95%" stopColor={expandedEff.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} allowDecimals={false} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
@@ -4039,7 +4047,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
                   <stop offset="95%" stopColor="#B91C1C" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
@@ -4071,7 +4079,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
                   <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
