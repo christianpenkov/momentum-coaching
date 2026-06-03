@@ -1378,7 +1378,7 @@ a { color: inherit; text-decoration: none; }
   .sidebar { display: none !important; }
 
   /* TopBar mobile */
-  .topbar { height: 56px; padding: 0 16px; }
+  .topbar { height: 64px; padding: 0 16px; }
   .topbar-tagline { display: none; }
 
   /* App shell — padding-bottom = nav (56px) + safe-area */
@@ -1412,7 +1412,7 @@ a { color: inherit; text-decoration: none; }
   /* Chat shell — hauteur = viewport - topbar - bottom nav - safe areas
      On utilise dvh (dynamic viewport height) pour tenir compte du clavier */
   .chat-shell {
-    height: calc(100dvh - 56px - 56px - env(safe-area-inset-bottom) - 6px) !important;
+    height: calc(100dvh - 64px - 56px - env(safe-area-inset-bottom) - 6px) !important;
     overflow: hidden;
   }
 
@@ -1439,7 +1439,7 @@ a { color: inherit; text-decoration: none; }
   .bottom-nav {
     display: flex;
     position: fixed;
-    bottom: 0;
+    bottom: var(--keyboard-h, 0px);
     left: 0;
     right: 0;
     /* 56px de nav + safe-area home indicator + 6px marge supplémentaire */
@@ -1449,8 +1449,9 @@ a { color: inherit; text-decoration: none; }
     border-top: 1px solid var(--border);
     z-index: 300; /* au-dessus de TOUT — drawer inclus */
     align-items: stretch;
-    /* Empêche le clavier de la pousser vers le haut */
-    transform: translateZ(0);
+    /* transform: none — évite le stacking context qui bloque bottom: var(--keyboard-h) */
+    transform: none;
+    transition: bottom 50ms linear;
   }
 
   .bottom-nav-item {

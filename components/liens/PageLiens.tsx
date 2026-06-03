@@ -2106,6 +2106,7 @@ export default function PageLiens() {
   // Mobile : onglet actif + overlay détail
   const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [drawerClosing, setDrawerClosing] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -2117,7 +2118,16 @@ export default function PageLiens() {
 
   const openMobileDetail = (view: RightView) => {
     setRightView(view);
+    setDrawerClosing(false);
     setMobileDetailOpen(true);
+  };
+
+  const closeMobileDetail = () => {
+    setDrawerClosing(true);
+    setTimeout(() => {
+      setMobileDetailOpen(false);
+      setDrawerClosing(false);
+    }, 280);
   };
 
   const handleHeaderLmLibrary = () => {
@@ -2247,12 +2257,14 @@ export default function PageLiens() {
           )}
         </div>
 
-        {/* ── Drawer mobile — s'ouvre au-dessus quand on clique un item ── */}
+        {/* ── Drawer mobile — slide depuis la droite style iOS ── */}
         {mobileDetailOpen && rightView && (
           <div style={{
             position: 'fixed', inset: 0, zIndex: 200,
             background: BG, overflowY: 'auto',
             paddingBottom: 'calc(56px + env(safe-area-inset-bottom) + 6px)',
+            transform: drawerClosing ? 'translateX(100%)' : 'translateX(0)',
+            transition: 'transform 280ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}>
             {/* Header retour */}
             <div style={{
@@ -2261,7 +2273,7 @@ export default function PageLiens() {
               padding: '12px 16px', background: SURFACE,
               borderBottom: `1px solid ${BORDER}`,
             }}>
-              <button onClick={() => setMobileDetailOpen(false)} style={{
+              <button onClick={closeMobileDetail} style={{
                 display: 'flex', alignItems: 'center', gap: 6,
                 background: 'none', border: 'none', cursor: 'pointer',
                 fontSize: 14, fontWeight: 600, color: BLUE, padding: '4px 0',
