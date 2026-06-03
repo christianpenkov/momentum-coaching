@@ -1088,6 +1088,18 @@ a { color: inherit; text-decoration: none; }
   min-height: 0;
 }
 
+/* Zone messages — flex:1 pour remplir l'espace */
+.chat-messages-zone {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+/* Input bar sticky en bas sur desktop */
+.chat-input-bar {
+  flex-shrink: 0;
+}
+
 /* ── Chat shell — mobile : position fixed ancré aux 4 coins ── */
 @media (max-width: 767px) {
   /* main-content se vide complètement — le shell sort du flux */
@@ -1107,14 +1119,20 @@ a { color: inherit; text-decoration: none; }
     bottom: calc(64px + env(safe-area-inset-bottom) + 6px);
     height: auto !important;
     z-index: 10;
-    overflow: hidden;
+    overflow: visible;
     display: flex !important;
     flex-direction: column !important;
+    background: var(--bg);
   }
 
-  /* Zone messages scrollable — pas de padding extra, input bar dans le flux */
+  /* Zone messages scrollable dans le shell fixed */
   .chat-messages-zone {
+    flex: 1 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    min-height: 0 !important;
     padding-bottom: 12px !important;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Input bar collée en bas du shell — le shell monte avec le clavier */
