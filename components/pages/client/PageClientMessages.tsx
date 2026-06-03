@@ -320,7 +320,8 @@ export default function PageClientMessages() {
     setMessages(prev => [...prev, optimistic]);
 
     try {
-      const fileName = `${clientId}/${Date.now()}.webm`;
+      const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+      const fileName = `${clientId}/${Date.now()}.${ext}`;
       const { error: uploadError } = await supabase.storage
         .from('voice-messages')
         .upload(fileName, blob, { contentType: blob.type || 'audio/webm' });
@@ -365,11 +366,14 @@ export default function PageClientMessages() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
-        ? 'audio/webm;codecs=opus'
-        : MediaRecorder.isTypeSupported('audio/webm')
-          ? 'audio/webm'
-          : '';
+      // Priorité audio/mp4 pour Safari iOS (seul format natif), fallback webm/ogg pour Chrome/FF
+      const mimeType = MediaRecorder.isTypeSupported('audio/mp4')
+        ? 'audio/mp4'
+        : MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+          ? 'audio/webm;codecs=opus'
+          : MediaRecorder.isTypeSupported('audio/webm')
+            ? 'audio/webm'
+            : '';
       const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
@@ -579,6 +583,10 @@ export default function PageClientMessages() {
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
                 placeholder="Écrire à ton coach…"
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="sentences"
+                spellCheck={false}
                 style={{
                   flex: 1, resize: 'none', border: '1px solid var(--border)',
                   borderRadius: 24, padding: '11px 16px', fontSize: 14,

@@ -16,12 +16,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     const vv = window.visualViewport;
     if (!vv) return;
 
-    // Hauteur de référence sans clavier (screen.height est stable sur iOS)
+    // Hauteur de référence sans clavier (screen.height est stable sur iOS, innerHeight non)
     const baseH = window.screen.height;
 
     function update() {
       const vvh = vv!.height;
-      // Sur iOS, window.innerHeight peut varier — screen.height est stable
       const kbH = Math.max(0, baseH - vvh);
       const isKeyboardOpen = kbH > 100;
 
@@ -30,11 +29,8 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
         shellRef.current.style.height = `${vvh}px`;
       }
 
-      // Ciblage direct .bottom-nav
-      const navEl = document.querySelector('.bottom-nav') as HTMLElement | null;
-      if (navEl) {
-        navEl.style.display = isKeyboardOpen ? 'none' : '';
-      }
+      // Classe CSS sur body — plus propre et sans race condition avec l'animation iOS
+      document.body.classList.toggle('keyboard-open', isKeyboardOpen);
 
       // Hack WebKit : empêche le décalage de Safari au focus
       if (

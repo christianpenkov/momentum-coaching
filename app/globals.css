@@ -1119,6 +1119,10 @@ a { color: inherit; text-decoration: none; }
 }
 /* bottom-nav-wrapper : juste un passthrough */
 .bottom-nav-wrapper { display: contents; }
+/* Clavier iOS ouvert : masquer la nav via classe CSS (plus fiable que style inline) */
+@media (max-width: 767px) {
+  body.keyboard-open .bottom-nav { display: none !important; }
+}
 .main-content {
   flex: 1; min-width: 0;
   padding: 26px 32px 60px;
@@ -1497,10 +1501,10 @@ a { color: inherit; text-decoration: none; }
   /* Stack spacing réduit */
   .stack { gap: 14px !important; }
 
-  /* Chat shell — hauteur = viewport - topbar - bottom nav - safe areas
-     On utilise dvh (dynamic viewport height) pour tenir compte du clavier */
+  /* Chat shell — remplit son parent (main-content géré par le layout JS).
+     Ne pas utiliser dvh ici : quand le clavier s'ouvre dvh rétrécit et compresse l'input. */
   .chat-shell {
-    height: calc(100dvh - 52px - 64px - env(safe-area-inset-bottom) - 6px) !important;
+    height: 100% !important;
     overflow: hidden;
   }
 
