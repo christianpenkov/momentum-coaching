@@ -56,8 +56,18 @@
 /* Base ─────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; }
 html, body { margin: 0; padding: 0; }
-/* iOS : font-size < 16px sur input déclenche un zoom auto — on force 16px */
+
+/* iOS PWA — body verrouillé pour empêcher le scroll élastique global de Safari */
 @media (max-width: 767px) {
+  html, body {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+  }
+  /* Font-size 16px sur inputs pour éviter le zoom auto iOS */
   input, textarea, select { font-size: 16px !important; }
 }
 body {
@@ -1080,65 +1090,44 @@ a { color: inherit; text-decoration: none; }
   overflow: hidden;
 }
 
-/* ── Chat shell — desktop ── */
+/* ── Chat shell — desktop et mobile ── */
+/* Sur mobile, le layout client gère la hauteur via visualViewport.
+   Le shell est simplement un flex-column qui remplit son parent. */
 .chat-shell {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  background: var(--bg);
 }
 
-/* Zone messages — flex:1 pour remplir l'espace */
+/* Zone messages : flex:1, scroll interne */
 .chat-messages-zone {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden;
   min-height: 0;
+  -webkit-overflow-scrolling: touch;
 }
 
-/* Input bar sticky en bas sur desktop */
+/* Input bar : dans le flux, collée en bas */
 .chat-input-bar {
   flex-shrink: 0;
 }
 
-/* ── Chat shell — mobile : position fixed ancré aux 4 coins ── */
-@media (max-width: 767px) {
-  /* main-content se vide complètement — le shell sort du flux */
-  .main-content:has(.chat-shell) {
-    padding: 0 !important;
-    overflow: hidden !important;
-    height: 0 !important;
-    min-height: 0 !important;
-  }
+/* main-content contenant le chat : pas de padding, overflow caché */
+.main-content:has(.chat-shell),
+.main-content:has(.ai-shell) {
+  padding: 0 !important;
+  overflow: hidden !important;
+}
 
-  /* Shell fixé sous la topbar, au-dessus de la nav */
-  .chat-shell {
-    position: fixed !important;
-    top: 52px;
-    left: 0;
-    right: 0;
-    bottom: calc(64px + env(safe-area-inset-bottom) + 6px);
-    height: auto !important;
-    z-index: 10;
-    overflow: visible;
+@media (max-width: 767px) {
+  /* Sur mobile le main-content doit aussi être full-height */
+  .main-content:has(.chat-shell) {
+    height: 100% !important;
     display: flex !important;
     flex-direction: column !important;
-    background: var(--bg);
-  }
-
-  /* Zone messages scrollable dans le shell fixed */
-  .chat-messages-zone {
-    flex: 1 !important;
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    min-height: 0 !important;
-    padding-bottom: 12px !important;
-    -webkit-overflow-scrolling: touch;
-  }
-
-  /* Input bar collée en bas du shell — le shell monte avec le clavier */
-  .chat-input-bar {
-    position: relative !important;
-    flex-shrink: 0;
   }
 }
 .liens-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
@@ -1434,10 +1423,13 @@ a { color: inherit; text-decoration: none; }
   .topbar { height: 52px; padding: 0 16px; }
   .topbar-tagline { display: none; }
 
-  /* App shell — padding-bottom = nav (64px) + safe-area */
+  /* App shell — scroll natif dans le flex layout mobile */
   .main-content {
-    padding: 12px 14px calc(64px + env(safe-area-inset-bottom) + 6px + 12px) !important;
+    flex: 1;
+    overflow-y: auto;
     overflow-x: hidden;
+    padding: 12px 14px 24px !important;
+    -webkit-overflow-scrolling: touch;
   }
 
   /* Cartes — padding réduit */
@@ -1503,17 +1495,16 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 767px) {
   .bottom-nav {
     display: flex;
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    right: 0;
+    /* Sur mobile, la nav est dans le flux flex du layout — pas de position fixed */
+    position: relative;
+    width: 100%;
     height: calc(64px + env(safe-area-inset-bottom) + 6px);
     padding-bottom: calc(env(safe-area-inset-bottom) + 6px);
     background: var(--surface);
     border-top: 1px solid var(--border);
     z-index: 300;
     align-items: stretch;
-    transform: none;
+    flex-shrink: 0;
   }
 
   .bottom-nav-item {
