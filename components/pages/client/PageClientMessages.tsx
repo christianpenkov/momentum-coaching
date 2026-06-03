@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 
@@ -20,26 +20,9 @@ export default function PageClientMessages() {
   const [coachInitials, setCoachInitials] = useState('CO');
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const supabase = createClient();
-
-  // iOS visualViewport — ajuste la hauteur quand le clavier s'ouvre
-  useEffect(() => {
-    const vv = window.visualViewport;
-    if (!vv) return;
-    const update = () => {
-      const gap = window.innerHeight - vv.height - vv.offsetTop;
-      setKeyboardHeight(Math.max(0, gap));
-    };
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
-    return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
-    };
-  }, []);
 
   useEffect(() => {
     async function load() {
@@ -125,16 +108,12 @@ export default function PageClientMessages() {
     return new Date(dateStr).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   }
 
-  // paddingBottom = bottom nav (56px) + safe-area + keyboard offset
-  const bottomNavH = 56;
-  const inputAreaPb = bottomNavH + keyboardHeight;
-
   return (
     <div style={{
       display: 'flex',
       flexDirection: 'column',
       position: 'fixed',
-      top: 52, // topbar height
+      top: 56, // topbar height
       left: 0,
       right: 0,
       bottom: 0,
@@ -169,7 +148,7 @@ export default function PageClientMessages() {
         overflowY: 'auto',
         overflowX: 'hidden',
         padding: '12px 16px',
-        paddingBottom: `${inputAreaPb + 72}px`, // espace sous les messages
+        paddingBottom: 'calc(56px + env(safe-area-inset-bottom) + 72px)', // espace sous les messages
         display: 'flex',
         flexDirection: 'column',
         gap: 8,
@@ -185,7 +164,7 @@ export default function PageClientMessages() {
         ) : messages.map((msg) => {
           const isMe = msg.sender_id === userId;
           return (
-            <div key={msg.id} style={{
+            <div key={msg.id} className="msg-bubble-in" style={{
               alignSelf: isMe ? 'flex-end' : 'flex-start',
               maxWidth: '75%',
               background: isMe ? 'var(--ink)' : 'var(--surface)',
@@ -205,19 +184,18 @@ export default function PageClientMessages() {
         <div ref={bottomRef} />
       </div>
 
-      {/* Input — position fixed au-dessus du clavier */}
+      {/* Input — position fixed au-dessus de la bottom nav, iOS remonte nativement */}
       <div style={{
         position: 'fixed',
         left: 0,
         right: 0,
-        bottom: `${inputAreaPb}px`,
+        bottom: 'calc(56px + env(safe-area-inset-bottom) + 6px)',
         padding: '8px 12px',
         background: 'var(--surface)',
         borderTop: '1px solid var(--border)',
         display: 'flex',
         gap: 8,
         alignItems: 'flex-end',
-        transition: 'bottom 0.15s ease-out',
       }}>
         <textarea
           ref={inputRef}

@@ -24,7 +24,7 @@ export default function PageTransition({ children }: { children: React.ReactNode
   }, [pathname, children]);
 
   return (
-    <div style={{ opacity: visible ? 1 : 0, transition: visible ? 'opacity 0.2s ease' : 'none', display: 'contents' }}>
+    <div style={{ opacity: visible ? 1 : 0, transition: visible ? 'opacity 0.18s ease-out' : 'none' }}>
       {displayChildren}
     </div>
   );

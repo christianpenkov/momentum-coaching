@@ -2106,10 +2106,23 @@ export default function PageLiens() {
   // Mobile : onglet actif + overlay détail
   const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   const openMobileDetail = (view: RightView) => {
     setRightView(view);
     setMobileDetailOpen(true);
+  };
+
+  const handleHeaderLmLibrary = () => {
+    if (isMobile) openMobileDetail({ type: 'lm-library' });
+    else setRightView({ type: 'lm-library' });
   };
 
   return (
@@ -2145,7 +2158,7 @@ export default function PageLiens() {
             <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => setRightView({ type: 'lm-library' })} style={{
+            <button onClick={handleHeaderLmLibrary} style={{
               display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
               border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
               background: rightView?.type === 'lm-library' ? 'var(--green-soft)' : 'transparent',
@@ -2239,7 +2252,7 @@ export default function PageLiens() {
           <div style={{
             position: 'fixed', inset: 0, zIndex: 200,
             background: BG, overflowY: 'auto',
-            paddingBottom: 'calc(56px + env(safe-area-inset-bottom))',
+            paddingBottom: 'calc(56px + env(safe-area-inset-bottom) + 6px)',
           }}>
             {/* Header retour */}
             <div style={{
