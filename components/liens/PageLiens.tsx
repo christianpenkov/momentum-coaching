@@ -1527,7 +1527,9 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                   {leadsLoading ? (
                     <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT }}>Chargement...</div>
                   ) : filteredLeads.length === 0 ? (
-                    <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT }}>Aucun lead trouvé</div>
+                    <div style={{ padding: '10px 12px', fontSize: 12, color: FAINT, fontStyle: 'italic' }}>
+                      Aucun lead existant — tu peux quand même générer un lien pour ce pseudo
+                    </div>
                   ) : filteredLeads.map(l => (
                     <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setUsernameSearch(''); setShowLeads(false); if (l.media_id) { setPostId(l.media_id); setPostMode('lead'); } }}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
