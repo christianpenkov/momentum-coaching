@@ -65,7 +65,7 @@ const IG_STAGES = [
   { key: 'lm_sent',       label: 'LM reçu',          color: '#7C3AED', lightBg: '#F5F3FF', dot: '#7C3AED' },
   { key: 'in_convo',      label: 'En conversation',   color: '#9333EA', lightBg: '#FDF4FF', dot: '#9333EA' },
   { key: 'calendly_sent', label: 'Calendly envoyé',   color: '#D97706', lightBg: '#FFFBEB', dot: '#D97706' },
-  { key: 'link_clicked',  label: 'Lien cliqué',       color: '#EA580C', lightBg: '#FFF7ED', dot: '#EA580C' },
+  { key: 'link_clicked',  label: 'Lien Calendly cliqué', color: '#EA580C', lightBg: '#FFF7ED', dot: '#EA580C' },
   { key: 'call_booked',   label: 'Call booké',         color: '#2563EB', lightBg: '#EFF6FF', dot: '#2563EB' },
   { key: 'showed_up',     label: 'Show up',            color: '#059669', lightBg: '#ECFDF5', dot: '#059669' },
   { key: 'closed',        label: 'Closé',              color: '#047857', lightBg: '#D1FAE5', dot: '#047857' },
@@ -433,6 +433,19 @@ export default function PagePipeline() {
         noSource: !call.source && !call.utm_medium && !call.utm_content,
       });
     }
+  }
+
+  // ── Card de test sans source (DEV ONLY — à supprimer avant prod Quennel) ────
+  if (tab === 'yt' && ytCards.length === 0) {
+    ytCards.push({
+      key: '__test_no_source__',
+      name: 'Jean Dupont',
+      sub: '',
+      date: "Aujourd'hui",
+      stageKey: 'call_booked',
+      stageIdx: 0,
+      noSource: true,
+    });
   }
 
   const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
