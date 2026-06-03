@@ -34,9 +34,9 @@ interface IGStats {
   followers: number; following: number; mediaCount: number; biography: string;
   reach30d: number; accountsEngaged30d: number; totalInteractions30d: number;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
-  profileViews30d: number; views30d: number; // profileViews30d toujours 0 — Meta ne retourne plus cette métrique
+  views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
-  chartData: { date: string; reach: number; followerCount?: number | null; views?: number; accountsEngaged?: number; totalInteractions?: number; websiteClicks?: number; profileViews?: number }[];
+  chartData: { date: string; reach: number; followerCount?: number | null; views?: number; accountsEngaged?: number; totalInteractions?: number; websiteClicks?: number }[];
   posts: IGPost[]; demographics: Record<string, { label: string; value: number }[]>;
   onlineFollowers: any;
 }
@@ -3560,7 +3560,7 @@ const MOCK_IG: IGStats = {
   followers: 12840, following: 312, mediaCount: 187, biography: 'Coach business & mindset 🚀',
   reach30d: 284500, accountsEngaged30d: 18200, totalInteractions30d: 9640,
   followsUnfollows30d: 380, profileLinksTaps30d: 11, websiteClicks30d: 8,
-  profileViews30d: 21400, views30d: 512000,
+  views30d: 512000,
   viewsFollowerBreakdown: { follower: 148000, nonFollower: 364000 },
   chartData: makeDays(30, 9500, 4000).map((d, i) => ({ date: d.date, reach: d.value, followerCount: 12200 + i * 21 })),
   demographics: {

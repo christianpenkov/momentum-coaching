@@ -118,7 +118,6 @@ export async function GET(request: Request) {
   const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []) || sum(insightMap['follower_count'] || []);
   const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
   const websiteClicks30d = sum(insightMap['website_clicks'] || []);
-  const profileViews30d = 0; // supprimé — Meta ne retourne plus cette métrique
   const views30d = sum(insightMap['views'] || []);
 
   // Views breakdown follower_type : part abonnés vs non-abonnés (viralité)
@@ -193,7 +192,7 @@ export async function GET(request: Request) {
   const engagedValues = insightMap['accounts_engaged'] || [];
   const interactionsValues = insightMap['total_interactions'] || [];
   const websiteClicksValues = insightMap['website_clicks'] || [];
-  const profileViewsValues: number[] = [];
+
   const today = new Date();
   const chartData = reachValues.map((val: number, i: number) => {
     const d = new Date(today);
@@ -206,7 +205,7 @@ export async function GET(request: Request) {
       accountsEngaged: engagedValues[i] ?? 0,
       totalInteractions: interactionsValues[i] ?? 0,
       websiteClicks: websiteClicksValues[i] ?? 0,
-      profileViews: profileViewsValues[i] ?? 0,
+
     };
   });
 
@@ -321,7 +320,7 @@ export async function GET(request: Request) {
     followsUnfollows30d,
     profileLinksTaps30d,
     websiteClicks30d,
-    profileViews30d,
+    profileViews30d: 0,
     views30d,
     viewsFollowerBreakdown,
     chartData,
