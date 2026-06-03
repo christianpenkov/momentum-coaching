@@ -245,6 +245,13 @@ export default function PageClientMessages() {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
+  // Scroll lock pendant enregistrement vocal
+  useEffect(() => {
+    const zone = document.querySelector('.chat-messages-zone') as HTMLElement | null;
+    if (!zone) return;
+    zone.style.overflowY = isRecording ? 'hidden' : 'auto';
+  }, [isRecording]);
+
   // Nettoyage enregistrement au démontage
   useEffect(() => {
     return () => {
@@ -321,9 +328,13 @@ export default function PageClientMessages() {
         duration_s: Math.round(durationS),
       }).select('id, text, sender_id, created_at, type, audio_url, duration_s').single();
 
-      URL.revokeObjectURL(localUrl);
       if (data) {
+        // Remplace l'optimiste par le message final AVANT de révoquer l'URL locale
         setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
+        // Petit délai pour laisser le nouveau audio_url se charger avant de libérer l'ancien
+        setTimeout(() => URL.revokeObjectURL(localUrl), 3000);
+      } else {
+        // Insert échoué mais upload ok — garde le message optimiste avec l'URL locale
       }
     } catch {
       setMessages(prev => prev.filter(m => m.id !== optimisticId));
