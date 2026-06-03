@@ -38,12 +38,14 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="fr" className={`${inter.variable} ${ibmPlexMono.variable}`}>
       <head>
+        {/* Viewport app-native : pas de zoom, pas de bounce, width=device */}
+        <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Momentum" />
         <meta name="theme-color" content="#fbfbf7" />
-        <link rel="apple-touch-icon" href="/favicon-momentum.png" />
+        <link rel="apple-touch-icon" href="/apple-touch-icon.svg" sizes="180x180" />
       </head>
       <body>
         <Providers>{children}</Providers>
