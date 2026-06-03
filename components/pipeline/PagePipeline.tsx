@@ -456,13 +456,16 @@ export default function PagePipeline() {
 
   // ── Card de test sans source (DEV ONLY — à supprimer avant prod Quennel) ────
   if (ytCards.length === 0) {
+    const testOverride = getOverride('__test_no_source__', 'yt');
+    const testStageKey = resolveStage('call_booked', testOverride) as YtStageKey;
+    const testStageIdx = YT_STAGES.findIndex(s => s.key === testStageKey);
     ytCards.push({
       key: '__test_no_source__',
       name: 'Jean Dupont',
       sub: '',
       date: "Aujourd'hui",
-      stageKey: 'call_booked',
-      stageIdx: 0,
+      stageKey: testStageKey,
+      stageIdx: testStageIdx >= 0 ? testStageIdx : 0,
       noSource: true,
     });
   }
