@@ -117,13 +117,15 @@ interface CardData {
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart, platform,
+  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead,
 }: {
   card: CardData;
   stages: typeof IG_STAGES | typeof YT_STAGES;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent, cardKey: string) => void;
   platform: 'ig' | 'yt';
+  onConfirmLead?: (key: string) => void;
+  onDismissLead?: (key: string) => void;
 }) {
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
@@ -189,17 +191,24 @@ function PipelineCard({
       )}
 
       {platform === 'yt' && card.noSource && (
-        <div style={{
-          marginTop: 2,
-          padding: '5px 7px',
-          borderRadius: 6,
-          background: '#FEF3C7',
-          border: '1px solid #FCD34D',
-          fontSize: 10,
-          color: '#92400E',
-          lineHeight: 1.4,
-        }}>
-          ⚠️ Source inconnue — est-ce bien un lead ? Si oui, pense à ajouter la source sur ce call.
+        <div style={{ marginTop: 2, borderRadius: 6, background: '#FEF3C7', border: '1px solid #FCD34D', overflow: 'hidden' }}>
+          <div style={{ padding: '6px 8px', fontSize: 10, color: '#92400E', lineHeight: 1.4 }}>
+            ⚠️ Source inconnue — est-ce bien un lead ?
+          </div>
+          <div style={{ display: 'flex', borderTop: '1px solid #FCD34D' }}>
+            <button
+              onMouseDown={e => { e.stopPropagation(); onConfirmLead?.(card.key); }}
+              style={{ flex: 1, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: 'none', borderRight: '1px solid #FCD34D', color: '#065F46' }}
+            >
+              ✓ Oui
+            </button>
+            <button
+              onMouseDown={e => { e.stopPropagation(); onDismissLead?.(card.key); }}
+              style={{ flex: 1, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: 'none', color: '#92400E' }}
+            >
+              ✕ Non
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -210,7 +219,7 @@ function PipelineCard({
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget, platform,
+  isDropTarget, platform, onConfirmLead, onDismissLead,
 }: {
   stage: typeof IG_STAGES[number] | typeof YT_STAGES[number];
   cards: CardData[];
@@ -222,6 +231,8 @@ function KanbanColumn({
   onDragLeave: (e: React.DragEvent) => void;
   isDropTarget: boolean;
   platform: 'ig' | 'yt';
+  onConfirmLead?: (key: string) => void;
+  onDismissLead?: (key: string) => void;
 }) {
   return (
     <div
@@ -294,6 +305,8 @@ function KanbanColumn({
             isDragging={draggingKey === card.key}
             onDragStart={onDragStart}
             platform={platform}
+            onConfirmLead={onConfirmLead}
+            onDismissLead={onDismissLead}
           />
         ))}
       </div>
@@ -322,6 +335,8 @@ export default function PagePipeline() {
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
+  const [dismissedKeys, setDismissedKeys] = useState<Set<string>>(new Set());
+  const [confirmedKeys, setConfirmedKeys] = useState<Set<string>>(new Set());
   const dropCounters = useRef<Record<string, number>>({});
 
   const { data, isLoading: loading } = useQuery<PipelineData | null>({
@@ -436,7 +451,7 @@ export default function PagePipeline() {
   }
 
   // ── Card de test sans source (DEV ONLY — à supprimer avant prod Quennel) ────
-  if (tab === 'yt' && ytCards.length === 0) {
+  if (ytCards.length === 0) {
     ytCards.push({
       key: '__test_no_source__',
       name: 'Jean Dupont',
@@ -448,8 +463,13 @@ export default function PagePipeline() {
     });
   }
 
+  // Filtre dismissed + retire noSource des confirmés
+  const filteredYtCards = ytCards
+    .filter(c => !dismissedKeys.has(c.key))
+    .map(c => confirmedKeys.has(c.key) ? { ...c, noSource: false } : c);
+
   const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
-  const cards = tab === 'ig' ? igCards : ytCards;
+  const cards = tab === 'ig' ? igCards : filteredYtCards;
   const platform = tab;
 
   // ── Drag & drop ─────────────────────────────────────────────────────────────
@@ -517,7 +537,7 @@ export default function PagePipeline() {
         <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
           {([
             { key: 'ig', label: 'Instagram', count: igCards.length },
-            { key: 'yt', label: 'YouTube', count: ytCards.length },
+            { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
           ] as const).map(t => (
             <button key={t.key} onClick={() => setTab(t.key)} style={{
               padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6,
@@ -573,6 +593,8 @@ export default function PagePipeline() {
                   onDragOver={e => handleDragOver(e, stage.key)}
                   onDragLeave={e => handleDragLeave(stage.key)}
                   platform={platform}
+                  onConfirmLead={key => setConfirmedKeys(prev => new Set([...prev, key]))}
+                  onDismissLead={key => setDismissedKeys(prev => new Set([...prev, key]))}
                 />
               );
             })}
