@@ -191,22 +191,26 @@ function PipelineCard({
       )}
 
       {platform === 'yt' && card.noSource && (
-        <div style={{ marginTop: 2, borderRadius: 6, background: '#FEF3C7', border: '1px solid #FCD34D', overflow: 'hidden' }}>
-          <div style={{ padding: '6px 8px', fontSize: 10, color: '#92400E', lineHeight: 1.4 }}>
-            ⚠️ Source inconnue — est-ce bien un lead ?
+        <div style={{ marginTop: 4, borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}>
+            Source inconnue — est-ce bien un lead ?
           </div>
-          <div style={{ display: 'flex', borderTop: '1px solid #FCD34D' }}>
+          <div style={{ display: 'flex', gap: 6 }}>
             <button
               onMouseDown={e => { e.stopPropagation(); onConfirmLead?.(card.key); }}
-              style={{ flex: 1, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: 'none', borderRight: '1px solid #FCD34D', color: '#065F46' }}
+              style={{ flex: 1, padding: '5px 0', fontSize: 10, fontWeight: 600, cursor: 'pointer', borderRadius: 6, border: '1px solid #2563EB', background: '#EFF6FF', color: '#2563EB', transition: 'all .12s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = '#2563EB'; e.currentTarget.style.color = '#fff'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = '#EFF6FF'; e.currentTarget.style.color = '#2563EB'; }}
             >
-              ✓ Oui
+              Oui, c'est un lead
             </button>
             <button
               onMouseDown={e => { e.stopPropagation(); onDismissLead?.(card.key); }}
-              style={{ flex: 1, padding: '6px 0', fontSize: 10, fontWeight: 700, cursor: 'pointer', background: 'transparent', border: 'none', color: '#92400E' }}
+              style={{ padding: '5px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', transition: 'all .12s' }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--border)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
             >
-              ✕ Non
+              Non
             </button>
           </div>
         </div>
