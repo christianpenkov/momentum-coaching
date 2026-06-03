@@ -9,14 +9,8 @@
   "orientation": "portrait",
   "icons": [
     {
-      "src": "/apple-touch-icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
-    },
-    {
-      "src": "/favicon-momentum.png",
-      "sizes": "192x192",
+      "src": "/logo-momentum.png",
+      "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
     }

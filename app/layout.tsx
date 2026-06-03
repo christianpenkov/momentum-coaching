@@ -45,7 +45,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Momentum" />
         <meta name="theme-color" content="#fbfbf7" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.svg" sizes="180x180" />
+        <link rel="apple-touch-icon" href="/logo-momentum.png" sizes="180x180" />
       </head>
       <body>
         <Providers>{children}</Providers>
