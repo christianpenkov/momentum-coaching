@@ -235,7 +235,24 @@ export default function PageClientMessages() {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `client_id=eq.${clientId}`,
       }, (payload) => {
-        setMessages(prev => [...prev, payload.new as Msg]);
+        const incoming = payload.new as Msg;
+        setMessages(prev => {
+          // Évite doublon entre message optimiste et event realtime
+          if (prev.some(m => m.id === incoming.id)) return prev;
+          // Remplace l'optimiste texte si même contenu/sender dans la même seconde
+          const optIdx = prev.findIndex(m =>
+            m.id.startsWith('opt-') &&
+            m.sender_id === incoming.sender_id &&
+            m.text === incoming.text &&
+            m.type === (incoming.type || 'text')
+          );
+          if (optIdx !== -1) {
+            const next = [...prev];
+            next[optIdx] = incoming;
+            return next;
+          }
+          return [...prev, incoming];
+        });
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };

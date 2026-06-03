@@ -19,15 +19,17 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
     function update() {
       const vvh = vv!.height;
       const kbH = Math.max(0, window.innerHeight - vvh);
+      const isKeyboardOpen = kbH > 60;
 
-      // Ajuste la hauteur du shell directement via le DOM — pas de re-render
+      // Hauteur du shell = hauteur visuelle réelle
       if (shellRef.current) {
         shellRef.current.style.height = `${vvh}px`;
       }
 
-      // Masque/affiche la nav via le DOM — pas de re-render
-      if (navRef.current) {
-        navRef.current.style.display = kbH > 60 ? 'none' : '';
+      // Ciblage direct .bottom-nav (contourne les wrappers React)
+      const navEl = document.querySelector('.bottom-nav') as HTMLElement | null;
+      if (navEl) {
+        navEl.style.display = isKeyboardOpen ? 'none' : 'flex';
       }
 
       // Hack WebKit : empêche le décalage de Safari au focus
