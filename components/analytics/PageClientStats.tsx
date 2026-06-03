@@ -2764,81 +2764,58 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
   const [payFilter, setPayFilter] = useState<'all' | 'succeeded' | 'failed'>('all');
   if (!stripe) return <Empty msg="Connecte ton compte Stripe pour voir les revenus." />;
 
-  const avgBasket = stripe.recentPayments.length > 0
-    ? stripe.recentPayments.filter(p => p.status === 'succeeded').reduce((s, p) => s + p.amount, 0) / stripe.recentPayments.filter(p => p.status === 'succeeded').length
-    : 0;
-  const failedPct = stripe.recentPayments.length > 0
-    ? pct(stripe.recentPayments.filter(p => p.status !== 'succeeded').length, stripe.recentPayments.length)
-    : 0;
+  const succeeded = stripe.recentPayments.filter(p => p.status === 'succeeded');
+  const failed = stripe.recentPayments.filter(p => p.status !== 'succeeded');
 
-  // Cash contracté = deals signés (mock : recentPayments succeeded)
-  const cashContracte = stripe.recentPayments.filter(p => p.status === 'succeeded').reduce((s, p) => s + p.amount, 0);
-  // Cash collecté = paiements reçus (mock cohérent : légèrement inférieur car délais)
-  const cashCollecte = Math.round(cashContracte * 0.87);
-  const tauxCollecte = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
-  const tauxCollecteColor = tauxCollecte >= 90 ? GREEN : tauxCollecte >= 70 ? AMBER : RED;
+  // Toutes les données viennent directement de Stripe — pas d'estimation
+  const cashCollecte = succeeded.reduce((s, p) => s + p.amount, 0);
+  const avgBasket = succeeded.length > 0 ? cashCollecte / succeeded.length : 0;
+  const failedPct = stripe.recentPayments.length > 0 ? pct(failed.length, stripe.recentPayments.length) : 0;
 
-  // Graphique 12 semaines — cash contracté vs collecté
-  const cashData = Array.from({ length: 12 }, (_, i) => ({
-    week: `S${i + 1}`,
-    contracte: Math.round(cashContracte * (0.75 + i * 0.022)),
-    collecte: Math.round(cashCollecte * (0.72 + i * 0.024)),
-  }));
-
-  // CA par mois simulé sur 3 mois
-  const caData = [
-    { month: 'Mars', ca: Math.round(stripe.monthlyRevenue * 0.85), collecte: Math.round(cashCollecte * 0.80) },
-    { month: 'Avril', ca: Math.round(stripe.monthlyRevenue * 0.92), collecte: Math.round(cashCollecte * 0.88) },
-    { month: 'Mai', ca: stripe.monthlyRevenue, collecte: cashCollecte },
-  ];
+  // Revenus par mois depuis recentPayments (données réelles)
+  const byMonth: Record<string, number> = {};
+  for (const p of succeeded) {
+    const key = new Date(p.date).toLocaleDateString('fr-FR', { month: 'short', year: '2-digit' });
+    byMonth[key] = (byMonth[key] ?? 0) + p.amount;
+  }
+  const caData = Object.entries(byMonth)
+    .sort(([a], [b]) => {
+      const parse = (s: string) => { const [m, y] = s.split(' '); return new Date(`20${y}-${['janv','févr','mars','avr','mai','juin','juil','août','sept','oct','nov','déc'].indexOf(m.replace('.',''))+1}-01`).getTime(); };
+      return parse(a) - parse(b);
+    })
+    .slice(-6)
+    .map(([month, ca]) => ({ month, ca }));
 
   return (
     <div className="stack">
-      {/* Toutes les cards sur une ligne */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 12, marginBottom: 20 }}>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashContracte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals signés ce mois</div>
-        </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ce mois</div>
-        </div>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux de collecte</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: tauxCollecteColor, lineHeight: 1 }}>{tauxCollecte}%</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>collecté / contracté</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({succeeded.length})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Solde disponible</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(stripe.availableBalance)}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>sur le compte Stripe</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>moyenne paiements</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>par paiement réussi</div>
+        </div>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d&apos;échec</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: failedPct > 10 ? RED : failedPct > 5 ? AMBER : GREEN, lineHeight: 1 }}>{failedPct}%</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{failed.length} paiement{failed.length !== 1 ? 's' : ''} échoué{failed.length !== 1 ? 's' : ''}</div>
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Cash contracté vs collecté" sub="12 semaines">
-          <AreaChart
-            data={cashData}
-            areas={[
-              { key: 'contracte', label: 'Cash contracté', color: BLUE },
-              { key: 'collecte',  label: 'Cash collecté',  color: GREEN },
-            ]}
-            xKey="week"
-            height={200}
-            formatter={fmtEur}
-          />
+      {caData.length > 0 && (
+        <Card title="Revenus par mois" sub="depuis les paiements Stripe">
+          <BarChart data={caData} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="month" height={200} formatter={fmtEur} />
         </Card>
-        <Card title="CA par mois" sub="3 derniers mois">
-          <BarChart data={caData} bars={[{ key: 'ca', label: 'CA contracté', color: ACCENT }, { key: 'collecte', label: 'Cash collecté', color: GREEN }]} xKey="month" height={200} formatter={fmtEur} />
-        </Card>
-      </div>
+      )}
 
       <div className="card">
         <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
