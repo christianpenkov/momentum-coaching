@@ -1,19 +1,19 @@
-// Service Worker minimal — requis pour installation PWA sur iPhone
-const CACHE = 'momentum-v1';
+// Service Worker — Network only (pas de cache pour assurer les mises à jour)
+// v4 — force invalidation
 
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
 
-// Network-first : toujours les données fraîches, fallback cache si offline
+self.addEventListener('activate', e => {
+  // Supprime tous les anciens caches
+  e.waitUntil(
+    caches.keys().then(keys =>
+      Promise.all(keys.map(k => caches.delete(k)))
+    ).then(() => self.clients.claim())
+  );
+});
+
+// Network-only : jamais de cache, toujours frais
 self.addEventListener('fetch', e => {
   if (e.request.method !== 'GET') return;
-  e.respondWith(
-    fetch(e.request)
-      .then(res => {
-        const clone = res.clone();
-        caches.open(CACHE).then(c => c.put(e.request, clone));
-        return res;
-      })
-      .catch(() => caches.match(e.request))
-  );
+  // Laisse passer sans interception — le navigateur gère
 });

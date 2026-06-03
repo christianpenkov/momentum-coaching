@@ -1075,6 +1075,15 @@ a { color: inherit; text-decoration: none; }
   padding: 0;
   overflow: hidden;
 }
+
+/* Sur mobile le chat est position:fixed — main-content doit être vide */
+@media (max-width: 767px) {
+  .main-content:has(.chat-shell) {
+    padding: 0 !important;
+    overflow: visible !important;
+    height: 0 !important;
+  }
+}
 .liens-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
 
 @media (max-width: 767px) {
