@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
@@ -82,6 +83,11 @@ export default function PageClientView() {
 
   return (
     <div className="page-content">
+      {/* Logo mobile — affiché uniquement sur mobile au-dessus du hero */}
+      <div className="client-home-logo-mobile">
+        <Image src="/logo-momentum.png" alt="Momentum" width={72} height={72} style={{ objectFit: 'contain' }} />
+      </div>
+
       {/* Header élève */}
       <div style={{ background: 'linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%)', borderRadius: 16, padding: 'clamp(16px, 4vw, 28px) clamp(14px, 5vw, 32px)', marginBottom: 20, border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(12px, 4vw, 24px)', flexWrap: 'wrap' }}>

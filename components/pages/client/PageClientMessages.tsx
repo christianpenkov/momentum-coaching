@@ -164,12 +164,13 @@ export default function PageClientMessages() {
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartRef = useRef<number>(0);
 
-  const supabase = createClient();
+  const supabase = useRef(createClient()).current;
 
   // Vérifie le support MediaRecorder
   useEffect(() => {
@@ -221,8 +222,7 @@ export default function PageClientMessages() {
       setLoading(false);
     }
     load();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     if (!clientId) return;
@@ -236,7 +236,7 @@ export default function PageClientMessages() {
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [clientId, supabase]);
+  }, [clientId]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -332,6 +332,7 @@ export default function PageClientMessages() {
     if (isRecording) return;
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
       const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
         ? 'audio/webm;codecs=opus'
         : MediaRecorder.isTypeSupported('audio/webm')
@@ -341,7 +342,8 @@ export default function PageClientMessages() {
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
       mr.onstop = () => {
-        stream.getTracks().forEach(t => t.stop());
+        streamRef.current?.getTracks().forEach(t => t.stop());
+        streamRef.current = null;
         const dur = (Date.now() - recordingStartRef.current) / 1000;
         const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
         if (blob.size > 0) {
@@ -375,16 +377,16 @@ export default function PageClientMessages() {
 
   function cancelRecording() {
     if (!mediaRecorderRef.current) return;
-    // Vider chunks pour ne pas envoyer
+    audioChunksRef.current = [];
     const mr = mediaRecorderRef.current;
     mr.onstop = () => {
-      mr.stream?.getTracks().forEach(t => t.stop());
+      streamRef.current?.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
       if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
       setIsRecording(false);
       setRecordingElapsed(0);
     };
     if (mr.state !== 'inactive') mr.stop();
-    audioChunksRef.current = [];
   }
 
   // Groupes de messages par jour
@@ -443,7 +445,7 @@ export default function PageClientMessages() {
           overflowY: 'auto',
           overflowX: 'hidden',
           padding: '12px 16px',
-          paddingBottom: 'calc(var(--keyboard-h, 0px) + 62px + env(safe-area-inset-bottom) + 70px)',
+          paddingBottom: '12px',
           display: 'flex',
           flexDirection: 'column',
           gap: 2,
@@ -505,20 +507,15 @@ export default function PageClientMessages() {
           <div ref={bottomRef} />
         </div>
 
-        {/* ── Input bar — position fixed, suit le clavier via --keyboard-h ── */}
-        <div style={{
-          position: 'fixed',
-          left: 0,
-          right: 0,
-          bottom: 'calc(var(--keyboard-h, 0px) + 56px + env(safe-area-inset-bottom) + 6px)',
+        {/* ── Input bar — sticky en bas sur desktop, fixed sur mobile via classe CSS ── */}
+        <div className="chat-input-bar" style={{
           padding: '8px 12px',
           background: 'var(--surface)',
           borderTop: '1px solid var(--border)',
           display: 'flex',
           gap: 8,
           alignItems: 'flex-end',
-          transition: 'bottom 50ms linear',
-          zIndex: 20,
+          flexShrink: 0,
         }}>
           {isRecording ? (
             <RecordingOverlay elapsed={recordingElapsed} onCancel={cancelRecording} />
