@@ -15,7 +15,7 @@ export default function TopBar() {
   return (
     <div className="topbar">
       <div className="topbar-brand">
-        <Image src="/logo-momentum.png" alt="Momentum" width={60} height={60} style={{ flexShrink: 0, objectFit: 'contain' }} />
+        <Image src="/logo-momentum.png" alt="Momentum" width={62} height={62} style={{ flexShrink: 0, objectFit: 'contain' }} />
         <span className="topbar-logo">Momentum</span>
         <span className="topbar-tagline">{isCoach ? 'Espace coach' : 'Espace élève'}</span>
       </div>

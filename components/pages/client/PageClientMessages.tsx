@@ -407,17 +407,11 @@ export default function PageClientMessages() {
         }
       `}</style>
 
-      {/* Shell fixé sous la topbar */}
-      <div style={{
+      {/* Shell messagerie — position fixed sur mobile via .chat-shell CSS, normal sur desktop */}
+      <div className="chat-shell" style={{
         display: 'flex',
         flexDirection: 'column',
-        position: 'fixed',
-        top: 64,
-        left: 0,
-        right: 0,
-        bottom: 0,
         background: 'var(--bg)',
-        zIndex: 10,
       }}>
         {/* ── Header style WhatsApp ── */}
         <div style={{
