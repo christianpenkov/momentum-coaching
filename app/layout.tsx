@@ -45,14 +45,35 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-status-bar-style" content="default" />
         <meta name="apple-mobile-web-app-title" content="Momentum" />
         <meta name="theme-color" content="#fbfbf7" />
-        <link rel="apple-touch-icon" href="/logo-momentum.png" sizes="180x180" />
+        <link rel="apple-touch-icon" href="/logo-momentum-apple.png" sizes="180x180" />
       </head>
       <body>
         <Providers>{children}</Providers>
         <script dangerouslySetInnerHTML={{ __html: `
+          // Zoom iOS — bloque pinch + double-tap
+          document.addEventListener('touchstart', function(e) {
+            if (e.touches.length > 1) e.preventDefault();
+          }, { passive: false });
+          var lastTouchEnd = 0;
+          document.addEventListener('touchend', function(e) {
+            var now = Date.now();
+            if (now - lastTouchEnd <= 300) e.preventDefault();
+            lastTouchEnd = now;
+          }, false);
+
+          // Service Worker — force reload dès qu'un nouveau SW est prêt
           if ('serviceWorker' in navigator) {
-            window.addEventListener('load', () => {
-              navigator.serviceWorker.register('/sw.js');
+            window.addEventListener('load', function() {
+              navigator.serviceWorker.register('/sw.js').then(function(reg) {
+                reg.addEventListener('updatefound', function() {
+                  var newWorker = reg.installing;
+                  newWorker.addEventListener('statechange', function() {
+                    if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                      window.location.reload();
+                    }
+                  });
+                });
+              });
             });
           }
         `}} />
