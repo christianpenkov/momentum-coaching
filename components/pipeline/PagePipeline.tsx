@@ -191,7 +191,7 @@ function PipelineCard({
       )}
 
       {platform === 'yt' && card.noSource && (
-        <div style={{ marginTop: 4, borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div draggable={false} style={{ marginTop: 4, borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)', padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}>
             Source inconnue — est-ce bien un lead ?
           </div>
