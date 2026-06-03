@@ -110,9 +110,10 @@ export async function GET(request: Request) {
   const sum = (arr: number[]) => (arr || []).reduce((a, b) => a + b, 0);
 
   const reach30d = sum(insightMap['reach'] || []);
-  // accounts_engaged + total_interactions via metric_type=total_value (seul format qui fonctionne)
-  const accountsEngaged30d = (engagedData?.data || []).find((m: any) => m.name === 'accounts_engaged')?.total_value?.value ?? 0;
-  const totalInteractions30d = (engagedData?.data || []).find((m: any) => m.name === 'total_interactions')?.total_value?.value ?? 0;
+  // accounts_engaged/total_interactions via total_value sont non fiables (> reach, inclut stories/DMs)
+  // On calcule les vraies interactions depuis les posts individuels après leur fetch (voir plus bas)
+  const accountsEngaged30d = 0; // remplacé par postInteractions30d calculé depuis les posts
+  const totalInteractions30d = 0;
   // follows_and_unfollows peut être vide sur certains comptes — on fall back sur follower_count (delta quotidien)
   const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []) || sum(insightMap['follower_count'] || []);
   const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
@@ -300,6 +301,12 @@ export async function GET(request: Request) {
     })
   );
 
+  // Interactions réelles = somme des totalInteractions lifetime des posts publiés dans la période
+  const cutoff30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const postInteractions30d = mediaWithInsights
+    .filter(p => new Date(p.timestamp) >= cutoff30d)
+    .reduce((s, p) => s + (p.totalInteractions ?? 0), 0);
+
   return NextResponse.json({
     username: accountData.username,
     name: accountData.name,
@@ -309,8 +316,8 @@ export async function GET(request: Request) {
     mediaCount: accountData.media_count || 0,
     biography: accountData.biography || '',
     reach30d,
-    accountsEngaged30d,
-    totalInteractions30d,
+    accountsEngaged30d: postInteractions30d,
+    totalInteractions30d: postInteractions30d,
     followsUnfollows30d,
     profileLinksTaps30d,
     websiteClicks30d,
