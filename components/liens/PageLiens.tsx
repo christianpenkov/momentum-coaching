@@ -2142,12 +2142,12 @@ export default function PageLiens() {
             {/* Bouton Calendly prospect */}
             <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
               <button onClick={() => setRightView({ type: 'prospect' })} style={{
-                width: '100%', padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 7,
+                width: '100%', padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
                 border: `1.5px solid ${rightView?.type === 'prospect' ? BLUE : BORDER}`,
                 background: rightView?.type === 'prospect' ? BLUE_SOFT : 'transparent',
                 color: rightView?.type === 'prospect' ? BLUE : MUTED, transition: 'all .15s',
               }}>
-                📅 Lien Calendly prospect
+                📅 Lien Calendly prospect DM
               </button>
             </div>
 
