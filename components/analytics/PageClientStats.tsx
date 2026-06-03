@@ -1096,18 +1096,24 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     v: ig.posts.filter(p => p.timestamp.startsWith(d.date)).length,
   }));
 
+  // Interactions par jour = somme des totalInteractions des posts publiés ce jour-là (lifetime par post)
+  const interactionsByDay = igDays.map(d => ({
+    date: d.date,
+    v: ig.posts
+      .filter(p => p.timestamp.startsWith(d.date))
+      .reduce((s, p) => s + (p.totalInteractions ?? 0), 0),
+  }));
+
   const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Publications': { data: pubsByDay, color: IG_COLOR },
     'Reach': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: IG_COLOR },
-    'Vues': { data: igDays.map(d => ({ date: d.date, v: d.views ?? 0 })), color: ACCENT },
-    'Interactions posts': { data: igDays.map(d => ({ date: d.date, v: d.totalInteractions ?? d.accountsEngaged ?? 0 })), color: GREEN },
+    'Interactions posts': { data: interactionsByDay, color: GREEN },
     'Abonnés nets': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
     'Clics site web': { data: igDays.map(d => ({ date: d.date, v: d.websiteClicks ?? 0 })), color: BLUE },
-    'Vues profil': { data: igDays.map(d => ({ date: d.date, v: d.profileViews ?? 0 })), color: BLUE },
-    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 && d.totalInteractions ? Math.round(d.totalInteractions / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
+    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
-    'Viralité': { data: igDays.map(d => ({ date: d.date, v: viralPct ?? 0 })), color: viralPct && viralPct > 50 ? GREEN : AMBER, unit: '%' },
+    // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
   };
 
   const openStatModal = (label: string, value: string) => {
@@ -1162,11 +1168,11 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate' },
-          { label: 'Clics lien bio', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: 'Clics site web' },
-          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Viralité' },
+          { label: 'Clics lien bio', value: fmt(igWebClicksP), sub: `${period}j`, color: 'var(--ink)', key: null },
+          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null },
         ].map(s => (
-          <div key={s.key} onClick={() => openStatModal(s.key, s.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
-            onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
+          <div key={s.label} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
+            onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ marginBottom: 8 }}>
               <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
