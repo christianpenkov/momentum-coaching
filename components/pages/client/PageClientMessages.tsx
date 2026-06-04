@@ -400,24 +400,24 @@ export default function PageClientMessages() {
   }, [clientId, supabase]);
 
   // ── Presence : en ligne + est en train d'écrire ─────────────────────────────
+  // Canal partagé avec le coach : presence-chat-{clientId}
   useEffect(() => {
     if (!clientId || !userId) return;
-    const presenceChannel = supabase.channel(`presence-chat-${clientId}`, {
+    const ch = supabase.channel(`presence-chat-${clientId}`, {
       config: { presence: { key: userId } },
     });
 
-    presenceChannel
-      .on('presence', { event: 'sync' }, () => {
-        const state = presenceChannel.presenceState();
-        const coachId = coachIdRef.current;
-        if (!coachId) return;
-        const coachPresent = Object.values(state).some((entries) =>
-          (entries as Array<Record<string, unknown>>).some(e => e.user_id === coachId)
+    ch.on('presence', { event: 'sync' }, () => {
+        const state = ch.presenceState();
+        // Le coach est présent si quelqu'un d'autre que moi est dans le canal avec role='coach'
+        const others = Object.entries(state).filter(([key]) => key !== userId);
+        const coachOnline = others.some(([, entries]) =>
+          (entries as Array<Record<string, unknown>>).some(e => e.role === 'coach')
         );
-        setIsCoachOnline(coachPresent);
+        setIsCoachOnline(coachOnline);
       })
       .on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload?.user_id === coachIdRef.current) {
+        if (payload.payload?.role === 'coach') {
           setCoachTyping(true);
           if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
           typingTimerRef.current = setTimeout(() => setCoachTyping(false), 3000);
@@ -425,12 +425,12 @@ export default function PageClientMessages() {
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
-          await presenceChannel.track({ user_id: userId, online_at: new Date().toISOString() });
+          await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
         }
       });
 
     return () => {
-      supabase.removeChannel(presenceChannel);
+      supabase.removeChannel(ch);
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
   }, [clientId, userId, supabase]);
