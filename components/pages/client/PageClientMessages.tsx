@@ -125,54 +125,61 @@ function AudioBubble({ url, duration, isMe }: { url: string; duration?: number; 
   );
 }
 
-// ─── RecordingOverlay ─────────────────────────────────────────────────────────
+// ─── RecordingOverlay — style WhatsApp adapté Momentum ───────────────────────
 
-function RecordingOverlay({ onCancel, onSend, elapsed, isLocked, swipeX, swipeY }: {
+const WAVEFORM_HEIGHTS = [35, 60, 80, 50, 90, 40, 70, 55, 85, 45, 75, 60, 40, 80, 50];
+
+function RecordingOverlay({ onCancel, onSend, elapsed }: {
   onCancel: () => void; onSend: () => void; elapsed: number;
-  isLocked: boolean; swipeX: number; swipeY: number;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, position: 'relative' }}>
-      <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)', animation: 'pulse-rec 1s ease-in-out infinite', flexShrink: 0 }} />
-      <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', minWidth: 36 }}>
-        {formatDuration(elapsed)}
-      </span>
-      {isLocked ? (
-        <>
-          <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>Verrouillé</span>
-          <button onClick={onCancel} style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', background: 'none', border: `1px solid var(--red)`, borderRadius: 16, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>
-            Annuler
-          </button>
-          <button onClick={onSend} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-          </button>
-        </>
-      ) : (
-        <>
-          {/* Indicateur glisser-annuler */}
-          <span style={{
-            flex: 1, fontSize: 12, color: 'var(--muted)',
-            transform: `translateX(${Math.min(0, swipeX * 0.4)}px)`,
-            transition: swipeX === 0 ? 'transform 0.2s' : 'none',
-            overflow: 'hidden', whiteSpace: 'nowrap',
-          }}>
-            ‹ Glisser pour annuler
-          </span>
-          {/* Indicateur verrouillage — monte quand swipe vers le haut */}
-          {swipeY < -10 && (
-            <div style={{
-              position: 'absolute', right: 54, bottom: 48,
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 12, padding: '6px 10px', fontSize: 11,
-              color: 'var(--muted)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-              transform: `translateY(${Math.max(-40, swipeY * 0.5)}px)`,
-              transition: 'transform 0.05s',
-            }}>
-              🔒 Verrouiller
-            </div>
-          )}
-        </>
-      )}
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, animation: 'rec-fadein 0.15s ease-out' }}>
+
+      {/* Poubelle — annuler */}
+      <button onClick={onCancel} type="button" style={{
+        width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)',
+        background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', flexShrink: 0,
+        animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)',
+      }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+        </svg>
+      </button>
+
+      {/* Zone centrale : point rouge + timer + waveform */}
+      <div style={{
+        flex: 1, display: 'flex', alignItems: 'center', gap: 10,
+        background: 'var(--surface-2)', borderRadius: 24, padding: '0 14px', height: 44,
+      }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', flexShrink: 0, animation: 'pulse-rec 1s ease-in-out infinite' }} />
+        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+          {formatDuration(elapsed)}
+        </span>
+        {/* Waveform simulée — barres avec hauteurs fixes + animation CSS décalée */}
+        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 2, height: 24, overflow: 'hidden' }}>
+          {WAVEFORM_HEIGHTS.map((h, i) => (
+            <div key={i} style={{
+              flex: 1, borderRadius: 2,
+              background: 'var(--muted)',
+              height: `${h}%`,
+              animation: `waveform-bounce 0.7s ease-in-out infinite alternate`,
+              animationDelay: `${i * 0.05}s`,
+            }} />
+          ))}
+        </div>
+      </div>
+
+      {/* Envoyer */}
+      <button onClick={onSend} type="button" style={{
+        width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'var(--ink)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+        animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)',
+      }}>
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+        </svg>
+      </button>
     </div>
   );
 }
@@ -190,9 +197,6 @@ export default function PageClientMessages() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
   const [mediaRecorderSupported, setMediaRecorderSupported] = useState(false);
-  const [isLocked, setIsLocked] = useState(false);
-  const [swipeX, setSwipeX] = useState(0);
-  const [swipeY, setSwipeY] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -201,7 +205,6 @@ export default function PageClientMessages() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartRef = useRef<number>(0);
-  const touchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = useRef(createClient()).current;
@@ -467,9 +470,6 @@ export default function PageClientMessages() {
   }
 
   function cancelRecording() {
-    setIsLocked(false);
-    setSwipeX(0);
-    setSwipeY(0);
     if (!mediaRecorderRef.current) return;
     audioChunksRef.current = [];
     const mr = mediaRecorderRef.current;
@@ -614,148 +614,140 @@ export default function PageClientMessages() {
           <div ref={bottomRef} />
         </div>
 
-        {/* ── Input bar ── */}
-        <div className="chat-input-bar" style={{
-          padding: '8px 12px',
-          background: 'var(--surface)',
-          borderTop: '1px solid var(--border)',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'flex-end',
-          flexShrink: 0,
-        }}>
-          {/* Input file invisible — images + PDF + docs */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/*,application/pdf,.doc,.docx"
-            style={{ display: 'none' }}
-            onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }}
-          />
-          {/* Bouton trombone — caché pendant enregistrement */}
-          {!isRecording && (
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              title="Envoyer un fichier"
-              style={{
-                width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
-                background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer', flexShrink: 0,
-              }}
-            >
+        {/* ── Input file invisible ── */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,application/pdf,.doc,.docx"
+          style={{ display: 'none' }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }}
+        />
+
+        {/* ── Panneau enregistrement style WhatsApp ── */}
+        {isRecording && (
+          <div className="chat-input-bar" style={{
+            flexShrink: 0, background: 'var(--surface)',
+            borderTop: '1px solid var(--border)',
+            animation: 'rec-fadein 0.15s ease-out',
+          }}>
+            {/* Ligne 1 : timer + waveform */}
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 12,
+              padding: '12px 20px 8px',
+            }}>
+              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', flexShrink: 0, animation: 'pulse-rec 1s ease-in-out infinite' }} />
+              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 34 }}>
+                {formatDuration(recordingElapsed)}
+              </span>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 2, height: 28 }}>
+                {WAVEFORM_HEIGHTS.map((h, i) => (
+                  <div key={i} style={{
+                    flex: 1, borderRadius: 2, background: 'var(--muted)',
+                    height: `${h}%`,
+                    animation: 'waveform-bounce 0.7s ease-in-out infinite alternate',
+                    animationDelay: `${i * 0.05}s`,
+                  }} />
+                ))}
+              </div>
+            </div>
+            {/* Ligne 2 : 3 boutons pleine largeur */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '4px 28px 14px',
+            }}>
+              {/* Poubelle */}
+              <button onClick={cancelRecording} type="button" style={{
+                width: 52, height: 52, borderRadius: '50%', border: '1px solid var(--border)',
+                background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+                </svg>
+              </button>
+              {/* Pause (visuel seulement — MediaRecorder web ne supporte pas vraiment la pause cross-browser) */}
+              <button type="button" style={{
+                width: 52, height: 52, borderRadius: '50%', border: '2px solid var(--red)',
+                background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'default',
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" strokeLinecap="round">
+                  <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
+                </svg>
+              </button>
+              {/* Envoyer */}
+              <button onClick={stopRecording} type="button" style={{
+                width: 52, height: 52, borderRadius: '50%', border: 'none', background: 'var(--ink)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)',
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ── Input bar normale (masquée pendant enregistrement) ── */}
+        {!isRecording && (
+          <div className="chat-input-bar" style={{
+            padding: '8px 12px', background: 'var(--surface)',
+            borderTop: '1px solid var(--border)',
+            display: 'flex', gap: 8, alignItems: 'flex-end', flexShrink: 0,
+          }}>
+            {/* Trombone */}
+            <button type="button" onClick={() => fileInputRef.current?.click()} style={{
+              width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
+              background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+            }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
               </svg>
             </button>
-          )}
-          {isRecording ? (
-            <RecordingOverlay
-              elapsed={recordingElapsed}
-              onCancel={cancelRecording}
-              onSend={stopRecording}
-              isLocked={isLocked}
-              swipeX={swipeX}
-              swipeY={swipeY}
+
+            <textarea
+              ref={inputRef}
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
+              placeholder="Écrire à ton coach…"
+              autoComplete="off" autoCorrect="off" autoCapitalize="sentences"
+              spellCheck={false} inputMode="text" name="chat-momentum-x7k"
+              style={{
+                flex: 1, resize: 'none', border: '1px solid var(--border)',
+                borderRadius: 24, padding: '11px 16px', fontSize: 14,
+                fontFamily: 'inherit', lineHeight: 1.5, outline: 'none',
+                background: 'var(--surface-2)', color: 'var(--ink)',
+                minHeight: 44, maxHeight: 120,
+              }}
+              rows={1}
             />
-          ) : (
-            <>
-              {/* Bouton micro — maintien mobile, clic PC */}
-              {mediaRecorderSupported && !input.trim() && (
-                <button
-                  type="button"
-                  title="Maintenir pour enregistrer"
-                  onMouseDown={startRecording}
-                  onMouseUp={stopRecording}
-                  onMouseLeave={() => { if (isRecording) stopRecording(); }}
-                  onTouchStart={(e) => {
-                    e.preventDefault();
-                    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-                    setSwipeX(0); setSwipeY(0); setIsLocked(false);
-                    startRecording();
-                  }}
-                  onTouchMove={(e) => {
-                    if (!isRecording || isLocked) return;
-                    const dx = e.touches[0].clientX - touchStartRef.current.x;
-                    const dy = e.touches[0].clientY - touchStartRef.current.y;
-                    setSwipeX(dx); setSwipeY(dy);
-                    if (dx < -80) { cancelRecording(); }
-                    else if (dy < -60) { setIsLocked(true); setSwipeX(0); setSwipeY(0); }
-                  }}
-                  onTouchEnd={(e) => { e.preventDefault(); if (!isLocked) stopRecording(); }}
-                  style={{
-                    width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
-                    background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer', flexShrink: 0, userSelect: 'none',
-                    touchAction: 'none', WebkitUserSelect: 'none',
-                  }}
-                >
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
-                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
-                    <line x1="12" y1="19" x2="12" y2="23"/>
-                    <line x1="8" y1="23" x2="16" y2="23"/>
-                  </svg>
-                </button>
-              )}
 
-              <textarea
-                ref={inputRef}
-                value={input}
-                onChange={e => setInput(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-                placeholder="Écrire à ton coach…"
-                autoComplete="off"
-                autoCorrect="off"
-                autoCapitalize="sentences"
-                spellCheck={false}
-                inputMode="text"
-                name="chat-momentum-x7k"
-                style={{
-                  flex: 1, resize: 'none', border: '1px solid var(--border)',
-                  borderRadius: 24, padding: '11px 16px', fontSize: 14,
-                  fontFamily: 'inherit', lineHeight: 1.5, outline: 'none',
-                  background: 'var(--surface-2)', color: 'var(--ink)',
-                  minHeight: 44, maxHeight: 120,
-                }}
-                rows={1}
-              />
+            {/* Micro (clic simple pour démarrer) */}
+            {mediaRecorderSupported && !input.trim() && (
+              <button type="button" onClick={startRecording} style={{
+                width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
+                background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/>
+                  <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                  <line x1="12" y1="19" x2="12" y2="23"/>
+                  <line x1="8" y1="23" x2="16" y2="23"/>
+                </svg>
+              </button>
+            )}
 
-              {/* Bouton send — visible seulement si texte */}
-              {input.trim() && (
-                <button
-                  className="btn-primary"
-                  onClick={() => sendMessage(input)}
-                  type="button"
-                  style={{
-                    width: 44, height: 44, borderRadius: '50%', padding: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0,
-                  }}
-                >
-                  <Icon name="send" size={16} />
-                </button>
-              )}
-
-              {/* Bouton send visible si pas de micro et champ vide */}
-              {!input.trim() && !mediaRecorderSupported && (
-                <button
-                  className="btn-primary"
-                  onClick={() => sendMessage(input)}
-                  type="button"
-                  disabled
-                  style={{
-                    width: 44, height: 44, borderRadius: '50%', padding: 0,
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    flexShrink: 0, opacity: 0.3,
-                  }}
-                >
-                  <Icon name="send" size={16} />
-                </button>
-              )}
-            </>
-          )}
-        </div>
+            {/* Send texte */}
+            {input.trim() && (
+              <button className="btn-primary" onClick={() => sendMessage(input)} type="button" style={{
+                width: 44, height: 44, borderRadius: '50%', padding: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+              }}>
+                <Icon name="send" size={16} />
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </>
   );

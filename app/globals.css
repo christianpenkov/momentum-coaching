@@ -1595,6 +1595,22 @@ a { color: inherit; text-decoration: none; }
 .msg-bubble-in {
   animation: msg-in 0.18s ease-out both;
 }
+@keyframes pulse-rec {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+@keyframes waveform-bounce {
+  from { transform: scaleY(0.3); }
+  to   { transform: scaleY(1); }
+}
+@keyframes rec-fadein {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes rec-popin {
+  from { transform: scale(0.7); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}
 
 /* ── Onboarding fullscreen overlay ── */
 @keyframes orb-drift-1 {
