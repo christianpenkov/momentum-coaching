@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import webpush from 'web-push';
 import { createClient } from '@supabase/supabase-js';
 
-webpush.setVapidDetails(
-  process.env.VAPID_SUBJECT!,
-  process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-  process.env.VAPID_PRIVATE_KEY!
-);
+// setVapidDetails appelé dans le handler, pas au niveau module
+// (Next.js exécute le module au build sans les env vars → crash)
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -14,6 +11,12 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
+  webpush.setVapidDetails(
+    process.env.VAPID_SUBJECT!,
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
+    process.env.VAPID_PRIVATE_KEY!
+  );
+
   const { recipientUserId, title, body, url } = await req.json();
   if (!recipientUserId) return NextResponse.json({ error: 'invalid' }, { status: 400 });
 
