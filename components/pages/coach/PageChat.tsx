@@ -639,9 +639,27 @@ export default function PageChat() {
     if (clients.length > 0 && !activeId) setActiveId(clients[0].id);
   }, [clients, activeId]);
 
-  // Presence coach : rejoindre le canal du client actif
+  // Presence coach : écoute présence client sur les deux canaux (messagerie + global)
   useEffect(() => {
     if (!userId || !activeId) return;
+
+    const updateOnline = (state: Record<string, unknown[]>, id: string) => {
+      const isOnline = Object.values(state).flat().some(
+        (e) => (e as Record<string, unknown>).role === 'client'
+      );
+      setOnlineClients(prev => {
+        const next = new Set(prev);
+        if (isOnline) next.add(id); else next.delete(id);
+        return next;
+      });
+    };
+
+    // Canal global (présence hors messagerie)
+    const globalCh = supabase.channel(`global-presence-${activeId}`);
+    globalCh.on('presence', { event: 'sync' }, () => {
+      updateOnline(globalCh.presenceState() as Record<string, unknown[]>, activeId);
+    }).subscribe();
+
     const ch = supabase.channel(`presence-chat-${activeId}`, {
       config: { presence: { key: userId } },
     });
@@ -677,6 +695,7 @@ export default function PageChat() {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
+      supabase.removeChannel(globalCh);
       presenceChRef.current = null;
       setPresenceCh(null);
     };

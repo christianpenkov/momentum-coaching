@@ -509,9 +509,12 @@ export default function PageClientMessages() {
     return () => { supabase.removeChannel(channel); };
   }, [clientId, supabase]);
 
-  // ── Presence : canal unique pour track + écoute coach ──────────────────────
+  // ── Presence : écoute coach + typing (canal messagerie uniquement pour broadcast)
   useEffect(() => {
     if (!clientId || !userId) return;
+    // Canal messagerie pour broadcast typing + présence locale
+    // La présence globale (hors messagerie) est gérée par GlobalPresenceClient dans le layout
+    // sur le canal global-presence-${clientId}
     const ch = supabase.channel(`presence-chat-${clientId}`, {
       config: { presence: { key: userId } },
     });
@@ -561,6 +564,20 @@ export default function PageClientMessages() {
       presenceChRef.current = null;
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
+  }, [clientId, userId, supabase]);
+
+  // ── Présence globale coach (hors messagerie) ──────────────────────────────
+  useEffect(() => {
+    if (!clientId || !userId) return;
+    const ch = supabase.channel(`global-presence-${clientId}`);
+    ch.on('presence', { event: 'sync' }, () => {
+      const state = ch.presenceState();
+      const coachOnline = Object.values(state).flat().some(
+        (e) => (e as Record<string, unknown>).role === 'coach'
+      );
+      setIsCoachOnline(prev => coachOnline || prev);
+    }).subscribe();
+    return () => { supabase.removeChannel(ch); };
   }, [clientId, userId, supabase]);
 
   // ── Scroll bas — scrollTop direct pour iOS, smooth ensuite ────────────────
