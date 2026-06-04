@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback, createContext, useContext } f
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import { triggerPushSetup } from '@/lib/usePushNotifications';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -353,7 +352,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     setInput('');
-    triggerPushSetup(userId);
     const optimisticId = `opt-text-${Date.now()}`;
     const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: text.trim(), created_at: new Date().toISOString(), type: 'text' };
     setMessages(prev => [...prev, optimistic]);

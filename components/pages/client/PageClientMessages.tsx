@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
-import { triggerPushSetup, urlBase64ToUint8Array } from '@/lib/usePushNotifications';
+import PushInit from '@/components/PushInit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -379,13 +379,6 @@ export default function PageClientMessages() {
   const [coachTyping, setCoachTyping] = useState(false);
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [showScrollArrow, setShowScrollArrow] = useState(false);
-  const [notifPermission, setNotifPermission] = useState<NotificationPermission | null>(null);
-
-  useEffect(() => {
-    if (typeof Notification !== 'undefined') {
-      setNotifPermission(Notification.permission);
-    }
-  }, []);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatZoneRef = useRef<HTMLDivElement>(null);
@@ -585,8 +578,6 @@ export default function PageClientMessages() {
   async function sendMessage(text: string) {
     if (!text.trim() || !clientId || !userId) return;
     setInput('');
-    // Demander permission notifs au 1er geste utilisateur (requis iOS)
-    triggerPushSetup(userId);
     const optimisticId = `opt-text-${Date.now()}`;
     const optimistic: Msg = {
       id: optimisticId, client_id: clientId, sender_id: userId,
@@ -776,46 +767,8 @@ export default function PageClientMessages() {
               {coachTyping ? 'En train d\'écrire…' : isCoachOnline ? 'En ligne' : 'Hors ligne'}
             </div>
           </div>
-          {/* Bouton notifs — visible seulement si permission pas encore accordée */}
-          {notifPermission === 'default' && userId && (
-            <button
-              onClick={() => {
-                // iOS exige requestPermission() dans le handler SYNCHRONE du clic
-                // Pas de async/await avant cet appel — sinon WebKit rompt le lien avec le geste
-                Notification.requestPermission().then(async (permission) => {
-                  setNotifPermission(permission);
-                  if (permission !== 'granted') return;
-                  try {
-                    const reg = await navigator.serviceWorker.ready;
-                    const existing = await reg.pushManager.getSubscription();
-                    const sub = existing ?? await reg.pushManager.subscribe({
-                      userVisibleOnly: true,
-                      applicationServerKey: urlBase64ToUint8Array(
-                        process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
-                      ),
-                    });
-                    await fetch('/api/push/subscribe', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ subscription: sub.toJSON(), userId }),
-                    });
-                  } catch { /* silencieux */ }
-                });
-              }}
-              title="Activer les notifications"
-              style={{
-                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
-                border: '1px solid var(--border)', background: 'var(--surface-2)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                cursor: 'pointer',
-              }}
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-              </svg>
-            </button>
-          )}
+          {/* Bouton activation notifications — géré par PushInit */}
+          {userId && <PushInit userId={userId} />}
         </div>
 
         {/* ── Zone messages ── */}
