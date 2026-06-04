@@ -4,7 +4,6 @@ import TopBar from '@/components/layout/TopBar';
 import Sidebar from '@/components/layout/Sidebar';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider, useUser } from '@/lib/UserContext';
-import { GlobalPresenceCoach } from '@/components/layout/GlobalPresence';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 
 function CoachLayoutInner({ children }: { children: React.ReactNode }) {
@@ -12,7 +11,6 @@ function CoachLayoutInner({ children }: { children: React.ReactNode }) {
   usePushNotifications(user?.id ?? null);
   return (
     <>
-      <GlobalPresenceCoach />
       <div className="app-shell">
         <TopBar />
         <div className="app-body">

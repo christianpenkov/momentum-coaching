@@ -6,7 +6,6 @@ import SidebarClient from '@/components/layout/SidebarClient';
 import BottomNav from '@/components/layout/BottomNav';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider, useUser } from '@/lib/UserContext';
-import { GlobalPresenceClient } from '@/components/layout/GlobalPresence';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 
 function ClientLayoutInner({ children, shellRef, navRef }: {
@@ -18,7 +17,6 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   usePushNotifications(user?.id ?? null);
   return (
     <>
-      <GlobalPresenceClient />
       <div ref={shellRef} className="app-shell-pwa">
         <TopBar />
         <div className="app-body-pwa">
