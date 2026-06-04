@@ -12,9 +12,9 @@ const supabase = createClient(
 
 export async function POST(req: NextRequest) {
   webpush.setVapidDetails(
-    process.env.VAPID_SUBJECT!,
-    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-    process.env.VAPID_PRIVATE_KEY!
+    process.env.VAPID_SUBJECT!.trim(),
+    process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!.trim(),
+    process.env.VAPID_PRIVATE_KEY!.trim()
   );
 
   const { recipientUserId, title, body, url } = await req.json();

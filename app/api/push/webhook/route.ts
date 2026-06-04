@@ -58,10 +58,11 @@ export async function POST(req: NextRequest) {
     log(`[WEBHOOK] VAPID private: ${!!process.env.VAPID_PRIVATE_KEY}`);
     log(`[WEBHOOK] VAPID subject: ${process.env.VAPID_SUBJECT}`);
 
+    // trim() sur toutes les clés VAPID — les env vars Vercel peuvent avoir un \n résiduel
     webpush.setVapidDetails(
-      process.env.VAPID_SUBJECT!,
-      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!,
-      process.env.VAPID_PRIVATE_KEY!
+      process.env.VAPID_SUBJECT!.trim(),
+      process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!.trim(),
+      process.env.VAPID_PRIVATE_KEY!.trim()
     );
     log('[WEBHOOK] VAPID ok');
 
