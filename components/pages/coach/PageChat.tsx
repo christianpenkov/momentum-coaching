@@ -129,17 +129,21 @@ function MessageStatus({ isMe, msgId, readAt }: { isMe: boolean; msgId: string; 
   if (!isMe) return null;
   const isRead = !!readAt;
   const isOptimistic = msgId.startsWith('opt-');
-  const color = 'rgba(255,255,255,0.55)';
-  const readColor = 'rgba(255,255,255,0.9)';
   if (isOptimistic) return (
-    <svg width="14" height="10" viewBox="0 0 14 10" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M1 5l3.5 3.5L12 1" stroke={color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="16" height="11" viewBox="0 0 16 11" fill="none" style={{ flexShrink: 0, opacity: 0.65 }}>
+      <path d="M1 5.5l4 4L14 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  );
+  if (isRead) return (
+    <svg width="20" height="11" viewBox="0 0 20 11" fill="none" style={{ flexShrink: 0 }}>
+      <path d="M1 5.5l4 4L13 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 5.5l4 4L18 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   return (
-    <svg width="18" height="10" viewBox="0 0 18 10" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M1 5l3.5 3.5L12 1" stroke={isRead ? readColor : color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M5 5l3.5 3.5L16 1" stroke={isRead ? readColor : color} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+    <svg width="20" height="11" viewBox="0 0 20 11" fill="none" style={{ flexShrink: 0, opacity: 0.5 }}>
+      <path d="M1 5.5l4 4L13 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 5.5l4 4L18 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }

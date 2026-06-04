@@ -6,6 +6,7 @@ import SidebarClient from '@/components/layout/SidebarClient';
 import BottomNav from '@/components/layout/BottomNav';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider } from '@/lib/UserContext';
+import { PresenceTracker } from '@/components/layout/PresenceTracker';
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -52,6 +53,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <UserProvider>
+      <PresenceTracker role="client" />
       {/* Shell unique — desktop et mobile, jamais de remount */}
       <div ref={shellRef} className="app-shell-pwa">
         <TopBar />
