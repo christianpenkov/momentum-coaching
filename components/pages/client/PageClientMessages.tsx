@@ -587,6 +587,8 @@ export default function PageClientMessages() {
                 autoCorrect="off"
                 autoCapitalize="sentences"
                 spellCheck={false}
+                inputMode="text"
+                name="chat-momentum-x7k"
                 style={{
                   flex: 1, resize: 'none', border: '1px solid var(--border)',
                   borderRadius: 24, padding: '11px 16px', fontSize: 14,
