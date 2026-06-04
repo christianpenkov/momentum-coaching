@@ -3,42 +3,67 @@
 import { useEffect, useState } from 'react';
 import { urlBase64ToUint8Array } from '@/lib/usePushNotifications';
 
-/**
- * Composant autonome de gestion des notifications push.
- * Monté dans le layout client — gère tout le flow :
- * 1. Enregistrement du SW
- * 2. Affichage du bouton si permission pas encore accordée
- * 3. requestPermission() synchrone au tap (requis iOS)
- * 4. Subscribe + save en base
- */
+const SUPABASE_URL = 'https://nvjgwtetyuatnkjihmtw.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52amd3dGV0eXVhdG5ramlobXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzc3ODUsImV4cCI6MjA5NDYxMzc4NX0.0apyZEDUtM6LFBX5uDK5amD_jhKAgrYsZ61JSrA9gxk';
+
+function swLog(event: string, data: string) {
+  fetch(`${SUPABASE_URL}/rest/v1/sw_logs`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'Prefer': 'return=minimal',
+    },
+    body: JSON.stringify({ event, data, created_at: new Date().toISOString() }),
+  }).catch(() => {});
+}
+
 export default function PushInit({ userId }: { userId: string }) {
   const [permission, setPermission] = useState<NotificationPermission | null>(null);
+  const [supported, setSupported] = useState(true);
 
-  // Initialisation : vérifier l'état de permission actuel
   useEffect(() => {
-    if (typeof Notification === 'undefined') return;
+    // Log ce que iOS voit réellement
+    const hasNotif = 'Notification' in window;
+    const hasSW = 'serviceWorker' in navigator;
+    const hasPush = 'PushManager' in window;
+    const perm = hasNotif ? Notification.permission : 'unavailable';
+
+    swLog('PushInit_mount', JSON.stringify({
+      hasNotif, hasSW, hasPush, permission: perm,
+      ua: navigator.userAgent.slice(0, 80),
+    }));
+
+    if (!hasNotif || !hasSW || !hasPush) {
+      setSupported(false);
+      return;
+    }
+
     setPermission(Notification.permission);
 
-    // Si déjà accordé, s'enregistrer silencieusement
     if (Notification.permission === 'granted') {
       silentRegister(userId);
     }
   }, [userId]);
 
-  // Tap sur le bouton — requestPermission() doit être appelé ici,
-  // dans un handler onClick NON-async (iOS exige la synchronicité du geste)
   function handleClick() {
     if (!('Notification' in window) || !('serviceWorker' in navigator) || !('PushManager' in window)) return;
 
+    swLog('PushInit_click', 'bouton cloche tapé');
+
     Notification.requestPermission().then(async (perm) => {
+      swLog('PushInit_permission_result', perm);
       setPermission(perm);
       if (perm !== 'granted') return;
       await silentRegister(userId);
     });
   }
 
-  // Visible seulement si permission pas encore traitée
-  if (permission !== 'default') return null;
+  // Pas supporté = iOS < 16.4 ou pas standalone
+  if (!supported) return null;
+  // Déjà accordé = pas besoin d'afficher
+  if (permission === 'granted') return null;
 
   return (
     <button
