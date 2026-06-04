@@ -8,89 +8,65 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  console.log('[PUSH-WEBHOOK] Appel reçu');
+  // Log tout ce qu'on reçoit AVANT tout traitement
+  const rawText = await req.text();
+  console.log('[WEBHOOK] raw body:', rawText.slice(0, 500));
+  console.log('[WEBHOOK] secret header:', req.headers.get('x-webhook-secret')?.slice(0, 20));
+  console.log('[WEBHOOK] CRON_SECRET défini:', !!process.env.CRON_SECRET);
+  console.log('[WEBHOOK] VAPID_PUBLIC défini:', !!process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY);
+  console.log('[WEBHOOK] VAPID_PRIVATE défini:', !!process.env.VAPID_PRIVATE_KEY);
 
-  try {
+  // Vérif secret
   const secret = req.headers.get('x-webhook-secret');
   if (secret !== process.env.CRON_SECRET) {
-    console.log('[PUSH-WEBHOOK] ❌ Secret invalide, reçu:', secret?.slice(0, 20));
+    console.log('[WEBHOOK] ❌ secret invalide');
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let body: any;
+  // Parse JSON
+  let body: { record?: { client_id?: string; sender_id?: string; text?: string; type?: string } };
   try {
-    body = await req.json();
+    body = JSON.parse(rawText);
   } catch (e) {
-    console.log('[PUSH-WEBHOOK] ❌ JSON parse error:', String(e));
-    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
-  }
-  console.log('[PUSH-WEBHOOK] Body reçu:', JSON.stringify(body).slice(0, 300));
-
-  const record = body.record;
-  if (!record) {
-    console.log('[PUSH-WEBHOOK] ⚠️ Pas de record dans le body');
-    return NextResponse.json({ ok: true });
+    console.log('[WEBHOOK] ❌ JSON invalide:', String(e));
+    return NextResponse.json({ error: 'bad json' }, { status: 400 });
   }
 
-  const { client_id, sender_id, text, type: msgType } = record;
-  console.log('[PUSH-WEBHOOK] Message:', { client_id, sender_id, msgType, text: text?.slice(0, 50) });
-
-  if (!client_id || !sender_id) {
-    console.log('[PUSH-WEBHOOK] ⚠️ client_id ou sender_id manquant');
-    return NextResponse.json({ ok: true });
+  const record = body?.record;
+  if (!record?.client_id || !record?.sender_id) {
+    console.log('[WEBHOOK] ⚠️ record manquant ou incomplet');
+    return NextResponse.json({ ok: true, reason: 'no_record' });
   }
 
-  const { data: clientRow, error: clientError } = await supabase
-    .from('clients')
-    .select('id, coach_id, profile_id')
-    .eq('id', client_id)
-    .single();
+  console.log('[WEBHOOK] record:', JSON.stringify(record).slice(0, 200));
+
+  // Trouver client
+  const { data: clientRow } = await supabase
+    .from('clients').select('id, coach_id, profile_id').eq('id', record.client_id).single();
 
   if (!clientRow) {
-    console.log('[PUSH-WEBHOOK] ❌ Client introuvable:', clientError?.message);
-    return NextResponse.json({ ok: true });
+    console.log('[WEBHOOK] ❌ client introuvable');
+    return NextResponse.json({ ok: true, reason: 'no_client' });
   }
 
-  console.log('[PUSH-WEBHOOK] Client trouvé:', { profile_id: clientRow.profile_id, coach_id: clientRow.coach_id });
+  const recipientUserId = record.sender_id === clientRow.profile_id
+    ? clientRow.coach_id : clientRow.profile_id;
 
-  const recipientUserId = sender_id === clientRow.profile_id
-    ? clientRow.coach_id
-    : clientRow.profile_id;
+  console.log('[WEBHOOK] destinataire:', recipientUserId);
 
-  console.log('[PUSH-WEBHOOK] Destinataire:', recipientUserId, '| Expéditeur:', sender_id);
+  const { data: subs } = await supabase
+    .from('push_subscriptions').select('endpoint, p256dh, auth').eq('profile_id', recipientUserId);
 
-  if (!recipientUserId) {
-    console.log('[PUSH-WEBHOOK] ⚠️ recipientUserId null');
-    return NextResponse.json({ ok: true });
-  }
+  console.log('[WEBHOOK] subscriptions trouvées:', subs?.length ?? 0);
+  if (!subs?.length) return NextResponse.json({ ok: true, reason: 'no_subs' });
 
-  const { data: subs, error: subsError } = await supabase
-    .from('push_subscriptions')
-    .select('endpoint, p256dh, auth')
-    .eq('profile_id', recipientUserId);
+  // Expéditeur
+  const { data: sender } = await supabase
+    .from('profiles').select('full_name').eq('id', record.sender_id).maybeSingle();
 
-  console.log('[PUSH-WEBHOOK] Subscriptions trouvées:', subs?.length ?? 0, subsError?.message ?? '');
-
-  if (!subs || subs.length === 0) {
-    console.log('[PUSH-WEBHOOK] ⚠️ Aucune subscription pour', recipientUserId);
-    return NextResponse.json({ sent: 0, reason: 'no_subscriptions' });
-  }
-
-  // Log endpoint partiel pour identifier le device (pas le full endpoint pour sécurité)
-  subs.forEach((s, i) => {
-    console.log(`[PUSH-WEBHOOK] Sub[${i}] endpoint:`, s.endpoint.slice(0, 60) + '...');
-  });
-
-  const { data: senderProfile } = await supabase
-    .from('profiles')
-    .select('full_name')
-    .eq('id', sender_id)
-    .maybeSingle();
-
-  const senderName = senderProfile?.full_name || 'Nouveau message';
-  const bodyText = msgType === 'audio' ? '🎤 Message vocal' : (text || 'Nouveau message');
-  const url = sender_id === clientRow.profile_id ? '/messages' : '/client/messages';
+  const title = sender?.full_name || 'Momentum';
+  const body2 = record.type === 'audio' ? '🎤 Message vocal' : (record.text || 'Nouveau message');
+  const url = record.sender_id === clientRow.profile_id ? '/messages' : '/client/messages';
 
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT!,
@@ -98,51 +74,39 @@ export async function POST(req: NextRequest) {
     process.env.VAPID_PRIVATE_KEY!
   );
 
-  const payload = JSON.stringify({
-    title: senderName,
-    body: bodyText.substring(0, 100),
-    url,
-  });
-
-  console.log('[PUSH-WEBHOOK] Envoi payload:', payload);
+  const payload = JSON.stringify({ title, body: body2.substring(0, 100), url });
+  console.log('[WEBHOOK] envoi payload:', payload);
 
   const results = await Promise.allSettled(
-    subs.map(sub =>
-      webpush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        payload,
-        { TTL: 86400 }
-      )
-    )
+    subs.map(sub => webpush.sendNotification(
+      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+      payload,
+      { TTL: 86400 }
+    ))
   );
 
   results.forEach((r, i) => {
     if (r.status === 'fulfilled') {
-      const res = r.value as { statusCode: number };
-      console.log(`[PUSH-WEBHOOK] ✅ Sub[${i}] envoyé, statusCode:`, res?.statusCode);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      console.log(`[WEBHOOK] ✅ sub[${i}] statusCode:`, (r.value as any)?.statusCode);
     } else {
-      const err = r.reason as { statusCode?: number; message?: string; body?: string };
-      console.log(`[PUSH-WEBHOOK] ❌ Sub[${i}] erreur:`, err?.statusCode, err?.message, err?.body);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const e = r.reason as any;
+      console.log(`[WEBHOOK] ❌ sub[${i}] erreur:`, e?.statusCode, e?.message, e?.body);
     }
   });
 
+  // Cleanup 410
   const expired = results
     .map((r, i) => ({ r, sub: subs[i] }))
-    .filter(({ r }) => r.status === 'rejected' && (r as PromiseRejectedResult).reason?.statusCode === 410);
-
-  if (expired.length > 0) {
-    console.log('[PUSH-WEBHOOK] Nettoyage', expired.length, 'subscriptions expirées');
-    await supabase.from('push_subscriptions')
-      .delete()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .filter(({ r }) => r.status === 'rejected' && (r.reason as any)?.statusCode === 410);
+  if (expired.length) {
+    await supabase.from('push_subscriptions').delete()
       .in('endpoint', expired.map(({ sub }) => sub.endpoint));
   }
 
   const sent = results.filter(r => r.status === 'fulfilled').length;
-  console.log('[PUSH-WEBHOOK] Terminé. Envoyé:', sent, '/', subs.length);
+  console.log('[WEBHOOK] terminé, envoyé:', sent);
   return NextResponse.json({ sent });
-
-  } catch (err) {
-    console.log('[PUSH-WEBHOOK] 💥 Erreur non gérée:', String(err));
-    return NextResponse.json({ error: String(err) }, { status: 500 });
-  }
 }
