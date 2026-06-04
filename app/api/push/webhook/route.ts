@@ -71,7 +71,8 @@ export async function POST(req: NextRequest) {
     subs.map(sub =>
       webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        payload
+        payload,
+        { TTL: 86400 } // 24h — Apple droppe la notif si TTL absent et appareil hors ligne
       )
     )
   );
