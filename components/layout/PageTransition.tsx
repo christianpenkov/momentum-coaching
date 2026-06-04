@@ -28,6 +28,10 @@ export default function PageTransition({ children }: { children: React.ReactNode
       opacity: visible ? 1 : 0,
       transform: visible ? 'translateX(0)' : 'translateX(16px)',
       transition: visible ? 'opacity 0.2s ease-out, transform 0.2s ease-out' : 'none',
+      flex: 1,
+      minHeight: 0,
+      display: 'flex',
+      flexDirection: 'column',
     }}>
       {displayChildren}
     </div>
