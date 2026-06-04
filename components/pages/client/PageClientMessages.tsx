@@ -573,19 +573,6 @@ export default function PageClientMessages() {
     };
   }, [clientId, userId, supabase]);
 
-  // ── Présence globale coach (hors messagerie) ──────────────────────────────
-  useEffect(() => {
-    if (!clientId || !userId) return;
-    const ch = supabase.channel(`global-presence-${clientId}`);
-    ch.on('presence', { event: 'sync' }, () => {
-      const state = ch.presenceState();
-      const coachOnline = Object.values(state).flat().some(
-        (e) => (e as Record<string, unknown>).role === 'coach'
-      );
-      setIsCoachOnline(prev => coachOnline || prev);
-    }).subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [clientId, userId, supabase]);
 
   // ── Scroll bas — scrollTop direct pour iOS, smooth ensuite ────────────────
   const initialScrollDone = useRef(false);
