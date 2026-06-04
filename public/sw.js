@@ -1,14 +1,17 @@
-// SW v6 — pas de cache réseau + notifications push
+// SW v7 — skipWaiting + claim immédiat (requis iOS PWA first-launch)
 
 self.addEventListener('install', e => {
-  self.skipWaiting();
+  // Prend le contrôle immédiatement sans attendre la fermeture des onglets
+  e.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', e => {
+  // Claim synchrone avant toute opération — iOS exige que le SW contrôle la page
+  // avant que pushManager.subscribe() soit appelé
   e.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
+    self.clients.claim().then(() =>
+      caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
+    )
   );
 });
 

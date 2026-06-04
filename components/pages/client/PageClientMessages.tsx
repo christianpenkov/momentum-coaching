@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
-import { triggerPushSetup } from '@/lib/usePushNotifications';
+import { triggerPushSetup, urlBase64ToUint8Array } from '@/lib/usePushNotifications';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -483,27 +483,12 @@ export default function PageClientMessages() {
           }
           return [...prev, incoming];
         });
-        // Marquer lu + notif push si message du coach
-        if (incoming.sender_id === coachIdRef.current) {
-          // Ne marquer lu que si la page est visible (écran allumé et app au premier plan)
-          if (document.visibilityState === 'visible') {
-            supabase.from('messages').update({ read_at: new Date().toISOString() })
-              .eq('id', incoming.id).then(() => {});
-          }
-          // Notif push seulement si l'app est en arrière-plan
-          if (document.visibilityState === 'hidden' && userIdRef.current) {
-            fetch('/api/push/send', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                recipientUserId: userIdRef.current,
-                title: 'Nouveau message',
-                body: incoming.text || '🎤 Message vocal',
-                url: '/client/messages',
-              }),
-            }).catch(() => {});
-          }
+        // Marquer lu si message du coach et page visible
+        if (incoming.sender_id === coachIdRef.current && document.visibilityState === 'visible') {
+          supabase.from('messages').update({ read_at: new Date().toISOString() })
+            .eq('id', incoming.id).then(() => {});
         }
+        // Push géré par le trigger Supabase côté serveur — pas de déclenchement client
       })
       .on('postgres_changes', {
         event: 'UPDATE', schema: 'public', table: 'messages',
@@ -794,9 +779,28 @@ export default function PageClientMessages() {
           {/* Bouton notifs — visible seulement si permission pas encore accordée */}
           {notifPermission === 'default' && userId && (
             <button
-              onClick={async () => {
-                await triggerPushSetup(userId);
-                setNotifPermission(Notification.permission);
+              onClick={() => {
+                // iOS exige requestPermission() dans le handler SYNCHRONE du clic
+                // Pas de async/await avant cet appel — sinon WebKit rompt le lien avec le geste
+                Notification.requestPermission().then(async (permission) => {
+                  setNotifPermission(permission);
+                  if (permission !== 'granted') return;
+                  try {
+                    const reg = await navigator.serviceWorker.ready;
+                    const existing = await reg.pushManager.getSubscription();
+                    const sub = existing ?? await reg.pushManager.subscribe({
+                      userVisibleOnly: true,
+                      applicationServerKey: urlBase64ToUint8Array(
+                        process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!
+                      ),
+                    });
+                    await fetch('/api/push/subscribe', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ subscription: sub.toJSON(), userId }),
+                    });
+                  } catch { /* silencieux */ }
+                });
               }}
               title="Activer les notifications"
               style={{

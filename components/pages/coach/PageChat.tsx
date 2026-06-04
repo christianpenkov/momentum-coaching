@@ -306,19 +306,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           if (msg.sender_id !== userId) {
             await supabase.from('messages').update({ read_at: new Date().toISOString(), read: true }).eq('id', msg.id);
             setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, read_at: new Date().toISOString() } : m));
-            // Notif push coach si app en arrière-plan
-            if (document.visibilityState === 'hidden') {
-              fetch('/api/push/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  recipientUserId: userId,
-                  title: `Message de ${clientName}`,
-                  body: msg.text || '🎤 Message vocal',
-                  url: '/messages',
-                }),
-              }).catch(() => {});
-            }
+            // Push géré par le trigger Supabase côté serveur
           }
         })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
