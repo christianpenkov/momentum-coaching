@@ -5,7 +5,35 @@ import TopBar from '@/components/layout/TopBar';
 import SidebarClient from '@/components/layout/SidebarClient';
 import BottomNav from '@/components/layout/BottomNav';
 import PageTransition from '@/components/layout/PageTransition';
-import { UserProvider } from '@/lib/UserContext';
+import { UserProvider, useUser } from '@/lib/UserContext';
+import { GlobalPresenceClient } from '@/components/layout/GlobalPresence';
+import { usePushNotifications } from '@/lib/usePushNotifications';
+
+function ClientLayoutInner({ children, shellRef, navRef }: {
+  children: React.ReactNode;
+  shellRef: React.RefObject<HTMLDivElement | null>;
+  navRef: React.RefObject<HTMLDivElement | null>;
+}) {
+  const { user } = useUser();
+  usePushNotifications(user?.id ?? null);
+  return (
+    <>
+      <GlobalPresenceClient />
+      <div ref={shellRef} className="app-shell-pwa">
+        <TopBar />
+        <div className="app-body-pwa">
+          <SidebarClient />
+          <main className="main-content">
+            <PageTransition>{children}</PageTransition>
+          </main>
+        </div>
+        <div ref={navRef} className="bottom-nav-wrapper">
+          <BottomNav />
+        </div>
+      </div>
+    </>
+  );
+}
 
 export default function ClientLayout({ children }: { children: React.ReactNode }) {
   const shellRef = useRef<HTMLDivElement>(null);
@@ -52,20 +80,7 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <UserProvider>
-      {/* Shell unique — desktop et mobile, jamais de remount */}
-      <div ref={shellRef} className="app-shell-pwa">
-        <TopBar />
-        <div className="app-body-pwa">
-          <SidebarClient />
-          <main className="main-content">
-            <PageTransition>{children}</PageTransition>
-          </main>
-        </div>
-        {/* div wrapper pour pouvoir cacher/afficher via ref sans remount */}
-        <div ref={navRef} className="bottom-nav-wrapper">
-          <BottomNav />
-        </div>
-      </div>
+      <ClientLayoutInner shellRef={shellRef} navRef={navRef}>{children}</ClientLayoutInner>
     </UserProvider>
   );
 }

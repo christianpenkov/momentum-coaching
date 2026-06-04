@@ -179,6 +179,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const [mediaRecorderSupported, setMediaRecorderSupported] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
+  const [showScrollArrow, setShowScrollArrow] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatZoneRef = useRef<HTMLDivElement>(null);
@@ -235,6 +236,19 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           if (msg.sender_id !== userId) {
             await supabase.from('messages').update({ read_at: new Date().toISOString(), read: true }).eq('id', msg.id);
             setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, read_at: new Date().toISOString() } : m));
+            // Notif push coach si app en arrière-plan
+            if (document.visibilityState === 'hidden') {
+              fetch('/api/push/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  recipientUserId: userId,
+                  title: `Message de ${clientName}`,
+                  body: msg.text || '🎤 Message vocal',
+                  url: '/messages',
+                }),
+              }).catch(() => {});
+            }
           }
         })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
@@ -364,6 +378,15 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     if (mr.state !== 'inactive') mr.stop();
   }
 
+  function handleChatScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    setShowScrollArrow(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+  }
+  function scrollToBottom() {
+    const el = chatZoneRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }
+
   // Groupes
   const messageGroups: Array<{ dateLabel: string; msgs: Msg[] }> = [];
   messages.forEach((msg, i) => {
@@ -374,7 +397,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
 
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
-      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
 
         {/* Header */}
         <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)' }}>
@@ -391,7 +414,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         </div>
 
         {/* Messages */}
-        <div ref={chatZoneRef} className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        <div ref={chatZoneRef} onScroll={handleChatScroll} className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
           {loading ? (
             <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, paddingTop: 40 }}>Chargement…</div>
           ) : messages.length === 0 ? (
@@ -453,6 +476,28 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           {clientTyping && <div className="msg-bubble-in" style={{ marginTop: 8 }}><TypingIndicator /></div>}
           <div ref={bottomRef} />
         </div>
+
+        {/* Flèche scroll bas */}
+        <button
+          onClick={scrollToBottom}
+          aria-label="Aller en bas"
+          style={{
+            position: 'absolute', right: 16, bottom: 72,
+            width: 36, height: 36, borderRadius: '50%',
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', zIndex: 10,
+            opacity: showScrollArrow ? 1 : 0,
+            transform: showScrollArrow ? 'scale(1) translateY(0)' : 'scale(0.8) translateY(6px)',
+            pointerEvents: showScrollArrow ? 'auto' : 'none',
+            transition: 'opacity 0.18s ease-out, transform 0.18s ease-out',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
 
         {/* Input file */}
         <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.doc,.docx" style={{ display: 'none' }}
@@ -581,7 +626,7 @@ export default function PageChat() {
   const activeClient = clients.find(c => c.id === activeId);
 
   return (
-    <div style={{ display: 'flex', height: '100%', overflow: 'hidden', background: 'var(--bg)' }}>
+    <div className="chat-shell" style={{ display: 'flex', flexDirection: 'row', background: 'var(--bg)' }}>
 
       {/* Sidebar clients */}
       <div style={{ width: 260, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--surface)', flexShrink: 0 }}>

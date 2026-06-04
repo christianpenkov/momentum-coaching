@@ -299,6 +299,7 @@ export default function PageClientMessages() {
   const [isCoachOnline, setIsCoachOnline] = useState(false);
   const [coachTyping, setCoachTyping] = useState(false);
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
+  const [showScrollArrow, setShowScrollArrow] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatZoneRef = useRef<HTMLDivElement>(null);
@@ -393,10 +394,23 @@ export default function PageClientMessages() {
           }
           return [...prev, incoming];
         });
-        // Marquer lu si c'est un message du coach
+        // Marquer lu + notif push si message du coach
         if (incoming.sender_id === coachIdRef.current) {
           supabase.from('messages').update({ read_at: new Date().toISOString() })
             .eq('id', incoming.id).then(() => {});
+          // Notif push seulement si l'app est en arrière-plan
+          if (document.visibilityState === 'hidden' && userIdRef.current) {
+            fetch('/api/push/send', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipientUserId: userIdRef.current,
+                title: 'Nouveau message',
+                body: incoming.text || '🎤 Message vocal',
+                url: '/client/messages',
+              }),
+            }).catch(() => {});
+          }
         }
       })
       .on('postgres_changes', {
@@ -609,6 +623,16 @@ export default function PageClientMessages() {
     if (mr.state !== 'inactive') mr.stop();
   }
 
+  // ── Flèche scroll bas ──────────────────────────────────────────────────────
+  function handleChatScroll(e: React.UIEvent<HTMLDivElement>) {
+    const el = e.currentTarget;
+    setShowScrollArrow(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+  }
+  function scrollToBottom() {
+    const el = chatZoneRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+  }
+
   // ── Groupes par jour ───────────────────────────────────────────────────────
   const messageGroups: Array<{ dateLabel: string; msgs: Msg[] }> = [];
   messages.forEach((msg, i) => {
@@ -622,7 +646,7 @@ export default function PageClientMessages() {
 
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
-      <div className="chat-shell" style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)' }}>
+      <div className="chat-shell" style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
 
         {/* ── Header ── */}
         <div style={{
@@ -658,7 +682,7 @@ export default function PageClientMessages() {
         </div>
 
         {/* ── Zone messages ── */}
-        <div ref={chatZoneRef} className="chat-messages-zone" style={{
+        <div ref={chatZoneRef} onScroll={handleChatScroll} className="chat-messages-zone" style={{
           flex: 1, overflowY: 'auto', overflowX: 'hidden',
           padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2,
           WebkitOverflowScrolling: 'touch',
@@ -766,6 +790,28 @@ export default function PageClientMessages() {
 
           <div ref={bottomRef} />
         </div>
+
+        {/* ── Flèche scroll bas ── */}
+        <button
+          onClick={scrollToBottom}
+          aria-label="Aller en bas"
+          style={{
+            position: 'absolute', right: 16, bottom: 72,
+            width: 36, height: 36, borderRadius: '50%',
+            background: 'var(--surface)', border: '1px solid var(--border)',
+            boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            cursor: 'pointer', zIndex: 10,
+            opacity: showScrollArrow ? 1 : 0,
+            transform: showScrollArrow ? 'scale(1) translateY(0)' : 'scale(0.8) translateY(6px)',
+            pointerEvents: showScrollArrow ? 'auto' : 'none',
+            transition: 'opacity 0.18s ease-out, transform 0.18s ease-out',
+          }}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <polyline points="6 9 12 15 18 9" />
+          </svg>
+        </button>
 
         {/* ── Input file invisible ── */}
         <input

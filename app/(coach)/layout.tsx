@@ -3,11 +3,16 @@
 import TopBar from '@/components/layout/TopBar';
 import Sidebar from '@/components/layout/Sidebar';
 import PageTransition from '@/components/layout/PageTransition';
-import { UserProvider } from '@/lib/UserContext';
+import { UserProvider, useUser } from '@/lib/UserContext';
+import { GlobalPresenceCoach } from '@/components/layout/GlobalPresence';
+import { usePushNotifications } from '@/lib/usePushNotifications';
 
-export default function CoachLayout({ children }: { children: React.ReactNode }) {
+function CoachLayoutInner({ children }: { children: React.ReactNode }) {
+  const { user } = useUser();
+  usePushNotifications(user?.id ?? null);
   return (
-    <UserProvider>
+    <>
+      <GlobalPresenceCoach />
       <div className="app-shell">
         <TopBar />
         <div className="app-body">
@@ -17,6 +22,14 @@ export default function CoachLayout({ children }: { children: React.ReactNode })
           </main>
         </div>
       </div>
+    </>
+  );
+}
+
+export default function CoachLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <UserProvider>
+      <CoachLayoutInner>{children}</CoachLayoutInner>
     </UserProvider>
   );
 }
