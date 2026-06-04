@@ -347,10 +347,13 @@ export default function PageClientMessages() {
 
     try {
       const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
+      const strictType = ext === 'mp4' ? 'audio/mp4' : ext === 'ogg' ? 'audio/ogg' : 'audio/webm';
       const fileName = `${clientId}/${Date.now()}.${ext}`;
+      // File nommé + contentType strict — Safari exige audio/mp4 exact pour lire le fichier
+      const audioFile = new File([blob], `${Date.now()}.${ext}`, { type: strictType });
       const { error: uploadError } = await supabase.storage
         .from('voice-messages')
-        .upload(fileName, blob, { contentType: blob.type || 'audio/webm' });
+        .upload(fileName, audioFile, { contentType: strictType, cacheControl: '3600' });
 
       if (uploadError) {
         console.error('Upload audio échoué:', uploadError.message, uploadError);
