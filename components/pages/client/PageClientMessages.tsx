@@ -453,7 +453,7 @@ export default function PageClientMessages() {
       }}>
         {/* ── Header style WhatsApp ── */}
         <div style={{
-          padding: '10px 16px',
+          padding: '14px 16px',
           borderBottom: '1px solid var(--border)',
           display: 'flex',
           alignItems: 'center',
