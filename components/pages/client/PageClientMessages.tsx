@@ -12,8 +12,8 @@ interface Msg {
   text: string;
   sender_id: string;
   created_at: string;
-  type?: 'text' | 'audio';
-  audio_url?: string;
+  type?: 'text' | 'audio' | 'image' | 'document';
+  audio_url?: string;  // URL générique pour audio/image/document
   duration_s?: number;
 }
 
@@ -127,26 +127,52 @@ function AudioBubble({ url, duration, isMe }: { url: string; duration?: number; 
 
 // ─── RecordingOverlay ─────────────────────────────────────────────────────────
 
-function RecordingOverlay({ onCancel, onSend, elapsed }: { onCancel: () => void; onSend: () => void; elapsed: number }) {
+function RecordingOverlay({ onCancel, onSend, elapsed, isLocked, swipeX, swipeY }: {
+  onCancel: () => void; onSend: () => void; elapsed: number;
+  isLocked: boolean; swipeX: number; swipeY: number;
+}) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, position: 'relative' }}>
       <div style={{ width: 10, height: 10, borderRadius: '50%', background: 'var(--red)', animation: 'pulse-rec 1s ease-in-out infinite', flexShrink: 0 }} />
       <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', minWidth: 36 }}>
         {formatDuration(elapsed)}
       </span>
-      <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>Enregistrement…</span>
-      <button
-        onClick={onCancel}
-        style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', background: 'none', border: `1px solid var(--red)`, borderRadius: 16, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}
-      >
-        Annuler
-      </button>
-      <button
-        onClick={onSend}
-        style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
-      >
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-      </button>
+      {isLocked ? (
+        <>
+          <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>Verrouillé</span>
+          <button onClick={onCancel} style={{ fontSize: 12, fontWeight: 600, color: 'var(--red)', background: 'none', border: `1px solid var(--red)`, borderRadius: 16, padding: '6px 12px', cursor: 'pointer', flexShrink: 0 }}>
+            Annuler
+          </button>
+          <button onClick={onSend} style={{ width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          </button>
+        </>
+      ) : (
+        <>
+          {/* Indicateur glisser-annuler */}
+          <span style={{
+            flex: 1, fontSize: 12, color: 'var(--muted)',
+            transform: `translateX(${Math.min(0, swipeX * 0.4)}px)`,
+            transition: swipeX === 0 ? 'transform 0.2s' : 'none',
+            overflow: 'hidden', whiteSpace: 'nowrap',
+          }}>
+            ‹ Glisser pour annuler
+          </span>
+          {/* Indicateur verrouillage — monte quand swipe vers le haut */}
+          {swipeY < -10 && (
+            <div style={{
+              position: 'absolute', right: 54, bottom: 48,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 12, padding: '6px 10px', fontSize: 11,
+              color: 'var(--muted)', boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+              transform: `translateY(${Math.max(-40, swipeY * 0.5)}px)`,
+              transition: 'transform 0.05s',
+            }}>
+              🔒 Verrouiller
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
@@ -164,6 +190,9 @@ export default function PageClientMessages() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
   const [mediaRecorderSupported, setMediaRecorderSupported] = useState(false);
+  const [isLocked, setIsLocked] = useState(false);
+  const [swipeX, setSwipeX] = useState(0);
+  const [swipeY, setSwipeY] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -172,6 +201,8 @@ export default function PageClientMessages() {
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartRef = useRef<number>(0);
+  const touchStartRef = useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const supabase = useRef(createClient()).current;
 
@@ -361,6 +392,30 @@ export default function PageClientMessages() {
     }
   }
 
+  async function sendFile(file: File) {
+    if (!clientId || !userId) return;
+    const isImage = file.type.startsWith('image/');
+    const type: 'image' | 'document' = isImage ? 'image' : 'document';
+    const maxSize = isImage ? 5 * 1024 * 1024 : 20 * 1024 * 1024;
+    if (file.size > maxSize) return; // silencieux, taille trop grande
+
+    const ext = file.name.split('.').pop() || 'bin';
+    const fileName = `${clientId}/${Date.now()}.${ext}`;
+    const { error: uploadError } = await supabase.storage
+      .from('chat-medias')
+      .upload(fileName, file, { contentType: file.type });
+    if (uploadError) return;
+
+    const { data: urlData } = supabase.storage.from('chat-medias').getPublicUrl(fileName);
+    await supabase.from('messages').insert({
+      client_id: clientId,
+      sender_id: userId,
+      text: file.name,
+      type,
+      audio_url: urlData.publicUrl,
+    });
+  }
+
   async function startRecording() {
     if (isRecording) return;
     try {
@@ -412,6 +467,9 @@ export default function PageClientMessages() {
   }
 
   function cancelRecording() {
+    setIsLocked(false);
+    setSwipeX(0);
+    setSwipeY(0);
     if (!mediaRecorderRef.current) return;
     audioChunksRef.current = [];
     const mr = mediaRecorderRef.current;
@@ -525,6 +583,20 @@ export default function PageClientMessages() {
                   >
                     {isAudio && msg.audio_url ? (
                       <AudioBubble url={msg.audio_url} duration={msg.duration_s} isMe={isMe} />
+                    ) : msg.type === 'image' && msg.audio_url ? (
+                      <img
+                        src={msg.audio_url} alt={msg.text || 'image'}
+                        style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 10, display: 'block', cursor: 'pointer' }}
+                        onClick={() => window.open(msg.audio_url, '_blank')}
+                      />
+                    ) : msg.type === 'document' && msg.audio_url ? (
+                      <a href={msg.audio_url} target="_blank" rel="noopener noreferrer"
+                        style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: isMe ? '#fff' : 'var(--ink)' }}>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                        </svg>
+                        <span style={{ fontSize: 13, wordBreak: 'break-all' }}>{msg.text || 'Document'}</span>
+                      </a>
                     ) : (
                       <div style={{ fontSize: 14, lineHeight: 1.45, wordBreak: 'break-word' }}>{msg.text}</div>
                     )}
@@ -542,7 +614,7 @@ export default function PageClientMessages() {
           <div ref={bottomRef} />
         </div>
 
-        {/* ── Input bar — sticky en bas sur desktop, fixed sur mobile via classe CSS ── */}
+        {/* ── Input bar ── */}
         <div className="chat-input-bar" style={{
           padding: '8px 12px',
           background: 'var(--surface)',
@@ -552,20 +624,69 @@ export default function PageClientMessages() {
           alignItems: 'flex-end',
           flexShrink: 0,
         }}>
+          {/* Input file invisible — images + PDF + docs */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*,application/pdf,.doc,.docx"
+            style={{ display: 'none' }}
+            onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }}
+          />
+          {/* Bouton trombone — caché pendant enregistrement */}
+          {!isRecording && (
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              title="Envoyer un fichier"
+              style={{
+                width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
+                background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+              </svg>
+            </button>
+          )}
           {isRecording ? (
-            <RecordingOverlay elapsed={recordingElapsed} onCancel={cancelRecording} onSend={stopRecording} />
+            <RecordingOverlay
+              elapsed={recordingElapsed}
+              onCancel={cancelRecording}
+              onSend={stopRecording}
+              isLocked={isLocked}
+              swipeX={swipeX}
+              swipeY={swipeY}
+            />
           ) : (
             <>
-              {/* Bouton micro — visible uniquement si champ vide et MediaRecorder dispo */}
+              {/* Bouton micro — maintien mobile, clic PC */}
               {mediaRecorderSupported && !input.trim() && (
                 <button
-                  onClick={startRecording}
                   type="button"
                   title="Maintenir pour enregistrer"
+                  onMouseDown={startRecording}
+                  onMouseUp={stopRecording}
+                  onMouseLeave={() => { if (isRecording) stopRecording(); }}
+                  onTouchStart={(e) => {
+                    e.preventDefault();
+                    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+                    setSwipeX(0); setSwipeY(0); setIsLocked(false);
+                    startRecording();
+                  }}
+                  onTouchMove={(e) => {
+                    if (!isRecording || isLocked) return;
+                    const dx = e.touches[0].clientX - touchStartRef.current.x;
+                    const dy = e.touches[0].clientY - touchStartRef.current.y;
+                    setSwipeX(dx); setSwipeY(dy);
+                    if (dx < -80) { cancelRecording(); }
+                    else if (dy < -60) { setIsLocked(true); setSwipeX(0); setSwipeY(0); }
+                  }}
+                  onTouchEnd={() => { if (!isLocked) stopRecording(); }}
                   style={{
                     width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
                     background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    cursor: 'pointer', flexShrink: 0,
+                    cursor: 'pointer', flexShrink: 0, userSelect: 'none',
                   }}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
