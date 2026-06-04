@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
+import { triggerPushSetup } from '@/lib/usePushNotifications';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -438,12 +439,14 @@ export default function PageClientMessages() {
       setMessages((data as Msg[]) || []);
       setLoading(false);
 
-      // Marquer tous les messages du coach comme lus
-      await supabase.from('messages')
-        .update({ read_at: new Date().toISOString() })
-        .eq('client_id', clientRow.id)
-        .eq('sender_id', clientRow.coach_id)
-        .is('read_at', null);
+      // Marquer comme lus uniquement si la page est visible au chargement
+      if (document.visibilityState === 'visible') {
+        await supabase.from('messages')
+          .update({ read_at: new Date().toISOString() })
+          .eq('client_id', clientRow.id)
+          .eq('sender_id', clientRow.coach_id)
+          .is('read_at', null);
+      }
     }
     load();
   }, [supabase]);
@@ -451,7 +454,8 @@ export default function PageClientMessages() {
   // ── Realtime messages ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!clientId) return;
-    const channel = supabase.channel('messages-client')
+    // Nom du canal incluant clientId pour éviter les zombies en navigation PWA
+    const channel = supabase.channel(`messages-client-${clientId}`)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `client_id=eq.${clientId}`,
@@ -474,8 +478,11 @@ export default function PageClientMessages() {
         });
         // Marquer lu + notif push si message du coach
         if (incoming.sender_id === coachIdRef.current) {
-          supabase.from('messages').update({ read_at: new Date().toISOString() })
-            .eq('id', incoming.id).then(() => {});
+          // Ne marquer lu que si la page est visible (écran allumé et app au premier plan)
+          if (document.visibilityState === 'visible') {
+            supabase.from('messages').update({ read_at: new Date().toISOString() })
+              .eq('id', incoming.id).then(() => {});
+          }
           // Notif push seulement si l'app est en arrière-plan
           if (document.visibilityState === 'hidden' && userIdRef.current) {
             fetch('/api/push/send', {
@@ -530,12 +537,26 @@ export default function PageClientMessages() {
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           isSubscribedRef.current = true;
-          await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
+          if (document.visibilityState === 'visible') {
+            await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
+          }
         }
       });
 
+    // Gérer verrouillage écran : untrack quand caché, retrack quand visible
+    const handleVisibility = async () => {
+      if (!presenceChRef.current || !isSubscribedRef.current) return;
+      if (document.visibilityState === 'hidden') {
+        await presenceChRef.current.untrack();
+      } else {
+        await presenceChRef.current.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
     return () => {
       isSubscribedRef.current = false;
+      document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
       presenceChRef.current = null;
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
@@ -568,6 +589,8 @@ export default function PageClientMessages() {
   async function sendMessage(text: string) {
     if (!text.trim() || !clientId || !userId) return;
     setInput('');
+    // Demander permission notifs au 1er geste utilisateur (requis iOS)
+    triggerPushSetup(userId);
     const optimisticId = `opt-text-${Date.now()}`;
     const optimistic: Msg = {
       id: optimisticId, client_id: clientId, sender_id: userId,

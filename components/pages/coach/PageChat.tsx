@@ -4,6 +4,7 @@ import { useState, useRef, useEffect, useCallback, createContext, useContext } f
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { triggerPushSetup } from '@/lib/usePushNotifications';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -364,6 +365,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     setInput('');
+    triggerPushSetup(userId);
     const optimisticId = `opt-text-${Date.now()}`;
     const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: text.trim(), created_at: new Date().toISOString(), type: 'text' };
     setMessages(prev => [...prev, optimistic]);
@@ -655,13 +657,29 @@ export default function PageChat() {
         });
       })
       .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED') {
+        if (status === 'SUBSCRIBED' && document.visibilityState === 'visible') {
           await ch.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
         }
       });
     presenceChRef.current = ch;
     setPresenceCh(ch);
-    return () => { supabase.removeChannel(ch); presenceChRef.current = null; setPresenceCh(null); };
+
+    const handleVisibility = async () => {
+      if (!presenceChRef.current) return;
+      if (document.visibilityState === 'hidden') {
+        await presenceChRef.current.untrack();
+      } else {
+        await presenceChRef.current.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibility);
+      supabase.removeChannel(ch);
+      presenceChRef.current = null;
+      setPresenceCh(null);
+    };
   }, [userId, activeId, supabase]);
 
   if (loading) return (
