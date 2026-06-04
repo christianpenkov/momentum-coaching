@@ -367,23 +367,24 @@ export default function PageClientMessages() {
         .getPublicUrl(fileName);
       const publicUrl = urlData.publicUrl;
 
-      const { data } = await supabase.from('messages').insert({
+      const { error: insertError } = await supabase.from('messages').insert({
         client_id: clientId,
         sender_id: userId,
         text: '',
         type: 'audio',
         audio_url: publicUrl,
         duration_s: Math.round(durationS),
-      }).select('id, text, sender_id, created_at, type, audio_url, duration_s').single();
+      });
 
-      if (data) {
-        // Remplace l'optimiste par le message final AVANT de révoquer l'URL locale
-        setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
-        // Petit délai pour laisser le nouveau audio_url se charger avant de libérer l'ancien
-        setTimeout(() => URL.revokeObjectURL(localUrl), 3000);
-      } else {
-        // Insert échoué mais upload ok — garde le message optimiste avec l'URL locale
+      if (insertError) {
+        console.error('Insert message audio échoué:', insertError.message);
+        setMessages(prev => prev.filter(m => m.id !== optimisticId));
+        URL.revokeObjectURL(localUrl);
+        return;
       }
+      // Insert OK — le Realtime remplacera l'optimiste automatiquement
+      // On garde l'optimiste visible jusqu'à ce que le Realtime arrive
+      setTimeout(() => URL.revokeObjectURL(localUrl), 5000);
     } catch {
       setMessages(prev => prev.filter(m => m.id !== optimisticId));
       URL.revokeObjectURL(localUrl);
