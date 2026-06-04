@@ -312,6 +312,8 @@ export default function PageClientMessages() {
   const userIdRef = useRef<string | null>(null);
   const coachIdRef = useRef<string | null>(null);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const typingSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const supabase = useRef(createClient()).current;
 
@@ -405,8 +407,7 @@ export default function PageClientMessages() {
     return () => { supabase.removeChannel(channel); };
   }, [clientId, supabase]);
 
-  // ── Presence : en ligne + est en train d'écrire ─────────────────────────────
-  // Canal partagé avec le coach : presence-chat-{clientId}
+  // ── Presence : canal unique pour track + écoute coach ──────────────────────
   useEffect(() => {
     if (!clientId || !userId) return;
     const ch = supabase.channel(`presence-chat-${clientId}`, {
@@ -415,9 +416,8 @@ export default function PageClientMessages() {
 
     ch.on('presence', { event: 'sync' }, () => {
         const state = ch.presenceState();
-        // Le coach est présent si quelqu'un d'autre que moi est dans le canal avec role='coach'
-        const others = Object.entries(state).filter(([key]) => key !== userId);
-        const coachOnline = others.some(([, entries]) =>
+        const coachOnline = Object.entries(state).some(([key, entries]) =>
+          key !== userId &&
           (entries as Array<Record<string, unknown>>).some(e => e.role === 'coach')
         );
         setIsCoachOnline(coachOnline);
@@ -432,19 +432,27 @@ export default function PageClientMessages() {
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
+          presenceChRef.current = ch;
         }
       });
 
     return () => {
       supabase.removeChannel(ch);
+      presenceChRef.current = null;
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
   }, [clientId, userId, supabase]);
 
-  // ── Scroll bas à chaque nouveau message ────────────────────────────────────
+  // ── Scroll bas — immédiat au chargement, smooth ensuite ────────────────────
+  const initialScrollDone = useRef(false);
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, coachTyping]);
+    if (!loading && !initialScrollDone.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+      initialScrollDone.current = true;
+    } else if (initialScrollDone.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, coachTyping, loading]);
 
   // ── Envoi texte ────────────────────────────────────────────────────────────
   async function sendMessage(text: string) {
@@ -780,7 +788,13 @@ export default function PageClientMessages() {
             <textarea
               ref={inputRef}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => {
+                setInput(e.target.value);
+                // Broadcast typing au coach
+                if (presenceChRef.current) {
+                  presenceChRef.current.send({ type: 'broadcast', event: 'typing', payload: { role: 'client' } });
+                }
+              }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
               placeholder="Écrire à ton coach…"
               autoComplete="off" autoCorrect="off" autoCapitalize="sentences"

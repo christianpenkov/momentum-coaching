@@ -166,9 +166,10 @@ function TypingIndicator() {
 
 // ─── Zone de conversation ─────────────────────────────────────────────────────
 
-function ConversationThread({ clientId, userId, clientName, clientInitials, isOnline, supabase }: {
+function ConversationThread({ clientId, userId, clientName, clientInitials, isOnline, supabase, presenceCh }: {
   clientId: string; userId: string; clientName: string; clientInitials: string;
   isOnline: boolean; supabase: ReturnType<typeof createClient>;
+  presenceCh: ReturnType<typeof supabase.channel> | null;
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
@@ -188,6 +189,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartRef = useRef<number>(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     try { if (typeof window !== 'undefined' && window.MediaRecorder) setMediaRecorderSupported(true); } catch {}
@@ -250,7 +252,15 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     return () => { supabase.removeChannel(ch); if (typingTimerRef.current) clearTimeout(typingTimerRef.current); };
   }, [clientId, userId, supabase]);
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, clientTyping]);
+  const initialScrollDone = useRef(false);
+  useEffect(() => {
+    if (!loading && !initialScrollDone.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+      initialScrollDone.current = true;
+    } else if (initialScrollDone.current) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [messages, clientTyping, loading]);
 
   // Envoi texte
   async function sendMessage(text: string) {
@@ -462,7 +472,12 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
             <textarea
               ref={inputRef}
               value={input}
-              onChange={e => setInput(e.target.value)}
+              onChange={e => {
+                setInput(e.target.value);
+                if (presenceCh) {
+                  presenceCh.send({ type: 'broadcast', event: 'typing', payload: { role: 'coach' } });
+                }
+              }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
               placeholder={`Écrire à ${clientName}…`}
               autoComplete="off" autoCorrect="off" autoCapitalize="sentences"
@@ -495,6 +510,7 @@ export default function PageChat() {
   const [userId, setUserId] = useState<string | null>(null);
   const [onlineClients, setOnlineClients] = useState<Set<string>>(new Set());
   const supabase = useRef(createClient()).current;
+  const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
@@ -524,9 +540,10 @@ export default function PageChat() {
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await ch.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
+          presenceChRef.current = ch;
         }
       });
-    return () => { supabase.removeChannel(ch); };
+    return () => { supabase.removeChannel(ch); presenceChRef.current = null; };
   }, [userId, activeId, supabase]);
 
   if (loading) return (
@@ -595,6 +612,7 @@ export default function PageChat() {
           clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
           isOnline={onlineClients.has(activeId)}
           supabase={supabase}
+          presenceCh={presenceChRef.current}
         />
       ) : (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
