@@ -125,58 +125,43 @@ function AudioBubble({ url, duration, isMe }: { url: string; duration?: number; 
   );
 }
 
-// ─── RecordingOverlay — style WhatsApp adapté Momentum ───────────────────────
-
-const WAVEFORM_HEIGHTS = [35, 60, 80, 50, 90, 40, 70, 55, 85, 45, 75, 60, 40, 80, 50];
+// ─── RecordingOverlay ────────────────────────────────────────────────────────
 
 function RecordingOverlay({ onCancel, onSend, elapsed }: {
   onCancel: () => void; onSend: () => void; elapsed: number;
 }) {
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, animation: 'rec-fadein 0.15s ease-out' }}>
-
-      {/* Poubelle — annuler */}
+    <div style={{
+      display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      flex: 1, gap: 12, animation: 'rec-fadein 0.15s ease-out',
+    }}>
+      {/* Poubelle */}
       <button onClick={onCancel} type="button" style={{
-        width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)',
-        background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-        cursor: 'pointer', flexShrink: 0,
-        animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)',
+        width: 48, height: 48, borderRadius: '50%', border: '1px solid var(--border)',
+        background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
+        justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
       }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
           <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
         </svg>
       </button>
 
-      {/* Zone centrale : point rouge + timer + waveform */}
-      <div style={{
-        flex: 1, display: 'flex', alignItems: 'center', gap: 10,
-        background: 'var(--surface-2)', borderRadius: 24, padding: '0 14px', height: 44,
-      }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', flexShrink: 0, animation: 'pulse-rec 1s ease-in-out infinite' }} />
-        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+      {/* Timer centré */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
+        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', animation: 'pulse-rec 1s ease-in-out infinite' }} />
+        <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
           {formatDuration(elapsed)}
         </span>
-        {/* Waveform simulée — barres avec hauteurs fixes + animation CSS décalée */}
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 2, height: 24, overflow: 'hidden' }}>
-          {WAVEFORM_HEIGHTS.map((h, i) => (
-            <div key={i} style={{
-              flex: 1, borderRadius: 2,
-              background: 'var(--muted)',
-              height: `${h}%`,
-              animation: `waveform-bounce 0.7s ease-in-out infinite alternate`,
-              animationDelay: `${i * 0.05}s`,
-            }} />
-          ))}
-        </div>
       </div>
 
       {/* Envoyer */}
       <button onClick={onSend} type="button" style={{
-        width: 44, height: 44, borderRadius: '50%', border: 'none', background: 'var(--ink)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+        width: 48, height: 48, borderRadius: '50%', border: 'none', background: 'var(--ink)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        cursor: 'pointer', flexShrink: 0,
         animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)',
       }}>
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
         </svg>
       </button>
@@ -206,6 +191,9 @@ export default function PageClientMessages() {
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartRef = useRef<number>(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Refs pour clientId/userId — toujours à jour dans les callbacks async (closure safe)
+  const clientIdRef = useRef<string | null>(null);
+  const userIdRef = useRef<string | null>(null);
 
   const supabase = useRef(createClient()).current;
 
@@ -223,6 +211,7 @@ export default function PageClientMessages() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) { setLoading(false); return; }
       setUserId(user.id);
+      userIdRef.current = user.id;
 
       const { data: clientRow } = await supabase
         .from('clients')
@@ -232,6 +221,7 @@ export default function PageClientMessages() {
 
       if (!clientRow) { setLoading(false); return; }
       setClientId(clientRow.id);
+      clientIdRef.current = clientRow.id;
 
       const { data: coachProfile } = await supabase
         .from('profiles')
@@ -338,6 +328,8 @@ export default function PageClientMessages() {
   }
 
   async function sendAudioMessage(blob: Blob, durationS: number) {
+    const clientId = clientIdRef.current;
+    const userId = userIdRef.current;
     if (!clientId || !userId) return;
     const optimisticId = `opt-audio-${Date.now()}`;
     const localUrl = URL.createObjectURL(blob);
@@ -623,67 +615,13 @@ export default function PageClientMessages() {
           onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }}
         />
 
-        {/* ── Panneau enregistrement style WhatsApp ── */}
+        {/* ── Panneau enregistrement ── */}
         {isRecording && (
           <div className="chat-input-bar" style={{
-            flexShrink: 0, background: 'var(--surface)',
-            borderTop: '1px solid var(--border)',
-            animation: 'rec-fadein 0.15s ease-out',
+            padding: '8px 16px', flexShrink: 0, background: 'var(--surface)',
+            borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center',
           }}>
-            {/* Ligne 1 : timer + waveform */}
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 12,
-              padding: '12px 20px 8px',
-            }}>
-              <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', flexShrink: 0, animation: 'pulse-rec 1s ease-in-out infinite' }} />
-              <span style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 34 }}>
-                {formatDuration(recordingElapsed)}
-              </span>
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 2, height: 28 }}>
-                {WAVEFORM_HEIGHTS.map((h, i) => (
-                  <div key={i} style={{
-                    flex: 1, borderRadius: 2, background: 'var(--muted)',
-                    height: `${h}%`,
-                    animation: 'waveform-bounce 0.7s ease-in-out infinite alternate',
-                    animationDelay: `${i * 0.05}s`,
-                  }} />
-                ))}
-              </div>
-            </div>
-            {/* Ligne 2 : 3 boutons pleine largeur */}
-            <div style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '4px 28px 14px',
-            }}>
-              {/* Poubelle */}
-              <button onClick={cancelRecording} type="button" style={{
-                width: 52, height: 52, borderRadius: '50%', border: '1px solid var(--border)',
-                background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-              }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
-                </svg>
-              </button>
-              {/* Pause (visuel seulement — MediaRecorder web ne supporte pas vraiment la pause cross-browser) */}
-              <button type="button" style={{
-                width: 52, height: 52, borderRadius: '50%', border: '2px solid var(--red)',
-                background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'default',
-              }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" strokeLinecap="round">
-                  <rect x="6" y="4" width="4" height="16"/><rect x="14" y="4" width="4" height="16"/>
-                </svg>
-              </button>
-              {/* Envoyer */}
-              <button onClick={stopRecording} type="button" style={{
-                width: 52, height: 52, borderRadius: '50%', border: 'none', background: 'var(--ink)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)',
-              }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
-              </button>
-            </div>
+            <RecordingOverlay elapsed={recordingElapsed} onCancel={cancelRecording} onSend={stopRecording} />
           </div>
         )}
 
