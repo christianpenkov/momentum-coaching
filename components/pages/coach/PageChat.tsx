@@ -254,10 +254,15 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
 
   const initialScrollDone = useRef(false);
   useEffect(() => {
-    if (!loading && !initialScrollDone.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
-      initialScrollDone.current = true;
-    } else if (initialScrollDone.current) {
+    if (loading) return;
+    if (!initialScrollDone.current) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+          initialScrollDone.current = true;
+        });
+      });
+    } else {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, clientTyping, loading]);
@@ -540,9 +545,9 @@ export default function PageChat() {
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await ch.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
-          presenceChRef.current = ch;
         }
       });
+    presenceChRef.current = ch;
     return () => { supabase.removeChannel(ch); presenceChRef.current = null; };
   }, [userId, activeId, supabase]);
 

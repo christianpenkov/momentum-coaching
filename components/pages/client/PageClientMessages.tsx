@@ -413,6 +413,9 @@ export default function PageClientMessages() {
     const ch = supabase.channel(`presence-chat-${clientId}`, {
       config: { presence: { key: userId } },
     });
+    // Setter la ref immédiatement — pas dans le callback SUBSCRIBED
+    // pour que le broadcast typing soit disponible dès la première frappe
+    presenceChRef.current = ch;
 
     ch.on('presence', { event: 'sync' }, () => {
         const state = ch.presenceState();
@@ -432,7 +435,6 @@ export default function PageClientMessages() {
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
-          presenceChRef.current = ch;
         }
       });
 
@@ -446,10 +448,16 @@ export default function PageClientMessages() {
   // ── Scroll bas — immédiat au chargement, smooth ensuite ────────────────────
   const initialScrollDone = useRef(false);
   useEffect(() => {
-    if (!loading && !initialScrollDone.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
-      initialScrollDone.current = true;
-    } else if (initialScrollDone.current) {
+    if (loading) return;
+    if (!initialScrollDone.current) {
+      // Premier chargement : attendre le rendu DOM puis sauter en bas sans animation
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
+          initialScrollDone.current = true;
+        });
+      });
+    } else {
       bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     }
   }, [messages, coachTyping, loading]);
