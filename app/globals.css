@@ -61,15 +61,19 @@ html, body { margin: 0; padding: 0; }
 @media (max-width: 767px) {
   html, body {
     position: fixed;
-    top: 0;
-    left: 0;
-    width: 100%;
-    height: 100%;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
     overflow: hidden;
   }
   /* Font-size 16px sur inputs pour éviter le zoom auto iOS */
   input, textarea, select { font-size: 16px !important; }
 }
+
+/* PWA standalone — supprime le rebond élastique overscroll */
+@media (display-mode: standalone) {
+  html, body { overscroll-behavior: none; }
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   font-feature-settings: 'cv11', 'ss01', 'ss03';
@@ -83,6 +87,18 @@ body {
 }
 button { font-family: inherit; cursor: pointer; }
 input, textarea { font-family: inherit; }
+
+/* ── Comportement natif app — pas de sélection, pas de callout iOS ── */
+*:not(input):not(textarea):not([contenteditable]) {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+/* Ré-autoriser la sélection dans les bulles de messages */
+.chat-messages-zone {
+  -webkit-user-select: text;
+  user-select: text;
+}
 
 /* ── Touch UX iOS — zéro latence, zéro highlight gris ── */
 button, [role="button"], a, .task-check, .bottom-nav-item {

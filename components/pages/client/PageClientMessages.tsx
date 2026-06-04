@@ -682,11 +682,12 @@ export default function PageClientMessages() {
                     if (dx < -80) { cancelRecording(); }
                     else if (dy < -60) { setIsLocked(true); setSwipeX(0); setSwipeY(0); }
                   }}
-                  onTouchEnd={() => { if (!isLocked) stopRecording(); }}
+                  onTouchEnd={(e) => { e.preventDefault(); if (!isLocked) stopRecording(); }}
                   style={{
                     width: 44, height: 44, borderRadius: '50%', border: '1px solid var(--border)',
                     background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center',
                     cursor: 'pointer', flexShrink: 0, userSelect: 'none',
+                    touchAction: 'none', WebkitUserSelect: 'none',
                   }}
                 >
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
