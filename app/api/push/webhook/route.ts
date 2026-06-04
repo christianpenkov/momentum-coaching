@@ -7,48 +7,73 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// Appelé par le webhook Supabase à chaque INSERT dans messages
-// Le déclenchement côté serveur évite le problème visibilityState sur iOS
 export async function POST(req: NextRequest) {
-  // Vérification secret webhook pour sécuriser l'endpoint
+  console.log('[PUSH-WEBHOOK] Appel reçu');
+
   const secret = req.headers.get('x-webhook-secret');
   if (secret !== process.env.CRON_SECRET) {
+    console.log('[PUSH-WEBHOOK] ❌ Secret invalide');
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
   const body = await req.json();
-  // Supabase webhook payload : { type: 'INSERT', table: 'messages', record: {...} }
+  console.log('[PUSH-WEBHOOK] Body reçu:', JSON.stringify(body).slice(0, 200));
+
   const record = body.record;
-  if (!record) return NextResponse.json({ ok: true });
+  if (!record) {
+    console.log('[PUSH-WEBHOOK] ⚠️ Pas de record dans le body');
+    return NextResponse.json({ ok: true });
+  }
 
   const { client_id, sender_id, text, type: msgType } = record;
-  if (!client_id || !sender_id) return NextResponse.json({ ok: true });
+  console.log('[PUSH-WEBHOOK] Message:', { client_id, sender_id, msgType, text: text?.slice(0, 50) });
 
-  // Trouver le destinataire : si sender = client → notifier le coach, et vice versa
-  const { data: clientRow } = await supabase
+  if (!client_id || !sender_id) {
+    console.log('[PUSH-WEBHOOK] ⚠️ client_id ou sender_id manquant');
+    return NextResponse.json({ ok: true });
+  }
+
+  const { data: clientRow, error: clientError } = await supabase
     .from('clients')
     .select('id, coach_id, profile_id')
     .eq('id', client_id)
     .single();
 
-  if (!clientRow) return NextResponse.json({ ok: true });
+  if (!clientRow) {
+    console.log('[PUSH-WEBHOOK] ❌ Client introuvable:', clientError?.message);
+    return NextResponse.json({ ok: true });
+  }
 
-  // Destinataire = l'autre personne (pas l'expéditeur)
+  console.log('[PUSH-WEBHOOK] Client trouvé:', { profile_id: clientRow.profile_id, coach_id: clientRow.coach_id });
+
   const recipientUserId = sender_id === clientRow.profile_id
-    ? clientRow.coach_id   // client a envoyé → notifier le coach
-    : clientRow.profile_id; // coach a envoyé → notifier le client
+    ? clientRow.coach_id
+    : clientRow.profile_id;
 
-  if (!recipientUserId) return NextResponse.json({ ok: true });
+  console.log('[PUSH-WEBHOOK] Destinataire:', recipientUserId, '| Expéditeur:', sender_id);
 
-  // Récupérer les subscriptions push du destinataire
-  const { data: subs } = await supabase
+  if (!recipientUserId) {
+    console.log('[PUSH-WEBHOOK] ⚠️ recipientUserId null');
+    return NextResponse.json({ ok: true });
+  }
+
+  const { data: subs, error: subsError } = await supabase
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
     .eq('profile_id', recipientUserId);
 
-  if (!subs || subs.length === 0) return NextResponse.json({ sent: 0 });
+  console.log('[PUSH-WEBHOOK] Subscriptions trouvées:', subs?.length ?? 0, subsError?.message ?? '');
 
-  // Nom de l'expéditeur pour le titre
+  if (!subs || subs.length === 0) {
+    console.log('[PUSH-WEBHOOK] ⚠️ Aucune subscription pour', recipientUserId);
+    return NextResponse.json({ sent: 0, reason: 'no_subscriptions' });
+  }
+
+  // Log endpoint partiel pour identifier le device (pas le full endpoint pour sécurité)
+  subs.forEach((s, i) => {
+    console.log(`[PUSH-WEBHOOK] Sub[${i}] endpoint:`, s.endpoint.slice(0, 60) + '...');
+  });
+
   const { data: senderProfile } = await supabase
     .from('profiles')
     .select('full_name')
@@ -65,28 +90,46 @@ export async function POST(req: NextRequest) {
     process.env.VAPID_PRIVATE_KEY!
   );
 
-  const payload = JSON.stringify({ title: senderName, body: bodyText, url });
+  const payload = JSON.stringify({
+    title: senderName,
+    body: bodyText.substring(0, 100),
+    url,
+  });
+
+  console.log('[PUSH-WEBHOOK] Envoi payload:', payload);
 
   const results = await Promise.allSettled(
     subs.map(sub =>
       webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         payload,
-        { TTL: 86400 } // 24h — Apple droppe la notif si TTL absent et appareil hors ligne
+        { TTL: 86400 }
       )
     )
   );
 
-  // Nettoyer les subscriptions expirées
+  results.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      const res = r.value as { statusCode: number };
+      console.log(`[PUSH-WEBHOOK] ✅ Sub[${i}] envoyé, statusCode:`, res?.statusCode);
+    } else {
+      const err = r.reason as { statusCode?: number; message?: string; body?: string };
+      console.log(`[PUSH-WEBHOOK] ❌ Sub[${i}] erreur:`, err?.statusCode, err?.message, err?.body);
+    }
+  });
+
   const expired = results
     .map((r, i) => ({ r, sub: subs[i] }))
     .filter(({ r }) => r.status === 'rejected' && (r as PromiseRejectedResult).reason?.statusCode === 410);
 
   if (expired.length > 0) {
+    console.log('[PUSH-WEBHOOK] Nettoyage', expired.length, 'subscriptions expirées');
     await supabase.from('push_subscriptions')
       .delete()
       .in('endpoint', expired.map(({ sub }) => sub.endpoint));
   }
 
-  return NextResponse.json({ sent: results.filter(r => r.status === 'fulfilled').length });
+  const sent = results.filter(r => r.status === 'fulfilled').length;
+  console.log('[PUSH-WEBHOOK] Terminé. Envoyé:', sent, '/', subs.length);
+  return NextResponse.json({ sent });
 }
