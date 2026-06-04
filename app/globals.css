@@ -636,7 +636,7 @@ a { color: inherit; text-decoration: none; }
 .ring .sub { font-size: 9px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
 
 /* Chat ─────────────────────────────────────────── */
-.chat-shell { display: flex; flex: 1; min-height: 0; height: calc(100vh - 36px); overflow: hidden; }
+.chat-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
 .chat-list {
   width: 280px;
   border-right: 1px solid var(--border);
@@ -1521,17 +1521,6 @@ a { color: inherit; text-decoration: none; }
     transition: transform 80ms ease-out;
   }
 
-  /* Logo accueil mobile */
-  .client-home-logo-mobile {
-    display: flex;
-    justify-content: center;
-    padding: 8px 0 4px;
-  }
-}
-
-/* Desktop : logo accueil caché */
-@media (min-width: 768px) {
-  .client-home-logo-mobile { display: none; }
 }
 
 /* ── Bottom Navigation Bar (mobile uniquement) ──────────────────────────────── */
