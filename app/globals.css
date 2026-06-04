@@ -635,8 +635,7 @@ a { color: inherit; text-decoration: none; }
 .ring .pct { font-size: 18px; font-weight: 600; letter-spacing: -0.3px; }
 .ring .sub { font-size: 9px; color: var(--muted); letter-spacing: 0.08em; text-transform: uppercase; }
 
-/* Chat ─────────────────────────────────────────── */
-.chat-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
+/* Chat — styles liste coach (coach-side uniquement) ─── */
 .chat-list {
   width: 280px;
   border-right: 1px solid var(--border);
@@ -1129,26 +1128,29 @@ a { color: inherit; text-decoration: none; }
   overflow-y: auto;
   position: relative;
 }
-/* Chat + AI page override — annule le padding et le scroll du main-content */
+/* ── Chat / AI / Liens : main-content passe en flex-col sans padding ni scroll ── */
 .main-content:has(.chat-shell),
 .main-content:has(.ai-shell),
 .main-content:has(.liens-shell) {
-  padding: 0;
-  overflow: hidden;
+  padding: 0 !important;
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  /* height reste géré par flex:1 sur .main-content — min-height:0 déblocque le flex enfant */
+  min-height: 0 !important;
 }
 
-/* ── Chat shell — desktop et mobile ── */
-/* Sur mobile, le layout client gère la hauteur via visualViewport.
-   Le shell est simplement un flex-column qui remplit son parent. */
+/* ── Chat shell ── */
 .chat-shell {
   display: flex;
   flex-direction: column;
-  height: 100%;
-  min-height: 0;
+  flex: 1;          /* remplit le main-content */
+  min-height: 0;    /* permet aux enfants flex de rétrécir */
+  overflow: hidden;
   background: var(--bg);
 }
 
-/* Zone messages : flex:1, scroll interne */
+/* Zone messages : prend tout l'espace restant, scroll interne */
 .chat-messages-zone {
   flex: 1;
   overflow-y: auto;
@@ -1157,25 +1159,9 @@ a { color: inherit; text-decoration: none; }
   -webkit-overflow-scrolling: touch;
 }
 
-/* Input bar : dans le flux, collée en bas */
+/* Input bar : colle en bas, ne rétrécit pas */
 .chat-input-bar {
   flex-shrink: 0;
-}
-
-/* main-content contenant le chat : pas de padding, overflow caché */
-.main-content:has(.chat-shell),
-.main-content:has(.ai-shell) {
-  padding: 0 !important;
-  overflow: hidden !important;
-}
-
-@media (max-width: 767px) {
-  /* Sur mobile le main-content doit aussi être full-height */
-  .main-content:has(.chat-shell) {
-    height: 100% !important;
-    display: flex !important;
-    flex-direction: column !important;
-  }
 }
 .liens-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
 
@@ -1500,13 +1486,6 @@ a { color: inherit; text-decoration: none; }
 
   /* Stack spacing réduit */
   .stack { gap: 14px !important; }
-
-  /* Chat shell — remplit son parent (main-content géré par le layout JS).
-     Ne pas utiliser dvh ici : quand le clavier s'ouvre dvh rétrécit et compresse l'input. */
-  .chat-shell {
-    height: 100% !important;
-    overflow: hidden;
-  }
 
   /* Empêche le scroll horizontal global */
   body { overflow-x: hidden; }
