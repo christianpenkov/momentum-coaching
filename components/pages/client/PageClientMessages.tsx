@@ -379,6 +379,13 @@ export default function PageClientMessages() {
   const [coachTyping, setCoachTyping] = useState(false);
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [showScrollArrow, setShowScrollArrow] = useState(false);
+  const [notifPermission, setNotifPermission] = useState<NotificationPermission | null>(null);
+
+  useEffect(() => {
+    if (typeof Notification !== 'undefined') {
+      setNotifPermission(Notification.permission);
+    }
+  }, []);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatZoneRef = useRef<HTMLDivElement>(null);
@@ -797,6 +804,27 @@ export default function PageClientMessages() {
               {coachTyping ? 'En train d\'écrire…' : isCoachOnline ? 'En ligne' : 'Hors ligne'}
             </div>
           </div>
+          {/* Bouton notifs — visible seulement si permission pas encore accordée */}
+          {notifPermission === 'default' && userId && (
+            <button
+              onClick={async () => {
+                await triggerPushSetup(userId);
+                setNotifPermission(Notification.permission);
+              }}
+              title="Activer les notifications"
+              style={{
+                width: 34, height: 34, borderRadius: '50%', flexShrink: 0,
+                border: '1px solid var(--border)', background: 'var(--surface-2)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                cursor: 'pointer',
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+            </button>
+          )}
         </div>
 
         {/* ── Zone messages ── */}
