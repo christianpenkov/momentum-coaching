@@ -62,7 +62,8 @@ export default function PushInit({ userId }: { userId: string }) {
 
   // Pas supporté = iOS < 16.4 ou pas standalone
   if (!supported) return null;
-  // Déjà accordé = pas besoin d'afficher
+  // Déjà accordé ET subscription en base = pas besoin d'afficher
+  // On laisse visible si 'default' ou 'denied' pour permettre re-souscription
   if (permission === 'granted') return null;
 
   return (
@@ -90,8 +91,11 @@ async function silentRegister(userId: string) {
     await navigator.serviceWorker.register('/sw.js');
     const reg = await navigator.serviceWorker.ready;
 
+    // Toujours unsub + resub pour garantir la clé VAPID correcte
     const existing = await reg.pushManager.getSubscription();
-    const sub = existing ?? await reg.pushManager.subscribe({
+    if (existing) await existing.unsubscribe();
+
+    const sub = await reg.pushManager.subscribe({
       userVisibleOnly: true,
       applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
     });
