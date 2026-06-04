@@ -260,8 +260,10 @@ export default function PageClientMessages() {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `client_id=eq.${clientId}`,
       }, (payload) => {
+        console.log('REALTIME payload:', JSON.stringify(payload.new));
         const incoming = payload.new as Msg;
         setMessages(prev => {
+          console.log('REALTIME state avant:', prev.map(m => ({ id: m.id, type: m.type, audio_url: m.audio_url })));
           // Évite doublon entre message optimiste et event realtime
           if (prev.some(m => m.id === incoming.id)) return prev;
           // Remplace l'optimiste texte si même contenu/sender dans la même seconde
@@ -355,6 +357,7 @@ export default function PageClientMessages() {
         .from('voice-messages')
         .upload(fileName, audioFile, { contentType: strictType, cacheControl: '3600' });
 
+      console.log('AUDIO blob:', blob.size, blob.type, 'ext:', ext);
       if (uploadError) {
         console.error('Upload audio échoué:', uploadError.message, uploadError);
         setMessages(prev => prev.filter(m => m.id !== optimisticId));
@@ -376,6 +379,7 @@ export default function PageClientMessages() {
         duration_s: Math.round(durationS),
       });
 
+      console.log('INSERT audio result:', insertError ? 'ERREUR: ' + insertError.message : 'OK');
       if (insertError) {
         console.error('Insert message audio échoué:', insertError.message);
         setMessages(prev => prev.filter(m => m.id !== optimisticId));
