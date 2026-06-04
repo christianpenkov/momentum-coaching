@@ -301,6 +301,7 @@ export default function PageClientMessages() {
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatZoneRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -314,6 +315,8 @@ export default function PageClientMessages() {
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const typingSendTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const isSubscribedRef = useRef(false);
+  const lastTypingSentRef = useRef<number>(0);
 
   const supabase = useRef(createClient()).current;
 
@@ -434,31 +437,35 @@ export default function PageClientMessages() {
       })
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
+          isSubscribedRef.current = true;
           await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
         }
       });
 
     return () => {
+      isSubscribedRef.current = false;
       supabase.removeChannel(ch);
       presenceChRef.current = null;
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
   }, [clientId, userId, supabase]);
 
-  // ── Scroll bas — immédiat au chargement, smooth ensuite ────────────────────
+  // ── Scroll bas — scrollTop direct pour iOS, smooth ensuite ────────────────
   const initialScrollDone = useRef(false);
   useEffect(() => {
     if (loading) return;
+    const container = chatZoneRef.current;
+    if (!container) return;
     if (!initialScrollDone.current) {
-      // Premier chargement : attendre le rendu DOM puis sauter en bas sans animation
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
-          initialScrollDone.current = true;
-        });
-      });
+      // Scroll immédiat + confirmation à 60ms (iOS WebKit finalise flexbox après le paint)
+      container.scrollTop = container.scrollHeight;
+      const t = setTimeout(() => {
+        if (chatZoneRef.current) chatZoneRef.current.scrollTop = chatZoneRef.current.scrollHeight;
+      }, 60);
+      initialScrollDone.current = true;
+      return () => clearTimeout(t);
     } else {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, coachTyping, loading]);
 
@@ -648,7 +655,7 @@ export default function PageClientMessages() {
         </div>
 
         {/* ── Zone messages ── */}
-        <div className="chat-messages-zone" style={{
+        <div ref={chatZoneRef} className="chat-messages-zone" style={{
           flex: 1, overflowY: 'auto', overflowX: 'hidden',
           padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2,
           WebkitOverflowScrolling: 'touch',
@@ -798,9 +805,13 @@ export default function PageClientMessages() {
               value={input}
               onChange={e => {
                 setInput(e.target.value);
-                // Broadcast typing au coach
-                if (presenceChRef.current) {
-                  presenceChRef.current.send({ type: 'broadcast', event: 'typing', payload: { role: 'client' } });
+                // Broadcast typing throttlé — drop si canal pas encore SUBSCRIBED
+                if (presenceChRef.current && isSubscribedRef.current) {
+                  const now = Date.now();
+                  if (now - lastTypingSentRef.current > 2500) {
+                    lastTypingSentRef.current = now;
+                    presenceChRef.current.send({ type: 'broadcast', event: 'typing', payload: { role: 'client' } });
+                  }
                 }
               }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}

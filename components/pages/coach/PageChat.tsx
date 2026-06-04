@@ -181,6 +181,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const [recordingElapsed, setRecordingElapsed] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
+  const chatZoneRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -216,7 +217,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       });
   }, [clientId, userId, supabase]);
 
-  // Realtime
+  // Realtime messages + typing client sur le canal presence
   useEffect(() => {
     const ch = supabase.channel(`msgs-coach-${clientId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
@@ -241,29 +242,38 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           const updated = payload.new as Msg;
           setMessages(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m));
         })
-      .on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload?.role === 'client') {
-          setClientTyping(true);
-          if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-          typingTimerRef.current = setTimeout(() => setClientTyping(false), 3000);
-        }
-      })
       .subscribe();
-    return () => { supabase.removeChannel(ch); if (typingTimerRef.current) clearTimeout(typingTimerRef.current); };
+    return () => { supabase.removeChannel(ch); };
   }, [clientId, userId, supabase]);
+
+  // Écoute typing client sur le canal presence (presence-chat-{clientId})
+  useEffect(() => {
+    if (!presenceCh) return;
+    const handler = (payload: { payload?: { role?: string } }) => {
+      if (payload.payload?.role === 'client') {
+        setClientTyping(true);
+        if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+        typingTimerRef.current = setTimeout(() => setClientTyping(false), 3000);
+      }
+    };
+    presenceCh.on('broadcast', { event: 'typing' }, handler);
+    return () => { if (typingTimerRef.current) clearTimeout(typingTimerRef.current); };
+  }, [presenceCh]);
 
   const initialScrollDone = useRef(false);
   useEffect(() => {
     if (loading) return;
+    const container = chatZoneRef.current;
+    if (!container) return;
     if (!initialScrollDone.current) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          bottomRef.current?.scrollIntoView({ behavior: 'instant' as ScrollBehavior });
-          initialScrollDone.current = true;
-        });
-      });
+      container.scrollTop = container.scrollHeight;
+      const t = setTimeout(() => {
+        if (chatZoneRef.current) chatZoneRef.current.scrollTop = chatZoneRef.current.scrollHeight;
+      }, 60);
+      initialScrollDone.current = true;
+      return () => clearTimeout(t);
     } else {
-      bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, clientTyping, loading]);
 
@@ -381,7 +391,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         </div>
 
         {/* Messages */}
-        <div className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        <div ref={chatZoneRef} className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
           {loading ? (
             <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, paddingTop: 40 }}>Chargement…</div>
           ) : messages.length === 0 ? (
@@ -516,6 +526,7 @@ export default function PageChat() {
   const [onlineClients, setOnlineClients] = useState<Set<string>>(new Set());
   const supabase = useRef(createClient()).current;
   const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const [presenceCh, setPresenceCh] = useState<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
@@ -548,7 +559,8 @@ export default function PageChat() {
         }
       });
     presenceChRef.current = ch;
-    return () => { supabase.removeChannel(ch); presenceChRef.current = null; };
+    setPresenceCh(ch);
+    return () => { supabase.removeChannel(ch); presenceChRef.current = null; setPresenceCh(null); };
   }, [userId, activeId, supabase]);
 
   if (loading) return (
@@ -617,7 +629,7 @@ export default function PageChat() {
           clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
           isOnline={onlineClients.has(activeId)}
           supabase={supabase}
-          presenceCh={presenceChRef.current}
+          presenceCh={presenceCh}
         />
       ) : (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
