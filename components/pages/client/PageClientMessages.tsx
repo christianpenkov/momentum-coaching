@@ -452,12 +452,15 @@ export default function PageClientMessages() {
 
   // ── Scroll bas — scrollTop direct pour iOS, smooth ensuite ────────────────
   const initialScrollDone = useRef(false);
+  // Réinitialiser à chaque nouveau chargement (retour sur la page en PWA)
+  useEffect(() => {
+    if (loading) initialScrollDone.current = false;
+  }, [loading]);
   useEffect(() => {
     if (loading) return;
     const container = chatZoneRef.current;
     if (!container) return;
     if (!initialScrollDone.current) {
-      // Scroll immédiat + confirmation à 60ms (iOS WebKit finalise flexbox après le paint)
       container.scrollTop = container.scrollHeight;
       const t = setTimeout(() => {
         if (chatZoneRef.current) chatZoneRef.current.scrollTop = chatZoneRef.current.scrollHeight;
