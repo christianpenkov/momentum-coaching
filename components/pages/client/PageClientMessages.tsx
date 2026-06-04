@@ -241,16 +241,73 @@ function TypingIndicator() {
   );
 }
 
-// ─── RecordingOverlay ────────────────────────────────────────────────────────
+// ─── RecordingOverlay ─────────────────────────────────────────────────────────
+// Waveform animée via Web Audio API + refs directes — zéro re-render React
 
-function RecordingOverlay({ onCancel, onSend, elapsed }: {
+const BAR_COUNT = 13;
+
+function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
   onCancel: () => void; onSend: () => void; elapsed: number;
+  stream: MediaStream | null;
 }) {
+  const barRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const rafRef = useRef<number | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const dataRef = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
+  useEffect(() => {
+    if (!stream) return;
+
+    // Init Web Audio
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    audioCtxRef.current = ctx;
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 64;
+    analyserRef.current = analyser;
+    ctx.createMediaStreamSource(stream).connect(analyser);
+    dataRef.current = new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount));
+
+    // Vibration haptique au démarrage (Android/PWA)
+    if (navigator.vibrate) navigator.vibrate(40);
+
+    // Boucle rAF — modifie le DOM directement, pas de setState
+    const draw = () => {
+      const an = analyserRef.current;
+      const da = dataRef.current;
+      if (!an || !da) return;
+      an.getByteFrequencyData(da);
+      let total = 0;
+      for (let i = 0; i < da.length; i++) total += da[i];
+      const amp = Math.min(100, (total / da.length / 140) * 100);
+
+      barRefs.current.forEach((bar, i) => {
+        if (!bar) return;
+        // Courbe en cloche : barres centrales réagissent plus fort
+        const factor = 1 - Math.abs(i - (BAR_COUNT - 1) / 2) / ((BAR_COUNT - 1) / 2);
+        const h = Math.max(15, amp * factor * 0.85);
+        bar.style.height = `${h}%`;
+        bar.style.background = amp > 10 ? 'var(--ink)' : 'var(--muted)';
+      });
+
+      rafRef.current = requestAnimationFrame(draw);
+    };
+    draw();
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      analyser.disconnect();
+      ctx.close();
+    };
+  }, [stream]);
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between',
       flex: 1, gap: 12, animation: 'rec-fadein 0.15s ease-out',
     }}>
+      {/* Poubelle */}
       <button onClick={onCancel} type="button" style={{
         width: 48, height: 48, borderRadius: '50%', border: '1px solid var(--border)',
         background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
@@ -262,13 +319,34 @@ function RecordingOverlay({ onCancel, onSend, elapsed }: {
         </svg>
       </button>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'center' }}>
-        <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', animation: 'pulse-rec 1s ease-in-out infinite' }} />
-        <span style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+      {/* Timer + waveform */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: 10, flex: 1,
+        background: 'var(--surface-2)', borderRadius: 24,
+        padding: '0 14px', height: 44,
+      }}>
+        <div style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--red)', flexShrink: 0, animation: 'pulse-rec 1s ease-in-out infinite' }} />
+        <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
           {formatDuration(elapsed)}
         </span>
+        {/* Barres waveform — animées par rAF via refs */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1, height: '100%', justifyContent: 'center' }}>
+          {Array.from({ length: BAR_COUNT }).map((_, i) => (
+            <div
+              key={i}
+              ref={el => { barRefs.current[i] = el; }}
+              style={{
+                width: 3, height: '15%', borderRadius: 2,
+                background: 'var(--muted)', flexShrink: 0,
+                willChange: 'height, background',
+                transition: 'height 0.04s ease-out',
+              }}
+            />
+          ))}
+        </div>
       </div>
 
+      {/* Envoyer */}
       <button onClick={onSend} type="button" style={{
         width: 48, height: 48, borderRadius: '50%', border: 'none', background: 'var(--ink)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -828,7 +906,7 @@ export default function PageClientMessages() {
             padding: '8px 16px', flexShrink: 0, background: 'var(--surface)',
             borderTop: '1px solid var(--border)', display: 'flex', alignItems: 'center',
           }}>
-            <RecordingOverlay elapsed={recordingElapsed} onCancel={cancelRecording} onSend={stopRecording} />
+            <RecordingOverlay elapsed={recordingElapsed} onCancel={cancelRecording} onSend={stopRecording} stream={streamRef.current} />
           </div>
         )}
 
