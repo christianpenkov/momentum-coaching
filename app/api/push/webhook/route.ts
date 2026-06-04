@@ -10,14 +10,22 @@ const supabase = createClient(
 export async function POST(req: NextRequest) {
   console.log('[PUSH-WEBHOOK] Appel reçu');
 
+  try {
   const secret = req.headers.get('x-webhook-secret');
   if (secret !== process.env.CRON_SECRET) {
-    console.log('[PUSH-WEBHOOK] ❌ Secret invalide');
+    console.log('[PUSH-WEBHOOK] ❌ Secret invalide, reçu:', secret?.slice(0, 20));
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   }
 
-  const body = await req.json();
-  console.log('[PUSH-WEBHOOK] Body reçu:', JSON.stringify(body).slice(0, 200));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let body: any;
+  try {
+    body = await req.json();
+  } catch (e) {
+    console.log('[PUSH-WEBHOOK] ❌ JSON parse error:', String(e));
+    return NextResponse.json({ error: 'invalid json' }, { status: 400 });
+  }
+  console.log('[PUSH-WEBHOOK] Body reçu:', JSON.stringify(body).slice(0, 300));
 
   const record = body.record;
   if (!record) {
@@ -132,4 +140,9 @@ export async function POST(req: NextRequest) {
   const sent = results.filter(r => r.status === 'fulfilled').length;
   console.log('[PUSH-WEBHOOK] Terminé. Envoyé:', sent, '/', subs.length);
   return NextResponse.json({ sent });
+
+  } catch (err) {
+    console.log('[PUSH-WEBHOOK] 💥 Erreur non gérée:', String(err));
+    return NextResponse.json({ error: String(err) }, { status: 500 });
+  }
 }
