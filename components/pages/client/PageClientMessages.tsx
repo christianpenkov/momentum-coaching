@@ -353,7 +353,7 @@ export default function PageClientMessages() {
         .upload(fileName, blob, { contentType: blob.type || 'audio/webm' });
 
       if (uploadError) {
-        // Upload échoué — retirer le message optimiste
+        console.error('Upload audio échoué:', uploadError.message, uploadError);
         setMessages(prev => prev.filter(m => m.id !== optimisticId));
         URL.revokeObjectURL(localUrl);
         return;
@@ -431,7 +431,8 @@ export default function PageClientMessages() {
         streamRef.current?.getTracks().forEach(t => t.stop());
         streamRef.current = null;
         const dur = (Date.now() - recordingStartRef.current) / 1000;
-        const blob = new Blob(audioChunksRef.current, { type: mimeType || 'audio/webm' });
+        const finalType = mimeType || 'audio/mp4';
+        const blob = new Blob(audioChunksRef.current, { type: finalType });
         if (blob.size > 0) {
           sendAudioMessage(blob, dur);
         }
@@ -439,7 +440,8 @@ export default function PageClientMessages() {
         setIsRecording(false);
         setRecordingElapsed(0);
       };
-      mr.start(100);
+      // Pas de timeslice sur iOS Safari — un seul chunk complet à l'arrêt
+      mr.start();
       mediaRecorderRef.current = mr;
       recordingStartRef.current = Date.now();
       setIsRecording(true);
