@@ -12,13 +12,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid' }, { status: 400 });
   }
 
-  await supabase.from('push_subscriptions').upsert({
+  const { error } = await supabase.from('push_subscriptions').upsert({
     profile_id: userId,
     endpoint: subscription.endpoint,
     p256dh: subscription.keys.p256dh,
     auth: subscription.keys.auth,
   }, { onConflict: 'profile_id,endpoint' });
 
+  if (error) {
+    console.error('[PUSH-SUBSCRIBE] Erreur upsert:', error.message, error.code);
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  console.log('[PUSH-SUBSCRIBE] ✅ Subscription enregistrée pour', userId);
   return NextResponse.json({ ok: true });
 }
 
