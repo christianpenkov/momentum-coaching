@@ -5135,57 +5135,55 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
 }
 
 // ── Pill période flottante (onglet Funnel & Calls) ────────────────────────────
-function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen }: {
+function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
-  modalOpen: boolean;
 }) {
   const maxIndex = 12;
   const pillRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
-  const [portalTarget, setPortalTarget] = useState<Element | null>(null);
 
   useEffect(() => {
-    const scroller = document.querySelector('.main-content');
-    if (!scroller) return;
-    // Créer un div ancré au début de .main-content pour que sticky parte du haut
-    let root = document.getElementById('period-pill-root');
-    if (!root) {
-      root = document.createElement('div');
-      root.id = 'period-pill-root';
-      scroller.prepend(root); // premier enfant = sticky démarre du haut
-    }
-    setPortalTarget(root);
-    return () => { root?.remove(); };
-  }, []);
-
-  useEffect(() => {
-    const pill = pillRef.current;
-    if (!pill) return;
-    let travel: number | null = null;
-
     const tick = () => {
-      const scroller = document.querySelector('.main-content') as HTMLElement | null;
-      if (scroller) {
-        if (travel === null && scroller.scrollTop === 0) {
-          const scrollerRect = scroller.getBoundingClientRect();
-          const pillRect = pill.getBoundingClientRect();
-          travel = Math.max(1, (pillRect.top - scrollerRect.top) - 16);
-        }
-        if (travel !== null) {
-          const opacity = Math.min(1, scroller.scrollTop / travel) * 0.14;
-          pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
-        }
+      const pill = pillRef.current;
+      if (!pill) { rafRef.current = requestAnimationFrame(tick); return; }
+
+      const rect = pill.getBoundingClientRect();
+      const stickyTargetTop = 16;
+      const approachZone = 20;
+      const distanceToSticky = rect.top - stickyTargetTop;
+
+      let shadowOpacity = 0;
+      if (distanceToSticky <= 0) {
+        shadowOpacity = 0.12;
+      } else if (distanceToSticky < approachZone) {
+        shadowOpacity = (1 - distanceToSticky / approachZone) * 0.12;
       }
+
+      pill.style.setProperty('--pill-shadow-opacity', shadowOpacity.toString());
       rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, [portalTarget]);
+  }, []);
 
-  const pillContent = (
-    <>
+  return (
+    <div
+      ref={pillRef}
+      style={{
+        '--pill-shadow-opacity': '0',
+        pointerEvents: 'auto',
+        position: 'sticky', top: 16,
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '5px 10px',
+        marginTop: 16, marginRight: 27,
+        boxShadow: '0 4px 16px rgba(0,0,0,var(--pill-shadow-opacity))',
+        willChange: 'box-shadow',
+        userSelect: 'none', WebkitUserSelect: 'none',
+      } as React.CSSProperties}
+    >
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 140 }}>
@@ -5207,51 +5205,8 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
           }}>{p}j</button>
         ))}
       </div>
-    </>
+    </div>
   );
-
-  const pillStyle: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 8,
-    background: 'var(--surface)', border: '1px solid var(--border)',
-    borderRadius: 12, padding: '5px 10px',
-    boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
-    willChange: 'box-shadow',
-    ['--pill-shadow-opacity' as string]: '0',
-  } as React.CSSProperties;
-
-  // Pill via portal dans .main-content — enfant direct du flex-col scrollable
-  // position:sticky fonctionne ici car .main-content est overflow-y:auto ET flex-direction:column
-  // alignSelf:flex-end la pousse à droite sans wrapper supplémentaire
-  const stickyPill = portalTarget ? createPortal(
-    <div ref={pillRef} style={{
-      ...pillStyle,
-      position: 'sticky',
-      top: 16,
-      alignSelf: 'flex-end',
-      zIndex: 1100,
-      // height:0 + marginBottom:0 → ne prend pas de place verticale dans le flux
-      height: 0,
-      overflow: 'visible',
-      padding: 0,
-      border: 'none',
-      background: 'transparent',
-      boxShadow: 'none',
-    }}>
-      {/* Pill réelle décalée pour apparaître au niveau du header */}
-      <div style={{
-        ...pillStyle,
-        position: 'absolute',
-        right: 0,
-        top: 0,
-      }}>
-        {pillContent}
-      </div>
-    </div>,
-    portalTarget
-  ) : null;
-
-  // Placeholder dans le header — tient la place visuellement
-  return <><div style={{ ...pillStyle, visibility: 'hidden', pointerEvents: 'none' }}>{pillContent}</div>{stickyPill}</>;
 }
 
 // ── Contrôles inline par section (onglet B) ───────────────────────────────────
@@ -5446,9 +5401,19 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
   return (
     <div className="page-content">
-      {/* Wrapper height:0 — ne prend pas de place dans le flux vertical,
-          mais la pill sticky à l'intérieur peut glisser sur toute la hauteur de .main-content */}
-      {/* Header — pill alignée à droite du titre Analytics via flexbox normal */}
+
+      {/* ── Container délimiteur — sticky éphémère (zone de fixation ~60px de scroll) ── */}
+      {tab === 3 && (
+        <div style={{
+          position: 'relative', width: '100%',
+          height: 96, marginBottom: -96,
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-start',
+          pointerEvents: 'none', zIndex: 40,
+        }}>
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
+        </div>
+      )}
+
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <h1 className="page-title">Analytics</h1>
@@ -5465,10 +5430,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
               }}>{p}j</button>
             ))}
           </div>
-        )}
-        {/* Pill dans le header — sticky, alignSelf flex-start pour ne pas s'étirer */}
-        {tab === 3 && (
-          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
         )}
       </div>
 
