@@ -25,6 +25,7 @@ export async function GET() {
     supa.from('calls')
       .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, deal_closed, revenue, source, ig_lead_id, utm_content, utm_medium, short_link_path, created_at')
       .or(`coach_id.eq.${user.id},client_id.in.(select id from clients where profile_id = '${user.id}')`)
+      .not('calendly_event_uuid', 'is', null)
       .order('scheduled_at', { ascending: false }),
     supa.from('pipeline_overrides')
       .select('prospect_key, platform, stage, updated_at')
