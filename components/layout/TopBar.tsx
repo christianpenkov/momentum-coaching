@@ -7,7 +7,7 @@ import { useUser } from '@/lib/UserContext';
 
 export default function TopBar() {
   const pathname = usePathname();
-  const isCoach = !pathname.startsWith('/client');
+  const isCoach = !pathname.startsWith('/client/')  && pathname !== '/client';
   const { user } = useUser();
   const initials = user?.initials || '';
   const name = user?.full_name || user?.email || '';

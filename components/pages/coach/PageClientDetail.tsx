@@ -41,7 +41,7 @@ function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boo
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
-  const { getClient, addTask, toggleTask: ctxToggle } = useSupabaseClients();
+  const { getClient, addTask, toggleTask: ctxToggle, calls } = useSupabaseClients();
   const client = getClient(id);
   const tasks = client?.tasks || [];
   const [note, setNote] = useState(client?.private_notes || '');
@@ -62,9 +62,19 @@ export default function PageClientDetail({ id }: Props) {
   const metrics = client.weeklyMetrics || [];
   const last = metrics[metrics.length - 1] || null;
   const prev = metrics[metrics.length - 2] || null;
-  const mrrGrowth = last && prev && prev.stripe_mrr > 0
-    ? Math.round(((last.stripe_mrr - prev.stripe_mrr) / prev.stripe_mrr) * 100)
-    : 0;
+
+  // Stats 30j
+  const cutoff30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+  const recent4Metrics = metrics.slice(-4); // ~4 semaines = ~30j
+  const posts30 = recent4Metrics.reduce((sum, m) => sum + (m.posts_count || 0), 0);
+  const leads30 = recent4Metrics.reduce((sum, m) => sum + (m.iclosed_deals || 0), 0);
+  const calls30 = calls.filter(c =>
+    c.client_id === id &&
+    c.status !== 'cancelled' && c.status !== 'declined' &&
+    c.scheduled_at != null &&
+    new Date(c.scheduled_at) >= cutoff30
+  ).length;
+  const cash30 = last ? last.stripe_mrr : null;
 
   const doneCount = tasks.filter(t => t.done).length;
   const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
@@ -107,27 +117,30 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      {/* KPIs rapides */}
+      {/* KPIs rapides 30j */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">MRR Stripe</div>
-          <div className="kpi-value">{last ? last.stripe_mrr.toLocaleString('fr-FR') : '—'} {last ? '€' : ''}</div>
-          {last && prev && <div className={`kpi-delta${mrrGrowth >= 0 ? ' kpi-delta-up' : ' kpi-delta-down'}`}>{mrrGrowth >= 0 ? '+' : ''}{mrrGrowth}% vs sem. préc.</div>}
-        </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Followers IG</div>
-          <div className="kpi-value">{last ? last.followers_ig.toLocaleString('fr-FR') : '—'}</div>
-          {last && prev && <div className="kpi-delta kpi-delta-up">+{last.followers_ig - prev.followers_ig} cette semaine</div>}
-        </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Posts cette sem.</div>
-          <div className="kpi-value">{last ? last.posts_count : '—'}</div>
+          <div className="kpi-label">Posts (30j)</div>
+          <div className="kpi-value">{metrics.length > 0 ? posts30 : '—'}</div>
           {last && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{last.avg_views.toLocaleString('fr-FR')} vues moy.</div>}
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">DM envoyés</div>
-          <div className="kpi-value">{last ? last.dms_sent : '—'}</div>
-          {last && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{last.dms_reply_rate}% réponse</div>}
+          <div className="kpi-label">Leads générés (30j)</div>
+          <div className="kpi-value">{metrics.length > 0 ? leads30 : '—'}</div>
+          {last && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{last.closing_rate}% closing</div>}
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Calls (30j)</div>
+          <div className="kpi-value">{calls30}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>sur la plateforme</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Cash contracté</div>
+          <div className="kpi-value">{cash30 !== null ? `${cash30.toLocaleString('fr-FR')} €` : '—'}</div>
+          {last && prev && (() => {
+            const g = prev.stripe_mrr > 0 ? Math.round(((last.stripe_mrr - prev.stripe_mrr) / prev.stripe_mrr) * 100) : 0;
+            return <div className={`kpi-delta${g >= 0 ? ' kpi-delta-up' : ' kpi-delta-down'}`}>{g >= 0 ? '+' : ''}{g}% vs sem. préc.</div>;
+          })()}
         </div>
       </div>
 
