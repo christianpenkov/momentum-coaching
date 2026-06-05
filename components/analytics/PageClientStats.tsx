@@ -5147,7 +5147,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   );
 }
 
-// ── Pill période sticky (onglet Funnel & Calls) ───────────────────────────────
+// ── Pill période flottante (onglet Funnel & Calls) ────────────────────────────
 function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
@@ -5186,7 +5186,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
 
   return (
     <div ref={pillRef} style={{
-      position: 'fixed', right: 27, top: ORIGIN_TOP, zIndex: 1100,
+      position: 'fixed', top: 96, right: 27, zIndex: 1100,
       display: 'flex', alignItems: 'center', gap: 8,
       background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 12, padding: '5px 10px',
@@ -5418,6 +5418,9 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           <p className="page-sub">Tableau de bord complet — toutes les plateformes</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
+          {tab === 3 && (
+            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
+          )}
           {/* Sélecteur 7j/30j — onglets hors Funnel & Calls */}
           {tab !== 3 && (
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4 }}>
@@ -5435,9 +5438,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       </div>
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
-
-      {/* Pill flottante Funnel & Calls — fixed, montée hors du header pour ne pas interférer */}
-      {tab === 3 && <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />}
 
       {loading ? <Loading /> : (
         <>
