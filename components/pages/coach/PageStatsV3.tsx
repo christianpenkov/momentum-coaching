@@ -5258,54 +5258,56 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
   );
 }
 
-// ── Pill flottant haut-droit (onglet A) ──────────────────────────────────────
-function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen }: {
+// ── Pill flottant haut-droit (onglet A) — architecture sticky à hauteur nulle ──
+function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
-  modalOpen: boolean;
 }) {
   const history = period === 7 ? MOCK_HISTORY_7D : MOCK_HISTORY_30D;
   const maxIndex = history.length - 1;
-
-  const STICKY_TOP = 56;
-  const ORIGIN_TOP = 96;
-
   const pillRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const scroller = document.querySelector('.main-content') as HTMLElement | null;
-    if (!scroller) return;
-    const onScroll = () => {
-      if (!pillRef.current) return;
-      const scrollY = scroller.scrollTop;
-      const threshold = ORIGIN_TOP - STICKY_TOP;
-      const top = scrollY >= threshold ? STICKY_TOP : ORIGIN_TOP - scrollY;
-      pillRef.current.style.top = `${top}px`;
-      const shadowOpacity = Math.min(scrollY / 60, 1) * 0.12;
-      pillRef.current.style.boxShadow = `0 4px 16px rgba(0,0,0,${shadowOpacity.toFixed(3)})`;
+    const tick = () => {
+      const pill = pillRef.current;
+      if (!pill) { rafRef.current = requestAnimationFrame(tick); return; }
+
+      const rect = pill.getBoundingClientRect();
+      const stickyTargetTop = 16;
+      const approachZone = 20;
+      const distanceToSticky = rect.top - stickyTargetTop;
+
+      let shadowOpacity = 0;
+      if (distanceToSticky <= 0) {
+        shadowOpacity = 0.12;
+      } else if (distanceToSticky < approachZone) {
+        shadowOpacity = (1 - distanceToSticky / approachZone) * 0.12;
+      }
+
+      pill.style.setProperty('--pill-shadow-opacity', shadowOpacity.toString());
+      rafRef.current = requestAnimationFrame(tick);
     };
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => scroller.removeEventListener('scroll', onScroll);
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  useEffect(() => {
-    if (!pillRef.current) return;
-    const scroller = document.querySelector('.main-content') as HTMLElement | null;
-    const scrollY = scroller?.scrollTop ?? 0;
-    const threshold = ORIGIN_TOP - STICKY_TOP;
-    const baseTop = scrollY >= threshold ? STICKY_TOP : ORIGIN_TOP - scrollY;
-    pillRef.current.style.top = modalOpen ? `${STICKY_TOP}px` : `${baseTop}px`;
-  }, [modalOpen]);
-
   return (
-    <div ref={pillRef} style={{
-      position: 'fixed', top: 96, right: 27, zIndex: 1100,
-      display: 'flex', alignItems: 'center', gap: 8,
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 12, padding: '5px 10px',
-      boxShadow: 'none',
-    }}>
+    <div
+      ref={pillRef}
+      style={{
+        '--pill-shadow-opacity': '0',
+        pointerEvents: 'auto',
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '5px 10px',
+        marginTop: 45, marginRight: 27,
+        boxShadow: '0 4px 16px rgba(0,0,0,var(--pill-shadow-opacity))',
+        willChange: 'box-shadow',
+        userSelect: 'none', WebkitUserSelect: 'none',
+      } as React.CSSProperties}
+    >
       {/* Navigateur période */}
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
@@ -5397,16 +5399,20 @@ export default function PageStatsV2() {
 
   return (
     <div className="page-content">
+
+      {/* ── Wrapper sticky à hauteur nulle — pilule flottante haut-droite ── */}
+      {tab === 3 && (
+        <div style={{ position: 'sticky', top: 16, height: 0, width: '100%', display: 'flex', justifyContent: 'flex-end', zIndex: 40, pointerEvents: 'none' }}>
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
+        </div>
+      )}
+
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <h1 className="page-title">Analytics</h1>
           <p className="page-sub">Tableau de bord complet — toutes les plateformes</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {/* Pill période — onglet Funnel & Calls (A) */}
-          {tab === 3 && (
-            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
-          )}
           {/* Sélecteur 7j/30j — autres onglets */}
           {tab !== 3 && tab !== 4 && (
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4 }}>
