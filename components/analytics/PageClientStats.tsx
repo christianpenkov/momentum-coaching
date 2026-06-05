@@ -5147,19 +5147,50 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   );
 }
 
-// ── Pill période (onglet Funnel & Calls) ──────────────────────────────────────
+// ── Pill période sticky (onglet Funnel & Calls) ───────────────────────────────
 function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
   modalOpen: boolean;
 }) {
   const maxIndex = 0;
+  const STICKY_TOP = 56;
+  const ORIGIN_TOP = 96;
+  const pillRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const scroller = document.querySelector('.main-content') as HTMLElement | null;
+    if (!scroller) return;
+    const onScroll = () => {
+      if (!pillRef.current) return;
+      const scrollY = scroller.scrollTop;
+      const threshold = ORIGIN_TOP - STICKY_TOP;
+      const top = scrollY >= threshold ? STICKY_TOP : ORIGIN_TOP - scrollY;
+      pillRef.current.style.top = `${top}px`;
+      const shadowOpacity = Math.min(scrollY / 60, 1) * 0.12;
+      pillRef.current.style.boxShadow = `0 4px 16px rgba(0,0,0,${shadowOpacity.toFixed(3)})`;
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    onScroll();
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useEffect(() => {
+    if (!pillRef.current) return;
+    const scroller = document.querySelector('.main-content') as HTMLElement | null;
+    const scrollY = scroller?.scrollTop ?? 0;
+    const threshold = ORIGIN_TOP - STICKY_TOP;
+    const baseTop = scrollY >= threshold ? STICKY_TOP : ORIGIN_TOP - scrollY;
+    pillRef.current.style.top = modalOpen ? `${STICKY_TOP}px` : `${baseTop}px`;
+  }, [modalOpen]);
 
   return (
-    <div style={{
+    <div ref={pillRef} style={{
+      position: 'fixed', right: 27, top: ORIGIN_TOP, zIndex: 1100,
       display: 'flex', alignItems: 'center', gap: 8,
       background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 12, padding: '5px 10px',
+      boxShadow: 'none',
     }}>
       {/* Navigateur période */}
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
@@ -5387,11 +5418,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           <p className="page-sub">Tableau de bord complet — toutes les plateformes</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {/* Pill période — onglet Funnel & Calls */}
-          {tab === 3 && (
-            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
-          )}
-          {/* Sélecteur 7j/30j — autres onglets */}
+          {/* Sélecteur 7j/30j — onglets hors Funnel & Calls */}
           {tab !== 3 && (
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4 }}>
               {([7, 30] as Period[]).map(p => (
@@ -5408,6 +5435,9 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       </div>
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
+
+      {/* Pill flottante Funnel & Calls — fixed, montée hors du header pour ne pas interférer */}
+      {tab === 3 && <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />}
 
       {loading ? <Loading /> : (
         <>
