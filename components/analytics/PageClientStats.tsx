@@ -5141,39 +5141,51 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   modalOpen: boolean;
 }) {
   const maxIndex = 12;
-  const sentinelRef = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLDivElement>(null); // toujours dans le flux, mesure la position
   const [stuck, setStuck] = useState(false);
-  const [shadow, setShadow] = useState(0); // 0–1
+  const [shadow, setShadow] = useState(0);
+  const thresholdRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!sentinel) return;
+    const anchor = anchorRef.current;
+    if (!anchor) return;
 
-    // IntersectionObserver: détecte quand le sentinel passe hors viewport
-    const observer = new IntersectionObserver(
-      ([entry]) => setStuck(!entry.isIntersecting),
-      { threshold: 0, rootMargin: '-16px 0px 0px 0px' }
-    );
-    observer.observe(sentinel);
+    const scroller: Element | Window = anchor.closest('.main-content') ?? window;
+    const STICKY_TOP = 16;
+    const FADE_RANGE = 48;
 
-    // Scroll listener pour interpoler l'ombre progressivement
-    const scroller = sentinel.closest('.main-content') ?? window;
+    const getScrollTop = () =>
+      scroller === window ? window.scrollY : (scroller as Element).scrollTop;
+
+    const computeThreshold = () => {
+      // offsetTop cumulé depuis le scroller
+      let el: HTMLElement | null = anchor;
+      let top = 0;
+      while (el && el !== scroller) {
+        top += el.offsetTop;
+        el = el.offsetParent as HTMLElement | null;
+      }
+      thresholdRef.current = top - STICKY_TOP;
+    };
+
+    computeThreshold();
+
     const onScroll = () => {
-      const rect = sentinel.getBoundingClientRect();
-      // rect.top va de ~96px (en haut de page) vers 16px (seuil de fixation)
-      // on interpole shadow de 0→1 sur une fenêtre de 40px avant le seuil
-      const STICKY_TOP = 16;
-      const FADE_RANGE = 48;
-      const progress = Math.min(1, Math.max(0, (STICKY_TOP + FADE_RANGE - rect.top) / FADE_RANGE));
+      if (thresholdRef.current === null) computeThreshold();
+      const threshold = thresholdRef.current!;
+      const scrollTop = getScrollTop();
+      setStuck(scrollTop >= threshold);
+      const progress = Math.min(1, Math.max(0, (scrollTop - (threshold - FADE_RANGE)) / FADE_RANGE));
       setShadow(progress);
     };
+
     scroller.addEventListener('scroll', onScroll, { passive: true });
-    return () => { observer.disconnect(); scroller.removeEventListener('scroll', onScroll); };
+    onScroll();
+    return () => scroller.removeEventListener('scroll', onScroll);
   }, []);
 
   const pillContent = (
     <>
-      {/* Navigateur période */}
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 140 }}>
@@ -5184,9 +5196,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
       </div>
       <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={periodIndex === 0}
         style={{ background: 'none', border: 'none', cursor: periodIndex === 0 ? 'default' : 'pointer', fontSize: 24, color: periodIndex === 0 ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>›</button>
-      {/* Séparateur */}
       <div style={{ width: 1, height: 28, background: 'var(--border)', margin: '0 4px' }} />
-      {/* 7j / 30j */}
       <div style={{ display: 'flex', gap: 2, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
         {([7, 30] as Period[]).map(p => (
           <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(() => 0); }} style={{
@@ -5212,15 +5222,20 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
 
   return (
     <>
-      {/* Sentinel — reste dans le flux, invisible */}
-      <div ref={sentinelRef} style={{ width: 1, height: 1, pointerEvents: 'none' }} />
-      {/* Pill fixée quand sentinel hors viewport */}
-      {stuck ? (
+      {/* Anchor toujours dans le flux — maintient l'espace et sert de repère de scroll */}
+      <div
+        ref={anchorRef}
+        style={{
+          // Quand stuck : invisible mais garde la place. Sinon : pill visible normale.
+          ...(stuck ? { visibility: 'hidden', pointerEvents: 'none' as const } : {}),
+          ...pillStyle,
+        }}
+      >
+        {pillContent}
+      </div>
+      {/* Pill fixée — rendue uniquement quand stuck, positionnée en fixed */}
+      {stuck && (
         <div style={{ ...pillStyle, position: 'fixed', top: 16, right: 27, zIndex: 1100 }}>
-          {pillContent}
-        </div>
-      ) : (
-        <div style={pillStyle}>
           {pillContent}
         </div>
       )}
