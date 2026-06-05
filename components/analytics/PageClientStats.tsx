@@ -5141,52 +5141,23 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   modalOpen: boolean;
 }) {
   const maxIndex = 12;
-  const anchorRef = useRef<HTMLDivElement>(null); // placeholder dans le flux
-  const pillRef = useRef<HTMLDivElement>(null);   // pill fixed (rendue dans un portal hors flux)
-  const stuckRef = useRef(false);
+  const pillRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const anchor = anchorRef.current;
     const pill = pillRef.current;
-    if (!anchor || !pill) return;
-
-    const STICKY_TOP = 16;    // px depuis le haut du .main-content
-    const APPROACH_ZONE = 48;
+    if (!pill) return;
+    const APPROACH_ZONE = 60; // px de scroll depuis le haut où l'ombre commence
 
     const tick = () => {
-      const scroller = anchor.closest('.main-content');
+      const scroller = pill.closest('.main-content');
       if (scroller) {
-        const scrollerRect = scroller.getBoundingClientRect();
-        const anchorRect = anchor.getBoundingClientRect();
-        // distance entre le haut de l'anchor et le haut du scroller
-        const distFromTop = anchorRect.top - scrollerRect.top;
-
-        const shouldStick = distFromTop <= STICKY_TOP;
-
-        if (shouldStick !== stuckRef.current) {
-          stuckRef.current = shouldStick;
-          // Positionner la pill fixed par rapport au viewport (coordonnées du scroller + STICKY_TOP)
-          if (shouldStick) {
-            pill.style.display = 'flex';
-            // Aligner horizontalement sur l'anchor
-            const right = window.innerWidth - anchorRect.right;
-            pill.style.top = `${scrollerRect.top + STICKY_TOP}px`;
-            pill.style.right = `${right}px`;
-            anchor.style.visibility = 'hidden';
-          } else {
-            pill.style.display = 'none';
-            anchor.style.visibility = 'visible';
-          }
-        }
-
-        // Ombre progressive
-        const dist = distFromTop - STICKY_TOP;
+        const scrollTop = (scroller as Element).scrollTop;
         let opacity = 0;
-        if (dist <= 0) {
+        if (scrollTop >= APPROACH_ZONE) {
           opacity = 0.14;
-        } else if (dist < APPROACH_ZONE) {
-          opacity = (1 - dist / APPROACH_ZONE) * 0.14;
+        } else if (scrollTop > 0) {
+          opacity = (scrollTop / APPROACH_ZONE) * 0.14;
         }
         pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
       }
@@ -5197,8 +5168,19 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  const pillContent = (
-    <>
+  return (
+    <div
+      ref={pillRef}
+      style={{
+        position: 'fixed', top: 16, right: 27, zIndex: 1100,
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '5px 10px',
+        boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
+        willChange: 'box-shadow',
+        ['--pill-shadow-opacity' as string]: '0',
+      } as React.CSSProperties}
+    >
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 140 }}>
@@ -5220,29 +5202,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
           }}>{p}j</button>
         ))}
       </div>
-    </>
-  );
-
-  const pillStyle: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 8,
-    background: 'var(--surface)', border: '1px solid var(--border)',
-    borderRadius: 12, padding: '5px 10px',
-    boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
-    willChange: 'box-shadow',
-    ['--pill-shadow-opacity' as string]: '0',
-  } as React.CSSProperties;
-
-  return (
-    <>
-      {/* Anchor dans le flux — tient la place, devient invisible quand stuck */}
-      <div ref={anchorRef} style={pillStyle}>
-        {pillContent}
-      </div>
-      {/* Clone fixed — positionné par RAF, hors du flux */}
-      <div ref={pillRef} style={{ ...pillStyle, position: 'fixed', zIndex: 1100, display: 'none' }}>
-        {pillContent}
-      </div>
-    </>
+    </div>
   );
 }
 
