@@ -5147,7 +5147,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   );
 }
 
-// ── Pill flottant haut-droit (onglet A) ──────────────────────────────────────
+// ── Pill période (onglet Funnel & Calls) ──────────────────────────────────────
 function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
@@ -5155,44 +5155,11 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
 }) {
   const maxIndex = 0;
 
-  const STICKY_TOP = 56;
-  const ORIGIN_TOP = 96;
-
-  const pillRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const scroller = document.querySelector('.main-content') as HTMLElement | null;
-    if (!scroller) return;
-    const onScroll = () => {
-      if (!pillRef.current) return;
-      const scrollY = scroller.scrollTop;
-      const threshold = ORIGIN_TOP - STICKY_TOP;
-      const top = scrollY >= threshold ? STICKY_TOP : ORIGIN_TOP - scrollY;
-      pillRef.current.style.top = `${top}px`;
-      const shadowOpacity = Math.min(scrollY / 60, 1) * 0.12;
-      pillRef.current.style.boxShadow = `0 4px 16px rgba(0,0,0,${shadowOpacity.toFixed(3)})`;
-    };
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => scroller.removeEventListener('scroll', onScroll);
-  }, []);
-
-  useEffect(() => {
-    if (!pillRef.current) return;
-    const scroller = document.querySelector('.main-content') as HTMLElement | null;
-    const scrollY = scroller?.scrollTop ?? 0;
-    const threshold = ORIGIN_TOP - STICKY_TOP;
-    const baseTop = scrollY >= threshold ? STICKY_TOP : ORIGIN_TOP - scrollY;
-    pillRef.current.style.top = modalOpen ? `${STICKY_TOP}px` : `${baseTop}px`;
-  }, [modalOpen]);
-
   return (
-    <div ref={pillRef} style={{
-      position: 'fixed', top: 96, right: 27, zIndex: 1100,
+    <div style={{
       display: 'flex', alignItems: 'center', gap: 8,
       background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 12, padding: '5px 10px',
-      boxShadow: 'none',
     }}>
       {/* Navigateur période */}
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
@@ -5342,7 +5309,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const q = profileId ? `?profileId=${profileId}` : '';
 
   // ── TanStack Query — lazy par onglet ─────────────────────────────────────
-  // Onglets : 0=Vue générale, 1=Instagram, 2=YouTube, 3=Funnel A, 4=Funnel B, 5=Business micro, 6=Revenus
+  // Onglets : 0=Vue générale, 1=Instagram, 2=YouTube, 3=Funnel & Calls, 4=Business micro, 5=Revenus
 
   // Données Supabase — toujours chargées (rapides, multi-onglets)
   const { data: supaData } = useQuery({
@@ -5356,47 +5323,47 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
 
-  // Instagram — onglets 0, 1, 3, 4
+  // Instagram — onglets 0, 1, 3
   const { data: igRaw, isLoading: igLoading } = useQuery<IGStats | null>({
     queryKey: ['stats-ig', profileId],
     queryFn: () => fetchApi(`/api/instagram/stats${q}`),
-    enabled: [0, 1, 3, 4].includes(tab),
+    enabled: [0, 1, 3].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
   const ig: IGStats | null = igRaw ?? null;
 
-  // YouTube — onglets 0, 2, 3, 4
+  // YouTube — onglets 0, 2, 3
   const { data: ytRaw, isLoading: ytLoading } = useQuery<YTStats | null>({
     queryKey: ['stats-yt', profileId],
     queryFn: () => fetchApi(`/api/youtube/stats${q}`),
-    enabled: [0, 2, 3, 4].includes(tab),
+    enabled: [0, 2, 3].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
   const yt: YTStats | null = ytRaw ?? null;
 
-  // Stripe — onglets 0, 6
+  // Stripe — onglets 0, 5
   const { data: stripeRaw } = useQuery<StripeStats | null>({
     queryKey: ['stats-stripe', profileId],
     queryFn: () => fetchApi(`/api/stripe/client-data${q}`),
-    enabled: [0, 6].includes(tab),
+    enabled: [0, 5].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
   const stripe: StripeStats | null = stripeRaw ?? null;
 
-  // Messages IG — onglets 0, 3, 4, 5
+  // Messages IG — onglets 0, 3, 4
   const { data: msgsRaw } = useQuery<IGMessages | null>({
     queryKey: ['stats-msgs', profileId],
     queryFn: () => fetchApi(`/api/instagram/messages${q}`),
-    enabled: [0, 3, 4, 5].includes(tab),
+    enabled: [0, 3, 4].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
   const msgs: IGMessages | null = msgsRaw ?? null;
 
-  // Short.io — onglet 5 uniquement (le plus lent — cache SWR 15min)
+  // Short.io — onglet 4 uniquement (le plus lent — cache SWR 15min)
   const { data: shortioRaw, isLoading: shortioLoading } = useQuery<ShortioStats | null>({
     queryKey: ['stats-shortio', profileId],
     queryFn: () => fetchApi(`/api/shortio/stats${q}`),
-    enabled: tab === 5,
+    enabled: tab === 4,
     staleTime: 15 * 60 * 1000,
   });
   const shortio: ShortioStats | null = shortioRaw ?? null;
@@ -5406,11 +5373,11 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     if (!supaData) return true;
     if (tab === 1 && igLoading) return true;
     if (tab === 2 && ytLoading) return true;
-    if (tab === 5 && shortioLoading) return true;
+    if (tab === 4 && shortioLoading) return true;
     return false;
   })();
 
-  const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls (A)', 'Funnel & Calls (B)', 'Business micro', 'Revenus'];
+  const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls', 'Business micro', 'Revenus'];
 
   return (
     <div className="page-content">
@@ -5420,12 +5387,12 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           <p className="page-sub">Tableau de bord complet — toutes les plateformes</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0 }}>
-          {/* Pill période — onglet Funnel & Calls (A) */}
+          {/* Pill période — onglet Funnel & Calls */}
           {tab === 3 && (
             <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
           )}
           {/* Sélecteur 7j/30j — autres onglets */}
-          {tab !== 3 && tab !== 4 && (
+          {tab !== 3 && (
             <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4 }}>
               {([7, 30] as Period[]).map(p => (
                 <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
@@ -5448,9 +5415,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
-          {tab === 4 && <TabFunnelDetail msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} leads={igLeads} />}
-          {tab === 5 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} period={period} profileId={profileId} />}
-          {tab === 6 && <TabRevenues stripe={stripe} period={period} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} period={period} profileId={profileId} />}
+          {tab === 5 && <TabRevenues stripe={stripe} period={period} />}
         </>
       )}
     </div>
