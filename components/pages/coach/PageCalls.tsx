@@ -37,7 +37,7 @@ export default function PageCalls() {
   // Modal suppression
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  async function syncCalendly() {
+  async function syncCalls() {
     setSyncing(true);
     setSyncMsg(null);
     try {
@@ -46,7 +46,7 @@ export default function PageCalls() {
       if (data.ok) {
         await refetch();
         setSyncMsg(data.synced > 0
-          ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}`
+          ? `${data.synced} call${data.synced > 1 ? 's' : ''} Calendly synchronisé${data.synced > 1 ? 's' : ''}`
           : 'Calls à jour');
       } else {
         setSyncMsg(data.error || 'Erreur');
@@ -119,25 +119,15 @@ export default function PageCalls() {
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const upcoming = calls
-    .filter(c => c.status !== 'cancelled' && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
+    .filter(c => !['cancelled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   const history = calls
-    .filter(c => c.status !== 'cancelled' && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
+    .filter(c => !['cancelled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
+  const pending = calls.filter(c => c.status === 'pending_acceptance');
 
   function getClient(clientId: string) {
     return clients.find(c => c.id === clientId);
-  }
-
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="page-header"><h1 className="page-title">Calls</h1></div>
-        <div style={{ color: 'var(--muted)', fontSize: 13, paddingTop: 40, textAlign: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement…
-        </div>
-      </div>
-    );
   }
 
   return (
@@ -145,7 +135,10 @@ export default function PageCalls() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Calls</h1>
-          <p className="page-sub">{upcoming.length} à venir · {history.length} dans l'historique</p>
+          <p className="page-sub">
+            {pending.length > 0 && <span style={{ color: 'var(--amber, #f59e0b)', fontWeight: 600 }}>{pending.length} en attente · </span>}
+            {upcoming.filter(c => c.status === 'active').length} à venir · {history.length} dans l'historique
+          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {syncMsg && (
@@ -153,10 +146,10 @@ export default function PageCalls() {
               {syncMsg}
             </span>
           )}
-          <button className="btn-ghost" type="button" onClick={syncCalendly} disabled={syncing}
+          <button className="btn-ghost" type="button" onClick={syncCalls} disabled={syncing}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="refresh-cw" size={13} />
-            {syncing ? 'Sync…' : 'Sync Calendly'}
+            {syncing ? 'Sync…' : 'Sync calls'}
           </button>
           <button
             className="btn-primary"
@@ -170,9 +163,58 @@ export default function PageCalls() {
         </div>
       </div>
 
+      {/* Section calls en attente d'acceptation */}
+      {pending.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            En attente d'acceptation ({pending.length})
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {pending.map(call => {
+              const cl = getClient(call.client_id || '');
+              const displayName = cl?.name || call.invitee_name || '—';
+              const initials = cl?.initials || '?';
+              const d = new Date(call.scheduled_at!);
+              return (
+                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderLeft: '3px solid #f59e0b' }}>
+                  <div style={{ minWidth: 70, textAlign: 'center' }}>
+                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>
+                      {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                    </div>
+                  </div>
+                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
+                    {initials}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{displayName}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>
+                  </div>
+                  <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
+                    Réponse en attente
+                  </span>
+                  <button
+                    className="btn-ghost"
+                    type="button"
+                    onClick={() => handleDeleteCall(call.id)}
+                    disabled={deletingId === call.id}
+                    style={{ fontSize: 11, color: 'var(--red)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                  >
+                    <Icon name="trash" size={12} />
+                    {deletingId === call.id ? '…' : 'Annuler'}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         <button className={`chip${tab === 'upcoming' ? ' chip-active' : ''}`} onClick={() => setTab('upcoming')} type="button">
-          À venir ({upcoming.length})
+          À venir ({upcoming.filter(c => c.status === 'active').length})
         </button>
         <button className={`chip${tab === 'history' ? ' chip-active' : ''}`} onClick={() => setTab('history')} type="button">
           Historique ({history.length})

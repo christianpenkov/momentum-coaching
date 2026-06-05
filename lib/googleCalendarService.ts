@@ -175,7 +175,7 @@ export async function createGoogleCall(params: {
       meet_link: meetLink,
       google_event_id: googleEventId,
       call_type: 'google',
-      status: 'active',
+      status: 'pending_acceptance',
       ready: 'pending',
     })
     .select()
@@ -196,8 +196,8 @@ export async function createGoogleCall(params: {
     const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     await sendPushToProfile(
       client.profile_id,
-      'Nouveau call planifié',
-      `${params.topic || 'Call coaching'} · ${dateStr} à ${timeStr}`,
+      'Nouvelle demande de call',
+      `${params.topic || 'Call coaching'} · ${dateStr} à ${timeStr} — Accepter ou refuser`,
       '/client/calls'
     );
   }
