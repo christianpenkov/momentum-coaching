@@ -5143,50 +5143,42 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   const maxIndex = 12;
   const pillRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
+  const [portalTarget, setPortalTarget] = useState<Element | null>(null);
+
+  useEffect(() => {
+    // Portal : injecter la pill directement dans .main-content
+    // pour que position:sticky fonctionne (enfant direct du scrollable)
+    const scroller = document.querySelector('.main-content');
+    if (scroller) setPortalTarget(scroller);
+  }, []);
 
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
-    const STICKY_TOP = 16;
-    // Mesure le trajet réel : distance entre la position initiale de la pill et sa position fixée
-    // On calcule au premier tick quand scrollTop=0
     let travel: number | null = null;
 
     const tick = () => {
-      const scroller = pill.closest('.main-content') as HTMLElement | null;
+      const scroller = document.querySelector('.main-content') as HTMLElement | null;
       if (scroller) {
-        // Mesure le trajet une seule fois au départ (scrollTop proche de 0)
-        if (travel === null) {
+        if (travel === null && scroller.scrollTop === 0) {
           const scrollerRect = scroller.getBoundingClientRect();
           const pillRect = pill.getBoundingClientRect();
-          // distance entre le haut de la pill et le seuil de fixation dans le scroller
-          travel = (pillRect.top - scrollerRect.top) - STICKY_TOP;
-          if (travel <= 0) travel = 1; // fallback
+          travel = Math.max(1, (pillRect.top - scrollerRect.top) - 16);
         }
-        const scrollTop = scroller.scrollTop;
-        const opacity = Math.min(1, scrollTop / travel) * 0.14;
-        pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
+        if (travel !== null) {
+          const opacity = Math.min(1, scroller.scrollTop / travel) * 0.14;
+          pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
+        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
 
     rafRef.current = requestAnimationFrame(tick);
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, []);
+  }, [portalTarget]);
 
-  return (
-    <div
-      ref={pillRef}
-      style={{
-        position: 'sticky', top: 16, alignSelf: 'flex-start', zIndex: 1100,
-        display: 'flex', alignItems: 'center', gap: 8,
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 12, padding: '5px 10px',
-        boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
-        willChange: 'box-shadow',
-        ['--pill-shadow-opacity' as string]: '0',
-      } as React.CSSProperties}
-    >
+  const pillContent = (
+    <>
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 140 }}>
@@ -5208,8 +5200,51 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
           }}>{p}j</button>
         ))}
       </div>
-    </div>
+    </>
   );
+
+  const pillStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 8,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 12, padding: '5px 10px',
+    boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
+    willChange: 'box-shadow',
+    ['--pill-shadow-opacity' as string]: '0',
+  } as React.CSSProperties;
+
+  // Pill via portal dans .main-content — enfant direct du flex-col scrollable
+  // position:sticky fonctionne ici car .main-content est overflow-y:auto ET flex-direction:column
+  // alignSelf:flex-end la pousse à droite sans wrapper supplémentaire
+  const stickyPill = portalTarget ? createPortal(
+    <div ref={pillRef} style={{
+      ...pillStyle,
+      position: 'sticky',
+      top: 16,
+      alignSelf: 'flex-end',
+      zIndex: 1100,
+      // height:0 + marginBottom:0 → ne prend pas de place verticale dans le flux
+      height: 0,
+      overflow: 'visible',
+      padding: 0,
+      border: 'none',
+      background: 'transparent',
+      boxShadow: 'none',
+    }}>
+      {/* Pill réelle décalée pour apparaître au niveau du header */}
+      <div style={{
+        ...pillStyle,
+        position: 'absolute',
+        right: 0,
+        top: 0,
+      }}>
+        {pillContent}
+      </div>
+    </div>,
+    portalTarget
+  ) : null;
+
+  // Placeholder dans le header — tient la place visuellement
+  return <><div style={{ ...pillStyle, visibility: 'hidden', pointerEvents: 'none' }}>{pillContent}</div>{stickyPill}</>;
 }
 
 // ── Contrôles inline par section (onglet B) ───────────────────────────────────
