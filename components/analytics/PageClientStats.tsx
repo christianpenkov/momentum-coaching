@@ -5146,10 +5146,17 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   const [portalTarget, setPortalTarget] = useState<Element | null>(null);
 
   useEffect(() => {
-    // Portal : injecter la pill directement dans .main-content
-    // pour que position:sticky fonctionne (enfant direct du scrollable)
     const scroller = document.querySelector('.main-content');
-    if (scroller) setPortalTarget(scroller);
+    if (!scroller) return;
+    // Créer un div ancré au début de .main-content pour que sticky parte du haut
+    let root = document.getElementById('period-pill-root');
+    if (!root) {
+      root = document.createElement('div');
+      root.id = 'period-pill-root';
+      scroller.prepend(root); // premier enfant = sticky démarre du haut
+    }
+    setPortalTarget(root);
+    return () => { root?.remove(); };
   }, []);
 
   useEffect(() => {
