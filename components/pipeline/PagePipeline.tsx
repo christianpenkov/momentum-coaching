@@ -352,6 +352,8 @@ export default function PagePipeline() {
   useEffect(() => {
     if (data?.overrides) {
       setOverrides(data.overrides);
+      setDismissedKeys(new Set(data.overrides.filter((o: Override) => o.stage === 'dismissed').map((o: Override) => o.prospect_key)));
+      setConfirmedKeys(new Set(data.overrides.filter((o: Override) => o.stage === 'confirmed_lead').map((o: Override) => o.prospect_key)));
     }
   }, [data?.overrides]);
 
@@ -591,8 +593,8 @@ export default function PagePipeline() {
                   onDragOver={e => handleDragOver(e, stage.key)}
                   onDragLeave={e => handleDragLeave(stage.key)}
                   platform={platform}
-                  onConfirmLead={key => setConfirmedKeys(prev => new Set([...prev, key]))}
-                  onDismissLead={key => setDismissedKeys(prev => new Set([...prev, key]))}
+                  onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
+                  onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
                 />
               );
             })}

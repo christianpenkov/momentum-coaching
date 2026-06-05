@@ -5276,7 +5276,7 @@ async function fetchSupabaseStats(profileId?: string) {
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  const [leadsRes, lmRes, calendlyRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5284,6 +5284,8 @@ async function fetchSupabaseStats(profileId?: string) {
       .select('id, name, keyword, url').eq('profile_id', targetId).order('created_at', { ascending: true }),
     supabase.from('integrations')
       .select('metadata').eq('profile_id', targetId).eq('provider', 'calendly').maybeSingle(),
+    supabase.from('pipeline_overrides')
+      .select('prospect_key, stage').eq('profile_id', targetId).eq('stage', 'dismissed'),
   ]);
 
   let callsRes: { data: any[] | null };
@@ -5323,7 +5325,9 @@ async function fetchSupabaseStats(profileId?: string) {
     ...lmData.filter((lm: any) => lm.url).map((lm: any) => ({ id: `lm-${lm.id}`, label: lm.name, url: lm.url, type: 'leadmagnet' as const })),
   ];
 
-  const callsData = callsRes.data ?? [];
+  // Exclure les calls rejetés manuellement dans le pipeline ("Non, pas un lead")
+  const dismissedKeys = new Set((overridesRes.data ?? []).map((o: any) => o.prospect_key));
+  const callsData = (callsRes.data ?? []).filter((c: any) => !dismissedKeys.has(c.id));
 
   return { igLeads, leadMagnets: lmData, destinations, calls: callsData };
   } catch { return null; }
