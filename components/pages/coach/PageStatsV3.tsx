@@ -5299,10 +5299,11 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
       style={{
         '--pill-shadow-opacity': '0',
         pointerEvents: 'auto',
+        position: 'sticky', top: 16,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
-        marginTop: 45, marginRight: 27,
+        marginTop: 16, marginRight: 27,
         boxShadow: '0 4px 16px rgba(0,0,0,var(--pill-shadow-opacity))',
         willChange: 'box-shadow',
         userSelect: 'none', WebkitUserSelect: 'none',
@@ -5400,9 +5401,14 @@ export default function PageStatsV2() {
   return (
     <div className="page-content">
 
-      {/* ── Wrapper sticky à hauteur nulle — pilule flottante haut-droite ── */}
+      {/* ── Container délimiteur — sticky éphémère (zone de fixation = 96px) ── */}
       {tab === 3 && (
-        <div style={{ position: 'sticky', top: 16, height: 0, width: '100%', display: 'flex', justifyContent: 'flex-end', zIndex: 40, pointerEvents: 'none' }}>
+        <div style={{
+          position: 'relative', width: '100%',
+          height: 96, marginBottom: -96,
+          display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-start',
+          pointerEvents: 'none', zIndex: 40,
+        }}>
           <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
         </div>
       )}
