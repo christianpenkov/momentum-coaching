@@ -5147,19 +5147,15 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
-    const STICKY_TOP = 72;
-    const APPROACH_ZONE = 30;
+    // travel = marginTop - top = 180 - 72 = 108px de scroll avant fixation
+    const TRAVEL = 108;
 
     const tick = () => {
       const scroller = pill.closest('.main-content') as HTMLElement | null;
       if (scroller) {
-        const dist = pill.getBoundingClientRect().top - scroller.getBoundingClientRect().top - STICKY_TOP;
-        let opacity = 0;
-        if (dist <= 0) {
-          opacity = 0.14;
-        } else if (dist < APPROACH_ZONE) {
-          opacity = (1 - dist / APPROACH_ZONE) * 0.14;
-        }
+        const scrollTop = scroller.scrollTop;
+        // Ombre de 0 à 0.14 répartie sur tout le trajet
+        const opacity = Math.min(1, scrollTop / TRAVEL) * 0.14;
         pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -5401,8 +5397,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       {/* Wrapper height:0 — ne prend pas de place dans le flux vertical,
           mais la pill sticky à l'intérieur peut glisser sur toute la hauteur de .main-content */}
       {tab === 3 && (
-        <div style={{ position: 'sticky', top: 72, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none', marginTop: 90 }}>
-          <div style={{ pointerEvents: 'auto', marginTop: -90 }}>
+        <div style={{ position: 'sticky', top: 72, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none', marginRight: 10, marginTop: 180 }}>
+          <div style={{ pointerEvents: 'auto', marginTop: -180 }}>
             <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
           </div>
         </div>
