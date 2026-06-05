@@ -5143,7 +5143,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
   return (
     <div
       style={{
-        position: 'fixed', top: 16, right: 0, zIndex: 1100,
+        position: 'sticky', top: 16, alignSelf: 'flex-start', zIndex: 40,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
@@ -5369,10 +5369,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   return (
     <div className="page-content">
 
-      {tab === 3 && (
-        <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
-      )}
-
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <h1 className="page-title">Analytics</h1>
@@ -5389,6 +5385,9 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
               }}>{p}j</button>
             ))}
           </div>
+        )}
+        {tab === 3 && (
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
         )}
       </div>
 
