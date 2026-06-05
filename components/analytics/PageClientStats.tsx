@@ -5178,6 +5178,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
     <div
       ref={pillRef}
       style={{
+        position: 'sticky', top: 16, alignSelf: 'flex-start', zIndex: 1100,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
@@ -5405,13 +5406,12 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     <div className="page-content">
       {/* Wrapper height:0 — ne prend pas de place dans le flux vertical,
           mais la pill sticky à l'intérieur peut glisser sur toute la hauteur de .main-content */}
-      {/* Header */}
+      {/* Header — pill alignée à droite du titre Analytics via flexbox normal */}
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
           <h1 className="page-title">Analytics</h1>
           <p className="page-sub">Tableau de bord complet — toutes les plateformes</p>
         </div>
-        {/* Sélecteur 7j/30j — onglets hors Funnel & Calls */}
         {tab !== 3 && (
           <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4 }}>
             {([7, 30] as Period[]).map(p => (
@@ -5424,18 +5424,13 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
             ))}
           </div>
         )}
+        {/* Pill dans le header — sticky, alignSelf flex-start pour ne pas s'étirer */}
+        {tab === 3 && (
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
+        )}
       </div>
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
-
-      {/* Wrapper sticky height:0 — après les Tabs, pill part du niveau des tabs */}
-      {tab === 3 && (
-        <div style={{ position: 'sticky', top: 16, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none', marginRight: 10 }}>
-          <div style={{ pointerEvents: 'auto' }}>
-            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
-          </div>
-        </div>
-      )}
 
       {loading ? <Loading /> : (
         <>
