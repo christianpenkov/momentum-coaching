@@ -66,6 +66,14 @@ const INTEGRATION_CONFIG: {
     oauthPath: '/api/oauth/youtube',
   },
   {
+    provider: 'google',
+    name: 'Google Calendar',
+    icon: 'calendar',
+    desc: 'Créer des calls Google Meet directement depuis Momentum',
+    mode: 'oauth',
+    oauthPath: '/api/oauth/google',
+  },
+  {
     provider: 'shortio',
     name: 'Short.io',
     icon: 'link',
@@ -120,7 +128,7 @@ export default function PageSettings() {
 
       const { data: integs } = await supabase.from('integrations').select('*').eq('profile_id', user.id);
       if (integs) {
-        const map = { anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null } as Record<Provider, Integration | null>;
+        const map = { anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null } as Record<Provider, Integration | null>;
         integs.forEach((i: Integration) => { map[i.provider] = i; });
         setIntegrations(map);
       }
