@@ -5143,7 +5143,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
   return (
     <div
       style={{
-        position: 'fixed', top: 16, right: 24, zIndex: 1100,
+        position: 'fixed', top: 16, right: 8, zIndex: 1100,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
