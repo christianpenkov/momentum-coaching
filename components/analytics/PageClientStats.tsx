@@ -5147,15 +5147,24 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
-    // travel = marginTop - top = 180 - 72 = 108px de scroll avant fixation
-    const TRAVEL = 108;
+    const STICKY_TOP = 16;
+    // Mesure le trajet réel : distance entre la position initiale de la pill et sa position fixée
+    // On calcule au premier tick quand scrollTop=0
+    let travel: number | null = null;
 
     const tick = () => {
       const scroller = pill.closest('.main-content') as HTMLElement | null;
       if (scroller) {
+        // Mesure le trajet une seule fois au départ (scrollTop proche de 0)
+        if (travel === null) {
+          const scrollerRect = scroller.getBoundingClientRect();
+          const pillRect = pill.getBoundingClientRect();
+          // distance entre le haut de la pill et le seuil de fixation dans le scroller
+          travel = (pillRect.top - scrollerRect.top) - STICKY_TOP;
+          if (travel <= 0) travel = 1; // fallback
+        }
         const scrollTop = scroller.scrollTop;
-        // Ombre de 0 à 0.14 répartie sur tout le trajet
-        const opacity = Math.min(1, scrollTop / TRAVEL) * 0.14;
+        const opacity = Math.min(1, scrollTop / travel) * 0.14;
         pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
       }
       rafRef.current = requestAnimationFrame(tick);
@@ -5396,14 +5405,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     <div className="page-content">
       {/* Wrapper height:0 — ne prend pas de place dans le flux vertical,
           mais la pill sticky à l'intérieur peut glisser sur toute la hauteur de .main-content */}
-      {tab === 3 && (
-        <div style={{ position: 'sticky', top: 72, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none', marginRight: 10, marginTop: 180 }}>
-          <div style={{ pointerEvents: 'auto', marginTop: -180 }}>
-            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
-          </div>
-        </div>
-      )}
-
       {/* Header */}
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
         <div>
@@ -5426,6 +5427,15 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       </div>
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
+
+      {/* Wrapper sticky height:0 — après les Tabs, pill part du niveau des tabs */}
+      {tab === 3 && (
+        <div style={{ position: 'sticky', top: 16, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none', marginRight: 10 }}>
+          <div style={{ pointerEvents: 'auto' }}>
+            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
+          </div>
+        </div>
+      )}
 
       {loading ? <Loading /> : (
         <>
