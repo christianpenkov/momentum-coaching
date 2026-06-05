@@ -62,6 +62,7 @@ self.addEventListener('push', e => {
             icon: '/favicon-momentum.png',
             tag: 'momentum-msg',
             renotify: true,
+            data: { url: payload.url || '/' },
           }
         ).then(() => {
           swLog('push_notification_shown', 'success');
@@ -81,11 +82,23 @@ self.addEventListener('push', e => {
 self.addEventListener('notificationclick', e => {
   swLog('notification_clicked', e.notification.title);
   e.notification.close();
+
+  let targetUrl = '/';
+  try {
+    const data = e.notification.data || JSON.parse(e.notification.body || '{}');
+    if (data.url) targetUrl = data.url;
+  } catch {}
+
+  const fullUrl = self.location.origin + targetUrl;
+
   e.waitUntil(
     self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clients => {
-      const existing = clients.find(c => c.url.includes(self.location.origin));
-      if (existing) return existing.focus();
-      return self.clients.openWindow('/');
+      const existing = clients.find(c => c.url.startsWith(self.location.origin));
+      if (existing) {
+        existing.navigate(fullUrl);
+        return existing.focus();
+      }
+      return self.clients.openWindow(fullUrl);
     })
   );
 });

@@ -38,6 +38,9 @@ export default function PageClientCalendar() {
   const [calls, setCalls] = useState<Call[]>([]);
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(toDateKey(new Date()));
+  const [respondingId, setRespondingId] = useState<string | null>(null);
+  const [declineModal, setDeclineModal] = useState<{ callId: string; topic: string; scheduledAt: string } | null>(null);
+  const [proposedAt, setProposedAt] = useState('');
   const supabase = createClient();
 
   useEffect(() => {
@@ -46,6 +49,32 @@ export default function PageClientCalendar() {
       .order('scheduled_at', { ascending: true })
       .then(({ data }) => setCalls(data || []));
   }, [client?.id]);
+
+  async function handleAccept(callId: string) {
+    setRespondingId(callId);
+    const res = await fetch(`/api/calls/${callId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response: 'accepted' }),
+    });
+    if (res.ok) setCalls(prev => prev.map(c => c.id === callId ? { ...c, status: 'active' } : c));
+    setRespondingId(null);
+  }
+
+  async function handleDecline(callId: string, proposed: string) {
+    setRespondingId(callId);
+    await fetch(`/api/calls/${callId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response: 'declined', proposedAt: proposed || undefined }),
+    });
+    setCalls(prev => prev.map(c => c.id === callId ? { ...c, status: 'declined' } : c));
+    setRespondingId(null);
+    setDeclineModal(null);
+    setProposedAt('');
+  }
+
+  const pendingCalls = calls.filter(c => c.status === 'pending_acceptance');
 
   const events = useMemo<CalEvent[]>(() => {
     const evs: CalEvent[] = [];
@@ -110,7 +139,7 @@ export default function PageClientCalendar() {
     );
   }
 
-  const nextCall = calls.find(c => c.scheduled_at && new Date(c.scheduled_at) >= new Date());
+  const nextCall = calls.find(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) >= new Date());
 
   return (
     <div className="page-content">
@@ -123,6 +152,52 @@ export default function PageClientCalendar() {
           </p>
         </div>
       </div>
+
+      {/* Demandes de call en attente */}
+      {pendingCalls.length > 0 && (
+        <div style={{ marginBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+            {pendingCalls.length} demande{pendingCalls.length > 1 ? 's' : ''} en attente
+          </div>
+          {pendingCalls.map(call => {
+            const d = new Date(call.scheduled_at!);
+            const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+            const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            return (
+              <div key={call.id} className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '16px 18px', marginBottom: 8 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 6 }}>TON COACH TE PROPOSE UN CALL</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', textTransform: 'capitalize' }}>{dateStr}</div>
+                <div style={{ fontSize: 13, color: 'var(--accent)', marginTop: 2, marginBottom: 4 }}>
+                  {timeStr}
+                  {call.duration && <span style={{ color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {call.duration}</span>}
+                </div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{call.topic || 'Call coaching'}</div>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    onClick={() => handleAccept(call.id)}
+                    disabled={respondingId === call.id}
+                    style={{ flex: 1, fontSize: 13, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                  >
+                    <Icon name="check" size={13} />
+                    {respondingId === call.id ? '…' : 'Accepter'}
+                  </button>
+                  <button
+                    className="btn-ghost"
+                    type="button"
+                    onClick={() => setDeclineModal({ callId: call.id, topic: call.topic || 'Call coaching', scheduledAt: call.scheduled_at! })}
+                    disabled={respondingId === call.id}
+                    style={{ flex: 1, fontSize: 13, color: 'var(--red)' }}
+                  >
+                    Refuser
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Prochain call banner */}
       {nextCall && (
@@ -307,6 +382,47 @@ export default function PageClientCalendar() {
           )}
         </div>
       </div>}
+
+      {/* Modale refus avec créneau alternatif */}
+      {declineModal && (
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 16 }}
+          onClick={e => { if (e.target === e.currentTarget) { setDeclineModal(null); setProposedAt(''); } }}
+        >
+          <div className="card" style={{ width: '100%', maxWidth: 380, padding: 22 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Refuser ce call</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
+              {declineModal.topic} · {new Date(declineModal.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+              Proposer un autre créneau (optionnel)
+            </label>
+            <input
+              className="input"
+              type="text"
+              placeholder="Ex : jeudi après 14h"
+              value={proposedAt}
+              onChange={e => setProposedAt(e.target.value)}
+              style={{ width: '100%', marginBottom: 14 }}
+              autoFocus
+            />
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn-ghost" type="button" style={{ flex: 1 }} onClick={() => { setDeclineModal(null); setProposedAt(''); }}>
+                Annuler
+              </button>
+              <button
+                className="btn-primary"
+                type="button"
+                style={{ flex: 1, background: '#ef4444', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
+                onClick={() => handleDecline(declineModal.callId, proposedAt)}
+                disabled={respondingId === declineModal.callId}
+              >
+                {respondingId === declineModal.callId ? '…' : 'Confirmer le refus'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
