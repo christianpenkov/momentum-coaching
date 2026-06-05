@@ -5147,8 +5147,8 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
-    const STICKY_TOP = 16;
-    const APPROACH_ZONE = 20;
+    const STICKY_TOP = 72;
+    const APPROACH_ZONE = 30;
 
     const tick = () => {
       const scroller = pill.closest('.main-content') as HTMLElement | null;
@@ -5401,8 +5401,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       {/* Wrapper height:0 — ne prend pas de place dans le flux vertical,
           mais la pill sticky à l'intérieur peut glisser sur toute la hauteur de .main-content */}
       {tab === 3 && (
-        <div style={{ position: 'sticky', top: 16, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none', marginTop: 50 }}>
-          <div style={{ pointerEvents: 'auto', marginTop: -50 }}>
+        <div style={{ position: 'sticky', top: 72, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none', marginTop: 90 }}>
+          <div style={{ pointerEvents: 'auto', marginTop: -90 }}>
             <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
           </div>
         </div>
