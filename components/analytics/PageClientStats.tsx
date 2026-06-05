@@ -5141,23 +5141,45 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   modalOpen: boolean;
 }) {
   const maxIndex = 12;
+  const anchorRef = useRef<HTMLDivElement>(null);
   const pillRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
+  // Distance initiale entre le top du scroller et le top de l'anchor (mesurée une fois)
+  const originOffsetRef = useRef<number | null>(null);
 
   useEffect(() => {
+    const anchor = anchorRef.current;
     const pill = pillRef.current;
-    if (!pill) return;
-    const APPROACH_ZONE = 60; // px de scroll depuis le haut où l'ombre commence
+    if (!anchor || !pill) return;
+
+    const FIXED_TOP = 16; // px depuis le haut du scroller où la pill se fixe
+    const APPROACH_ZONE = 48;
 
     const tick = () => {
-      const scroller = pill.closest('.main-content');
+      const scroller = anchor.closest('.main-content') as HTMLElement | null;
       if (scroller) {
-        const scrollTop = (scroller as Element).scrollTop;
+        // Mesure l'origine une seule fois (quand scrollTop=0)
+        if (originOffsetRef.current === null && scroller.scrollTop === 0) {
+          const scrollerRect = scroller.getBoundingClientRect();
+          const anchorRect = anchor.getBoundingClientRect();
+          // Position de l'anchor relative au haut du scroller (viewport)
+          originOffsetRef.current = anchorRect.top - scrollerRect.top;
+        }
+
+        const origin = originOffsetRef.current ?? 60;
+        const scrollTop = scroller.scrollTop;
+        // translateY : au scroll=0 la pill est à son origine, elle monte jusqu'à FIXED_TOP
+        const travel = origin - FIXED_TOP; // pixels à parcourir
+        const translateY = Math.max(0, travel - scrollTop);
+        pill.style.transform = `translateY(${translateY}px)`;
+
+        // Ombre : s'active sur les derniers APPROACH_ZONE px avant d'être fixée
+        const remaining = travel - scrollTop;
         let opacity = 0;
-        if (scrollTop >= APPROACH_ZONE) {
+        if (remaining <= 0) {
           opacity = 0.14;
-        } else if (scrollTop > 0) {
-          opacity = (scrollTop / APPROACH_ZONE) * 0.14;
+        } else if (remaining < APPROACH_ZONE) {
+          opacity = (1 - remaining / APPROACH_ZONE) * 0.14;
         }
         pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
       }
@@ -5168,19 +5190,8 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
     return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  return (
-    <div
-      ref={pillRef}
-      style={{
-        position: 'fixed', top: 16, right: 27, zIndex: 1100,
-        display: 'flex', alignItems: 'center', gap: 8,
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 12, padding: '5px 10px',
-        boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
-        willChange: 'box-shadow',
-        ['--pill-shadow-opacity' as string]: '0',
-      } as React.CSSProperties}
-    >
+  const pillContent = (
+    <>
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 140 }}>
@@ -5202,7 +5213,32 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
           }}>{p}j</button>
         ))}
       </div>
-    </div>
+    </>
+  );
+
+  const baseStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 8,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 12, padding: '5px 10px',
+    ['--pill-shadow-opacity' as string]: '0',
+  } as React.CSSProperties;
+
+  return (
+    <>
+      {/* Anchor invisible — tient la place dans le header flex */}
+      <div ref={anchorRef} style={{ ...baseStyle, visibility: 'hidden', pointerEvents: 'none' }}>
+        {pillContent}
+      </div>
+      {/* Pill réelle — fixed, se déplace via translateY */}
+      <div ref={pillRef} style={{
+        ...baseStyle,
+        position: 'fixed', top: 16, right: 27, zIndex: 1100,
+        boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
+        willChange: 'transform, box-shadow',
+      }}>
+        {pillContent}
+      </div>
+    </>
   );
 }
 
