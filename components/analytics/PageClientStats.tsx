@@ -5141,51 +5141,48 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   modalOpen: boolean;
 }) {
   const maxIndex = 12;
-  const anchorRef = useRef<HTMLDivElement>(null); // toujours dans le flux, mesure la position
-  const [stuck, setStuck] = useState(false);
-  const [shadow, setShadow] = useState(0);
-  const thresholdRef = useRef<number | null>(null);
+  const pillRef = useRef<HTMLDivElement>(null);
+  const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
-    const anchor = anchorRef.current;
-    if (!anchor) return;
-
-    const scroller: Element | Window = anchor.closest('.main-content') ?? window;
     const STICKY_TOP = 16;
-    const FADE_RANGE = 48;
+    const APPROACH_ZONE = 40;
 
-    const getScrollTop = () =>
-      scroller === window ? window.scrollY : (scroller as Element).scrollTop;
-
-    const computeThreshold = () => {
-      // offsetTop cumulé depuis le scroller
-      let el: HTMLElement | null = anchor;
-      let top = 0;
-      while (el && el !== scroller) {
-        top += el.offsetTop;
-        el = el.offsetParent as HTMLElement | null;
+    const tick = () => {
+      const pill = pillRef.current;
+      if (pill) {
+        const dist = pill.getBoundingClientRect().top - STICKY_TOP;
+        let opacity = 0;
+        if (dist <= 0) {
+          opacity = 0.14;
+        } else if (dist < APPROACH_ZONE) {
+          opacity = (1 - dist / APPROACH_ZONE) * 0.14;
+        }
+        pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
       }
-      thresholdRef.current = top - STICKY_TOP;
+      rafRef.current = requestAnimationFrame(tick);
     };
 
-    computeThreshold();
-
-    const onScroll = () => {
-      if (thresholdRef.current === null) computeThreshold();
-      const threshold = thresholdRef.current!;
-      const scrollTop = getScrollTop();
-      setStuck(scrollTop >= threshold);
-      const progress = Math.min(1, Math.max(0, (scrollTop - (threshold - FADE_RANGE)) / FADE_RANGE));
-      setShadow(progress);
-    };
-
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    onScroll();
-    return () => scroller.removeEventListener('scroll', onScroll);
+    rafRef.current = requestAnimationFrame(tick);
+    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
   }, []);
 
-  const pillContent = (
-    <>
+  return (
+    <div
+      ref={pillRef}
+      style={{
+        position: 'sticky',
+        top: 16,
+        alignSelf: 'flex-start',
+        zIndex: 1100,
+        display: 'flex', alignItems: 'center', gap: 8,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '5px 10px',
+        boxShadow: '0 4px 20px rgba(0,0,0,var(--pill-shadow-opacity,0))',
+        willChange: 'box-shadow',
+        ['--pill-shadow-opacity' as string]: '0',
+      } as React.CSSProperties}
+    >
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 140 }}>
@@ -5207,39 +5204,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
           }}>{p}j</button>
         ))}
       </div>
-    </>
-  );
-
-  const pillStyle: React.CSSProperties = {
-    display: 'flex', alignItems: 'center', gap: 8,
-    background: 'var(--surface)', border: '1px solid var(--border)',
-    borderRadius: 12, padding: '5px 10px',
-    transition: 'box-shadow 0.2s ease',
-    boxShadow: shadow > 0
-      ? `0 ${Math.round(shadow * 8)}px ${Math.round(shadow * 24)}px rgba(0,0,0,${(shadow * 0.18).toFixed(2)})`
-      : 'none',
-  };
-
-  return (
-    <>
-      {/* Anchor toujours dans le flux — maintient l'espace et sert de repère de scroll */}
-      <div
-        ref={anchorRef}
-        style={{
-          // Quand stuck : invisible mais garde la place. Sinon : pill visible normale.
-          ...(stuck ? { visibility: 'hidden', pointerEvents: 'none' as const } : {}),
-          ...pillStyle,
-        }}
-      >
-        {pillContent}
-      </div>
-      {/* Pill fixée — rendue uniquement quand stuck, positionnée en fixed */}
-      {stuck && (
-        <div style={{ ...pillStyle, position: 'fixed', top: 16, right: 27, zIndex: 1100 }}>
-          {pillContent}
-        </div>
-      )}
-    </>
+    </div>
   );
 }
 
