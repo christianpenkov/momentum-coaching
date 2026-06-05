@@ -1,6 +1,6 @@
 export type Role = 'coach' | 'client';
 export type Status = 'green' | 'amber' | 'red';
-export type Provider = 'stripe' | 'stripe_webhook' | 'calendly' | 'instagram' | 'youtube' | 'shortio' | 'anthropic';
+export type Provider = 'stripe' | 'stripe_webhook' | 'calendly' | 'instagram' | 'youtube' | 'shortio' | 'anthropic' | 'google';
 
 export interface Profile {
   id: string;
@@ -85,6 +85,9 @@ export interface Call {
   calendly_uri: string | null;
   calendly_event_uuid: string | null;
   join_url: string | null;
+  meet_link: string | null;
+  google_event_id: string | null;
+  call_type: 'calendly' | 'google' | 'manual' | null;
   status: string | null;
   invitee_email: string | null;
   invitee_name: string | null;

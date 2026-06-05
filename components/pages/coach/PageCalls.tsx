@@ -6,11 +6,36 @@ import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 type Tab = 'upcoming' | 'history';
 
+interface CreateCallForm {
+  clientId: string;
+  topic: string;
+  date: string;
+  startHour: string;
+  durationMin: string;
+}
+
+const EMPTY_FORM: CreateCallForm = {
+  clientId: '',
+  topic: '',
+  date: '',
+  startHour: '',
+  durationMin: '60',
+};
+
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
   const { calls, clients, loading, refetch } = useSupabaseClients();
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
+
+  // Modal création
+  const [showModal, setShowModal] = useState(false);
+  const [form, setForm] = useState<CreateCallForm>(EMPTY_FORM);
+  const [creating, setCreating] = useState(false);
+  const [createMsg, setCreateMsg] = useState<string | null>(null);
+
+  // Modal suppression
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   async function syncCalendly() {
     setSyncing(true);
@@ -33,11 +58,71 @@ export default function PageCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-  // On compare par début de journée : un call aujourd'hui reste "à venir" même s'il est déjà passé
+  async function handleCreateCall(e: React.FormEvent) {
+    e.preventDefault();
+    if (!form.clientId || !form.date || !form.startHour) return;
+
+    setCreating(true);
+    setCreateMsg(null);
+
+    const startTime = new Date(`${form.date}T${form.startHour}:00`);
+    const endTime = new Date(startTime.getTime() + parseInt(form.durationMin) * 60 * 1000);
+    const client = clients.find(c => c.id === form.clientId);
+
+    try {
+      const res = await fetch('/api/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientId: form.clientId,
+          clientName: client?.name || 'Client',
+          topic: form.topic || 'Call coaching',
+          startTime: startTime.toISOString(),
+          endTime: endTime.toISOString(),
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await refetch();
+        setShowModal(false);
+        setForm(EMPTY_FORM);
+        setSyncMsg('Call créé avec lien Meet');
+        setTimeout(() => setSyncMsg(null), 4000);
+      } else {
+        setCreateMsg(data.error || 'Erreur lors de la création');
+      }
+    } catch {
+      setCreateMsg('Erreur réseau');
+    }
+    setCreating(false);
+  }
+
+  async function handleDeleteCall(callId: string) {
+    setDeletingId(callId);
+    try {
+      const res = await fetch(`/api/calls/${callId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.ok) {
+        await refetch();
+        setSyncMsg('Call supprimé');
+        setTimeout(() => setSyncMsg(null), 4000);
+      } else {
+        setSyncMsg(data.error || 'Erreur suppression');
+        setTimeout(() => setSyncMsg(null), 4000);
+      }
+    } catch {
+      setSyncMsg('Erreur réseau');
+      setTimeout(() => setSyncMsg(null), 4000);
+    }
+    setDeletingId(null);
+  }
+
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
-  const upcoming = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
+  const upcoming = calls
+    .filter(c => c.status !== 'cancelled' && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
-  const history = calls.filter(c => c.scheduled_at && new Date(c.scheduled_at) < todayStart)
+  const history = calls
+    .filter(c => c.status !== 'cancelled' && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
   function getClient(clientId: string) {
@@ -73,6 +158,15 @@ export default function PageCalls() {
             <Icon name="refresh-cw" size={13} />
             {syncing ? 'Sync…' : 'Sync Calendly'}
           </button>
+          <button
+            className="btn-primary"
+            type="button"
+            onClick={() => { setShowModal(true); setCreateMsg(null); }}
+            style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            <Icon name="plus" size={13} />
+            Créer un call
+          </button>
         </div>
       </div>
 
@@ -97,6 +191,7 @@ export default function PageCalls() {
               const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
               const initials = cl?.initials || (call.invitee_name ? call.invitee_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?');
               const d = new Date(call.scheduled_at!);
+              const isGoogle = (call as { call_type?: string }).call_type === 'google';
               return (
                 <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
                   <div style={{ minWidth: 80, textAlign: 'center' }}>
@@ -113,12 +208,30 @@ export default function PageCalls() {
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{displayName}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{call.topic || 'Call coaching'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      {call.topic || 'Call coaching'}
+                      {isGoogle && (
+                        <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--accent)', fontWeight: 600, letterSpacing: '0.04em' }}>MEET</span>
+                      )}
+                    </div>
                   </div>
                   {call.join_url && (
-                    <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                    <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost"
+                      style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       <Icon name="video" size={13} /> Rejoindre
                     </a>
+                  )}
+                  {isGoogle && (
+                    <button
+                      className="btn-ghost"
+                      type="button"
+                      onClick={() => handleDeleteCall(call.id)}
+                      disabled={deletingId === call.id}
+                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }}
+                    >
+                      <Icon name="trash" size={13} />
+                      {deletingId === call.id ? '…' : 'Annuler'}
+                    </button>
                   )}
                   <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
                     {call.ready === 'ready' ? 'Prêt' : 'En attente'}
@@ -174,6 +287,143 @@ export default function PageCalls() {
             </table>
           </div>
         )
+      )}
+
+      {/* Modal création de call */}
+      {showModal && (
+        <div
+          style={{
+            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+          }}
+          onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
+        >
+          <div className="card" style={{ width: '100%', maxWidth: 440, padding: 28, margin: 16 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)', margin: 0 }}>
+                Créer un call Google Meet
+              </h2>
+              <button
+                type="button"
+                onClick={() => setShowModal(false)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4 }}
+              >
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleCreateCall} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                  Client
+                </label>
+                <select
+                  className="input"
+                  value={form.clientId}
+                  onChange={e => setForm(f => ({ ...f, clientId: e.target.value }))}
+                  required
+                  style={{ width: '100%' }}
+                >
+                  <option value="">Sélectionner un client…</option>
+                  {clients.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                  Sujet
+                </label>
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Call coaching"
+                  value={form.topic}
+                  onChange={e => setForm(f => ({ ...f, topic: e.target.value }))}
+                  style={{ width: '100%' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                    Date
+                  </label>
+                  <input
+                    className="input"
+                    type="date"
+                    value={form.date}
+                    onChange={e => setForm(f => ({ ...f, date: e.target.value }))}
+                    required
+                    style={{ width: '100%' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                    Heure de début
+                  </label>
+                  <input
+                    className="input"
+                    type="time"
+                    value={form.startHour}
+                    onChange={e => setForm(f => ({ ...f, startHour: e.target.value }))}
+                    required
+                    style={{ width: '100%' }}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
+                  Durée
+                </label>
+                <select
+                  className="input"
+                  value={form.durationMin}
+                  onChange={e => setForm(f => ({ ...f, durationMin: e.target.value }))}
+                  style={{ width: '100%' }}
+                >
+                  <option value="30">30 min</option>
+                  <option value="45">45 min</option>
+                  <option value="60">1h</option>
+                  <option value="90">1h30</option>
+                  <option value="120">2h</option>
+                </select>
+              </div>
+
+              {createMsg && (
+                <div style={{ fontSize: 12, color: 'var(--red)', padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 6 }}>
+                  {createMsg}
+                </div>
+              )}
+
+              <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  onClick={() => setShowModal(false)}
+                  style={{ flex: 1 }}
+                  disabled={creating}
+                >
+                  Annuler
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                  disabled={creating}
+                >
+                  {creating ? (
+                    <><Icon name="refresh-cw" size={13} /> Création…</>
+                  ) : (
+                    <><Icon name="video" size={13} /> Créer le call</>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

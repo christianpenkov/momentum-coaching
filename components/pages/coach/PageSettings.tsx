@@ -80,7 +80,7 @@ export default function PageSettings() {
   const searchParams = useSearchParams();
 
   const [integrations, setIntegrations] = useState<Record<Provider, Integration | null>>({
-    anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null,
+    anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null,
   });
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
