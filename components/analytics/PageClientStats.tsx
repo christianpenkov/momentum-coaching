@@ -5143,11 +5143,11 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
   return (
     <div
       style={{
-        position: 'fixed', top: 16, right: 27, zIndex: 1100,
+        position: 'fixed', top: 16, right: 37, zIndex: 1100,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
-        boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
         userSelect: 'none', WebkitUserSelect: 'none',
       } as React.CSSProperties}
     >
