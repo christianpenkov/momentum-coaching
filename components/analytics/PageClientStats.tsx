@@ -2762,10 +2762,9 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
 
 function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: Period }) {
   const [payFilter, setPayFilter] = useState<'all' | 'succeeded' | 'failed'>('all');
-  const [revPeriod, setRevPeriod] = useState<7 | 30>(30);
   if (!stripe) return <Empty msg="Connecte ton compte Stripe pour voir les revenus." />;
 
-  const cutoff = new Date(Date.now() - revPeriod * 86400000);
+  const cutoff = new Date(Date.now() - period * 86400000);
   const allInPeriod = stripe.recentPayments.filter(p => new Date(p.date) >= cutoff);
   const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
   const failed = allInPeriod.filter(p => p.status !== 'succeeded');
@@ -2774,16 +2773,14 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
   const avgBasket = succeeded.length > 0 ? cashCollecte / succeeded.length : 0;
   const failedPct = allInPeriod.length > 0 ? pct(failed.length, allInPeriod.length) : 0;
 
-  // Revenus par jour sur la période sélectionnée
   const today = new Date();
-  const revenueByDay: { date: string; ca: number }[] = Array.from({ length: revPeriod }, (_, i) => {
+  const revenueByDay: { date: string; ca: number }[] = Array.from({ length: period }, (_, i) => {
     const d = new Date(today);
-    d.setDate(d.getDate() - (revPeriod - 1 - i));
+    d.setDate(d.getDate() - (period - 1 - i));
     const iso = d.toISOString().split('T')[0];
-    const ca = succeeded
-      .filter(p => p.date.startsWith(iso))
-      .reduce((s, p) => s + p.amount, 0);
-    return { date: iso, ca };
+    const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
+    const label = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+    return { date: label, _iso: iso, ca } as any;
   });
 
   return (
@@ -2811,17 +2808,7 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
         </div>
       </div>
 
-      <Card title="Revenus / jour" sub={`${revPeriod} derniers jours · paiements Stripe`}>
-        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
-          {([7, 30] as const).map(p => (
-            <button key={p} onClick={() => setRevPeriod(p)} style={{
-              padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer',
-              border: `1px solid ${revPeriod === p ? 'var(--ink)' : 'var(--border)'}`,
-              background: revPeriod === p ? 'var(--ink)' : 'transparent',
-              color: revPeriod === p ? '#fff' : 'var(--muted)', transition: 'all .12s',
-            }}>{p}j</button>
-          ))}
-        </div>
+      <Card title="Revenus / jour" sub={`${period} derniers jours · paiements Stripe`}>
         <BarChart data={revenueByDay} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} />
       </Card>
 
