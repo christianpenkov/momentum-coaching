@@ -4,9 +4,18 @@ import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 
-type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio';
+type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio' | 'google';
 
-const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean }[] = [
+const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean; oauthPath?: string }[] = [
+  {
+    provider: 'google',
+    name: 'Google Calendar',
+    icon: 'calendar',
+    desc: 'Reçois les invitations de call de ton coach directement dans Google Calendar + rappels push',
+    placeholder: '',
+    oauth: true,
+    oauthPath: '/api/oauth/google',
+  },
   {
     provider: 'stripe',
     name: 'Stripe',
@@ -52,7 +61,7 @@ export default function PageClientSettings() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false });
+  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false });
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -79,7 +88,7 @@ export default function PageClientSettings() {
 
       const { data: integs } = await supabase.from('integrations').select('provider').eq('profile_id', user.id);
       if (integs) {
-        const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false } as Record<Provider, boolean>;
+        const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false } as Record<Provider, boolean>;
         integs.forEach((i: { provider: string }) => { if (i.provider in map) map[i.provider as Provider] = true; });
         setIntegrations(map);
       }
@@ -241,7 +250,7 @@ export default function PageClientSettings() {
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
                       {!cfg.oauth && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>Modifier</button>}
-                      {cfg.oauth && <a href={`/api/oauth/${cfg.provider}`} className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
+                      {cfg.oauth && <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
                       {cfg.provider === 'calendly' && (
                         <button className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} type="button" onClick={syncCalendly} disabled={syncing}>
                           <Icon name="refresh-cw" size={12} /> {syncing ? 'Sync…' : 'Sync calls'}
@@ -250,7 +259,7 @@ export default function PageClientSettings() {
                       <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
                     </div>
                   ) : cfg.oauth ? (
-                    <a href={`/api/oauth/${cfg.provider}`} className="btn-primary" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-primary" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       <Icon name="link" size={13} /> Connecter
                     </a>
                   ) : (
