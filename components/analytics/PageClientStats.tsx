@@ -5154,37 +5154,10 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   modalOpen: boolean;
 }) {
   const maxIndex = 0;
-  const pillRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const scroller = document.querySelector('.main-content') as HTMLElement | null;
-    if (!scroller || !pillRef.current) return;
-
-    // Calcule la position de départ = haut de .main-content dans le viewport
-    const scrollerRect = scroller.getBoundingClientRect();
-    const STICKY_TOP = scrollerRect.top; // se colle juste sous la topbar
-    const ORIGIN_TOP = scrollerRect.top + 68; // position initiale = bas du page-header
-
-    const update = () => {
-      if (!pillRef.current) return;
-      const scrollY = scroller.scrollTop;
-      const threshold = ORIGIN_TOP - STICKY_TOP;
-      const top = scrollY >= threshold ? STICKY_TOP : ORIGIN_TOP - scrollY;
-      pillRef.current.style.top = `${top}px`;
-      const shadowOpacity = Math.min(scrollY / 60, 1) * 0.14;
-      pillRef.current.style.boxShadow = scrollY > 4
-        ? `0 4px 16px rgba(0,0,0,${shadowOpacity.toFixed(3)})`
-        : 'none';
-    };
-
-    scroller.addEventListener('scroll', update, { passive: true });
-    update();
-    return () => scroller.removeEventListener('scroll', update);
-  }, []);
 
   return (
-    <div ref={pillRef} style={{
-      position: 'fixed', top: 999, right: 27, zIndex: 1100,
+    <div style={{
+      position: 'fixed', top: 16, right: 27, zIndex: 1100,
       display: 'flex', alignItems: 'center', gap: 8,
       background: 'var(--surface)', border: '1px solid var(--border)',
       borderRadius: 12, padding: '5px 10px',
