@@ -5153,7 +5153,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
   modalOpen: boolean;
 }) {
-  const maxIndex = 0;
+  const maxIndex = 12;
 
   return (
     <div style={{
