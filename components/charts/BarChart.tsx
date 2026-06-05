@@ -19,6 +19,7 @@ interface BarChartProps {
   height?: number;
   formatter?: (value: number) => string;
   stacked?: boolean;
+  xInterval?: number | 'preserveStartEnd';
 }
 
 const COLORS = ['var(--accent)', '#3f8a52', '#b58025', '#cd5b3f', '#6b7cde'];
@@ -39,13 +40,13 @@ const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean
   );
 };
 
-export default function BarChart({ data, bars, xKey, height = 220, formatter, stacked = false }: BarChartProps) {
+export default function BarChart({ data, bars, xKey, height = 220, formatter, stacked = false, xInterval }: BarChartProps) {
   return (
     <div className="chart-wrapper" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
         <ReBarChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="30%">
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} />
+          <XAxis dataKey={xKey} tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} interval={xInterval ?? 'preserveStartEnd'} />
           <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {bars.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}

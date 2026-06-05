@@ -2809,7 +2809,7 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
       </div>
 
       <Card title="Revenus / jour" sub={`${period} derniers jours · paiements Stripe`}>
-        <BarChart data={revenueByDay} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} />
+        <BarChart data={revenueByDay} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(period / 7) - 1} />
       </Card>
 
       <div className="card">
@@ -5141,15 +5141,38 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   modalOpen: boolean;
 }) {
   const maxIndex = 12;
+  const sentinelRef = useRef<HTMLDivElement>(null);
+  const [stuck, setStuck] = useState(false);
+  const [shadow, setShadow] = useState(0); // 0–1
 
-  return (
-    <div style={{
-      position: 'fixed', top: 16, right: 27, zIndex: 1100,
-      display: 'flex', alignItems: 'center', gap: 8,
-      background: 'var(--surface)', border: '1px solid var(--border)',
-      borderRadius: 12, padding: '5px 10px',
-      boxShadow: 'none',
-    }}>
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+    if (!sentinel) return;
+
+    // IntersectionObserver: détecte quand le sentinel passe hors viewport
+    const observer = new IntersectionObserver(
+      ([entry]) => setStuck(!entry.isIntersecting),
+      { threshold: 0, rootMargin: '-16px 0px 0px 0px' }
+    );
+    observer.observe(sentinel);
+
+    // Scroll listener pour interpoler l'ombre progressivement
+    const scroller = sentinel.closest('.main-content') ?? window;
+    const onScroll = () => {
+      const rect = sentinel.getBoundingClientRect();
+      // rect.top va de ~96px (en haut de page) vers 16px (seuil de fixation)
+      // on interpole shadow de 0→1 sur une fenêtre de 40px avant le seuil
+      const STICKY_TOP = 16;
+      const FADE_RANGE = 48;
+      const progress = Math.min(1, Math.max(0, (STICKY_TOP + FADE_RANGE - rect.top) / FADE_RANGE));
+      setShadow(progress);
+    };
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => { observer.disconnect(); scroller.removeEventListener('scroll', onScroll); };
+  }, []);
+
+  const pillContent = (
+    <>
       {/* Navigateur période */}
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
@@ -5174,7 +5197,34 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
           }}>{p}j</button>
         ))}
       </div>
-    </div>
+    </>
+  );
+
+  const pillStyle: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 8,
+    background: 'var(--surface)', border: '1px solid var(--border)',
+    borderRadius: 12, padding: '5px 10px',
+    transition: 'box-shadow 0.2s ease',
+    boxShadow: shadow > 0
+      ? `0 ${Math.round(shadow * 8)}px ${Math.round(shadow * 24)}px rgba(0,0,0,${(shadow * 0.18).toFixed(2)})`
+      : 'none',
+  };
+
+  return (
+    <>
+      {/* Sentinel — reste dans le flux, invisible */}
+      <div ref={sentinelRef} style={{ width: 1, height: 1, pointerEvents: 'none' }} />
+      {/* Pill fixée quand sentinel hors viewport */}
+      {stuck ? (
+        <div style={{ ...pillStyle, position: 'fixed', top: 16, right: 27, zIndex: 1100 }}>
+          {pillContent}
+        </div>
+      ) : (
+        <div style={pillStyle}>
+          {pillContent}
+        </div>
+      )}
+    </>
   );
 }
 
