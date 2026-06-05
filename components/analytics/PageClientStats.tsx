@@ -5147,20 +5147,17 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
   useEffect(() => {
     const pill = pillRef.current;
     if (!pill) return;
-    const APPROACH_ZONE = 48;
+    const APPROACH_ZONE = 60;
 
     const tick = () => {
       const scroller = pill.closest('.main-content') as HTMLElement | null;
       if (scroller) {
-        const pillRect = pill.getBoundingClientRect();
-        const scrollerRect = scroller.getBoundingClientRect();
-        // dist = 0 quand pill est collée au top du scroller (sticky activé)
-        const dist = pillRect.top - scrollerRect.top - 16;
+        const scrollTop = scroller.scrollTop;
         let opacity = 0;
-        if (dist <= 0) {
+        if (scrollTop >= APPROACH_ZONE) {
           opacity = 0.14;
-        } else if (dist < APPROACH_ZONE) {
-          opacity = (1 - dist / APPROACH_ZONE) * 0.14;
+        } else if (scrollTop > 0) {
+          opacity = (scrollTop / APPROACH_ZONE) * 0.14;
         }
         pill.style.setProperty('--pill-shadow-opacity', opacity.toFixed(4));
       }
@@ -5175,10 +5172,6 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, modalOpen 
     <div
       ref={pillRef}
       style={{
-        position: 'sticky',
-        top: 16,
-        alignSelf: 'flex-start',
-        zIndex: 1100,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
@@ -5404,15 +5397,25 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
   return (
     <div className="page-content">
-      {/* Ligne header : titre à gauche, sélecteur période à droite */}
-      <div style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
-        <div className="page-header" style={{ margin: 0 }}>
+      {/* Wrapper height:0 — ne prend pas de place dans le flux vertical,
+          mais la pill sticky à l'intérieur peut glisser sur toute la hauteur de .main-content */}
+      {tab === 3 && (
+        <div style={{ position: 'sticky', top: 16, height: 0, zIndex: 1100, display: 'flex', justifyContent: 'flex-end', pointerEvents: 'none' }}>
+          <div style={{ pointerEvents: 'auto' }}>
+            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
+          </div>
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+        <div>
           <h1 className="page-title">Analytics</h1>
           <p className="page-sub">Tableau de bord complet — toutes les plateformes</p>
         </div>
         {/* Sélecteur 7j/30j — onglets hors Funnel & Calls */}
         {tab !== 3 && (
-          <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4, alignSelf: 'flex-start' }}>
+          <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4 }}>
             {([7, 30] as Period[]).map(p => (
               <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
                 padding: '5px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', border: 'none',
@@ -5422,10 +5425,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
               }}>{p}j</button>
             ))}
           </div>
-        )}
-        {/* PeriodPill Funnel & Calls — sticky, enfant direct du flex col de page-content */}
-        {tab === 3 && (
-          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} modalOpen={modalOpen} />
         )}
       </div>
 
