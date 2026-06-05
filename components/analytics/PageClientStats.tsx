@@ -5140,47 +5140,14 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
 }) {
   const maxIndex = 12;
-  const pillRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef<number | null>(null);
-
-  useEffect(() => {
-    const tick = () => {
-      const pill = pillRef.current;
-      if (!pill) { rafRef.current = requestAnimationFrame(tick); return; }
-
-      const rect = pill.getBoundingClientRect();
-      const stickyTargetTop = 16;
-      const approachZone = 20;
-      const distanceToSticky = rect.top - stickyTargetTop;
-
-      let shadowOpacity = 0;
-      if (distanceToSticky <= 0) {
-        shadowOpacity = 0.12;
-      } else if (distanceToSticky < approachZone) {
-        shadowOpacity = (1 - distanceToSticky / approachZone) * 0.12;
-      }
-
-      pill.style.setProperty('--pill-shadow-opacity', shadowOpacity.toString());
-      rafRef.current = requestAnimationFrame(tick);
-    };
-
-    rafRef.current = requestAnimationFrame(tick);
-    return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); };
-  }, []);
-
   return (
     <div
-      ref={pillRef}
       style={{
-        '--pill-shadow-opacity': '0',
-        pointerEvents: 'auto',
-        position: 'sticky', top: 16,
+        position: 'fixed', top: 16, right: 27, zIndex: 1100,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
-        marginTop: 16, marginRight: 27,
-        boxShadow: '0 4px 16px rgba(0,0,0,var(--pill-shadow-opacity))',
-        willChange: 'box-shadow',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.08)',
         userSelect: 'none', WebkitUserSelect: 'none',
       } as React.CSSProperties}
     >
@@ -5402,16 +5369,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   return (
     <div className="page-content">
 
-      {/* ── Container délimiteur — sticky éphémère (zone de fixation ~60px de scroll) ── */}
       {tab === 3 && (
-        <div style={{
-          position: 'relative', width: '100%',
-          height: 96, marginBottom: -96,
-          display: 'flex', justifyContent: 'flex-end', alignItems: 'flex-start',
-          pointerEvents: 'none', zIndex: 40,
-        }}>
-          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
-        </div>
+        <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
       )}
 
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
