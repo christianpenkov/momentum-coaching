@@ -2,6 +2,132 @@
 
 import { useState } from 'react';
 
+// ─── Section Data Range ───────────────────────────────────────────────────────
+function DataRangeSection() {
+  const [profileId, setProfileId] = useState('');
+  const [result, setResult] = useState<any>(null);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  async function run() {
+    if (!profileId.trim()) return;
+    setLoading(true);
+    setResult(null);
+    try {
+      const res = await fetch(`/api/debug-data-range?profile_id=${profileId.trim()}`);
+      const data = await res.json();
+      setResult(data);
+      // Auto-expand summary
+      setExpanded({ _summary: true });
+    } catch (e: any) {
+      setResult({ error: e.message });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  const statusColor = (s: string) => s?.includes('✅') ? '#3f8a52' : s?.includes('⚠️') ? '#d97706' : '#cd5b3f';
+
+  return (
+    <div style={{ marginBottom: 36 }}>
+      <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Data Range — Granularité & Day-to-Day</div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+        Inspecte ce que chaque API retourne réellement sur 30j : dates disponibles, day-to-day ou pas, champs.
+      </div>
+
+      <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
+        <input
+          value={profileId}
+          onChange={e => setProfileId(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && run()}
+          placeholder="profile_id du client (UUID Supabase)"
+          style={{ flex: 1, padding: '9px 14px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', color: 'var(--ink)' }}
+        />
+        <button onClick={run} disabled={loading || !profileId.trim()}
+          style={{ padding: '9px 22px', background: 'var(--ink)', color: 'var(--surface)', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading || !profileId.trim() ? 0.5 : 1 }}>
+          {loading ? '⏳ Analyse…' : 'Analyser'}
+        </button>
+      </div>
+
+      {result && !result.error && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {/* Summary en premier */}
+          {result._summary && (
+            <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', background: 'var(--surface-2)', cursor: 'pointer' }}
+                onClick={() => setExpanded(e => ({ ...e, _summary: !e._summary }))}>
+                <span style={{ fontWeight: 700, fontSize: 13 }}>📋 Résumé & Recommandations</span>
+                <span style={{ marginLeft: 'auto', fontSize: 16 }}>{expanded._summary ? '▲' : '▼'}</span>
+              </div>
+              {expanded._summary && (
+                <div style={{ padding: '16px 20px' }}>
+                  <div style={{ marginBottom: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Day-to-day disponible</div>
+                    {Object.entries(result._summary.dayToDayAvailable).map(([k, v]: [string, any]) => (
+                      <div key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, minWidth: 180, color: 'var(--muted)' }}>{k}</span>
+                        <span style={{ fontSize: 12, color: statusColor(v) }}>{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Recommandations</div>
+                    {result._summary.recommendation.map((r: string, i: number) => (
+                      <div key={i} style={{ fontSize: 12, color: 'var(--ink)', marginBottom: 5, paddingLeft: 12, borderLeft: '2px solid var(--border)' }}>→ {r}</div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Chaque API */}
+          {(['instagram', 'youtube', 'stripe', 'calendly'] as const).map(api => {
+            const d = result[api];
+            if (!d) return null;
+            const ok = d.status === 'OK' || d.status?.includes('OK');
+            return (
+              <div key={api} style={{ background: 'var(--surface)', border: `1px solid ${ok ? 'var(--border)' : '#cd5b3f40'}`, borderRadius: 12, overflow: 'hidden' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '12px 20px', background: 'var(--surface-2)', cursor: 'pointer' }}
+                  onClick={() => setExpanded(e => ({ ...e, [api]: !e[api] }))}>
+                  <span style={{ fontWeight: 700, fontSize: 13 }}>
+                    {api === 'instagram' ? '📸 Instagram' : api === 'youtube' ? '▶️ YouTube' : api === 'stripe' ? '💳 Stripe' : '📅 Calendly'}
+                  </span>
+                  <span style={{ fontSize: 11, fontWeight: 700, color: ok ? '#3f8a52' : '#cd5b3f', background: ok ? '#3f8a5220' : '#cd5b3f20', borderRadius: 4, padding: '2px 8px' }}>
+                    {d.status}
+                  </span>
+                  {d.chartData && (
+                    <span style={{ fontSize: 11, color: statusColor(d.chartData.status), fontWeight: 600 }}>
+                      {d.chartData.status} · {d.chartData.count} pts · {d.chartData.firstDate} → {d.chartData.lastDate}
+                    </span>
+                  )}
+                  {d.timeSeries && (
+                    <span style={{ fontSize: 11, color: statusColor(d.timeSeries.status), fontWeight: 600 }}>
+                      {d.timeSeries.datesWithCalls} dates avec calls
+                    </span>
+                  )}
+                  <span style={{ marginLeft: 'auto', fontSize: 16 }}>{expanded[api] ? '▲' : '▼'}</span>
+                </div>
+                {expanded[api] && (
+                  <pre style={{ margin: 0, padding: '16px 20px', fontSize: 11, lineHeight: 1.6, overflowX: 'auto', maxHeight: 500, background: 'transparent', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: 'var(--ink)' }}>
+                    {JSON.stringify(d, null, 2)}
+                  </pre>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {result?.error && (
+        <div style={{ padding: '12px 16px', background: '#cd5b3f15', border: '1px solid #cd5b3f40', borderRadius: 8, fontSize: 12, color: '#cd5b3f' }}>
+          Erreur : {result.error}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const ROUTES = [
   { key: 'instagram', label: 'Instagram Stats', url: '/api/instagram/stats', method: 'GET' },
   { key: 'youtube', label: 'YouTube Stats', url: '/api/youtube/stats', method: 'GET' },
@@ -49,6 +175,11 @@ export default function ApiDebugPage() {
         <h1 className="page-title">API Debug</h1>
         <p className="page-sub">Vérification des données brutes retournées par chaque API</p>
       </div>
+
+      {/* ─── DATA RANGE DEBUG ─── */}
+      <DataRangeSection />
+
+      <hr style={{ border: 'none', borderTop: '1px solid var(--border)', marginBottom: 28 }} />
 
       {/* ─── SECTION INSTAGRAM WORKFLOW ─── */}
       <div style={{ marginBottom: 32 }}>
