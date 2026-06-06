@@ -43,3 +43,6 @@ next-env.d.ts
 .vercel
 .env*.local
 .gstack/
+
+# graphify output
+/graphify-out/
