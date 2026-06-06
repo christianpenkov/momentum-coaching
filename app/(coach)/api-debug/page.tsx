@@ -201,6 +201,20 @@ const IG_WORKFLOW_ROUTES = [
 
 type Result = { status: number; data: unknown; error?: string; duration: number };
 
+function CopyButton({ data }: { data: unknown }) {
+  const [copied, setCopied] = useState(false);
+  function copy() {
+    navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1800);
+  }
+  return (
+    <button onClick={copy} style={{ marginLeft: 'auto', padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: '1px solid var(--border)', background: copied ? '#3f8a5220' : 'var(--surface)', color: copied ? '#3f8a52' : 'var(--muted)', cursor: 'pointer', flexShrink: 0 }}>
+      {copied ? '✓ Copié' : 'Copier JSON'}
+    </button>
+  );
+}
+
 export default function ApiDebugPage() {
   const [results, setResults] = useState<Record<string, Result>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
@@ -274,8 +288,9 @@ export default function ApiDebugPage() {
                     {res.status || 'ERR'}
                   </span>
                   <span style={{ fontSize: 11, color: 'var(--muted)' }}>{res.duration}ms</span>
+                  <CopyButton data={res.data} />
                 </div>
-                <pre style={{ margin: 0, padding: '16px 20px', fontSize: 11, lineHeight: 1.6, overflowX: 'auto', maxHeight: 600, color: res.error ? '#cd5b3f' : 'var(--ink)', background: 'transparent', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                <pre className="selectable" style={{ margin: 0, padding: '16px 20px', fontSize: 11, lineHeight: 1.6, overflowX: 'auto', maxHeight: 600, color: res.error ? '#cd5b3f' : 'var(--ink)', background: 'transparent', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {res.error ? res.error : JSON.stringify(res.data, null, 2)}
                 </pre>
               </div>
@@ -326,13 +341,14 @@ export default function ApiDebugPage() {
                       {res.status || 'ERR'}{isUnauth ? ' Non authentifié' : ''}
                     </span>
                     <span style={{ fontSize: 11, color: 'var(--muted)' }}>{res.duration}ms</span>
+                    {!isUnauth && <CopyButton data={res.data} />}
                   </>
                 )}
                 {!res && !loading[r.key] && <span style={{ fontSize: 11, color: 'var(--faint)' }}>Non appelé</span>}
                 {loading[r.key] && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Chargement…</span>}
               </div>
               {res && !isUnauth && (
-                <pre style={{ margin: 0, padding: '16px 20px', fontSize: 11, lineHeight: 1.6, overflowX: 'auto', maxHeight: 500, color: res.error ? '#cd5b3f' : 'var(--ink)', background: 'transparent' }}>
+                <pre className="selectable" style={{ margin: 0, padding: '16px 20px', fontSize: 11, lineHeight: 1.6, overflowX: 'auto', maxHeight: 500, color: res.error ? '#cd5b3f' : 'var(--ink)', background: 'transparent', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                   {res.error ? res.error : JSON.stringify(res.data, null, 2)}
                 </pre>
               )}

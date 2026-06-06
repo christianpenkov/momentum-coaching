@@ -94,8 +94,9 @@ input, textarea { font-family: inherit; }
   user-select: none;
   -webkit-touch-callout: none;
 }
-/* Ré-autoriser la sélection dans les bulles de messages */
-.chat-messages-zone {
+/* Ré-autoriser la sélection dans les bulles de messages et les blocs de code debug */
+.chat-messages-zone,
+.selectable {
   -webkit-user-select: text;
   user-select: text;
 }
