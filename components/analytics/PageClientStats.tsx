@@ -1943,44 +1943,46 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igCallsLive = calcCalls(callsIG);
   const ytCallsLive = calcCalls(callsYT);
 
-  const igReachD  = ig ? ig.chartData.slice(-period).reduce((s, d) => s + d.reach, 0) : 0;
-  const igLeadsD  = msgs?.leadCount || 0;
-  const igBioD    = ig?.profileLinksTaps30d || 0;
-  const igBookes  = igCallsLive.bookes;
-  const igHonores = igCallsLive.honores;
-  const igCloses  = igCallsLive.closes;
-  const igRev     = igCallsLive.rev;
-  const igNoShows = igCallsLive.noShows;
+  // Périodes historiques (periodIndex > 0) : pas de données dispo → tirets
+  const noData = periodIndex > 0;
 
-  const ytViewsD  = yt ? yt.chartData.slice(-period).reduce((s, d) => s + d.views, 0) : 0;
-  const ytBookes  = ytCallsLive.bookes;
-  const ytHonores = ytCallsLive.honores;
-  const ytCloses  = ytCallsLive.closes;
-  const ytRev     = ytCallsLive.rev;
-  const ytNoShows = ytCallsLive.noShows;
-  // Clics YT description → Calendly depuis shortio
-  const ytClicsD  = shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
+  const igReachD  = noData ? 0 : (ig ? ig.chartData.slice(-period).reduce((s, d) => s + d.reach, 0) : 0);
+  const igLeadsD  = noData ? 0 : (msgs?.leadCount || 0);
+  const igBioD    = noData ? 0 : (ig?.profileLinksTaps30d || 0);
+  const igBookes  = noData ? 0 : igCallsLive.bookes;
+  const igHonores = noData ? 0 : igCallsLive.honores;
+  const igCloses  = noData ? 0 : igCallsLive.closes;
+  const igRev     = noData ? 0 : igCallsLive.rev;
+  const igNoShows = noData ? 0 : igCallsLive.noShows;
 
-  // Clics totaux IG = bio + liens description contenu (postLinks IG)
-  const igPostClics = shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
+  const ytViewsD  = noData ? 0 : (yt ? yt.chartData.slice(-period).reduce((s, d) => s + d.views, 0) : 0);
+  const ytBookes  = noData ? 0 : ytCallsLive.bookes;
+  const ytHonores = noData ? 0 : ytCallsLive.honores;
+  const ytCloses  = noData ? 0 : ytCallsLive.closes;
+  const ytRev     = noData ? 0 : ytCallsLive.rev;
+  const ytNoShows = noData ? 0 : ytCallsLive.noShows;
+  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+
+  const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
   const igTotalClicsD = igBioD + igPostClics;
 
+  const dash = '—';
   const igFunnelSteps = [
-    { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD), rawValue: igReachD },
-    { label: 'Clics liens Calendly', value: fmt(igTotalClicsD), sub: 'bio + descr. + LM', rawValue: igTotalClicsD, rate: igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0 },
-    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0 },
-    { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
-    { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igHonores > 0 ? (igCloses / igHonores) * 100 : 0 },
-    { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
+    { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: noData ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD },
+    { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + LM', rawValue: igTotalClicsD, rate: noData ? 0 : (igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0) },
+    { label: 'Calls bookés', value: noData ? dash : fmt(igBookes), rawValue: igBookes, rate: noData ? 0 : (igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0) },
+    { label: 'Calls honorés', value: noData ? dash : fmt(igHonores), rawValue: igHonores, rate: noData ? 0 : (igBookes > 0 ? (igHonores / igBookes) * 100 : 0) },
+    { label: 'Deals closés', value: noData ? dash : fmt(igCloses), rawValue: igCloses, rate: noData ? 0 : (igHonores > 0 ? (igCloses / igHonores) * 100 : 0) },
+    { label: 'Revenue', value: noData ? dash : fmtEur(igRev), rawValue: igRev },
   ];
 
   const ytFunnelSteps = [
-    { label: period === 7 ? 'Vues 7j' : 'Vues 30j', value: ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD), rawValue: ytViewsD },
-    { label: 'Clics description → Calendly', value: fmt(ytClicsD), sub: 'Short.io', rawValue: ytClicsD, rate: ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0 },
-    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0 },
-    { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
-    { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0 },
-    { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
+    { label: period === 7 ? 'Vues 7j' : 'Vues 30j', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
+    { label: 'Clics description → Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Short.io', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
+    { label: 'Calls bookés', value: noData ? dash : fmt(ytBookes), rawValue: ytBookes, rate: noData ? 0 : (ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0) },
+    { label: 'Calls honorés', value: noData ? dash : fmt(ytHonores), rawValue: ytHonores, rate: noData ? 0 : (ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0) },
+    { label: 'Deals closés', value: noData ? dash : fmt(ytCloses), rawValue: ytCloses, rate: noData ? 0 : (ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0) },
+    { label: 'Revenue', value: noData ? dash : fmtEur(ytRev), rawValue: ytRev },
   ];
 
   const igNoShowRate = igBookes > 0 ? pct(igNoShows, igBookes) : 0;
@@ -2060,14 +2062,14 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         ];
 
         const heroItems = [
-          { label: 'Calls bookés',  value: fmt(totalBookes),   sub: 'toutes sources' },
-          { label: 'Calls honorés', value: fmt(totalHonores),  sub: `${noShowRate}% no-show` },
-          { label: 'Deals closés',  value: fmt(totalCloses),   sub: `${closingRate}% closing` },
-          { label: 'Revenue total', value: fmtEur(totalRev),   sub: 'cumulé' },
-          { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call honoré' },
-          { label: 'No-show',       value: fmt(noShowCount),   sub: `${noShowRate}% des bookés` },
-          { label: 'Calls IG',      value: fmt(igBookes),      sub: `${igCloses} closés` },
-          { label: 'Calls YT',      value: fmt(ytBookes),      sub: `${ytCloses} closés` },
+          { label: 'Calls bookés',  value: noData ? dash : fmt(totalBookes),   sub: noData ? '' : 'toutes sources' },
+          { label: 'Calls honorés', value: noData ? dash : fmt(totalHonores),  sub: noData ? '' : `${noShowRate}% no-show` },
+          { label: 'Deals closés',  value: noData ? dash : fmt(totalCloses),   sub: noData ? '' : `${closingRate}% closing` },
+          { label: 'Revenue total', value: noData ? dash : fmtEur(totalRev),   sub: noData ? '' : 'cumulé' },
+          { label: 'Rev / call',    value: noData ? dash : fmtEur(revPerCall), sub: noData ? '' : 'par call honoré' },
+          { label: 'No-show',       value: noData ? dash : fmt(noShowCount),   sub: noData ? '' : `${noShowRate}% des bookés` },
+          { label: 'Calls IG',      value: noData ? dash : fmt(igBookes),      sub: noData ? '' : `${igCloses} closés` },
+          { label: 'Calls YT',      value: noData ? dash : fmt(ytBookes),      sub: noData ? '' : `${ytCloses} closés` },
         ];
 
         return (
