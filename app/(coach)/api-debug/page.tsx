@@ -1,23 +1,69 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createClient } from '@/lib/supabase/client';
 
 // ─── Section Data Range ───────────────────────────────────────────────────────
 function DataRangeSection() {
   const [profileId, setProfileId] = useState('');
+  const [profileLabel, setProfileLabel] = useState('');
   const [result, setResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingProfiles, setLoadingProfiles] = useState(true);
+  const [profiles, setProfiles] = useState<{ id: string; name: string }[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
+  // Charge tous les profils clients accessibles au coach
+  useEffect(() => {
+    async function loadProfiles() {
+      const supabase = createClient();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { setLoadingProfiles(false); return; }
+
+      // D'abord l'ID du coach lui-même
+      const { data: myProfile } = await supabase
+        .from('profiles')
+        .select('id, full_name, role')
+        .eq('id', user.id)
+        .single();
+
+      if (myProfile?.role === 'coach') {
+        // Cherche les clients liés à ce coach
+        const { data: clients } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .eq('coach_id', user.id)
+          .eq('role', 'client');
+
+        const list = [
+          { id: myProfile.id, name: `Moi (${myProfile.full_name || 'coach'})` },
+          ...(clients || []).map(c => ({ id: c.id, name: c.full_name || c.id.slice(0, 8) })),
+        ];
+        setProfiles(list);
+        // Auto-select le premier client
+        if (clients?.length) {
+          setProfileId(clients[0].id);
+          setProfileLabel(clients[0].full_name || clients[0].id.slice(0, 8));
+        }
+      } else {
+        // C'est un client, on prend son propre ID
+        setProfiles([{ id: user.id, name: myProfile?.full_name || 'Mon profil' }]);
+        setProfileId(user.id);
+        setProfileLabel(myProfile?.full_name || 'Mon profil');
+      }
+      setLoadingProfiles(false);
+    }
+    loadProfiles();
+  }, []);
+
   async function run() {
-    if (!profileId.trim()) return;
+    if (!profileId) return;
     setLoading(true);
     setResult(null);
     try {
-      const res = await fetch(`/api/debug-data-range?profile_id=${profileId.trim()}`);
+      const res = await fetch(`/api/debug-data-range?profile_id=${profileId}`);
       const data = await res.json();
       setResult(data);
-      // Auto-expand summary
       setExpanded({ _summary: true });
     } catch (e: any) {
       setResult({ error: e.message });
@@ -36,15 +82,27 @@ function DataRangeSection() {
       </div>
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 20 }}>
-        <input
-          value={profileId}
-          onChange={e => setProfileId(e.target.value)}
-          onKeyDown={e => e.key === 'Enter' && run()}
-          placeholder="profile_id du client (UUID Supabase)"
-          style={{ flex: 1, padding: '9px 14px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', color: 'var(--ink)' }}
-        />
-        <button onClick={run} disabled={loading || !profileId.trim()}
-          style={{ padding: '9px 22px', background: 'var(--ink)', color: 'var(--surface)', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading || !profileId.trim() ? 0.5 : 1 }}>
+        {loadingProfiles ? (
+          <div style={{ flex: 1, padding: '9px 14px', fontSize: 13, color: 'var(--muted)' }}>Chargement des profils…</div>
+        ) : profiles.length > 1 ? (
+          <select
+            value={profileId}
+            onChange={e => {
+              const p = profiles.find(p => p.id === e.target.value);
+              setProfileId(e.target.value);
+              setProfileLabel(p?.name || '');
+            }}
+            style={{ flex: 1, padding: '9px 14px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', color: 'var(--ink)' }}
+          >
+            {profiles.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        ) : (
+          <div style={{ flex: 1, padding: '9px 14px', fontSize: 13, border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)', color: 'var(--muted)' }}>
+            {profileLabel || profileId || 'Aucun profil trouvé'}
+          </div>
+        )}
+        <button onClick={run} disabled={loading || !profileId}
+          style={{ padding: '9px 22px', background: 'var(--ink)', color: 'var(--surface)', border: 'none', borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: loading ? 'wait' : 'pointer', opacity: loading || !profileId ? 0.5 : 1 }}>
           {loading ? '⏳ Analyse…' : 'Analyser'}
         </button>
       </div>

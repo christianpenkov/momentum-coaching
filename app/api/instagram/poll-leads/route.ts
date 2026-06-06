@@ -196,6 +196,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       ig_lead_count:         msgs?.leadCount ?? null,
       ig_response_rate:      msgs?.responseRate ?? null,
       ig_demographics:       ig?.demographics ?? null,
+      ig_chart_data:         ig?.chartData ?? null,
 
       yt_views:                 yt?.views30d ?? null,
       yt_watch_time_min:        yt?.watchTime30d ?? null,
@@ -210,12 +211,14 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       yt_traffic_sources:       yt?.trafficSources ?? null,
       yt_devices:               yt?.devices ?? null,
       yt_demographics:          yt?.demographics ?? null,
+      yt_chart_data:            yt?.chartData ?? null,
 
-      shortio_clicks:        shortio?.clicks30d ?? null,
-      shortio_human_clicks:  shortio?.humanClicks30d ?? null,
-      shortio_links:         shortio?.links ?? null,
-      shortio_top_countries: shortio?.topCountries ?? null,
-      shortio_top_referrers: shortio?.topReferrers ?? null,
+      shortio_clicks:           shortio?.clicks30d ?? null,
+      shortio_human_clicks:     shortio?.humanClicks30d ?? null,
+      shortio_links:            shortio?.links ?? null,
+      shortio_top_countries:    shortio?.topCountries ?? null,
+      shortio_top_referrers:    shortio?.topReferrers ?? null,
+      shortio_chart_data:       shortio?.chartData ?? null,
 
       calls_booked:       callsBooked,
       calls_honored:      callsHonored,
