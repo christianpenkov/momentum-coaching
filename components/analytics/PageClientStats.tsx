@@ -14,9 +14,14 @@ import {
 } from 'recharts';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
-function ModalOverlay({ children, onClose, maxWidth = 760 }: { children: React.ReactNode; onClose: () => void; maxWidth?: number }) {
+function usePortalMounted() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => { setMounted(true); }, []);
+  return mounted;
+}
+
+function ModalOverlay({ children, onClose, maxWidth = 760 }: { children: React.ReactNode; onClose: () => void; maxWidth?: number }) {
+  const mounted = usePortalMounted();
   if (!mounted) return null;
   return createPortal(
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
@@ -25,6 +30,13 @@ function ModalOverlay({ children, onClose, maxWidth = 760 }: { children: React.R
     </div>,
     document.body
   );
+}
+
+// Wrapper portal pour les modals inline — contourne le stacking context de PageTransition (transform)
+function Portal({ children }: { children: React.ReactNode }) {
+  const mounted = usePortalMounted();
+  if (!mounted) return null;
+  return createPortal(<>{children}</>, document.body);
 }
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -2102,6 +2114,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
             {/* Modale graphe au clic */}
             {expandedHero !== null && (
+              <Portal>
               <div
                 style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
                 onClick={() => setExpandedHero(null)}
@@ -2194,6 +2207,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   })()}
                 </div>
               </div>
+              </Portal>
             )}
           </div>
         );
@@ -2261,6 +2275,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
       {/* Modal efficacité */}
       {expandedEff && (
+        <Portal>
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onClick={() => { setExpandedEff(null); onModalChange?.(false); }}>
           <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
@@ -2292,6 +2307,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
             </ResponsiveContainer>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* ── SECTION CALLS TABLE ── */}
@@ -2556,6 +2572,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
         </div>
 
         {expandedHero !== null && (
+          <Portal>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
             onClick={() => { setExpandedHero(null); setHeroSnapshot(null); }}>
             <div style={{ background: 'var(--surface)', borderRadius: 16, padding: '32px 36px 28px', width: '100%', maxWidth: 780, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
@@ -2587,6 +2604,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
               </ResponsiveContainer>
             </div>
           </div>
+          </Portal>
         )}
       </div>
 
@@ -2647,6 +2665,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
 
       {/* Modal efficacité */}
       {expandedEff && (
+        <Portal>
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 24 }}
           onClick={() => setExpandedEff(null)}>
           <div style={{ background: 'var(--surface)', borderRadius: 20, padding: '32px 32px 28px', width: '100%', maxWidth: 720, boxShadow: '0 24px 60px rgba(0,0,0,.18)' }}
@@ -2678,6 +2697,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
             </ResponsiveContainer>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Table calls */}
@@ -3273,6 +3293,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
 
       {/* Modal détail lien */}
       {selectedLink && (
+        <Portal>
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => setSelectedLink(null)}>
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, maxWidth: 540, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}
@@ -3304,10 +3325,12 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
             </div>
           </div>
         </div>
+        </Portal>
       )}
 
       {/* Modal création lien */}
       {showCreate && (
+        <Portal>
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => { setShowCreate(false); resetModal(); }}>
           <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.2)' }}
@@ -3518,6 +3541,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
             )}
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );
@@ -4668,6 +4692,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
         );
 
         return (
+          <Portal>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.55)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
             onClick={() => { setDetailModal(null); setSelectedContentId(null); }}>
             <div style={{ background: 'var(--surface)', borderRadius: 16, maxWidth: 780, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 32px 80px rgba(0,0,0,.25)' }}
@@ -4863,6 +4888,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
               </div>
             </div>
           </div>
+          </Portal>
         );
       })()}
 
@@ -4982,6 +5008,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
 
       {/* ── Modal création lien ── */}
       {showCreate && (
+        <Portal>
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
           onClick={() => { setShowCreate(false); resetModal(); }}>
           <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.2)' }}
@@ -5131,6 +5158,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
             )}
           </div>
         </div>
+        </Portal>
       )}
     </div>
   );
