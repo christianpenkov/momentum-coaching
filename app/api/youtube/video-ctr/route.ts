@@ -31,7 +31,7 @@ export async function GET(request: NextRequest) {
       .single(),
     serviceSupabase
       .from('youtube_ctr_sync_state')
-      .select('job_created_at')
+      .select('job_created_at, reports_processed')
       .eq('profile_id', profileId)
       .single(),
   ]);
@@ -43,5 +43,6 @@ export async function GET(request: NextRequest) {
     impressions: ctrRes.data.impressions,
     clicks: ctrRes.data.clicks,
     jobCreatedAt: syncRes.data?.job_created_at ?? null,
+    reportsProcessed: syncRes.data?.reports_processed ?? 0,
   });
 }

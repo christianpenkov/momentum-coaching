@@ -1380,11 +1380,13 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
+  const [ctrPending, setCtrPending] = useState(false);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string; data2?: { date: string; v: number }[]; label2?: string; color2?: string } | null>(null);
 
   const loadRetention = useCallback(async (videoId: string, publishedAt?: string) => {
     setLoadingRetention(true);
     setVideoCtr(null);
+    setCtrPending(false);
     try {
       const [retRes, ctrRes] = await Promise.all([
         fetch(`/api/youtube/video-retention?videoId=${videoId}`),
@@ -1396,9 +1398,17 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
         const ctrData = await ctrRes.json();
         const jca: string | null = ctrData.jobCreatedAt ?? null;
         setJobCreatedAt(jca);
-        // N'affiche le CTR que si la vidéo a été publiée APRÈS la création du job Reporting API
         const videoOlderThanJob = jca && publishedAt && new Date(publishedAt) < new Date(jca);
-        setVideoCtr(videoOlderThanJob ? null : (ctrData.ctrPct ?? null));
+        if (!videoOlderThanJob) {
+          // Job récent (<72h) et aucun rapport encore reçu → "Bientôt dispo"
+          const jobAgentH = jca ? (Date.now() - new Date(jca).getTime()) / 3600000 : 999;
+          const noReports = (ctrData.reportsProcessed ?? 0) === 0;
+          if (noReports && jobAgentH < 72) {
+            setCtrPending(true);
+          } else {
+            setVideoCtr(ctrData.ctrPct ?? null);
+          }
+        }
       }
     } catch { setRetention([]); }
     finally { setLoadingRetention(false); }
@@ -1827,6 +1837,7 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
                 ...(!selectedVideo.isShort ? (() => {
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
                   if (isOlderThanJob) return [];
+                  if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, string]];
                   return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, string]];
                 })() : []),
                 ['Likes', fmt(selectedVideo.likes)],
