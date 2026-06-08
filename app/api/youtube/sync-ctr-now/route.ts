@@ -22,13 +22,18 @@ export async function GET(request: NextRequest) {
 
   if (!integrations?.length) return NextResponse.json({ ok: true, synced: 0 });
 
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     integrations.map(async ({ profile_id }) => {
       const token = await getYtToken(profile_id);
       if (!token) return { profile_id, synced: 0, errors: ['no_token'] };
       const r = await syncYtCtr(profile_id, token);
       return { profile_id, ...r };
     })
+  );
+  const results = settled.map((s, i) =>
+    s.status === 'fulfilled'
+      ? s.value
+      : { profile_id: integrations[i].profile_id, synced: 0, errors: [s.reason?.message || 'unknown'] }
   );
 
   return NextResponse.json({ ok: true, profiles: results.length, results });
