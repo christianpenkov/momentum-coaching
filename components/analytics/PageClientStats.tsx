@@ -1670,7 +1670,7 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
           </thead>
           <tbody>
             {yt.videos.map(v => (
-              <tr key={v.id} onClick={() => { setSelectedVideo(v); loadRetention(v.id, v.publishedAt); }}
+              <tr key={v.id} onClick={() => { setSelectedVideo(v); setJobCreatedAt(null); setVideoCtr(null); setCtrPending(false); loadRetention(v.id, v.publishedAt); }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
@@ -1834,7 +1834,7 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
                 ['Vues totales', fmt(selectedVideo.views)],
                 ['Watch time total', selectedVideo.watchTime30d >= 3600 ? `${Math.round(selectedVideo.watchTime30d / 3600)}h` : `${Math.round(selectedVideo.watchTime30d / 60)}min`],
                 ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
-                ...(!selectedVideo.isShort ? (() => {
+                ...(!selectedVideo.isShort && !loadingRetention ? (() => {
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
                   if (isOlderThanJob) return [];
                   if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, string]];
