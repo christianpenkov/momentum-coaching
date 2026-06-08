@@ -114,24 +114,25 @@ export async function GET(request: Request) {
 
   const rows = parseCSV(csvText);
 
-  // 5. Agréger par video_id — somme impressions + moyenne CTR
-  const byVideo: Record<string, { impressions: number; ctrSum: number; ctrCount: number; dates: string[] }> = {};
-  const channelTotal = { impressions: 0, ctrSum: 0, ctrCount: 0 };
+  // 5. Agréger par video_id — CTR pondéré : totalClics / totalImpressions
+  // colonnes réelles : video_thumbnail_impressions, video_thumbnail_impressions_ctr
+  const byVideo: Record<string, { impressions: number; clicks: number }> = {};
+  let channelImpressions = 0;
+  let channelClicks = 0;
 
   for (const row of rows) {
-    const videoId = row['video_id'] || row['VIDEO_ID'] || '';
-    const impressions = parseFloat(row['impressions'] || row['IMPRESSIONS'] || '0') || 0;
-    const ctr = parseFloat(row['impressions_click_through_rate'] || row['IMPRESSIONS_CLICK_THROUGH_RATE'] || '0') || 0;
-    const date = row['date'] || row['DATE'] || '';
+    const videoId = row['video_id'] || '';
+    const impressions = parseFloat(row['video_thumbnail_impressions'] || '0') || 0;
+    const ctr = parseFloat(row['video_thumbnail_impressions_ctr'] || '0') || 0;
+    const clicks = impressions * ctr;
 
-    channelTotal.impressions += impressions;
-    if (ctr > 0) { channelTotal.ctrSum += ctr; channelTotal.ctrCount++; }
+    channelImpressions += impressions;
+    channelClicks += clicks;
 
     if (videoId) {
-      if (!byVideo[videoId]) byVideo[videoId] = { impressions: 0, ctrSum: 0, ctrCount: 0, dates: [] };
+      if (!byVideo[videoId]) byVideo[videoId] = { impressions: 0, clicks: 0 };
       byVideo[videoId].impressions += impressions;
-      if (ctr > 0) { byVideo[videoId].ctrSum += ctr; byVideo[videoId].ctrCount++; }
-      if (date && !byVideo[videoId].dates.includes(date)) byVideo[videoId].dates.push(date);
+      byVideo[videoId].clicks += clicks;
     }
   }
 
@@ -139,8 +140,8 @@ export async function GET(request: Request) {
     .map(([videoId, s]) => ({
       videoId,
       impressions: Math.round(s.impressions),
-      avgCtrPct: s.ctrCount > 0 ? parseFloat((s.ctrSum / s.ctrCount * 100).toFixed(2)) : null,
-      dates: s.dates.sort(),
+      // CTR pondéré correct (pas une moyenne)
+      ctrPct: s.impressions > 0 ? parseFloat((s.clicks / s.impressions * 100).toFixed(2)) : null,
     }))
     .sort((a, b) => b.impressions - a.impressions);
 
@@ -150,24 +151,14 @@ export async function GET(request: Request) {
       id: latestReport.id,
       startTime: latestReport.startTime,
       endTime: latestReport.endTime,
-      createTime: latestReport.createTime,
     },
-    csv_preview: {
-      total_rows: rows.length,
-      columns: rows.length > 0 ? Object.keys(rows[0]) : [],
-      first_5_rows: rows.slice(0, 5),
-    },
+    csv_columns: rows.length > 0 ? Object.keys(rows[0]) : [],
     channel_totals: {
-      impressions: Math.round(channelTotal.impressions),
-      avgCtrPct: channelTotal.ctrCount > 0
-        ? parseFloat((channelTotal.ctrSum / channelTotal.ctrCount * 100).toFixed(2))
+      impressions: Math.round(channelImpressions),
+      ctrPct: channelImpressions > 0
+        ? parseFloat((channelClicks / channelImpressions * 100).toFixed(2))
         : null,
     },
     by_video: videoStats,
-    all_reports_available: reports.map((r: any) => ({
-      id: r.id,
-      startTime: r.startTime,
-      endTime: r.endTime,
-    })),
   });
 }
