@@ -5246,19 +5246,19 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
     >
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
         style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 20, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>‹</button>
-      <div style={{ textAlign: 'center', minWidth: 125 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+      <div style={{ textAlign: 'center', minWidth: 120 }}>
+        <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           {periodIndex === 0 ? 'Période actuelle' : `${period === 7 ? 'S' : 'M'}−${periodIndex}`}
         </div>
-        <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{periodLabel(period, periodIndex)}</div>
+        <div style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{periodLabel(period, periodIndex)}</div>
       </div>
       <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={periodIndex === 0}
         style={{ background: 'none', border: 'none', cursor: periodIndex === 0 ? 'default' : 'pointer', fontSize: 20, color: periodIndex === 0 ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>›</button>
-      <div style={{ width: 1, height: 26, background: 'var(--border)', margin: '0 4px' }} />
+      <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
       <div style={{ display: 'flex', gap: 2, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
         {([7, 30] as Period[]).map(p => (
           <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(() => 0); }} style={{
-            padding: '5px 13px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+            padding: '4px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
             background: period === p ? 'var(--ink)' : 'transparent',
             color: period === p ? 'var(--surface)' : 'var(--muted)',
             transition: 'all .15s',
@@ -5749,12 +5749,12 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
         </div>
 
         {/* Droite : 1 bouton Rafraîchir + sélecteur période, tout sur une ligne */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexShrink: 0 }}>
           <button
             onClick={handleRefresh}
             disabled={inCooldown || refreshing || backfillInProgress}
             style={{
-              padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: inCooldown || refreshing || backfillInProgress ? 'not-allowed' : 'pointer',
+              padding: '6px 16px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: inCooldown || refreshing || backfillInProgress ? 'not-allowed' : 'pointer',
               border: '1px solid var(--border)', background: 'var(--surface)',
               color: inCooldown || refreshing || backfillInProgress ? 'var(--muted)' : 'var(--ink)',
               transition: 'all .15s', whiteSpace: 'nowrap',
