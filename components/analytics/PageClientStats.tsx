@@ -782,7 +782,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
   const totalRev     = callsInPeriod.reduce((s, c) => s + (c.revenue || 0), 0);
   const noShowRate   = callsBookes > 0 ? pct(noShows, callsBookes) : 0;
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
-  const revPerCall   = callsHonores > 0 ? Math.round(totalRev / callsHonores) : 0;
+  const revPerCall   = callsBookes > 0 ? Math.round(totalRev / callsBookes) : 0;
   const mrr          = stripe?.mrr || 0;
 
   // ── Tendance reach (sparkline) ────────────────────────────────────────────
@@ -920,7 +920,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
           { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
           { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
-          { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call honoré', color: GREEN },
+          { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
           { label: 'Revenue', value: fmtEur(mrr || totalRev), sub: `${period}j`, color: GREEN },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
@@ -2080,7 +2080,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       let v = 0;
       if (metricIdx === 1) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
       else if (metricIdx === 2) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
-      else if (metricIdx === 3) v = honored > 0 ? Math.round(rev / honored) : 0;
+      else if (metricIdx === 3) v = booked > 0 ? Math.round(rev / booked) : 0;
       else if (metricIdx === 4) v = rev;
       return { date: iso, v };
     });
@@ -2096,7 +2096,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: igHonores > 0 ? `${pct(igCloses, igHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Rev / call honoré', value: igHonores > 0 ? fmtEur(Math.round(igRev / igHonores)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -2106,7 +2106,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: ytHonores > 0 ? `${pct(ytCloses, ytHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Rev / call honoré', value: ytHonores > 0 ? fmtEur(Math.round(ytRev / ytHonores)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -2128,7 +2128,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       {/* ── HERO — STATS GLOBALES ── */}
       {(() => {
         const noShowCount = calls.filter(c => c.no_show).length;
-        const revPerCall = totalHonores > 0 ? Math.round(totalRev / totalHonores) : 0;
+        const revPerCall = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
 
         // Hero chart data — réel depuis calls agrégés par jour
         const n = period;
@@ -2158,7 +2158,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
           { label: 'Calls honorés', value: noData ? dash : fmt(totalHonores),  sub: noData ? '' : `${noShowRate}% no-show` },
           { label: 'Deals closés',  value: noData ? dash : fmt(totalCloses),   sub: noData ? '' : `${closingRate}% closing` },
           { label: 'Revenue total', value: noData ? dash : fmtEur(totalRev),   sub: noData ? '' : 'cumulé' },
-          { label: 'Rev / call',    value: noData ? dash : fmtEur(revPerCall), sub: noData ? '' : 'par call honoré' },
+          { label: 'Rev / call',    value: noData ? dash : fmtEur(revPerCall), sub: noData ? '' : 'par call booké' },
           { label: 'No-show',       value: noData ? dash : fmt(noShowCount),   sub: noData ? '' : `${noShowRate}% des bookés` },
           { label: 'Calls IG',      value: noData ? dash : fmt(igBookes),      sub: noData ? '' : `${igCloses} closés` },
           { label: 'Calls YT',      value: noData ? dash : fmt(ytBookes),      sub: noData ? '' : `${ytCloses} closés` },
@@ -2211,7 +2211,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     const totalCloses7 = igCloses + ytCloses;
                     const totalRev7 = igRev + ytRev;
                     const totalNS7 = igNoShows + ytNoShows;
-                    const revPerCall7 = totalHonores7 > 0 ? Math.round(totalRev7 / totalHonores7) : 0;
+                    const totalBookes7 = igBookes + ytBookes;
+                    const revPerCall7 = totalBookes7 > 0 ? Math.round(totalRev7 / totalBookes7) : 0;
 
                     // Pour les graphiques temporels, on utilise les vrais chartData quand disponibles
                     const igChartSlice = ig?.chartData.slice(-mn) || [];
@@ -2543,7 +2544,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const closingRate  = totalHonores > 0 ? pct(totalCloses, totalHonores) : 0;
   const noShowRate   = totalBookes > 0 ? pct(calls.filter(c => c.no_show).length, totalBookes) : 0;
   const noShowCount  = calls.filter(c => c.no_show).length;
-  const revPerCall   = totalHonores > 0 ? Math.round(totalRev / totalHonores) : 0;
+  const revPerCall   = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
 
   const igFunnelSteps = [
     { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD), rawValue: igReachD },
@@ -2581,7 +2582,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
       let v = 0;
       if (metricIdx === 1) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
       else if (metricIdx === 2) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
-      else if (metricIdx === 3) v = honored > 0 ? Math.round(rev / honored) : 0;
+      else if (metricIdx === 3) v = booked > 0 ? Math.round(rev / booked) : 0;
       else if (metricIdx === 4) v = rev;
       return { date: iso, v };
     });
@@ -2595,7 +2596,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
         { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: igHonores > 0 ? `${pct(igCloses, igHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Rev / call honoré', value: igHonores > 0 ? fmtEur(Math.round(igRev / igHonores)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -2605,7 +2606,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: ytHonores > 0 ? `${pct(ytCloses, ytHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
-        { label: 'Rev / call honoré', value: ytHonores > 0 ? fmtEur(Math.round(ytRev / ytHonores)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -2655,7 +2656,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
     { label: 'Calls honorés', value: fmt(totalHonores),  sub: `${noShowRate}% no-show` },
     { label: 'Deals closés',  value: fmt(totalCloses),   sub: `${closingRate}% closing` },
     { label: 'Revenue total', value: fmtEur(totalRev),   sub: 'cumulé' },
-    { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call honoré' },
+    { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call booké' },
     { label: 'No-show',       value: fmt(noShowCount),   sub: `${noShowRate}% des bookés` },
     { label: 'Calls IG',      value: fmt(igBookes),      sub: `${igCloses} closés` },
     { label: 'Calls YT',      value: fmt(ytBookes),      sub: `${ytCloses} closés` },
