@@ -1819,7 +1819,7 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
                 ['Vues totales', fmt(selectedVideo.views)],
                 ['Watch time total', selectedVideo.watchTime30d >= 3600 ? `${Math.round(selectedVideo.watchTime30d / 3600)}h` : `${Math.round(selectedVideo.watchTime30d / 60)}min`],
                 ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
-                ['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'],
+                ...(!selectedVideo.isShort ? [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, string]] : []),
                 ['Likes', fmt(selectedVideo.likes)],
                 ['Commentaires', fmt(selectedVideo.comments)],
                 ['Partages', fmt(selectedVideo.shares30d)],
