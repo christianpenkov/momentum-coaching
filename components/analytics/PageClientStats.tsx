@@ -1832,9 +1832,27 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
             </div>
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
-              ? (
+              ? (() => {
+                // Parse durée "H:MM:SS" ou "M:SS" en secondes totales
+                const parseDurSec = (dur: string) => {
+                  const parts = dur.split(':').map(Number);
+                  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+                  if (parts.length === 2) return parts[0] * 60 + parts[1];
+                  return parts[0] || 0;
+                };
+                const totalSec = parseDurSec(selectedVideo.duration);
+                const fmtSec = (s: number) => {
+                  const m = Math.floor(s / 60);
+                  const sec = Math.round(s % 60);
+                  return `${m}:${String(sec).padStart(2, '0')}`;
+                };
+                const retData = retention.map(p => ({
+                  x: totalSec > 0 ? fmtSec(p.ratio * totalSec) : `${Math.round(p.ratio * 100)}%`,
+                  pct: Math.round(p.watchRatio * 100),
+                }));
+                return (
                 <ResponsiveContainer width="100%" height={160}>
-                  <ReAreaChart data={retention.map(p => ({ x: `${Math.round(p.ratio * 100)}%`, pct: Math.round(p.watchRatio * 100) }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                     <defs>
                       <linearGradient id="grad-retention" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={GREEN} stopOpacity={0.18} />
@@ -1850,7 +1868,8 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
                     <Area type="monotone" dataKey="pct" stroke={GREEN} strokeWidth={2} fill="url(#grad-retention)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
                   </ReAreaChart>
                 </ResponsiveContainer>
-              )
+                );
+              })()
               : <Empty msg="Rétention non disponible pour cette vidéo" />}
             <a href={selectedVideo.url} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: RED, textDecoration: 'none', fontWeight: 600 }}>
               Voir sur YouTube →
