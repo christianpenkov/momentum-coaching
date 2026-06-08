@@ -5569,7 +5569,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const [modalOpen, setModalOpen] = useState(false);
   const [stripeRefreshing, setStripeRefreshing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [calendlySyncing, setCalendlySyncing] = useState(false);
 
   const refreshKey = `analytics_${profileId || 'me'}`;
   const { secondsLeft, inCooldown, startCooldown } = useRefreshCooldown(refreshKey);
@@ -5676,19 +5675,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     : null;
   const snapshotStale = snapshotAgeHours !== null && snapshotAgeHours > 26;
 
-  async function handleCalendlySync() {
-    if (calendlySyncing) return;
-    setCalendlySyncing(true);
-    await fetch('/api/calendly/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: profileId ? JSON.stringify({ profile_id: profileId }) : JSON.stringify({}),
-    });
-    setCalendlySyncing(false);
-    // Invalide les données Supabase pour recharger les calls
-    // (TanStack Query refetch via queryClient — on force via window reload léger)
-  }
-
   async function handleRefresh() {
     if (inCooldown || refreshing) return;
     setRefreshing(true);
@@ -5697,6 +5683,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       fetch('/api/instagram/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/youtube/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/shortio/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
+      fetch('/api/calendly/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
     ]);
     startCooldown();
     setRefreshing(false);
@@ -5761,49 +5748,32 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           </p>
         </div>
 
-        {/* Droite : colonne flex — boutons toujours sur la 1ère ligne, Period Pill en dessous si Funnel & Calls */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-          {/* Ligne 1 : boutons + sélecteur 7j/30j (sauf Funnel & Calls) */}
-          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              onClick={handleCalendlySync}
-              disabled={calendlySyncing}
-              style={{
-                padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: calendlySyncing ? 'not-allowed' : 'pointer',
-                border: '1px solid var(--border)', background: 'var(--surface)',
-                color: calendlySyncing ? 'var(--muted)' : 'var(--ink)',
-                transition: 'all .15s', whiteSpace: 'nowrap',
-              }}
-            >
-              {calendlySyncing ? 'Sync…' : '📅 Sync Calendly'}
-            </button>
-            <button
-              onClick={handleRefresh}
-              disabled={inCooldown || refreshing || backfillInProgress}
-              style={{
-                padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: inCooldown || refreshing || backfillInProgress ? 'not-allowed' : 'pointer',
-                border: '1px solid var(--border)', background: 'var(--surface)',
-                color: inCooldown || refreshing || backfillInProgress ? 'var(--muted)' : 'var(--ink)',
-                transition: 'all .15s', whiteSpace: 'nowrap',
-              }}
-            >
-              {refreshing ? 'Rafraîchissement…' : inCooldown ? `Refresh dans ${fmtCountdown(secondsLeft)}` : '↻ Rafraîchir'}
-            </button>
-            {/* Sélecteur 7j/30j sur la même ligne pour tous les onglets sauf Funnel & Calls */}
-            {tab !== 3 && (
-              <div style={{ display: 'flex', gap: 3, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
-                {([7, 30] as Period[]).map(p => (
-                  <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
-                    padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
-                    background: period === p ? 'var(--ink)' : 'transparent',
-                    color: period === p ? 'var(--surface)' : 'var(--muted)',
-                    transition: 'all .15s',
-                  }}>{p}j</button>
-                ))}
-              </div>
-            )}
-          </div>
-          {/* Ligne 2 : Period Pill uniquement pour Funnel & Calls, juste en dessous des boutons */}
+        {/* Droite : 1 bouton Rafraîchir + sélecteur période, tout sur une ligne */}
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+          <button
+            onClick={handleRefresh}
+            disabled={inCooldown || refreshing || backfillInProgress}
+            style={{
+              padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: inCooldown || refreshing || backfillInProgress ? 'not-allowed' : 'pointer',
+              border: '1px solid var(--border)', background: 'var(--surface)',
+              color: inCooldown || refreshing || backfillInProgress ? 'var(--muted)' : 'var(--ink)',
+              transition: 'all .15s', whiteSpace: 'nowrap',
+            }}
+          >
+            {refreshing ? 'Rafraîchissement…' : inCooldown ? `Refresh dans ${fmtCountdown(secondsLeft)}` : '↻ Rafraîchir'}
+          </button>
+          {tab !== 3 && (
+            <div style={{ display: 'flex', gap: 3, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
+              {([7, 30] as Period[]).map(p => (
+                <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
+                  padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+                  background: period === p ? 'var(--ink)' : 'transparent',
+                  color: period === p ? 'var(--surface)' : 'var(--muted)',
+                  transition: 'all .15s',
+                }}>{p}j</button>
+              ))}
+            </div>
+          )}
           {tab === 3 && (
             <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
           )}
