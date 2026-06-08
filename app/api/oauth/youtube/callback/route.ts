@@ -81,31 +81,48 @@ export async function GET(request: NextRequest) {
   }, { onConflict: 'profile_id,provider' });
 
   // Crée automatiquement le job Reporting API pour le CTR (channel_reach_basic_a1)
-  // — données disponibles ~24h après, puis quotidiennement
+  // Stocke job_created_at dans youtube_ctr_sync_state pour savoir depuis quand on a les données
   try {
     const existingJobsRes = await fetch(
       'https://youtubereporting.googleapis.com/v1/jobs',
       { headers: { Authorization: `Bearer ${tokenData.access_token}` } }
     );
     const existingJobsData = await existingJobsRes.json();
-    const alreadyExists = existingJobsData.jobs?.some((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
+    let reachJob = existingJobsData.jobs?.find((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
 
-    if (!alreadyExists) {
-      await fetch('https://youtubereporting.googleapis.com/v1/jobs', {
+    if (!reachJob) {
+      const createRes = await fetch('https://youtubereporting.googleapis.com/v1/jobs', {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${tokenData.access_token}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          reportTypeId: 'channel_reach_basic_a1',
-          name: 'Momentum CTR Job',
-        }),
+        body: JSON.stringify({ reportTypeId: 'channel_reach_basic_a1', name: 'Momentum CTR Job' }),
       });
+      reachJob = await createRes.json();
+    }
+
+    // Stocke job_created_at (upsert — ne remet pas à zéro si déjà existant)
+    if (reachJob?.createTime) {
+      await serviceSupabase.from('youtube_ctr_sync_state').upsert({
+        profile_id: user.id,
+        job_created_at: reachJob.createTime,
+      }, { onConflict: 'profile_id', ignoreDuplicates: true });
     }
   } catch {
-    // Non bloquant — le job peut être créé plus tard manuellement
+    // Non bloquant
   }
+
+  // Fire-and-forget backfill 30j (non-bloquant — ne retarde pas le redirect)
+  const backfillUrl = `${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/youtube/backfill`;
+  fetch(backfillUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'authorization': `Bearer ${process.env.CRON_SECRET}`,
+    },
+    body: JSON.stringify({ profile_id: user.id }),
+  }).catch(e => console.error('[YT callback] backfill trigger failed:', e));
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';

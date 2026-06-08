@@ -22,18 +22,26 @@ export async function GET(request: NextRequest) {
     profileId = user.id;
   }
 
-  const { data, error } = await serviceSupabase
-    .from('youtube_video_ctr')
-    .select('impressions, clicks, ctr_pct')
-    .eq('profile_id', profileId)
-    .eq('video_id', videoId)
-    .single();
+  const [ctrRes, syncRes] = await Promise.all([
+    serviceSupabase
+      .from('youtube_video_ctr')
+      .select('impressions, clicks, ctr_pct')
+      .eq('profile_id', profileId)
+      .eq('video_id', videoId)
+      .single(),
+    serviceSupabase
+      .from('youtube_ctr_sync_state')
+      .select('job_created_at')
+      .eq('profile_id', profileId)
+      .single(),
+  ]);
 
-  if (error || !data) return NextResponse.json({ ctrPct: null, impressions: null });
+  if (ctrRes.error || !ctrRes.data) return NextResponse.json({ ctrPct: null, impressions: null, jobCreatedAt: null });
 
   return NextResponse.json({
-    ctrPct: data.ctr_pct,
-    impressions: data.impressions,
-    clicks: data.clicks,
+    ctrPct: ctrRes.data.ctr_pct,
+    impressions: ctrRes.data.impressions,
+    clicks: ctrRes.data.clicks,
+    jobCreatedAt: syncRes.data?.job_created_at ?? null,
   });
 }

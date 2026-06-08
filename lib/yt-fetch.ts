@@ -175,12 +175,20 @@ export async function syncYtCtr(profileId: string, accessToken: string): Promise
   const reachJob = (jobsData.jobs || []).find((j: any) => j.reportTypeId === 'channel_reach_basic_a1');
   if (!reachJob) return { synced: 0, errors: [] }; // Pas encore de job — pas d'erreur
 
-  // 2. Récupère le dernier report_id traité
+  // 2. Récupère le dernier report_id traité + job_created_at
   const { data: syncState } = await serviceSupabase
     .from('youtube_ctr_sync_state')
-    .select('last_report_id, reports_processed')
+    .select('last_report_id, reports_processed, job_created_at')
     .eq('profile_id', profileId)
     .single();
+
+  // Stocke job_created_at si pas encore fait (pour les profils connectés avant cette feature)
+  if (!syncState?.job_created_at && reachJob.createTime) {
+    await serviceSupabase.from('youtube_ctr_sync_state').upsert({
+      profile_id: profileId,
+      job_created_at: reachJob.createTime,
+    }, { onConflict: 'profile_id', ignoreDuplicates: false });
+  }
 
   const lastReportId = syncState?.last_report_id ?? null;
 

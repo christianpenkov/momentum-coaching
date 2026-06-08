@@ -1379,9 +1379,10 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
+  const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string; data2?: { date: string; v: number }[]; label2?: string; color2?: string } | null>(null);
 
-  const loadRetention = useCallback(async (videoId: string) => {
+  const loadRetention = useCallback(async (videoId: string, publishedAt?: string) => {
     setLoadingRetention(true);
     setVideoCtr(null);
     try {
@@ -1393,7 +1394,11 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
       setRetention(retData.retentionCurve || []);
       if (ctrRes.ok) {
         const ctrData = await ctrRes.json();
-        setVideoCtr(ctrData.ctrPct ?? null);
+        const jca: string | null = ctrData.jobCreatedAt ?? null;
+        setJobCreatedAt(jca);
+        // N'affiche le CTR que si la vidéo a été publiée APRÈS la création du job Reporting API
+        const videoOlderThanJob = jca && publishedAt && new Date(publishedAt) < new Date(jca);
+        setVideoCtr(videoOlderThanJob ? null : (ctrData.ctrPct ?? null));
       }
     } catch { setRetention([]); }
     finally { setLoadingRetention(false); }
@@ -1655,7 +1660,7 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
           </thead>
           <tbody>
             {yt.videos.map(v => (
-              <tr key={v.id} onClick={() => { setSelectedVideo(v); loadRetention(v.id); }}
+              <tr key={v.id} onClick={() => { setSelectedVideo(v); loadRetention(v.id, v.publishedAt); }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
@@ -1819,7 +1824,11 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
                 ['Vues totales', fmt(selectedVideo.views)],
                 ['Watch time total', selectedVideo.watchTime30d >= 3600 ? `${Math.round(selectedVideo.watchTime30d / 3600)}h` : `${Math.round(selectedVideo.watchTime30d / 60)}min`],
                 ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
-                ...(!selectedVideo.isShort ? [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, string]] : []),
+                ...(!selectedVideo.isShort ? (() => {
+                  const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
+                  if (isOlderThanJob) return [];
+                  return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, string]];
+                })() : []),
                 ['Likes', fmt(selectedVideo.likes)],
                 ['Commentaires', fmt(selectedVideo.comments)],
                 ['Partages', fmt(selectedVideo.shares30d)],
