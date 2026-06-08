@@ -88,31 +88,27 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Aucun rapport disponible', job: reachJob }, { status: 404 });
   }
 
-  // 3. Télécharger le rapport le plus récent
-  const latestReport = reports.sort((a: any, b: any) =>
-    new Date(b.endTime).getTime() - new Date(a.endTime).getTime()
-  )[0];
+  // 3. Télécharger TOUS les rapports disponibles et agréger
+  const sortedReports = reports.sort((a: any, b: any) =>
+    new Date(a.endTime).getTime() - new Date(b.endTime).getTime()
+  );
 
-  const downloadRes = await fetch(latestReport.downloadUrl, { headers: auth });
+  const allRows: Record<string, string>[] = [];
+  const reportsMeta: { id: string; startTime: string; endTime: string; rows: number }[] = [];
 
-  if (!downloadRes.ok) {
-    return NextResponse.json({
-      error: `Erreur téléchargement: ${downloadRes.status}`,
-      report: latestReport,
-    }, { status: 500 });
-  }
+  await Promise.all(sortedReports.map(async (report: any) => {
+    const downloadRes = await fetch(report.downloadUrl, { headers: auth });
+    if (!downloadRes.ok) return;
+    const buffer = Buffer.from(await downloadRes.arrayBuffer());
+    let csvText: string;
+    try { csvText = gunzipSync(buffer).toString('utf-8'); }
+    catch { csvText = buffer.toString('utf-8'); }
+    const rows = parseCSV(csvText);
+    allRows.push(...rows);
+    reportsMeta.push({ id: report.id, startTime: report.startTime, endTime: report.endTime, rows: rows.length });
+  }));
 
-  // 4. Décompresser (gzip) et parser le CSV
-  const buffer = Buffer.from(await downloadRes.arrayBuffer());
-  let csvText: string;
-  try {
-    csvText = gunzipSync(buffer).toString('utf-8');
-  } catch {
-    // Parfois le fichier n'est pas gzippé
-    csvText = buffer.toString('utf-8');
-  }
-
-  const rows = parseCSV(csvText);
+  const rows = allRows;
 
   // 5. Agréger par video_id — CTR pondéré : totalClics / totalImpressions
   // colonnes réelles : video_thumbnail_impressions, video_thumbnail_impressions_ctr
@@ -147,11 +143,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     job: { id: reachJob.id, reportTypeId: reachJob.reportTypeId },
-    report: {
-      id: latestReport.id,
-      startTime: latestReport.startTime,
-      endTime: latestReport.endTime,
-    },
+    reports_downloaded: reportsMeta,
     csv_columns: rows.length > 0 ? Object.keys(rows[0]) : [],
     channel_totals: {
       impressions: Math.round(channelImpressions),
