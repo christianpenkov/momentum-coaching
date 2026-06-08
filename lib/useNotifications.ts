@@ -1,0 +1,71 @@
+'use client';
+
+import { useEffect, useState, useCallback } from 'react';
+import { createClient } from '@/lib/supabase/client';
+
+export type NotifType = 'rapport_call';
+
+export interface AppNotif {
+  id: string;
+  type: NotifType;
+  title: string;
+  body: string;
+  // données spécifiques selon le type
+  callId?: string;
+  inviteeName?: string | null;
+  scheduledAt?: string | null;
+  duration?: string | null;
+}
+
+export function useNotifications(profileId: string | null, isClient: boolean) {
+  const [notifs, setNotifs] = useState<AppNotif[]>([]);
+
+  const refresh = useCallback(async () => {
+    if (!profileId || !isClient) { setNotifs([]); return; }
+    const supabase = createClient();
+    const now = new Date().toISOString();
+
+    // ── Rapports de call en attente ──
+    const { data: calls } = await supabase
+      .from('calls')
+      .select('id, invitee_name, scheduled_at, duration')
+      .eq('coach_id', profileId)
+      .eq('status', 'active')
+      .is('no_show', null)
+      .not('calendly_event_uuid', 'is', null)
+      .lt('scheduled_at', now);
+
+    const rapportNotifs: AppNotif[] = (calls || [])
+      .filter(c => {
+        if (!c.scheduled_at || !c.duration) return false;
+        const match = c.duration.match(/(\d+)/);
+        if (!match) return false;
+        const endTime = new Date(c.scheduled_at).getTime() + parseInt(match[1]) * 60 * 1000 + 15 * 60 * 1000;
+        return Date.now() >= endTime;
+      })
+      .map(c => ({
+        id: `rapport_${c.id}`,
+        type: 'rapport_call' as NotifType,
+        title: 'Rapport de call',
+        body: `Comment s'est passé ton appel${c.invitee_name ? ` avec ${c.invitee_name}` : ''} ?`,
+        callId: c.id,
+        inviteeName: c.invitee_name,
+        scheduledAt: c.scheduled_at,
+        duration: c.duration,
+      }));
+
+    setNotifs(rapportNotifs);
+  }, [profileId, isClient]);
+
+  useEffect(() => {
+    refresh();
+    const interval = setInterval(refresh, 60_000);
+    window.addEventListener('notifs-refresh', refresh);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('notifs-refresh', refresh);
+    };
+  }, [refresh]);
+
+  return { notifs, refresh };
+}
