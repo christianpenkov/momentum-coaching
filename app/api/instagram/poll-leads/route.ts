@@ -1,46 +1,13 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot } from '@/lib/ig-fetch';
+import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot, syncYtCtr } from '@/lib/yt-fetch';
+import { sendPushToProfile } from '@/lib/googleCalendarService';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-// ── Auth token Instagram ──────────────────────────────────────────────────────
-async function getToken(profileId: string): Promise<{ token: string; igAccountId: string } | null> {
-  const { data: integ } = await supabase
-    .from('integrations')
-    .select('access_token, expires_at, metadata')
-    .eq('profile_id', profileId)
-    .eq('provider', 'instagram')
-    .single();
-
-  if (!integ?.access_token) return null;
-
-  const needsRefresh = integ.expires_at &&
-    new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
-
-  let token = integ.access_token;
-
-  if (needsRefresh) {
-    const res = await fetch(
-      `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${token}`
-    );
-    const data = await res.json();
-    if (data.access_token) {
-      token = data.access_token;
-      const expiresAt = data.expires_in
-        ? new Date(Date.now() + data.expires_in * 1000).toISOString()
-        : null;
-      await supabase.from('integrations').update({ access_token: token, expires_at: expiresAt })
-        .eq('profile_id', profileId).eq('provider', 'instagram');
-    }
-  }
-
-  const igAccountId = (integ.metadata as any)?.ig_account_id || null;
-  if (!igAccountId) return null;
-  return { token, igAccountId };
-}
 
 // ── Poll DMs ──────────────────────────────────────────────────────────────────
 async function pollDMs(profileId: string, token: string, igAccountId: string, keywords: string[], since: Date) {
@@ -136,36 +103,86 @@ async function pollComments(profileId: string, token: string, igAccountId: strin
   return leads;
 }
 
-// ── Snapshot métriques pour un profil ────────────────────────────────────────
+// ── Snapshot métriques J-1 ────────────────────────────────────────────────────
+// Appels directs via lib/ig-fetch + lib/yt-fetch — plus d'HTTP interne.
+// IG + Short.io : J-1 uniquement.
+// YouTube : J-1, J-2, J-3 (délai Google 48h de finalisation).
 async function snapshotProfile(profileId: string): Promise<string[]> {
   const errors: string[] = [];
-  const today = new Date().toISOString().split('T')[0];
-  const base = process.env.NEXT_PUBLIC_APP_URL!;
-  const h = { 'authorization': `Bearer ${process.env.CRON_SECRET}` };
+  const today = new Date();
 
-  const [igRes, ytRes, shortioRes, stripeRes, msgsRes] = await Promise.allSettled([
-    fetch(`${base}/api/instagram/stats?profile_id=${profileId}`, { headers: h }),
-    fetch(`${base}/api/youtube/stats?profile_id=${profileId}`, { headers: h }),
-    fetch(`${base}/api/shortio/stats?profile_id=${profileId}`, { headers: h }),
-    fetch(`${base}/api/stripe/client-data?profile_id=${profileId}`, { headers: h }),
-    fetch(`${base}/api/instagram/messages?profile_id=${profileId}`, { headers: h }),
-  ]);
+  const isoDate = (daysAgo: number) => {
+    const d = new Date(today);
+    d.setDate(d.getDate() - daysAgo);
+    return d.toISOString().split('T')[0];
+  };
 
-  const ig       = igRes.status === 'fulfilled' && igRes.value.ok ? await igRes.value.json() : null;
-  const yt       = ytRes.status === 'fulfilled' && ytRes.value.ok ? await ytRes.value.json() : null;
-  const shortio  = shortioRes.status === 'fulfilled' && shortioRes.value.ok ? await shortioRes.value.json() : null;
-  const stripe   = stripeRes.status === 'fulfilled' && stripeRes.value.ok ? await stripeRes.value.json() : null;
-  const msgs     = msgsRes.status === 'fulfilled' && msgsRes.value.ok ? await msgsRes.value.json() : null;
+  const yesterday = isoDate(1);
 
-  if (!ig) errors.push('ig_fetch_failed');
-  if (!yt) errors.push('yt_fetch_failed');
-  if (!shortio) errors.push('shortio_fetch_failed');
+  // ── IG J-1 ──
+  const igCreds = await getIgCreds(profileId);
+  if (igCreds) {
+    try {
+      const metrics = await fetchIgDayMetrics(igCreds, yesterday);
+      const err = await upsertIgSnapshot(profileId, { date: yesterday, ...metrics }, 'cron');
+      if (err) errors.push(`ig_upsert: ${err}`);
+    } catch (e: any) {
+      errors.push(`ig_fetch: ${e?.message || 'unknown'}`);
+    }
+  }
 
-  // Calls depuis Supabase
+  // ── Short.io J-1 ──
+  try {
+    const base = process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://momentum-plateforme.vercel.app';
+    const shortioRes = await fetch(`${base}/api/shortio/stats?profile_id=${profileId}`, {
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+    });
+    if (shortioRes.ok) {
+      const shortio = await shortioRes.json();
+      if (shortio) {
+        await supabase.from('analytics_daily_snapshots').upsert({
+          profile_id: profileId,
+          date: yesterday,
+          shortio_clicks:        shortio.clicks30d ?? null,
+          shortio_human_clicks:  shortio.humanClicks30d ?? null,
+          shortio_links:         shortio.links ?? null,
+          shortio_top_countries: shortio.topCountries ?? null,
+          shortio_top_referrers: shortio.topReferrers ?? null,
+        }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+      }
+    }
+  } catch (e: any) {
+    errors.push(`shortio_fetch: ${e?.message || 'unknown'}`);
+  }
+
+  // ── YouTube J-1, J-2, J-3 + sync CTR vidéos ──
+  const ytToken = await getYtToken(profileId);
+  if (ytToken) {
+    try {
+      const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
+      for (const row of ytRows) {
+        const err = await upsertYtSnapshot(profileId, row, 'cron');
+        if (err) errors.push(`yt_upsert_${row.date}: ${err}`);
+      }
+    } catch (e: any) {
+      errors.push(`yt_fetch: ${e?.message || 'unknown'}`);
+    }
+
+    // Sync CTR par vidéo depuis l'API Reporting (incrémental — nouveaux rapports seulement)
+    try {
+      const { errors: ctrErrors } = await syncYtCtr(profileId, ytToken);
+      if (ctrErrors.length) errors.push(...ctrErrors.map(e => `yt_ctr: ${e}`));
+    } catch (e: any) {
+      errors.push(`yt_ctr: ${e?.message || 'unknown'}`);
+    }
+  }
+
+  // ── Calls depuis Supabase ──
+  // coach_id = profileId de l'élève pour les calls Calendly (l'élève est l'hôte)
   const { data: callsData } = await supabase
     .from('calls')
     .select('status, scheduled_at, no_show, deal_closed, revenue')
-    .eq('client_id', profileId)
+    .eq('coach_id', profileId)
     .not('calendly_event_uuid', 'is', null);
 
   const calls = callsData || [];
@@ -177,92 +194,64 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const dealsClosed   = calls.filter(c => c.deal_closed).length;
   const revenue       = calls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
-  // Upsert snapshot principal
-  const { error: snapErr } = await supabase
-    .from('analytics_daily_snapshots')
-    .upsert({
-      profile_id: profileId,
-      date: today,
+  await supabase.from('analytics_daily_snapshots').upsert({
+    profile_id: profileId,
+    date: yesterday,
+    calls_booked:  callsBooked,
+    calls_honored: callsHonored,
+    calls_canceled: callsCanceled,
+    calls_no_show: callsNoShow,
+    deals_closed:  dealsClosed,
+    revenue,
+  }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
 
-      ig_reach:              ig?.reach30d ?? null,
-      ig_followers:          ig?.followers ?? null,
-      ig_following:          ig?.following ?? null,
-      ig_accounts_engaged:   ig?.accountsEngaged30d ?? null,
-      ig_total_interactions: ig?.totalInteractions30d ?? null,
-      ig_profile_taps:       ig?.profileLinksTaps30d ?? null,
-      ig_website_clicks:     ig?.websiteClicks30d ?? null,
-      ig_views:              ig?.views30d ?? null,
-      ig_follows_unfollows:  ig?.followsUnfollows30d ?? null,
-      ig_lead_count:         msgs?.leadCount ?? null,
-      ig_response_rate:      msgs?.responseRate ?? null,
-      ig_demographics:       ig?.demographics ?? null,
-      ig_chart_data:         ig?.chartData ?? null,
-
-      yt_views:                 yt?.views30d ?? null,
-      yt_watch_time_min:        yt?.watchTime30d ?? null,
-      yt_subscribers:           yt?.subscribers ?? null,
-      yt_subs_gained:           yt?.subsGained30d ?? null,
-      yt_subs_lost:             yt?.subsLost30d ?? null,
-      yt_net_subs:              yt?.netSubs30d ?? null,
-      yt_likes:                 yt?.likes30d ?? null,
-      yt_comments:              yt?.comments30d ?? null,
-      yt_shares:                yt?.shares30d ?? null,
-      yt_avg_view_duration_sec: yt?.avgViewDurationSec ?? null,
-      yt_traffic_sources:       yt?.trafficSources ?? null,
-      yt_devices:               yt?.devices ?? null,
-      yt_demographics:          yt?.demographics ?? null,
-      yt_chart_data:            yt?.chartData ?? null,
-
-      shortio_clicks:           shortio?.clicks30d ?? null,
-      shortio_human_clicks:     shortio?.humanClicks30d ?? null,
-      shortio_links:            shortio?.links ?? null,
-      shortio_top_countries:    shortio?.topCountries ?? null,
-      shortio_top_referrers:    shortio?.topReferrers ?? null,
-      shortio_chart_data:       shortio?.chartData ?? null,
-
-      calls_booked:       callsBooked,
-      calls_honored:      callsHonored,
-      calls_canceled:     callsCanceled,
-      calls_no_show:      callsNoShow,
-      deals_closed:       dealsClosed,
-      revenue,
-      mrr:                stripe?.mrr ?? null,
-      stripe_active_subs: stripe?.activeSubscriptions ?? null,
-    }, { onConflict: 'profile_id,date' });
-
-  if (snapErr) errors.push(`snapshot_upsert: ${snapErr.message}`);
-
-  // Upsert posts IG
-  if (ig?.posts?.length) {
-    const { error: postsErr } = await supabase
-      .from('analytics_ig_posts_history')
-      .upsert(ig.posts.map((p: any) => ({
-        profile_id: profileId, snapshot_date: today,
-        post_id: p.id, post_type: p.type, caption: p.caption,
-        permalink: p.permalink, thumbnail: p.thumbnail, published_at: p.timestamp,
-        reach: p.reach, views: p.views, likes: p.likes, comments: p.comments,
-        saves: p.saved, shares: p.shares, follows: p.follows,
-        profile_visits: p.profileVisits, total_interactions: p.totalInteractions,
-        avg_watch_time_ms: p.avgWatchTimeMs, total_watch_time_ms: p.totalWatchTimeMs,
-        skip_rate: p.skipRate, video_duration_sec: p.videoDuration,
-      })), { onConflict: 'profile_id,snapshot_date,post_id' });
-    if (postsErr) errors.push(`posts_upsert: ${postsErr.message}`);
+  // ── Stripe J-1 ──
+  try {
+    const base = process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://momentum-plateforme.vercel.app';
+    const stripeRes = await fetch(`${base}/api/stripe/client-data?profile_id=${profileId}`, {
+      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
+    });
+    if (stripeRes.ok) {
+      const stripe = await stripeRes.json();
+      if (stripe?.recentPayments?.length) {
+        const stripeRows = stripe.recentPayments
+          .filter((p: any) => p.status === 'succeeded')
+          .map((p: any) => ({
+            profile_id: profileId,
+            payment_id: p.id,
+            amount: p.amount,
+            currency: p.currency ?? 'eur',
+            description: p.description || null,
+            date: p.date,
+            status: p.status,
+          }));
+        if (stripeRows.length) {
+          const { error: stripeErr } = await supabase
+            .from('stripe_payments')
+            .upsert(stripeRows, { onConflict: 'profile_id,payment_id' });
+          if (stripeErr) errors.push(`stripe_payments_upsert: ${stripeErr.message}`);
+        }
+      }
+      if (stripe) {
+        await supabase.from('analytics_daily_snapshots').upsert({
+          profile_id: profileId,
+          date: yesterday,
+          mrr: stripe.mrr ?? null,
+          stripe_active_subs: stripe.activeSubscriptions ?? null,
+        }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+      }
+    }
+  } catch (e: any) {
+    errors.push(`stripe_fetch: ${e?.message || 'unknown'}`);
   }
 
-  // Upsert vidéos YT
-  if (yt?.videos?.length) {
-    const { error: vidsErr } = await supabase
-      .from('analytics_yt_videos_history')
-      .upsert(yt.videos.map((v: any) => ({
-        profile_id: profileId, snapshot_date: today,
-        video_id: v.id, title: v.title, thumbnail: v.thumbnail,
-        published_at: v.publishedAt, is_short: v.isShort,
-        views: v.views, views_period: v.views30d, watch_time_min: v.watchTime30d,
-        likes: v.likes, comments: v.comments, shares: v.shares,
-        avg_view_pct: v.avgViewPct, url: v.url,
-      })), { onConflict: 'profile_id,snapshot_date,video_id' });
-    if (vidsErr) errors.push(`videos_upsert: ${vidsErr.message}`);
-  }
+  // Mise à jour du statut snapshot dans integrations
+  const status = errors.length === 0 ? 'ok' : 'partial';
+  const errMsg = errors.length > 0 ? errors.join(', ') : null;
+  await supabase.from('integrations')
+    .update({ last_snapshot_status: status, last_snapshot_error: errMsg })
+    .eq('profile_id', profileId)
+    .in('provider', ['instagram', 'youtube']);
 
   return errors;
 }
@@ -274,17 +263,30 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  // Tous les profils avec Instagram connecté
-  const { data: profiles } = await supabase
+  // Profils avec IG OU YT connectés (plus de restriction IG only)
+  const { data: integrations } = await supabase
     .from('integrations')
-    .select('profile_id, last_ig_poll')
-    .eq('provider', 'instagram');
+    .select('profile_id, provider, last_ig_poll')
+    .in('provider', ['instagram', 'youtube']);
 
-  if (!profiles?.length) return NextResponse.json({ polled: 0, snapshots: 0 });
+  if (!integrations?.length) return NextResponse.json({ polled: 0, snapshots: 0 });
+
+  // Déduplique les profile_ids
+  const profileMap = new Map<string, { profile_id: string; last_ig_poll: string | null; hasIg: boolean }>();
+  for (const row of integrations) {
+    if (!profileMap.has(row.profile_id)) {
+      profileMap.set(row.profile_id, { profile_id: row.profile_id, last_ig_poll: row.last_ig_poll, hasIg: false });
+    }
+    if (row.provider === 'instagram') {
+      profileMap.get(row.profile_id)!.hasIg = true;
+      profileMap.get(row.profile_id)!.last_ig_poll = row.last_ig_poll;
+    }
+  }
+  const profiles = Array.from(profileMap.values());
 
   const profileIds = profiles.map(p => p.profile_id);
 
-  // Mots-clés par profil (pour le poll leads)
+  // Mots-clés par profil
   const { data: keywordRows } = await supabase
     .from('lead_magnet_keywords')
     .select('profile_id, keyword')
@@ -301,48 +303,49 @@ export async function GET(request: Request) {
   let snapshots = 0;
   const allErrors: Record<string, string[]> = {};
 
-  // Traite chaque profil séquentiellement pour éviter de saturer les APIs
   for (const profile of profiles) {
     const profileErrors: string[] = [];
 
-    // ── 1. Poll leads IG (si mots-clés configurés) ──
-    const keywords = keywordsByProfile[profile.profile_id] || [];
-    if (keywords.length > 0) {
-      try {
-        const creds = await getToken(profile.profile_id);
-        if (creds) {
-          const { token, igAccountId } = creds;
-          const since = profile.last_ig_poll
-            ? new Date(profile.last_ig_poll)
-            : new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // ── 1. Poll leads IG (si mots-clés configurés et IG connecté) ──
+    if (profile.hasIg) {
+      const keywords = keywordsByProfile[profile.profile_id] || [];
+      if (keywords.length > 0) {
+        try {
+          const creds = await getIgCreds(profile.profile_id);
+          if (creds) {
+            const { token, igAccountId } = creds;
+            const since = profile.last_ig_poll
+              ? new Date(profile.last_ig_poll)
+              : new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-          const [dmLeads, commentLeads] = await Promise.all([
-            pollDMs(profile.profile_id, token, igAccountId, keywords, since),
-            pollComments(profile.profile_id, token, igAccountId, keywords, since),
-          ]);
+            const [dmLeads, commentLeads] = await Promise.all([
+              pollDMs(profile.profile_id, token, igAccountId, keywords, since),
+              pollComments(profile.profile_id, token, igAccountId, keywords, since),
+            ]);
 
-          const allLeads = [...dmLeads, ...commentLeads];
-          if (allLeads.length > 0) {
-            await supabase.from('instagram_leads').upsert(allLeads, {
-              onConflict: 'profile_id,source,ig_user_id,keyword_matched,media_id',
-              ignoreDuplicates: true,
-            });
-            leadsFound += allLeads.length;
+            const allLeads = [...dmLeads, ...commentLeads];
+            if (allLeads.length > 0) {
+              await supabase.from('instagram_leads').upsert(allLeads, {
+                onConflict: 'profile_id,source,ig_user_id,keyword_matched,media_id',
+                ignoreDuplicates: true,
+              });
+              leadsFound += allLeads.length;
+            }
+
+            await supabase.from('integrations')
+              .update({ last_ig_poll: new Date().toISOString() })
+              .eq('profile_id', profile.profile_id)
+              .eq('provider', 'instagram');
+
+            polled++;
           }
-
-          await supabase.from('integrations')
-            .update({ last_ig_poll: new Date().toISOString() })
-            .eq('profile_id', profile.profile_id)
-            .eq('provider', 'instagram');
-
-          polled++;
+        } catch {
+          profileErrors.push('lead_poll_failed');
         }
-      } catch {
-        profileErrors.push('lead_poll_failed');
       }
     }
 
-    // ── 2. Snapshot métriques ──
+    // ── 2. Snapshot métriques J-1 ──
     try {
       const snapErrors = await snapshotProfile(profile.profile_id);
       if (snapErrors.length === 0) snapshots++;
@@ -354,5 +357,45 @@ export async function GET(request: Request) {
     if (profileErrors.length) allErrors[profile.profile_id] = profileErrors;
   }
 
-  return NextResponse.json({ polled, leadsFound, snapshots, errors: allErrors });
+  // ── 3. Notifications rapport post-call ────────────────────────────────────────
+  // Détecte tous les calls Calendly actifs terminés depuis > 15 min sans rapport rempli.
+  let rapportNotified = 0;
+  try {
+    const now = new Date();
+    const { data: pendingCalls } = await supabase
+      .from('calls')
+      .select('id, coach_id, invitee_name, scheduled_at, duration')
+      .eq('status', 'active')
+      .is('no_show', null)
+      .eq('rapport_notif_sent', false)
+      .not('calendly_event_uuid', 'is', null)
+      .not('scheduled_at', 'is', null)
+      .not('duration', 'is', null)
+      .lt('scheduled_at', now.toISOString());
+
+    for (const call of pendingCalls || []) {
+      const match = (call.duration as string).match(/(\d+)/);
+      if (!match) continue;
+      const durationMs = parseInt(match[1]) * 60 * 1000;
+      const triggerTime = new Date(call.scheduled_at).getTime() + durationMs + 15 * 60 * 1000;
+      if (now.getTime() < triggerTime) continue;
+
+      try {
+        await sendPushToProfile(
+          call.coach_id,
+          'Rapport de call',
+          `Comment s'est passé ton appel${call.invitee_name ? ` avec ${call.invitee_name}` : ''} ? Remplis ton rapport.`,
+          `/client/calls?rapport=${call.id}`
+        );
+        await supabase.from('calls').update({ rapport_notif_sent: true }).eq('id', call.id);
+        rapportNotified++;
+      } catch {
+        // Non bloquant — on réessaie au prochain cron
+      }
+    }
+  } catch {
+    // Non bloquant
+  }
+
+  return NextResponse.json({ polled, leadsFound, snapshots, rapportNotified, errors: allErrors });
 }
