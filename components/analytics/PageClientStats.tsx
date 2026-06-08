@@ -1374,21 +1374,30 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
+function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Period; profileId?: string }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
+  const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string; data2?: { date: string; v: number }[]; label2?: string; color2?: string } | null>(null);
 
   const loadRetention = useCallback(async (videoId: string) => {
     setLoadingRetention(true);
+    setVideoCtr(null);
     try {
-      const r = await fetch(`/api/youtube/video-retention?videoId=${videoId}`);
-      const d = await r.json();
-      setRetention(d.retentionCurve || []);
+      const [retRes, ctrRes] = await Promise.all([
+        fetch(`/api/youtube/video-retention?videoId=${videoId}`),
+        fetch(`/api/youtube/video-ctr?videoId=${videoId}${profileId ? `&profileId=${profileId}` : ''}`),
+      ]);
+      const retData = await retRes.json();
+      setRetention(retData.retentionCurve || []);
+      if (ctrRes.ok) {
+        const ctrData = await ctrRes.json();
+        setVideoCtr(ctrData.ctrPct ?? null);
+      }
     } catch { setRetention([]); }
     finally { setLoadingRetention(false); }
-  }, []);
+  }, [profileId]);
 
   if (!yt) return <Empty msg="Connecte ton compte YouTube pour voir les stats." />;
 
@@ -1810,6 +1819,7 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
                 ['Vues totales', fmt(selectedVideo.views)],
                 ['Watch time total', selectedVideo.watchTime30d >= 3600 ? `${Math.round(selectedVideo.watchTime30d / 3600)}h` : `${Math.round(selectedVideo.watchTime30d / 60)}min`],
                 ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
+                ['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'],
                 ['Likes', fmt(selectedVideo.likes)],
                 ['Commentaires', fmt(selectedVideo.comments)],
                 ['Partages', fmt(selectedVideo.shares30d)],
@@ -5773,7 +5783,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
         <>
           {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
-          {tab === 2 && <TabYouTube yt={yt} period={period} />}
+          {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
           {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} period={period} profileId={profileId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
