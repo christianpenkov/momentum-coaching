@@ -1832,9 +1832,25 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
             </div>
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
-              ? <AreaChart data={retention.map(p => ({ x: `${Math.round(p.ratio * 100)}%`, pct: Math.round(p.watchRatio * 100) }))}
-                areas={[{ key: 'pct', label: 'Viewers restants (%)', color: GREEN }]}
-                xKey="x" height={160} formatter={(v: number) => `${v}%`} />
+              ? (
+                <ResponsiveContainer width="100%" height={160}>
+                  <ReAreaChart data={retention.map(p => ({ x: `${Math.round(p.ratio * 100)}%`, pct: Math.round(p.watchRatio * 100) }))} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <defs>
+                      <linearGradient id="grad-retention" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={GREEN} stopOpacity={0.18} />
+                        <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis dataKey="x" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} tickFormatter={(v: number) => `${v}%`} />
+                    <Tooltip content={({ active, payload, label }) => {
+                      if (!active || !payload?.length) return null;
+                      return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{payload[0].value}%</strong></div></div>;
+                    }} />
+                    <Area type="monotone" dataKey="pct" stroke={GREEN} strokeWidth={2} fill="url(#grad-retention)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+                  </ReAreaChart>
+                </ResponsiveContainer>
+              )
               : <Empty msg="Rétention non disponible pour cette vidéo" />}
             <a href={selectedVideo.url} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: RED, textDecoration: 'none', fontWeight: 600 }}>
               Voir sur YouTube →
