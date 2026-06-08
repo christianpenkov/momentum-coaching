@@ -1407,8 +1407,9 @@ function TabYouTube({ yt, period }: { yt: YTStats | null; period: Period }) {
   // Vues/sub par type de contenu (depuis les vidéos de la période)
   const shortsViewsP = yt.videos.filter(v => v.isShort).reduce((s, v) => s + v.views30d, 0);
   const longViewsP = yt.videos.filter(v => !v.isShort).reduce((s, v) => s + v.views30d, 0);
-  const viewsPerSubShorts = ytSubsGainedP > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / ytSubsGainedP) : null;
-  const viewsPerSubLong = ytSubsGainedP > 0 && longViewsP > 0 ? Math.round(longViewsP / ytSubsGainedP) : null;
+  const subsRef = ytSubsGainedP > 0 ? ytSubsGainedP : (yt.subsGained30d > 0 ? yt.subsGained30d : 0);
+  const viewsPerSubShorts = subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
+  const viewsPerSubLong = subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
   const mockFromTotalYT = (total: number, seed: number) => {
     if (total === 0) return ytDays.map(d => ({ date: d.date, v: 0 }));
     const pts = ytDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
@@ -5487,34 +5488,20 @@ async function fetchSupabaseStats(profileId?: string) {
   } catch { return null; }
 }
 
-const REFRESH_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+// 4 clics max sur 2 minutes — après ça grise le bouton silencieusement
+function useRefreshCooldown(_key: string) {
+  const [clicks, setClicks] = useState<number[]>([]);
+  const MAX_CLICKS = 4;
+  const WINDOW_MS = 2 * 60 * 1000;
 
-function useRefreshCooldown(key: string) {
-  const [secondsLeft, setSecondsLeft] = useState(0);
-
-  useEffect(() => {
-    const stored = localStorage.getItem(`refresh_cooldown_${key}`);
-    if (!stored) return;
-    const expiresAt = parseInt(stored, 10);
-    const remaining = Math.ceil((expiresAt - Date.now()) / 1000);
-    if (remaining <= 0) return;
-    setSecondsLeft(remaining);
-
-    const interval = setInterval(() => {
-      const r = Math.ceil((expiresAt - Date.now()) / 1000);
-      if (r <= 0) { setSecondsLeft(0); clearInterval(interval); }
-      else setSecondsLeft(r);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [key]);
+  const isThrottled = clicks.filter(t => Date.now() - t < WINDOW_MS).length >= MAX_CLICKS;
 
   const startCooldown = () => {
-    const expiresAt = Date.now() + REFRESH_COOLDOWN_MS;
-    localStorage.setItem(`refresh_cooldown_${key}`, String(expiresAt));
-    setSecondsLeft(REFRESH_COOLDOWN_MS / 1000);
+    const now = Date.now();
+    setClicks(prev => [...prev.filter(t => now - t < WINDOW_MS), now]);
   };
 
-  return { secondsLeft, inCooldown: secondsLeft > 0, startCooldown };
+  return { secondsLeft: 0, inCooldown: isThrottled, startCooldown };
 }
 
 async function fetchIntegrationStatus(profileId?: string) {
@@ -5571,7 +5558,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const [refreshing, setRefreshing] = useState(false);
 
   const refreshKey = `analytics_${profileId || 'me'}`;
-  const { secondsLeft, inCooldown, startCooldown } = useRefreshCooldown(refreshKey);
+  const { inCooldown, startCooldown } = useRefreshCooldown(refreshKey);
 
   const q = profileId ? `?profileId=${profileId}` : '';
 
@@ -5707,7 +5694,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
   const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls', 'Business micro', 'Revenus'];
 
-  const fmtCountdown = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
   return (
     <div className="page-content">
@@ -5748,28 +5734,29 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           </p>
         </div>
 
-        {/* Droite : 1 bouton Rafraîchir + sélecteur période, tout sur une ligne */}
+        {/* Droite : bouton Rafraîchir + sélecteur période sur une ligne, même hauteur */}
         <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexShrink: 0 }}>
           <button
             onClick={handleRefresh}
             disabled={inCooldown || refreshing || backfillInProgress}
             style={{
-              padding: '6px 16px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: inCooldown || refreshing || backfillInProgress ? 'not-allowed' : 'pointer',
+              padding: '6px 16px', fontSize: 12, fontWeight: 600, borderRadius: 8,
+              cursor: inCooldown || refreshing || backfillInProgress ? 'not-allowed' : 'pointer',
               border: '1px solid var(--border)', background: 'var(--surface)',
               color: inCooldown || refreshing || backfillInProgress ? 'var(--muted)' : 'var(--ink)',
               transition: 'all .15s', whiteSpace: 'nowrap',
             }}
           >
-            {refreshing ? 'Rafraîchissement…' : inCooldown ? `Refresh dans ${fmtCountdown(secondsLeft)}` : '↻ Rafraîchir'}
+            {refreshing ? 'Rafraîchissement…' : '↻ Rafraîchir'}
           </button>
           {tab !== 3 && (
-            <div style={{ display: 'flex', gap: 3, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
+            <div style={{ display: 'flex', gap: 3, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3, alignItems: 'center' }}>
               {([7, 30] as Period[]).map(p => (
                 <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
-                  padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+                  padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
                   background: period === p ? 'var(--ink)' : 'transparent',
                   color: period === p ? 'var(--surface)' : 'var(--muted)',
-                  transition: 'all .15s',
+                  transition: 'all .15s', height: '100%',
                 }}>{p}j</button>
               ))}
             </div>
