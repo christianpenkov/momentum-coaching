@@ -2211,7 +2211,6 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     const totalCloses7 = igCloses + ytCloses;
                     const totalRev7 = igRev + ytRev;
                     const totalNS7 = igNoShows + ytNoShows;
-                    const totalBookes7 = igBookes + ytBookes;
                     const revPerCall7 = totalBookes7 > 0 ? Math.round(totalRev7 / totalBookes7) : 0;
 
                     // Pour les graphiques temporels, on utilise les vrais chartData quand disponibles
