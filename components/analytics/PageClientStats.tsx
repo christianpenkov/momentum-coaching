@@ -1955,8 +1955,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igCallsLive = calcCalls(callsIG);
   const ytCallsLive = calcCalls(callsYT);
 
-  // Périodes historiques (periodIndex > 0) : pas de données dispo → tirets
-  const noData = periodIndex > 0;
+  // noData seulement si période historique sans snapshot disponible
+  const noData = periodIndex > 0 && !ig && !yt;
 
   const igReachD  = noData ? 0 : (ig ? ig.chartData.slice(-period).reduce((s, d) => s + d.reach, 0) : 0);
   const igLeadsD  = noData ? 0 : (msgs?.leadCount || 0);
@@ -2000,12 +2000,32 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igNoShowRate = igBookes > 0 ? pct(igNoShows, igBookes) : 0;
   const ytNoShowRate = ytBookes > 0 ? pct(ytNoShows, ytBookes) : 0;
 
+  // Données jour par jour pour les modals d'efficacité par plateforme
+  function buildEffDayData(platformCalls: CallRecord[], metricIdx: number): { date: string; v: number }[] {
+    return Array.from({ length: period }, (_, i) => {
+      const d = new Date(now); d.setDate(d.getDate() - (period - 1 - i));
+      const iso = d.toISOString().split('T')[0];
+      const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
+      const booked = cs.filter(c => c.status === 'active').length;
+      const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+      const closed = cs.filter(c => c.deal_closed).length;
+      const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
+      const noShows = cs.filter(c => c.no_show).length;
+      let v = 0;
+      if (metricIdx === 1) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
+      else if (metricIdx === 2) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
+      else if (metricIdx === 3) v = honored > 0 ? Math.round(rev / honored) : 0;
+      else if (metricIdx === 4) v = rev;
+      return { date: iso, v };
+    });
+  }
+
   type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean };
-  type EffRow = { platform: string; color: string; metrics: EffMetric[] };
+  type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[] };
   // ── Efficacité par plateforme (données réelles, pas de comparaison historique) ──
   const effRows: EffRow[] = [
     {
-      platform: 'Instagram', color: IG_COLOR,
+      platform: 'Instagram', color: IG_COLOR, platformCalls: callsIG,
       metrics: [
         { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
@@ -2015,7 +2035,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       ],
     },
     {
-      platform: 'YouTube', color: YT_COLOR,
+      platform: 'YouTube', color: YT_COLOR, platformCalls: callsYT,
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
@@ -2044,33 +2064,27 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         const noShowCount = calls.filter(c => c.no_show).length;
         const revPerCall = totalHonores > 0 ? Math.round(totalRev / totalHonores) : 0;
 
-        // Données mock jour par jour pour chaque métrique (période actuelle)
+        // Hero chart data — réel depuis calls agrégés par jour
         const n = period;
+        const cutoff2 = new Date(now.getTime() - n * 86400000);
+        const callsP = calls.filter(c => new Date(c.scheduled_at) >= cutoff2);
+        function buildDay2(filterFn: (c: CallRecord) => boolean, valFn: (cs: CallRecord[]) => number) {
+          return Array.from({ length: n }, (_, i) => {
+            const d = new Date(now); d.setDate(d.getDate() - (n - 1 - i));
+            const iso = d.toISOString().split('T')[0];
+            const cs = callsP.filter(c => c.scheduled_at?.startsWith(iso) && filterFn(c));
+            return { date: iso, v: valFn(cs) };
+          });
+        }
         const heroCharts: { data: { date: string; v: number }[]; color: string; unit: string; fmtV: (v: number) => string }[] = [
-          // 0 Calls bookés — quelques calls éparpillés
-          { color: 'var(--ink)', unit: 'calls', fmtV: String,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1,0][i] || 0 }; }) },
-          // 1 Calls honorés
-          { color: AMBER, unit: 'honorés', fmtV: String,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0][i] || 0 }; }) },
-          // 2 Deals closés
-          { color: GREEN, unit: 'closés', fmtV: String,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0][i] || 0 }; }) },
-          // 3 Revenue cumulé
-          { color: GREEN, unit: '€', fmtV: (v) => `${v} €`,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); const dayRev = [0,0,0,0,0,0,1200,0,0,0,0,1200,0,0,0,0,0,0,0,0,0,2400,0,0,0,0,0,0,1200,0][i] || 0; return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: dayRev }; }) },
-          // 4 Rev / call — valeur fixe (pas de tendance jour par jour pertinente, on montre par semaine)
-          { color: GREEN, unit: '€/call', fmtV: (v) => `${v} €`,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: 780 + Math.round((Math.random() - 0.5) * 200) }; }) },
-          // 5 No-show
-          { color: RED, unit: 'no-shows', fmtV: String,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0][i] || 0 }; }) },
-          // 6 Calls IG
-          { color: IG_COLOR, unit: 'calls IG', fmtV: String,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0][i] || 0 }; }) },
-          // 7 Calls YT
-          { color: YT_COLOR, unit: 'calls YT', fmtV: String,
-            data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0][i] || 0 }; }) },
+          { color: 'var(--ink)', unit: 'calls', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.status === 'active').length) },
+          { color: AMBER, unit: 'honorés', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length) },
+          { color: GREEN, unit: 'closés', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.deal_closed).length) },
+          { color: GREEN, unit: '€', fmtV: (v) => `${v} €`, data: buildDay2(() => true, cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
+          { color: GREEN, unit: '€/call', fmtV: (v) => `${v} €`, data: buildDay2(c => !!(c.deal_closed && c.revenue), cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
+          { color: RED, unit: 'no-shows', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.no_show).length) },
+          { color: IG_COLOR, unit: 'calls IG', fmtV: String, data: buildDay2(c => !!(c.source?.startsWith('ig') || c.source?.startsWith('instagram')), cs => cs.filter(c => c.status === 'active').length) },
+          { color: YT_COLOR, unit: 'calls YT', fmtV: String, data: buildDay2(c => !!(c.source?.startsWith('yt') || c.source?.startsWith('youtube')), cs => cs.filter(c => c.status === 'active').length) },
         ];
 
         const heroItems = [
@@ -2154,7 +2168,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                         else if (key === 'honored') v = daySubset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
                         else if (key === 'closed') v = daySubset.filter(c => c.deal_closed).length;
                         else if (key === 'rev') v = daySubset.reduce((s, c) => s + (c.revenue || 0), 0);
-                        return { date: new Date(date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v };
+                        return { date, v };
                       });
                     };
 
@@ -2244,14 +2258,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     ? `hsl(142, ${Math.round(50 + greenIntensity * 50)}%, ${Math.round(38 - greenIntensity * 8)}%)`
                     : undefined;
                   const deltaColor = d ? (isGood ? greenColor! : isBad ? RED : 'var(--muted)') : 'var(--muted)';
-                  const mockEffData = Array.from({ length: period }, (_, i) => {
-                    const date = new Date(); date.setDate(date.getDate() - (period - 1 - i));
-                    const base = parseFloat(m.value.replace(/[^0-9.]/g, '')) || 100;
-                    return { date: date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: Math.max(0, base * (0.85 + Math.random() * 0.3)) };
-                  });
+                  const effData = buildEffDayData(row.platformCalls, mi);
                   return (
                     <div key={mi}
-                      onClick={() => setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: mockEffData })}
+                      onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: effData }); onModalChange?.(true); }}
                       style={{ padding: '16px 20px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
@@ -2492,10 +2502,29 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const igNoShowRate = igBookes > 0 ? pct(igNoShows, igBookes) : 0;
   const ytNoShowRate = ytBookes > 0 ? pct(ytNoShows, ytBookes) : 0;
 
+  function buildEffDayData2(platformCalls: CallRecord[], metricIdx: number): { date: string; v: number }[] {
+    return Array.from({ length: period }, (_, i) => {
+      const d = new Date(now); d.setDate(d.getDate() - (period - 1 - i));
+      const iso = d.toISOString().split('T')[0];
+      const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
+      const booked = cs.filter(c => c.status === 'active').length;
+      const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+      const closed = cs.filter(c => c.deal_closed).length;
+      const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
+      const noShows = cs.filter(c => c.no_show).length;
+      let v = 0;
+      if (metricIdx === 1) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
+      else if (metricIdx === 2) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
+      else if (metricIdx === 3) v = honored > 0 ? Math.round(rev / honored) : 0;
+      else if (metricIdx === 4) v = rev;
+      return { date: iso, v };
+    });
+  }
+
   type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean };
-  const effRows: { platform: string; color: string; metrics: EffMetric[] }[] = [
+  const effRows: { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[] }[] = [
     {
-      platform: 'Instagram', color: IG_COLOR,
+      platform: 'Instagram', color: IG_COLOR, platformCalls: callsIG,
       metrics: [
         { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
@@ -2505,7 +2534,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
       ],
     },
     {
-      platform: 'YouTube', color: YT_COLOR,
+      platform: 'YouTube', color: YT_COLOR, platformCalls: callsYT,
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
@@ -2519,17 +2548,40 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const filteredCalls = callsFilter === 'ig' ? callsIG : callsFilter === 'yt' ? callsYT : calls;
   const SCtrl = () => <SectionControls period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />;
 
-  // Hero chart data (mock jour par jour)
+  // Hero chart data — réel depuis calls agrégés par jour
   const n = period;
+  const cutoffHero = new Date(now.getTime() - n * 86400000);
+  const callsInPeriodHero = calls.filter(c => new Date(c.scheduled_at) >= cutoffHero);
+  const callsIGHero = callsInPeriodHero.filter(c => c.source?.startsWith('ig') || c.source?.startsWith('instagram'));
+  const callsYTHero = callsInPeriodHero.filter(c => c.source?.startsWith('yt') || c.source?.startsWith('youtube'));
+
+  function buildDayChart(filterFn: (c: CallRecord) => boolean, valFn: (dayCs: CallRecord[]) => number): { date: string; v: number }[] {
+    return Array.from({ length: n }, (_, i) => {
+      const d = new Date(now);
+      d.setDate(d.getDate() - (n - 1 - i));
+      const iso = d.toISOString().split('T')[0];
+      const dayCs = callsInPeriodHero.filter(c => c.scheduled_at?.startsWith(iso) && filterFn(c));
+      return { date: iso, v: valFn(dayCs) };
+    });
+  }
+
   const heroCharts: { data: { date: string; v: number }[]; color: string; fmtV: (v: number) => string }[] = [
-    { color: 'var(--ink)', fmtV: String, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,1,0][i] || 0 }; }) },
-    { color: AMBER, fmtV: String, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,1,0][i] || 0 }; }) },
-    { color: GREEN, fmtV: String, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,0,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0][i] || 0 }; }) },
-    { color: GREEN, fmtV: (v) => `${v} €`, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,0,0,0,0,1200,0,0,0,0,1200,0,0,0,0,0,0,0,0,0,2400,0,0,0,0,0,0,1200,0][i] || 0 }; }) },
-    { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: 780 + Math.round((Math.sin(i * 1.3) - 0.5) * 200) }; }) },
-    { color: RED, fmtV: String, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0][i] || 0 }; }) },
-    { color: IG_COLOR, fmtV: String, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,1,0,0,0,1,0,0,0,0,1,0,0,0,0,0,0,1,0,0,1,0,0,0,0,0,0,0,0][i] || 0 }; }) },
-    { color: YT_COLOR, fmtV: String, data: Array.from({ length: n }, (_, i) => { const d = new Date(); d.setDate(d.getDate() - (n - 1 - i)); return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,1,0,0,0,0,1,0][i] || 0 }; }) },
+    // 0 — Calls bookés (tous)
+    { color: 'var(--ink)', fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.status === 'active').length) },
+    // 1 — Calls honorés
+    { color: AMBER, fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length) },
+    // 2 — Deals closés
+    { color: GREEN, fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.deal_closed).length) },
+    // 3 — Revenue total
+    { color: GREEN, fmtV: (v) => `${v} €`, data: buildDayChart(() => true, cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
+    // 4 — Rev / call (moyenne glissante — on affiche le rev cumulé du jour)
+    { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: buildDayChart(c => !!(c.deal_closed && c.revenue), cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
+    // 5 — No-show
+    { color: RED, fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.no_show).length) },
+    // 6 — Calls IG
+    { color: IG_COLOR, fmtV: String, data: buildDayChart(c => !!(c.source?.startsWith('ig') || c.source?.startsWith('instagram')), cs => cs.filter(c => c.status === 'active').length) },
+    // 7 — Calls YT
+    { color: YT_COLOR, fmtV: String, data: buildDayChart(c => !!(c.source?.startsWith('yt') || c.source?.startsWith('youtube')), cs => cs.filter(c => c.status === 'active').length) },
   ];
 
   const heroItems = [
@@ -2638,14 +2690,10 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
                   const greenIntensity = Math.min(absPct / 30, 1);
                   const greenColor = isGood ? `hsl(142, ${Math.round(50 + greenIntensity * 50)}%, ${Math.round(38 - greenIntensity * 8)}%)` : undefined;
                   const deltaColor = d ? (isGood ? greenColor! : isBad ? RED : 'var(--muted)') : 'var(--muted)';
-                  const mockEffData = Array.from({ length: period }, (_, i) => {
-                    const date = new Date(); date.setDate(date.getDate() - (period - 1 - i));
-                    const base = parseFloat(m.value.replace(/[^0-9.]/g, '')) || 100;
-                    return { date: date.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), v: Math.max(0, base * (0.85 + Math.sin(i * 1.7 + mi) * 0.15)) };
-                  });
+                  const effData2 = buildEffDayData2(row.platformCalls, mi);
                   return (
                     <div key={mi}
-                      onClick={() => setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: mockEffData })}
+                      onClick={() => setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: effData2 })}
                       style={{ padding: '12px 16px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}>
@@ -2782,9 +2830,20 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   );
 }
 
-function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: Period }) {
+function TabRevenues({ stripe, period, onRefresh, refreshing }: { stripe: StripeStats | null; period: Period; onRefresh?: () => void; refreshing?: boolean }) {
   const [payFilter, setPayFilter] = useState<'all' | 'succeeded' | 'failed'>('all');
-  if (!stripe) return <Empty msg="Connecte ton compte Stripe pour voir les revenus." />;
+  if (!stripe) return (
+    <div style={{ textAlign: 'center', padding: '48px 24px' }}>
+      <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
+      <div style={{ fontSize: 12, color: 'var(--faint)', lineHeight: 1.8 }}>
+        Va dans <strong>Réglages → Stripe</strong>, entre ta clé secrète (<code>sk_live_...</code> ou <code>sk_test_...</code>)<br />
+        disponible sur{' '}
+        <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
+          dashboard.stripe.com/apikeys
+        </a>
+      </div>
+    </div>
+  );
 
   const cutoff = new Date(Date.now() - period * 86400000);
   const allInPeriod = stripe.recentPayments.filter(p => new Date(p.date) >= cutoff);
@@ -2801,12 +2860,17 @@ function TabRevenues({ stripe, period }: { stripe: StripeStats | null; period: P
     d.setDate(d.getDate() - (period - 1 - i));
     const iso = d.toISOString().split('T')[0];
     const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
-    const label = d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
-    return { date: label, _iso: iso, ca } as any;
+    return { date: iso, ca };
   });
 
   return (
     <div className="stack">
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <button onClick={onRefresh} disabled={refreshing} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: refreshing ? 'default' : 'pointer', border: '1px solid var(--border)', background: 'var(--surface-2)', color: 'var(--muted)', opacity: refreshing ? 0.6 : 1, transition: 'all .15s' }}>
+          <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none', fontSize: 14 }}>↻</span>
+          {refreshing ? 'Actualisation…' : 'Actualiser'}
+        </button>
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
@@ -5173,7 +5237,6 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
   return (
     <div
       style={{
-        position: 'fixed', top: 16, right: 0, zIndex: 1100,
         display: 'flex', alignItems: 'center', gap: 8,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 12, padding: '5px 10px',
@@ -5182,20 +5245,20 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
       } as React.CSSProperties}
     >
       <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
-        style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 24, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>‹</button>
-      <div style={{ textAlign: 'center', minWidth: 140 }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
+        style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 20, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>‹</button>
+      <div style={{ textAlign: 'center', minWidth: 125 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
           {periodIndex === 0 ? 'Période actuelle' : `${period === 7 ? 'S' : 'M'}−${periodIndex}`}
         </div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{periodLabel(period, periodIndex)}</div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{periodLabel(period, periodIndex)}</div>
       </div>
       <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={periodIndex === 0}
-        style={{ background: 'none', border: 'none', cursor: periodIndex === 0 ? 'default' : 'pointer', fontSize: 24, color: periodIndex === 0 ? 'var(--faint)' : 'var(--ink)', padding: '0 5px', lineHeight: 1 }}>›</button>
-      <div style={{ width: 1, height: 28, background: 'var(--border)', margin: '0 4px' }} />
+        style={{ background: 'none', border: 'none', cursor: periodIndex === 0 ? 'default' : 'pointer', fontSize: 20, color: periodIndex === 0 ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>›</button>
+      <div style={{ width: 1, height: 26, background: 'var(--border)', margin: '0 4px' }} />
       <div style={{ display: 'flex', gap: 2, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
         {([7, 30] as Period[]).map(p => (
           <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(() => 0); }} style={{
-            padding: '5px 15px', fontSize: 14, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+            padding: '5px 13px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
             background: period === p ? 'var(--ink)' : 'transparent',
             color: period === p ? 'var(--surface)' : 'var(--muted)',
             transition: 'all .15s',
@@ -5253,6 +5316,116 @@ async function fetchApi(url: string) {
   return d?.error ? null : d;
 }
 
+async function fetchSnapshot(profileId: string | undefined, periodIndex: number, period: number) {
+  if (periodIndex === 0) return null;
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const targetId = profileId || user.id;
+
+  // Date du snapshot : J - (periodIndex * period)
+  const snapshotDate = new Date();
+  snapshotDate.setDate(snapshotDate.getDate() - periodIndex * period);
+  const dateStr = snapshotDate.toISOString().split('T')[0];
+
+  const { data: snap } = await supabase
+    .from('analytics_daily_snapshots')
+    .select('*')
+    .eq('profile_id', targetId)
+    .lte('date', dateStr)
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!snap) return null;
+
+  // Reconstruire ig depuis le snapshot
+  const igChartData: any[] = snap.ig_chart_data ?? [];
+  const igSlice = igChartData.slice(-period);
+  const igHist = igChartData.length > 0 ? {
+    reach30d: igSlice.reduce((s: number, d: any) => s + (d.reach ?? 0), 0),
+    views30d: igSlice.reduce((s: number, d: any) => s + (d.views ?? 0), 0),
+    followers: snap.ig_followers ?? 0,
+    following: snap.ig_following ?? 0,
+    accountsEngaged30d: snap.ig_accounts_engaged ?? 0,
+    totalInteractions30d: snap.ig_total_interactions ?? 0,
+    profileLinksTaps30d: snap.ig_profile_taps ?? 0,
+    websiteClicks30d: snap.ig_website_clicks ?? 0,
+    followsUnfollows30d: snap.ig_follows_unfollows ?? 0,
+    chartData: igChartData,
+    posts: [],
+    demographics: snap.ig_demographics ?? {},
+    username: null,
+    name: null,
+    profilePicture: null,
+    mediaCount: 0,
+    views7d: 0,
+    reach7d: 0,
+    accountsEngaged7d: 0,
+  } as any as IGStats : null;
+
+  // Reconstruire yt depuis le snapshot
+  const ytChartData: any[] = snap.yt_chart_data ?? [];
+  const ytSlice = ytChartData.slice(-period);
+  const ytHist = ytChartData.length > 0 ? {
+    views30d: ytSlice.reduce((s: number, d: any) => s + (d.views ?? 0), 0),
+    watchTime30d: ytSlice.reduce((s: number, d: any) => s + (d.watchTime ?? 0), 0),
+    subsGained30d: ytSlice.reduce((s: number, d: any) => s + (d.subsGained ?? 0), 0),
+    subsLost30d: ytSlice.reduce((s: number, d: any) => s + (d.subsLost ?? 0), 0),
+    netSubs30d: ytSlice.reduce((s: number, d: any) => s + (d.netSubs ?? 0), 0),
+    subscribers: snap.yt_subscribers ?? 0,
+    likes30d: snap.yt_likes ?? 0,
+    comments30d: snap.yt_comments ?? 0,
+    shares30d: snap.yt_shares ?? 0,
+    avgViewDurationSec: snap.yt_avg_view_duration_sec ?? 0,
+    chartData: ytChartData,
+    videos: [],
+    trafficSources: snap.yt_traffic_sources ?? [],
+    devices: snap.yt_devices ?? [],
+    demographics: snap.yt_demographics ?? {},
+    totalViews: 0,
+    views7d: 0,
+    subsGained7d: 0,
+    subsLost7d: 0,
+    netSubs7d: 0,
+  } as any as YTStats : null;
+
+  // Reconstruire shortio depuis le snapshot
+  const shortioChartData: any[] = snap.shortio_chart_data ?? [];
+  const shortioHist = shortioChartData.length > 0 ? {
+    clicks30d: snap.shortio_clicks ?? 0,
+    humanClicks30d: snap.shortio_human_clicks ?? 0,
+    links: snap.shortio_links ?? [],
+    topCountries: snap.shortio_top_countries ?? [],
+    topReferrers: snap.shortio_top_referrers ?? [],
+    chartData: shortioChartData,
+  } as any as ShortioStats : null;
+
+  // Calls pour la période historique depuis la DB
+  const periodStart = new Date(snapshotDate.getTime() - period * 86400000).toISOString();
+  const periodEnd = snapshotDate.toISOString();
+
+  let callsRes: { data: any[] | null } = { data: [] };
+  if (profileId) {
+    callsRes = await supabase.from('calls').select('*')
+      .eq('coach_id', user.id)
+      .gte('scheduled_at', periodStart)
+      .lte('scheduled_at', periodEnd)
+      .not('calendly_event_uuid', 'is', null)
+      .order('scheduled_at', { ascending: false });
+  } else {
+    // Vue élève : calls leads Calendly (coach_id = son propre profile_id)
+    callsRes = await supabase.from('calls').select('*')
+      .eq('coach_id', user.id)
+      .gte('scheduled_at', periodStart)
+      .lte('scheduled_at', periodEnd)
+      .not('calendly_event_uuid', 'is', null)
+      .order('scheduled_at', { ascending: false });
+  }
+
+  return { igHist, ytHist, shortioHist, callsHist: callsRes.data ?? [], snapshotDate: dateStr };
+}
+
 async function fetchSupabaseStats(profileId?: string) {
   try {
   const supabase = createClient();
@@ -5280,14 +5453,11 @@ async function fetchSupabaseStats(profileId?: string) {
       .not('calendly_event_uuid', 'is', null)
       .order('scheduled_at', { ascending: false }).limit(500);
   } else {
-    // Vue élève : ses calls Calendly avec ses propres leads (calendly_event_uuid non null)
-    const { data: cr } = await supabase.from('clients').select('id').eq('profile_id', user.id).maybeSingle();
-    callsRes = cr
-      ? await supabase.from('calls').select('*')
-          .eq('client_id', cr.id)
-          .not('calendly_event_uuid', 'is', null)
-          .order('scheduled_at', { ascending: false }).limit(500)
-      : { data: [] };
+    // Vue élève : ses calls leads Calendly (coach_id = son propre profile_id)
+    callsRes = await supabase.from('calls').select('*')
+      .eq('coach_id', user.id)
+      .not('calendly_event_uuid', 'is', null)
+      .order('scheduled_at', { ascending: false }).limit(500);
   }
 
   // Déduplique leads par ig_user_id — dernière interaction
@@ -5317,11 +5487,92 @@ async function fetchSupabaseStats(profileId?: string) {
   } catch { return null; }
 }
 
+const REFRESH_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
+
+function useRefreshCooldown(key: string) {
+  const [secondsLeft, setSecondsLeft] = useState(0);
+
+  useEffect(() => {
+    const stored = localStorage.getItem(`refresh_cooldown_${key}`);
+    if (!stored) return;
+    const expiresAt = parseInt(stored, 10);
+    const remaining = Math.ceil((expiresAt - Date.now()) / 1000);
+    if (remaining <= 0) return;
+    setSecondsLeft(remaining);
+
+    const interval = setInterval(() => {
+      const r = Math.ceil((expiresAt - Date.now()) / 1000);
+      if (r <= 0) { setSecondsLeft(0); clearInterval(interval); }
+      else setSecondsLeft(r);
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [key]);
+
+  const startCooldown = () => {
+    const expiresAt = Date.now() + REFRESH_COOLDOWN_MS;
+    localStorage.setItem(`refresh_cooldown_${key}`, String(expiresAt));
+    setSecondsLeft(REFRESH_COOLDOWN_MS / 1000);
+  };
+
+  return { secondsLeft, inCooldown: secondsLeft > 0, startCooldown };
+}
+
+async function fetchIntegrationStatus(profileId?: string) {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return null;
+  const targetId = profileId || user.id;
+
+  const { data } = await supabase
+    .from('integrations')
+    .select('provider, backfill_done, backfill_started_at, last_snapshot_status, last_snapshot_error, connected_at, updated_at')
+    .eq('profile_id', targetId)
+    .in('provider', ['instagram', 'youtube']);
+
+  if (!data?.length) return null;
+
+  const ig = data.find(r => r.provider === 'instagram');
+  const yt = data.find(r => r.provider === 'youtube');
+
+  const latestSnap = await supabase
+    .from('analytics_daily_snapshots')
+    .select('date, updated_at')
+    .eq('profile_id', targetId)
+    .order('date', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  return {
+    ig: ig ? {
+      backfillDone: ig.backfill_done,
+      backfillStarted: ig.backfill_started_at,
+      snapshotStatus: ig.last_snapshot_status,
+      snapshotError: ig.last_snapshot_error,
+      connectedAt: ig.connected_at,
+    } : null,
+    yt: yt ? {
+      backfillDone: yt.backfill_done,
+      backfillStarted: yt.backfill_started_at,
+      snapshotStatus: yt.last_snapshot_status,
+      snapshotError: yt.last_snapshot_error,
+      connectedAt: yt.connected_at,
+    } : null,
+    latestSnapshotDate: latestSnap.data?.date ?? null,
+    latestSnapshotUpdatedAt: latestSnap.data?.updated_at ?? null,
+  };
+}
+
 export default function PageClientStats({ profileId }: { profileId?: string } = {}) {
   const [tab, setTab] = useState(0);
   const [period, setPeriod] = useState<Period>(30);
   const [periodIndex, setPeriodIndex] = useState(0);
   const [modalOpen, setModalOpen] = useState(false);
+  const [stripeRefreshing, setStripeRefreshing] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [calendlySyncing, setCalendlySyncing] = useState(false);
+
+  const refreshKey = `analytics_${profileId || 'me'}`;
+  const { secondsLeft, inCooldown, startCooldown } = useRefreshCooldown(refreshKey);
 
   const q = profileId ? `?profileId=${profileId}` : '';
 
@@ -5359,13 +5610,19 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const yt: YTStats | null = ytRaw ?? null;
 
   // Stripe — onglets 0, 5
-  const { data: stripeRaw } = useQuery<StripeStats | null>({
+  const { data: stripeRaw, refetch: refetchStripe } = useQuery<StripeStats | null>({
     queryKey: ['stats-stripe', profileId],
     queryFn: () => fetchApi(`/api/stripe/client-data${q}`),
     enabled: [0, 5].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
   const stripe: StripeStats | null = stripeRaw ?? null;
+
+  async function handleStripeRefresh() {
+    setStripeRefreshing(true);
+    await refetchStripe();
+    setStripeRefreshing(false);
+  }
 
   // Messages IG — onglets 0, 3, 4
   const { data: msgsRaw } = useQuery<IGMessages | null>({
@@ -5385,6 +5642,73 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   });
   const shortio: ShortioStats | null = shortioRaw ?? null;
 
+  // Snapshot historique — chargé uniquement sur l'onglet Funnel quand periodIndex > 0
+  const { data: snapData } = useQuery({
+    queryKey: ['stats-snapshot', profileId, periodIndex, period],
+    queryFn: () => fetchSnapshot(profileId, periodIndex, period),
+    enabled: tab === 3 && periodIndex > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  // État intégrations — backfill + fraîcheur
+  const { data: integStatus, refetch: refetchIntegStatus } = useQuery({
+    queryKey: ['integ-status', profileId],
+    queryFn: () => fetchIntegrationStatus(profileId),
+    staleTime: 2 * 60 * 1000,
+    refetchInterval: (query) => {
+      // Polling toutes les 10s si un backfill est en cours
+      const d = query.state.data as Awaited<ReturnType<typeof fetchIntegrationStatus>>;
+      const igInProgress = d?.ig && !d.ig.backfillDone && d.ig.backfillStarted;
+      const ytInProgress = d?.yt && !d.yt.backfillDone && d.yt.backfillStarted;
+      return (igInProgress || ytInProgress) ? 10_000 : false;
+    },
+  });
+
+  const backfillInProgress = !!(
+    (integStatus?.ig && !integStatus.ig.backfillDone && integStatus.ig.backfillStarted) ||
+    (integStatus?.yt && !integStatus.yt.backfillDone && integStatus.yt.backfillStarted)
+  );
+  const snapshotError = integStatus?.ig?.snapshotError || integStatus?.yt?.snapshotError || null;
+  const latestSnapshotDate = integStatus?.latestSnapshotDate ?? null;
+  const latestSnapshotUpdatedAt = integStatus?.latestSnapshotUpdatedAt ?? null;
+  const snapshotAgeHours = latestSnapshotUpdatedAt
+    ? (Date.now() - new Date(latestSnapshotUpdatedAt).getTime()) / 3600000
+    : null;
+  const snapshotStale = snapshotAgeHours !== null && snapshotAgeHours > 26;
+
+  async function handleCalendlySync() {
+    if (calendlySyncing) return;
+    setCalendlySyncing(true);
+    await fetch('/api/calendly/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: profileId ? JSON.stringify({ profile_id: profileId }) : JSON.stringify({}),
+    });
+    setCalendlySyncing(false);
+    // Invalide les données Supabase pour recharger les calls
+    // (TanStack Query refetch via queryClient — on force via window reload léger)
+  }
+
+  async function handleRefresh() {
+    if (inCooldown || refreshing) return;
+    setRefreshing(true);
+    const body = profileId ? JSON.stringify({ profile_id: profileId }) : JSON.stringify({});
+    await Promise.allSettled([
+      fetch('/api/instagram/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
+      fetch('/api/youtube/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
+      fetch('/api/shortio/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
+    ]);
+    startCooldown();
+    setRefreshing(false);
+    refetchIntegStatus();
+  }
+
+  // Données effectives pour TabFunnel : historiques si periodIndex > 0, live sinon
+  const funnelIg     = (periodIndex > 0 ? (snapData?.igHist ?? null)      : ig)      as IGStats | null;
+  const funnelYt     = (periodIndex > 0 ? (snapData?.ytHist ?? null)      : yt)      as YTStats | null;
+  const funnelShortio = (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio) as ShortioStats | null;
+  const funnelCalls  = periodIndex > 0 ? (snapData?.callsHist ?? [])     : calls;
+
   // Loading : vrai seulement si les données du tab actuel manquent encore
   const loading = (() => {
     if (!supaData) return true;
@@ -5396,29 +5720,94 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
   const TABS = ['Vue générale', 'Instagram', 'YouTube', 'Funnel & Calls', 'Business micro', 'Revenus'];
 
+  const fmtCountdown = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+
   return (
     <div className="page-content">
 
-      <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between' }}>
+      {/* Banner backfill en cours */}
+      {backfillInProgress && (
+        <div style={{ marginBottom: 16, padding: '10px 16px', background: 'var(--accent)10', border: '1px solid var(--accent)40', borderRadius: 8, fontSize: 13, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ animation: 'spin 1.5s linear infinite', display: 'inline-block' }}>⏳</span>
+          Historique en cours de chargement — disponible dans 1-2 min…
+        </div>
+      )}
+
+      {/* Banner erreur snapshot */}
+      {!backfillInProgress && snapshotError && (
+        <div style={{ marginBottom: 16, padding: '10px 16px', background: '#cd5b3f10', border: '1px solid #cd5b3f40', borderRadius: 8, fontSize: 13, color: '#cd5b3f', display: 'flex', alignItems: 'center', gap: 8 }}>
+          ⚠️ Impossible de synchroniser les données — {snapshotError.split(',')[0]}
+        </div>
+      )}
+
+      {/* Banner données obsolètes */}
+      {!backfillInProgress && snapshotStale && !snapshotError && (
+        <div style={{ marginBottom: 16, padding: '10px 16px', background: '#b5802510', border: '1px solid #b5802540', borderRadius: 8, fontSize: 13, color: '#b58025', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <span>⚠️ Données de plus de 26h — cliquez sur Rafraîchir pour mettre à jour</span>
+        </div>
+      )}
+
+      <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+        {/* Titre à gauche */}
         <div>
           <h1 className="page-title">Analytics</h1>
-          <p className="page-sub">Tableau de bord complet — toutes les plateformes</p>
+          <p className="page-sub">
+            Tableau de bord complet — toutes les plateformes
+            {latestSnapshotDate && !backfillInProgress && (
+              <span style={{ color: 'var(--faint)', fontSize: 11, marginLeft: 8 }}>
+                · màj {latestSnapshotDate}
+              </span>
+            )}
+          </p>
         </div>
-        {tab !== 3 && (
-          <div style={{ display: 'flex', gap: 4, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: 4 }}>
-            {([7, 30] as Period[]).map(p => (
-              <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
-                padding: '5px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', border: 'none',
-                background: period === p ? 'var(--ink)' : 'transparent',
-                color: period === p ? 'var(--surface)' : 'var(--muted)',
-                transition: 'all .15s',
-              }}>{p}j</button>
-            ))}
+
+        {/* Droite : colonne flex — boutons toujours sur la 1ère ligne, Period Pill en dessous si Funnel & Calls */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+          {/* Ligne 1 : boutons + sélecteur 7j/30j (sauf Funnel & Calls) */}
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              onClick={handleCalendlySync}
+              disabled={calendlySyncing}
+              style={{
+                padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: calendlySyncing ? 'not-allowed' : 'pointer',
+                border: '1px solid var(--border)', background: 'var(--surface)',
+                color: calendlySyncing ? 'var(--muted)' : 'var(--ink)',
+                transition: 'all .15s', whiteSpace: 'nowrap',
+              }}
+            >
+              {calendlySyncing ? 'Sync…' : '📅 Sync Calendly'}
+            </button>
+            <button
+              onClick={handleRefresh}
+              disabled={inCooldown || refreshing || backfillInProgress}
+              style={{
+                padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8, cursor: inCooldown || refreshing || backfillInProgress ? 'not-allowed' : 'pointer',
+                border: '1px solid var(--border)', background: 'var(--surface)',
+                color: inCooldown || refreshing || backfillInProgress ? 'var(--muted)' : 'var(--ink)',
+                transition: 'all .15s', whiteSpace: 'nowrap',
+              }}
+            >
+              {refreshing ? 'Rafraîchissement…' : inCooldown ? `Refresh dans ${fmtCountdown(secondsLeft)}` : '↻ Rafraîchir'}
+            </button>
+            {/* Sélecteur 7j/30j sur la même ligne pour tous les onglets sauf Funnel & Calls */}
+            {tab !== 3 && (
+              <div style={{ display: 'flex', gap: 3, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3 }}>
+                {([7, 30] as Period[]).map(p => (
+                  <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
+                    padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
+                    background: period === p ? 'var(--ink)' : 'transparent',
+                    color: period === p ? 'var(--surface)' : 'var(--muted)',
+                    transition: 'all .15s',
+                  }}>{p}j</button>
+                ))}
+              </div>
+            )}
           </div>
-        )}
-        {tab === 3 && (
-          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
-        )}
+          {/* Ligne 2 : Period Pill uniquement pour Funnel & Calls, juste en dessous des boutons */}
+          {tab === 3 && (
+            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
+          )}
+        </div>
       </div>
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
@@ -5428,9 +5817,9 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={calls} stripe={stripe} ig={ig} yt={yt} shortio={shortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
           {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} period={period} profileId={profileId} />}
-          {tab === 5 && <TabRevenues stripe={stripe} period={period} />}
+          {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
     </div>
