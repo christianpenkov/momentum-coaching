@@ -28,14 +28,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: true, synced: 0, profiles: 0 });
   }
 
-  let totalSynced = 0;
-  const allErrors: Record<string, string[]> = {};
+  const results = await Promise.all(
+    integrations.map(integ => {
+      const connectedAt = integ.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+      return syncCalendlyEleve(integ.profile_id, connectedAt)
+        .then(r => ({ profile_id: integ.profile_id, ...r }))
+        .catch(e => ({ profile_id: integ.profile_id, synced: 0, errors: [e?.message || 'unknown'] }));
+    })
+  );
 
-  for (const integ of integrations) {
-    const connectedAt = integ.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    const { synced, errors } = await syncCalendlyEleve(integ.profile_id, connectedAt);
-    totalSynced += synced;
-    if (errors.length) allErrors[integ.profile_id] = errors;
+  const totalSynced = results.reduce((acc, r) => acc + r.synced, 0);
+  const allErrors: Record<string, string[]> = {};
+  for (const r of results) {
+    if (r.errors.length) allErrors[r.profile_id] = r.errors;
   }
 
   return NextResponse.json({
