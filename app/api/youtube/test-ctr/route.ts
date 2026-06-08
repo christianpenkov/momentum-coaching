@@ -102,6 +102,33 @@ export async function GET(request: Request) {
     reachJobReports = await safeJson(reportsRes);
   }
 
+  // 4. Télécharge le CSV du rapport reach le plus récent et parse les premières lignes
+  let csvPreview: any = null;
+  const reports: any[] = reachJobReports?.data?.reports || [];
+  const latestReport = reports[0]; // trié par date desc par l'API
+  if (latestReport?.downloadUrl) {
+    const csvRes = await fetch(latestReport.downloadUrl, { headers: auth });
+    if (csvRes.ok) {
+      const text = await csvRes.text();
+      const lines = text.split('\n').filter(Boolean);
+      const headers = lines[0]?.split(',') || [];
+      const rows = lines.slice(1, 6).map(l => {
+        const vals = l.split(',');
+        return Object.fromEntries(headers.map((h, i) => [h.trim(), vals[i]?.trim()]));
+      });
+      csvPreview = {
+        report_id: latestReport.id,
+        start_time: latestReport.startTime,
+        end_time: latestReport.endTime,
+        total_lines: lines.length - 1, // sans header
+        headers,
+        sample_rows: rows,
+      };
+    } else {
+      csvPreview = { error: `HTTP ${csvRes.status}`, report_id: latestReport.id };
+    }
+  }
+
   return NextResponse.json({
     // Analytics API — impressions + CTR canal entier (30j)
     analytics_channel_ctr: {
@@ -144,5 +171,7 @@ export async function GET(request: Request) {
       reports: reachJobReports?.data?.reports?.slice(0, 3) || null,
       error: reachJobReports?.data?.error || null,
     } : null,
+    // Contenu du CSV le plus récent
+    csv_preview: csvPreview,
   });
 }
