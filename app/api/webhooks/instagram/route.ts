@@ -127,11 +127,15 @@ export async function POST(request: Request) {
       if (leadToUpdate) {
         await serviceSupabase
           .from('instagram_leads')
-          .update({ hook_replied: true })
+          .update({
+            hook_replied: true,
+            hook_reply_text: msgText.slice(0, 500),
+            hook_replied_at: new Date().toISOString(),
+          })
           .eq('id', leadToUpdate.id);
 
-        console.log(`[IG Webhook] hook_replied=true — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}`);
-        pushEvent({ type: 'hook_replied', ig_user_id: senderId, lead_id: leadToUpdate.id });
+        console.log(`[IG Webhook] hook_replied=true — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}, reply: "${msgText.slice(0, 50)}"`);
+        pushEvent({ type: 'hook_replied', ig_user_id: senderId, lead_id: leadToUpdate.id, reply_text: msgText.slice(0, 100) });
       }
     }
 
@@ -281,20 +285,20 @@ export async function POST(request: Request) {
         .select('id')
         .maybeSingle();
 
-      // Historique LM : stocke chaque interaction même si lead existait déjà
+      // Historique LM : stocke chaque interaction — idempotent via UNIQUE constraint
       if (commenterId) {
         await serviceSupabase
           .from('instagram_lead_lm_history')
-          .insert({
+          .upsert({
             profile_id,
-            ig_username: commenterUsername,
+            ig_username: commenterUsername || '',
             ig_user_id: commenterId,
             keyword_matched: matchedKeyword,
             media_id: mediaId || commentId,
             lm_url: shortLink || null,
             lead_magnet_sent: leadMagnetSent,
             detected_at: timestamp,
-          });
+          }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
       }
 
       console.log(`[IG Webhook] Lead stocké — @${commenterUsername}, mot-clé: ${matchedKeyword}`);

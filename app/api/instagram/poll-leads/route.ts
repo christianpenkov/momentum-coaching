@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgLeads } from '@/lib/ig-fetch';
+import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgComments, pollIgHookReplied } from '@/lib/ig-fetch';
 import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot, syncYtCtr } from '@/lib/yt-fetch';
 import { getShortioLinkCreds, snapshotShortioLinks } from '@/lib/shortio-fetch';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
@@ -220,11 +220,15 @@ export async function GET(request: Request) {
           const since = profile.last_ig_poll
             ? new Date(profile.last_ig_poll)
             : new Date(Date.now() - 24 * 60 * 60 * 1000);
-          const { leadsFound: found, error } = await pollIgLeads(
-            profile.profile_id, creds.token, creds.igAccountId, since
-          );
-          if (error) profileErrors.push(`lead_poll: ${error}`);
-          leadsFound += found;
+
+          // Backup commentaires (nouveaux leads) + backup hook_replied (réponses DM)
+          const [commentsResult, hookResult] = await Promise.all([
+            pollIgComments(profile.profile_id, creds.token, creds.igAccountId, since),
+            pollIgHookReplied(profile.profile_id, creds.token, creds.igAccountId),
+          ]);
+          if (commentsResult.error) profileErrors.push(`comment_poll: ${commentsResult.error}`);
+          if (hookResult.error) profileErrors.push(`hook_poll: ${hookResult.error}`);
+          leadsFound += commentsResult.leadsFound;
           polled++;
         }
       } catch {

@@ -182,120 +182,210 @@ export async function fetchIgBackfill30d(
 
 // ── Upsert snapshot dans Supabase ────────────────────────────────────────────
 
-// ── Poll leads (DMs + commentaires) ──────────────────────────────────────────
+// ── Poll commentaires (backup webhook — détecte nouveaux leads) ───────────────
+// Ne crée des leads que depuis les commentaires. Keywords lus depuis content_links.
+// Déduplication atomique via INSERT lm_history ON CONFLICT DO NOTHING.
 
-export async function pollIgLeads(
+export async function pollIgComments(
   profileId: string,
   token: string,
   igAccountId: string,
   since: Date,
 ): Promise<{ leadsFound: number; error?: string }> {
-  // Récupère les keywords actifs pour ce profil
-  const { data: kwRows } = await serviceSupabase
-    .from('lead_magnet_keywords')
-    .select('keyword')
-    .eq('profile_id', profileId);
+  // Lire les content_links avec keyword configuré (source de vérité)
+  const { data: contentLinks } = await serviceSupabase
+    .from('content_links')
+    .select('content_id, lm_keyword, lm_short_url, dm_opener_message, dm_lm_message')
+    .eq('profile_id', profileId)
+    .not('lm_keyword', 'is', null)
+    .not('lm_short_url', 'is', null);
 
-  const keywords = (kwRows || []).map((r: any) => r.keyword as string);
-  if (!keywords.length) return { leadsFound: 0 };
+  if (!contentLinks?.length) return { leadsFound: 0 };
 
-  const allLeads: any[] = [];
+  // Map content_id (media_id IG) → config LM
+  const clByMedia = new Map<string, typeof contentLinks[0]>();
+  for (const cl of contentLinks) {
+    if (cl.content_id) clByMedia.set(cl.content_id, cl);
+  }
 
-  // ── DMs ──
+  // Fenêtre max 48h pour le poll backup (évite de spammer des leads anciens)
+  const sinceMs = Math.max(since.getTime(), Date.now() - 48 * 60 * 60 * 1000);
+  const sinceDate = new Date(sinceMs);
+
+  let leadsFound = 0;
+
+  try {
+    const mediaRes = await fetch(
+      `https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,permalink,timestamp&limit=30&access_token=${token}`
+    );
+    const mediaData = await mediaRes.json();
+    // Médias des 90 derniers jours max (pour couvrir les posts avec LM)
+    const recentMedia = (mediaData.data || []).filter(
+      (m: any) => new Date(m.timestamp).getTime() > Date.now() - 90 * 24 * 60 * 60 * 1000
+    );
+
+    for (const media of recentMedia) {
+      const cl = clByMedia.get(media.id);
+      if (!cl) continue; // ce post n'a pas de LM configuré
+
+      const commRes = await fetch(
+        `https://graph.instagram.com/v21.0/${media.id}/comments?fields=id,text,timestamp,from,username&limit=50&access_token=${token}`
+      );
+      const commData = await commRes.json();
+      if (commData.error) continue;
+
+      for (const comment of commData.data || []) {
+        if (!comment.text) continue;
+        if (new Date(comment.timestamp).getTime() < sinceDate.getTime()) continue;
+
+        const text = comment.text.toLowerCase().trim();
+        if (!text.includes(cl.lm_keyword!.toLowerCase())) continue;
+
+        const commenterId = comment.from?.id ? String(comment.from.id) : null;
+        if (!commenterId) continue;
+
+        const commenterUsername = comment.from?.username || comment.username || '';
+        const detectedAt = new Date(comment.timestamp).toISOString();
+
+        // Dédup atomique : INSERT lm_history ON CONFLICT DO NOTHING
+        // Si count = 0 → déjà traité → skip
+        const { count } = await serviceSupabase
+          .from('instagram_lead_lm_history')
+          .insert({
+            profile_id: profileId,
+            ig_username: commenterUsername || '',
+            ig_user_id: commenterId,
+            keyword_matched: cl.lm_keyword,
+            media_id: media.id,
+            lm_url: cl.lm_short_url || null,
+            lead_magnet_sent: false,
+            detected_at: detectedAt,
+          }, { count: 'exact' })
+          .select();
+
+        // Si la contrainte UNIQUE a joué → l'insert retourne 0 rows → déjà traité
+        if (!count || count === 0) continue;
+
+        leadsFound++;
+
+        // Upsert lead
+        await serviceSupabase.from('instagram_leads').upsert({
+          profile_id: profileId,
+          source: 'comment',
+          ig_username: commenterUsername || null,
+          ig_user_id: commenterId,
+          message: comment.text.slice(0, 500),
+          media_id: media.id,
+          media_permalink: media.permalink || null,
+          keyword_matched: cl.lm_keyword,
+          detected_at: detectedAt,
+          lead_magnet_sent: false,
+          tracking_link: cl.lm_short_url || null,
+        }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
+
+        // Envoyer DM LM (backup — le webhook l'a peut-être déjà envoyé)
+        // On essaie quand même ; si déjà reçu, le lead ne verra qu'un doublon de DM (acceptable)
+        if (cl.lm_short_url && cl.dm_lm_message) {
+          const dm1Text = (cl.dm_lm_message || '').replace(/\{\{lien_lm\}\}/gi, cl.lm_short_url).replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`);
+          try {
+            await fetch(
+              `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  recipient: { comment_id: comment.id },
+                  message: { text: dm1Text },
+                  access_token: token,
+                }),
+              }
+            );
+          } catch {}
+        }
+      }
+    }
+  } catch (e: any) {
+    return { leadsFound, error: e?.message };
+  }
+
+  if (leadsFound > 0) {
+    await serviceSupabase.from('integrations')
+      .update({ last_ig_poll: new Date().toISOString() })
+      .eq('profile_id', profileId).eq('provider', 'instagram');
+  }
+
+  return { leadsFound };
+}
+
+// ── Poll DMs (backup webhook — détecte hook_replied manqués) ─────────────────
+// Ne crée JAMAIS de nouveaux leads. Pas de keyword matching.
+// Cherche seulement les leads existants qui ont reçu un LM mais pas encore répondu.
+
+export async function pollIgHookReplied(
+  profileId: string,
+  token: string,
+  igAccountId: string,
+): Promise<{ updated: number; error?: string }> {
+  let updated = 0;
+
   try {
     const threadsRes = await fetch(
       `https://graph.instagram.com/v21.0/${igAccountId}/conversations?fields=id,updated_time,participants,message_count&limit=50&access_token=${token}`
     );
     const threadsData = await threadsRes.json();
-    const threads = (threadsData.data || []).filter(
-      (t: any) => new Date(t.updated_time).getTime() > since.getTime()
+
+    const since48h = Date.now() - 48 * 60 * 60 * 1000;
+    const recentThreads = (threadsData.data || []).filter(
+      (t: any) => new Date(t.updated_time).getTime() > since48h
     );
-    await Promise.all(threads.map(async (thread: any) => {
+
+    await Promise.all(recentThreads.map(async (thread: any) => {
+      const participant = thread.participants?.data?.find((p: any) => p.id !== igAccountId);
+      if (!participant?.id) return;
+
+      const participantId = String(participant.id);
+
+      // Chercher si ce participant est un lead avec LM envoyé mais hook_replied=false
+      const { data: leadToUpdate } = await serviceSupabase
+        .from('instagram_leads')
+        .select('id, hook_replied, hook_replied_at')
+        .eq('profile_id', profileId)
+        .eq('ig_user_id', participantId)
+        .eq('lead_magnet_sent', true)
+        .eq('hook_replied', false)
+        .maybeSingle();
+
+      if (!leadToUpdate || leadToUpdate.hook_replied_at) return;
+
+      // Fetch les messages du thread pour trouver le premier message du lead
       const msgRes = await fetch(
         `https://graph.instagram.com/v21.0/${thread.id}/messages?fields=id,message,from,created_time&limit=20&access_token=${token}`
       );
       const msgData = await msgRes.json();
-      for (const msg of msgData?.data || []) {
-        if (!msg.message || msg.from?.id === igAccountId) continue;
-        const text = msg.message.toLowerCase();
-        for (const kw of keywords) {
-          if (text.includes(kw.toLowerCase())) {
-            const participant = thread.participants?.data?.find((p: any) => p.id !== igAccountId);
-            allLeads.push({
-              profile_id: profileId, source: 'dm',
-              ig_username: participant?.username || participant?.name || null,
-              ig_user_id: msg.from?.id ? String(msg.from.id) : null,
-              message: msg.message.slice(0, 500),
-              media_id: thread.id, media_permalink: null,
-              keyword_matched: kw,
-              detected_at: new Date(msg.created_time).toISOString(),
-            });
-            break;
-          }
-        }
-      }
-    }));
-  } catch {}
 
-  // ── Commentaires ──
-  try {
-    const mediaRes = await fetch(
-      `https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,permalink,timestamp&limit=20&access_token=${token}`
-    );
-    const mediaData = await mediaRes.json();
-    const recentMedia = (mediaData.data || []).filter(
-      (m: any) => new Date(m.timestamp).getTime() > since.getTime() - 90 * 24 * 60 * 60 * 1000
-    );
-    await Promise.all(recentMedia.map(async (media: any) => {
-      const commRes = await fetch(
-        `https://graph.instagram.com/v21.0/${media.id}/comments?fields=id,text,timestamp,from,username&limit=50&access_token=${token}`
-      );
-      const commData = await commRes.json();
-      if (commData.error) return;
-      for (const comment of commData.data || []) {
-        if (!comment.text) continue;
-        if (new Date(comment.timestamp).getTime() < since.getTime()) continue;
-        const text = comment.text.toLowerCase();
-        for (const kw of keywords) {
-          if (text.includes(kw.toLowerCase())) {
-            allLeads.push({
-              profile_id: profileId, source: 'comment',
-              ig_username: comment.from?.username || comment.username || null,
-              ig_user_id: comment.from?.id ? String(comment.from.id) : null,
-              message: comment.text.slice(0, 500),
-              media_id: media.id, media_permalink: media.permalink || null,
-              keyword_matched: kw,
-              detected_at: new Date(comment.timestamp).toISOString(),
-            });
-            break;
-          }
-        }
-      }
-    }));
-  } catch {}
+      // Trouver le premier message envoyé par le lead (from.id !== igAccountId)
+      const leadMessages = (msgData?.data || [])
+        .filter((m: any) => m.from?.id && String(m.from.id) !== igAccountId && m.message)
+        .sort((a: any, b: any) => new Date(a.created_time).getTime() - new Date(b.created_time).getTime());
 
-  if (!allLeads.length) return { leadsFound: 0 };
+      if (!leadMessages.length) return;
 
-  try {
-    await serviceSupabase.from('instagram_leads').upsert(allLeads, {
-      onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false,
-    });
-    const historyRows = allLeads.filter(l => l.ig_user_id).map(l => ({
-      profile_id: l.profile_id, ig_username: l.ig_username, ig_user_id: l.ig_user_id,
-      keyword_matched: l.keyword_matched, media_id: l.media_id,
-      lm_url: null, lead_magnet_sent: false, detected_at: l.detected_at,
+      const firstReply = leadMessages[0];
+      await serviceSupabase.from('instagram_leads')
+        .update({
+          hook_replied: true,
+          hook_reply_text: firstReply.message?.slice(0, 500) ?? null,
+          hook_replied_at: new Date(firstReply.created_time).toISOString(),
+        })
+        .eq('id', leadToUpdate.id);
+
+      updated++;
     }));
-    if (historyRows.length) {
-      await serviceSupabase.from('instagram_lead_lm_history').insert(historyRows);
-    }
-    await serviceSupabase.from('integrations')
-      .update({ last_ig_poll: new Date().toISOString() })
-      .eq('profile_id', profileId).eq('provider', 'instagram');
   } catch (e: any) {
-    return { leadsFound: 0, error: e?.message };
+    return { updated, error: e?.message };
   }
 
-  return { leadsFound: allLeads.length };
+  return { updated };
 }
 
 export async function upsertIgSnapshot(

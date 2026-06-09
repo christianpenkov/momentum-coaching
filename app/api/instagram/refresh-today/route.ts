@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
-import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgLeads } from '@/lib/ig-fetch';
+import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgComments, pollIgHookReplied } from '@/lib/ig-fetch';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -45,11 +45,15 @@ export async function POST(request: Request) {
       const err = await upsertIgSnapshot(profileId, { date: today, ...metrics }, 'refresh_partial');
       if (err) errors.push(`upsert: ${err}`);
 
-      // Poll leads (DMs + commentaires depuis 24h)
+      // Poll backup commentaires (nouveaux leads) + hook_replied (réponses DM)
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const pollResult = await pollIgLeads(profileId, creds.token, creds.igAccountId, since);
-      leadsFound = pollResult.leadsFound;
-      if (pollResult.error) errors.push(`poll: ${pollResult.error}`);
+      const [commentsResult, hookResult] = await Promise.all([
+        pollIgComments(profileId, creds.token, creds.igAccountId, since),
+        pollIgHookReplied(profileId, creds.token, creds.igAccountId),
+      ]);
+      leadsFound = commentsResult.leadsFound;
+      if (commentsResult.error) errors.push(`comment_poll: ${commentsResult.error}`);
+      if (hookResult.error) errors.push(`hook_poll: ${hookResult.error}`);
     }
   } catch (e: any) {
     errors.push(`fetch_error: ${e?.message || 'unknown'}`);
