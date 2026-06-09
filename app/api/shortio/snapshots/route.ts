@@ -189,7 +189,7 @@ export async function GET(request: Request) {
         .select('metadata')
         .eq('profile_id', targetProfileId)
         .eq('provider', 'shortio')
-        .single(),
+        .maybeSingle(),
       serviceSupabase
         .from('shortio_links_metadata')
         .select('link_id,title,created_at')
@@ -197,6 +197,7 @@ export async function GET(request: Request) {
     ]);
 
     if (snapshotsRes.error) throw snapshotsRes.error;
+    if (integRes.error) console.warn('[shortio/snapshots] integrations_error:', integRes.error.message, { targetProfileId });
 
     const domain = (integRes.data?.metadata as any)?.domain || '';
     const metaMap = new Map(
@@ -212,7 +213,8 @@ export async function GET(request: Request) {
       });
     }
 
-    console.log('[shortio/snapshots] rows=%d links=%d domain=%s', data.length, new Set(data.map((r: any) => r.link_id)).size, domain);
+    const linkTypesSample = [...new Set((data as any[]).map((r: any) => r.link_type))].slice(0, 5);
+    console.log('[shortio/snapshots] rows=%d links=%d domain=%s integError=%s linkTypes=%s', data.length, new Set(data.map((r: any) => r.link_id)).size, domain, integRes.error?.message || 'none', JSON.stringify(linkTypesSample));
 
     const result = mapPostgresToShortio(data as SnapshotRow[], domain, metaMap);
     return NextResponse.json(result, {
