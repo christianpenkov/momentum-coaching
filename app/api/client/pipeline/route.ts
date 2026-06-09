@@ -12,14 +12,16 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const [leadsRes, prospectsRes, callsRes, overridesRes] = await Promise.all([
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const [leadsRes, prospectsRes, callsRes, overridesRes, clicksRes] = await Promise.all([
     supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, media_id, source')
       .eq('profile_id', user.id)
       .eq('lead_magnet_sent', true)
       .order('detected_at', { ascending: false }),
     supa.from('prospect_links')
-      .select('id, ig_username, short_url, content_id, created_at, short_link_path')
+      .select('id, ig_username, short_url, content_id, created_at')
       .eq('profile_id', user.id)
       .order('created_at', { ascending: false }),
     supa.from('calls')
@@ -30,11 +32,27 @@ export async function GET() {
     supa.from('pipeline_overrides')
       .select('prospect_key, platform, stage, updated_at')
       .eq('profile_id', user.id),
+    supa.from('shortio_link_daily_snapshots')
+      .select('short_url, human_clicks')
+      .eq('profile_id', user.id)
+      .gte('date', since30d),
   ]);
+
+  // Agrège human_clicks par short_url sur 30j
+  const clicksByUrl = new Map<string, number>();
+  for (const row of clicksRes.data ?? []) {
+    if (!row.short_url) continue;
+    clicksByUrl.set(row.short_url, (clicksByUrl.get(row.short_url) ?? 0) + (row.human_clicks ?? 0));
+  }
+
+  const prospects = (prospectsRes.data ?? []).map((p: any) => ({
+    ...p,
+    humanClicks30d: p.short_url ? (clicksByUrl.get(p.short_url) ?? 0) : 0,
+  }));
 
   return NextResponse.json({
     leads: leadsRes.data ?? [],
-    prospects: prospectsRes.data ?? [],
+    prospects,
     calls: callsRes.data ?? [],
     overrides: overridesRes.data ?? [],
   });

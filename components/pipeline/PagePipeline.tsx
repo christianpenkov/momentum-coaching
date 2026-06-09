@@ -416,10 +416,13 @@ export default function PagePipeline() {
       if (prospect) natural = 'calendly_sent';
       if (prospect && (prospect as any).humanClicks30d > 0) natural = 'link_clicked';
 
+      const prospectPath = prospect?.short_url
+        ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
+        : null;
       const call = data.calls.find(c => {
         if (lead && c.ig_lead_id === lead.id) return true;
-        if (prospect && c.short_link_path && prospect.short_link_path &&
-          c.short_link_path === prospect.short_link_path) return true;
+        if (prospect && c.short_link_path && prospectPath &&
+          c.short_link_path === prospectPath) return true;
         return false;
       });
       if (call) {
