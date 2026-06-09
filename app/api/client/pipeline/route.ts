@@ -38,6 +38,8 @@ export async function GET() {
       .gte('date', since30d),
   ]);
 
+  if (clicksRes.error) console.warn('[pipeline] shortio_link_daily_snapshots fetch failed:', clicksRes.error.message);
+
   // Agrège human_clicks par short_url sur 30j
   const clicksByUrl = new Map<string, number>();
   for (const row of clicksRes.data ?? []) {

@@ -22,7 +22,6 @@ interface ProspectLink {
   id: string;
   ig_username: string;
   short_url: string;
-  short_link_path: string | null;
   content_id: string | null;
   created_at: string;
   humanClicks30d?: number;
@@ -414,8 +413,9 @@ export default function PagePipeline() {
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
       if (lead?.hook_replied) natural = 'in_convo';
       if (prospect) natural = 'calendly_sent';
-      if (prospect && (prospect as any).humanClicks30d > 0) natural = 'link_clicked';
+      if (prospect && prospect.humanClicks30d && prospect.humanClicks30d > 0) natural = 'link_clicked';
 
+      // Short.io paths are always flat (no subdirectories) — .slice(1) strips the leading /
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
         : null;
