@@ -116,7 +116,7 @@ interface CardData {
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead,
+  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead,
 }: {
   card: CardData;
   stages: typeof IG_STAGES | typeof YT_STAGES;
@@ -125,15 +125,20 @@ function PipelineCard({
   platform: 'ig' | 'yt';
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
+  onDeleteLead?: (key: string) => void;
 }) {
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
 
   return (
+    <>
     <div
       draggable
       data-pipeline-card
       onDragStart={e => onDragStart(e, card.key)}
+      onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
       style={{
         background: 'var(--surface)',
         border: `1px solid ${isDragging ? stage.color : 'var(--border)'}`,
@@ -215,6 +220,68 @@ function PipelineCard({
         </div>
       )}
     </div>
+
+    {/* Menu clic droit */}
+    {ctxMenu && (
+      <>
+        <div
+          style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+          onMouseDown={() => setCtxMenu(null)}
+        />
+        <div style={{
+          position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 1000,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+          padding: '4px 0', minWidth: 160,
+        }}>
+          <button
+            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmDelete(true); }}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '8px 14px', fontSize: 12, fontWeight: 500,
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: '#dc2626',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+          >
+            Supprimer @{card.name}
+          </button>
+        </div>
+      </>
+    )}
+
+    {/* Modale confirmation suppression */}
+    {confirmDelete && (
+      <>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 1001 }} onMouseDown={() => setConfirmDelete(false)} />
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+          zIndex: 1002, background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Supprimer @{card.name} ?</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+            Cette action supprime définitivement le lead, le lien Calendly et tous les overrides associés.
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              onMouseDown={() => setConfirmDelete(false)}
+              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
+            >
+              Annuler
+            </button>
+            <button
+              onMouseDown={() => { setConfirmDelete(false); onDeleteLead?.(card.key); }}
+              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer' }}
+            >
+              Supprimer
+            </button>
+          </div>
+        </div>
+      </>
+    )}
+    </>
   );
 }
 
@@ -222,7 +289,7 @@ function PipelineCard({
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget, platform, onConfirmLead, onDismissLead,
+  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead,
 }: {
   stage: typeof IG_STAGES[number] | typeof YT_STAGES[number];
   cards: CardData[];
@@ -236,6 +303,7 @@ function KanbanColumn({
   platform: 'ig' | 'yt';
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
+  onDeleteLead?: (key: string) => void;
 }) {
   return (
     <div
@@ -310,6 +378,7 @@ function KanbanColumn({
             platform={platform}
             onConfirmLead={onConfirmLead}
             onDismissLead={onDismissLead}
+            onDeleteLead={onDeleteLead}
           />
         ))}
       </div>
@@ -412,7 +481,7 @@ export default function PagePipeline() {
       // Étape naturelle — part du signal le plus bas disponible
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
       if (lead?.hook_replied) natural = 'in_convo';
-      if (prospect) natural = 'calendly_sent';
+      if (prospect?.calendly_link_sent) natural = 'calendly_sent';
       if (prospect && prospect.humanClicks30d && prospect.humanClicks30d > 0) natural = 'link_clicked';
 
       // Short.io paths are always flat (no subdirectories) — .slice(1) strips the leading /
@@ -489,6 +558,17 @@ export default function PagePipeline() {
   const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
   const cards = tab === 'ig' ? igCards : filteredYtCards;
   const platform = tab;
+
+  // ── Suppression lead ────────────────────────────────────────────────────────
+
+  const handleDeleteLead = useCallback(async (cardKey: string) => {
+    await fetch('/api/client/pipeline', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ig_username: cardKey }),
+    });
+    await refetch();
+  }, [refetch]);
 
   // ── Drag & drop ─────────────────────────────────────────────────────────────
 
@@ -628,6 +708,7 @@ export default function PagePipeline() {
                   platform={platform}
                   onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
                   onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
+                  onDeleteLead={handleDeleteLead}
                 />
               );
             })}

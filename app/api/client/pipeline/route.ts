@@ -21,7 +21,7 @@ export async function GET() {
       .eq('lead_magnet_sent', true)
       .order('detected_at', { ascending: false }),
     supa.from('prospect_links')
-      .select('id, ig_username, short_url, content_id, created_at')
+      .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at')
       .eq('profile_id', user.id)
       .order('created_at', { ascending: false }),
     supa.from('calls')
@@ -76,5 +76,25 @@ export async function POST(request: Request) {
   }, { onConflict: 'profile_id,prospect_key,platform' });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+export async function DELETE(request: Request) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
+
+  const { ig_username } = body;
+  if (!ig_username) return NextResponse.json({ error: 'ig_username requis' }, { status: 400 });
+
+  await Promise.all([
+    supa.from('instagram_leads').delete().eq('profile_id', user.id).eq('ig_username', ig_username),
+    supa.from('prospect_links').delete().eq('profile_id', user.id).eq('ig_username', ig_username),
+    supa.from('pipeline_overrides').delete().eq('profile_id', user.id).eq('prospect_key', ig_username),
+  ]);
+
   return NextResponse.json({ ok: true });
 }

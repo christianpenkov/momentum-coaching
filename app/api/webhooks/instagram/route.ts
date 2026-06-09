@@ -105,13 +105,36 @@ export async function POST(request: Request) {
       const msgText: string = messaging.message?.text || '';
       const isEcho = !!messaging.message?.is_echo; // true = DM envoyé par nous, false = DM reçu
 
+      if (!resolvedMatch) continue;
+      const { profile_id: pid } = resolvedMatch;
+
+      // Message envoyé par nous (echo) — détecter si on a envoyé un lien Calendly prospect
+      if (isEcho && msgText) {
+        const { data: prospectLinks } = await serviceSupabase
+          .from('prospect_links')
+          .select('id, short_url')
+          .eq('profile_id', pid)
+          .eq('calendly_link_sent', false);
+
+        for (const pl of prospectLinks || []) {
+          if (pl.short_url && msgText.includes(pl.short_url)) {
+            await serviceSupabase
+              .from('prospect_links')
+              .update({ calendly_link_sent: true, calendly_link_sent_at: new Date().toISOString() })
+              .eq('id', pl.id);
+            console.log(`[IG Webhook] calendly_link_sent=true — prospect_link: ${pl.id}, url: ${pl.short_url}`);
+            pushEvent({ type: 'calendly_link_sent', prospect_link_id: pl.id, short_url: pl.short_url });
+            break;
+          }
+        }
+        continue;
+      }
+
       // On ne traite que les messages REÇUS (pas nos propres envois)
-      if (isEcho || !senderId || !msgText) continue;
+      if (!senderId || !msgText) continue;
 
       // Le sender est le prospect — cherche un lead avec cet ig_user_id
       // qui a reçu le LM (lead_magnet_sent = true) et n'a pas encore répondu
-      if (!resolvedMatch) continue;
-      const { profile_id: pid } = resolvedMatch;
 
       const { data: leadToUpdate } = await serviceSupabase
         .from('instagram_leads')
