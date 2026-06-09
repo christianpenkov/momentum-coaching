@@ -34,9 +34,18 @@ export async function POST(request: Request) {
   if (!ig_username || !short_url) return NextResponse.json({ error: 'ig_username et short_url requis' }, { status: 400 });
   if (ig_username.length > 100) return NextResponse.json({ error: 'ig_username trop long' }, { status: 400 });
 
+  // Résoudre ig_lead_id automatiquement depuis instagram_leads
+  const { data: leadRow } = await supa
+    .from('instagram_leads')
+    .select('id')
+    .eq('profile_id', user.id)
+    .eq('ig_username', ig_username)
+    .maybeSingle();
+  const ig_lead_id = leadRow?.id ?? null;
+
   const { data, error } = await supa
     .from('prospect_links')
-    .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null })
+    .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null, ig_lead_id })
     .select()
     .single();
 

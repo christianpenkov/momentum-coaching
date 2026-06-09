@@ -119,7 +119,36 @@ export async function POST() {
     const tracking = invitees[0]?.tracking || null;
     const utmSource = tracking?.utm_source || null;
     const utmMedium = tracking?.utm_medium || null;
+    const utmCampaign = tracking?.utm_campaign || null;
+    const utmContent = tracking?.utm_content || null;
+    const shortLinkPath = utmContent || null;
+    const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
     const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
+
+    // Résoudre ig_lead_id via UTM
+    let igLeadId: string | null = null;
+    if (igUserIdFromUtm) {
+      const { data: leadRow } = await serviceSupabase
+        .from('instagram_leads').select('id')
+        .eq('ig_user_id', igUserIdFromUtm)
+        .eq('profile_id', coachProfileId)
+        .order('detected_at', { ascending: false }).limit(1).maybeSingle();
+      igLeadId = leadRow?.id ?? null;
+    }
+
+    // Résoudre prospect_link_id via short_link_path
+    let prospectLinkId: string | null = null;
+    if (shortLinkPath) {
+      const { data: pl } = await serviceSupabase
+        .from('prospect_links').select('id, ig_lead_id')
+        .eq('profile_id', coachProfileId)
+        .filter('short_url', 'like', `%/${shortLinkPath}`)
+        .maybeSingle();
+      if (pl) {
+        prospectLinkId = pl.id;
+        igLeadId = igLeadId ?? pl.ig_lead_id ?? null;
+      }
+    }
 
     let clientId: string | null = null;
     if (inviteeEmail) {
@@ -144,6 +173,12 @@ export async function POST() {
       invitee_name: inviteeName,
       calendly_qa: questionsAndAnswers,
       source,
+      utm_campaign: utmCampaign,
+      utm_medium: utmMedium,
+      utm_content: utmContent,
+      short_link_path: shortLinkPath,
+      ig_lead_id: igLeadId,
+      prospect_link_id: prospectLinkId,
       status: 'active',
       ready: 'pending',
       reminder_sent: false,

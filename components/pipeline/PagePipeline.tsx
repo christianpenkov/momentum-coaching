@@ -285,7 +285,6 @@ function PipelineCard({
         </div>
       </>,
       document.body
-    )
     )}
     </>
   );

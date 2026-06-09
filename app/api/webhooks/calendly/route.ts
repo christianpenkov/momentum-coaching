@@ -153,6 +153,26 @@ export async function POST(request: NextRequest) {
         reminder_sent: false,
       }, { onConflict: 'calendly_event_uuid' }).select('id').maybeSingle();
 
+      // Relier prospect_link → call via short_link_path
+      if (shortLinkPath && callRow?.id) {
+        const { data: pl } = await serviceSupabase
+          .from('prospect_links')
+          .select('id, ig_lead_id')
+          .eq('profile_id', clientRow.coach_id)
+          .filter('short_url', 'like', `%/${shortLinkPath}`)
+          .maybeSingle();
+        if (pl) {
+          await serviceSupabase
+            .from('calls')
+            .update({
+              prospect_link_id: pl.id,
+              ig_lead_id: pl.ig_lead_id ?? igLeadId,
+            })
+            .eq('id', callRow.id);
+          igLeadId = igLeadId ?? pl.ig_lead_id ?? null;
+        }
+      }
+
       // Relier le lead au call dans l'autre sens
       if (igLeadId && callRow?.id) {
         await serviceSupabase
