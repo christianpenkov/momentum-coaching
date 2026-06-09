@@ -319,7 +319,9 @@ export default function PageClientSettings() {
                         <div>1. Va sur →{' '}
                           <a href="https://app.short.io/settings/integrations/api-key" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>app.short.io/settings/integrations/api-key</a>
                         </div>
-                        <div>2. Copie ta <strong>clé API secrète</strong> et colle-la ci-dessous</div>
+                        <div>2. Clique <strong>"+ Créer la clé API"</strong> en haut à droite</div>
+                        <div>3. Choisis <strong>Clé privée</strong>, laisse la description vide, clique <strong>"Créer"</strong></div>
+                        <div>4. Copie la clé (commence par <code style={{ background: 'var(--surface-2)', padding: '1px 4px', borderRadius: 3 }}>sk_</code>) et colle-la ci-dessous — elle ne sera plus visible après</div>
                       </div>
                     )}
 
