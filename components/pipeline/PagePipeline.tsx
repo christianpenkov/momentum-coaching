@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -223,15 +224,15 @@ function PipelineCard({
       )}
     </div>
 
-    {/* Menu clic droit */}
-    {ctxMenu && (
+    {/* Menu clic droit — portal pour échapper au stacking context du kanban */}
+    {ctxMenu && createPortal(
       <>
         <div
-          style={{ position: 'fixed', inset: 0, zIndex: 999 }}
+          style={{ position: 'fixed', inset: 0, zIndex: 9999 }}
           onMouseDown={() => setCtxMenu(null)}
         />
         <div style={{
-          position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 1000,
+          position: 'fixed', left: ctxMenu.x, top: ctxMenu.y, zIndex: 10000,
           background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
           padding: '4px 0', minWidth: 160,
@@ -250,17 +251,18 @@ function PipelineCard({
             Supprimer @{card.name}
           </button>
         </div>
-      </>
+      </>,
+      document.body
     )}
 
-    {/* Modale confirmation suppression */}
-    {confirmDelete && (
+    {/* Modale confirmation suppression — portal pour backdrop plein écran */}
+    {confirmDelete && createPortal(
       <>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.35)', zIndex: 1001 }} onMouseDown={() => setConfirmDelete(false)} />
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={() => setConfirmDelete(false)} />
         <div style={{
           position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-          zIndex: 1002, background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 12, padding: '24px 28px', minWidth: 300, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
+          zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '24px 28px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
         }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Supprimer @{card.name} ?</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
@@ -281,7 +283,9 @@ function PipelineCard({
             </button>
           </div>
         </div>
-      </>
+      </>,
+      document.body
+    )
     )}
     </>
   );
