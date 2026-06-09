@@ -401,11 +401,18 @@ function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
+  overrideUpdatedAt?: string | null,
+  signalOccurredAt?: string | null,
 ): string {
-  // L'override manuel gagne toujours — y compris pour reculer un lead.
-  // Les signaux automatiques (clic, call) sont enregistrés dans prospect_events
-  // pour les stats mais n'écrasent pas une décision manuelle.
   if (!overrideKey) return naturalKey;
+
+  // Si un signal automatique est arrivé APRÈS l'override → le signal reprend la main
+  // (ex: nouveau lien envoyé, call booké après un recul manuel)
+  if (overrideUpdatedAt && signalOccurredAt) {
+    if (new Date(signalOccurredAt) > new Date(overrideUpdatedAt)) return naturalKey;
+  }
+
+  // Override gagne — y compris pour reculer
   return overrideKey;
 }
 
@@ -510,7 +517,16 @@ export default function PagePipeline() {
       }
 
       const override = overrides.find(o => o.prospect_key === username && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
+      // Signal le plus récent parmi les événements automatiques (hors actions manuelles)
+      const autoSignals = [
+        call?.scheduled_at,           // call booké
+        prospect?.first_click_at,      // clic sur lien Short.io
+        prospect?.calendly_link_sent_at, // nouveau lien envoyé
+      ].filter(Boolean) as string[];
+      const signalOccurredAt = autoSignals.length
+        ? autoSignals.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
+        : null;
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';

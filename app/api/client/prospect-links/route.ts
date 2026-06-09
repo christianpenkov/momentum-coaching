@@ -53,6 +53,16 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
+  // Effacer l'override manuel existant → le nouveau signal reprend automatiquement la main
+  supa.from('pipeline_overrides')
+    .delete()
+    .eq('profile_id', user.id)
+    .eq('prospect_key', ig_username)
+    .eq('platform', 'ig')
+    .then(({ error: delErr }) => {
+      if (delErr) console.error('[prospect-links] pipeline_overrides delete:', delErr.message);
+    });
+
   // Événement calendly_link_sent dans prospect_events (fire-and-forget)
   supa.from('prospect_events').insert({
     profile_id:       user.id,
