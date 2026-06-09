@@ -522,11 +522,11 @@ export default function PagePipeline() {
       }
 
       const override = overrides.find(o => o.prospect_key === username && o.platform === 'ig');
+      // Seuls les signaux automatiques (call booké, clic sur lien) peuvent annuler un override
+      // calendly_link_sent_at et hook_replied_at sont des signaux manuels/contrôlés → exclus
       const signalOccurredAt =
         call?.scheduled_at ??
-        prospect?.calendly_link_sent_at ??
         prospect?.first_click_at ??
-        lead?.hook_replied_at ??
         null;
       const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
