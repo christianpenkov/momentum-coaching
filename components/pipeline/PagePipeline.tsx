@@ -324,11 +324,15 @@ function KanbanColumn({
 function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
+  stages: readonly { key: string }[],
 ): string {
-  // L'override manuel est toujours prioritaire — drag en arrière ou en avant.
-  // Le naturel reprend uniquement s'il n'y a pas d'override.
-  if (overrideKey) return overrideKey;
-  return naturalKey;
+  if (!overrideKey) return naturalKey;
+  const naturalIdx = stages.findIndex(s => s.key === naturalKey);
+  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
+  // Le stage final est toujours le plus avancé entre auto et override.
+  // Un drag manuel en arrière est respecté ponctuellement, mais l'auto
+  // reprend ses droits dès qu'elle détecte un signal de progression.
+  return naturalIdx >= overrideIdx ? naturalKey : overrideKey;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -432,7 +436,7 @@ export default function PagePipeline() {
       }
 
       const overrideKey = getOverride(username, 'ig');
-      const stageKey = resolveStage(natural, overrideKey);
+      const stageKey = resolveStage(natural, overrideKey, IG_STAGES);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
@@ -463,7 +467,7 @@ export default function PagePipeline() {
       if (call.deal_closed) natural = 'closed';
 
       const overrideKey = getOverride(call.id, 'yt');
-      const stageKey = resolveStage(natural, overrideKey);
+      const stageKey = resolveStage(natural, overrideKey, YT_STAGES);
       const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
 
       ytCards.push({
