@@ -94,6 +94,11 @@ input, textarea { font-family: inherit; }
   user-select: none;
   -webkit-touch-callout: none;
 }
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* Ré-autoriser la sélection dans les bulles de messages et les blocs de code debug */
 .chat-messages-zone,
 .selectable {

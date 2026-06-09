@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot } from '@/lib/ig-fetch';
 import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot, syncYtCtr } from '@/lib/yt-fetch';
+import { getShortioLinkCreds, snapshotShortioLinks } from '@/lib/shortio-fetch';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
 
 const supabase = createClient(
@@ -131,28 +132,41 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     }
   }
 
-  // ── Short.io J-1 ──
+  // ── Short.io J-1 : snapshot par lien + agrégat domaine ──────────────────────
   try {
-    const base = process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://momentum-plateforme.vercel.app';
-    const shortioRes = await fetch(`${base}/api/shortio/stats?profile_id=${profileId}`, {
-      headers: { authorization: `Bearer ${process.env.CRON_SECRET}` },
-    });
-    if (shortioRes.ok) {
-      const shortio = await shortioRes.json();
-      if (shortio) {
+    const shioCreds = await getShortioLinkCreds(profileId);
+    if (shioCreds) {
+      // 1. Snapshot granulaire par lien → shortio_link_daily_snapshots
+      const { synced: shioSynced, errors: shioErrors } = await snapshotShortioLinks(profileId, 'yesterday', 'cron');
+      if (shioErrors.length) errors.push(...shioErrors.map(e => `shortio_link: ${e}`));
+
+      // 2. Agrégat domaine J-1 → analytics_daily_snapshots (via period=yesterday)
+      const domainRes = await fetch(
+        `https://api-v2.short.io/statistics/domain/${shioCreds.domainId}?period=yesterday`,
+        { headers: { authorization: shioCreds.apiKey, accept: 'application/json' } }
+      );
+      if (domainRes.ok) {
+        const domainStats = await domainRes.json();
         await supabase.from('analytics_daily_snapshots').upsert({
-          profile_id: profileId,
-          date: yesterday,
-          shortio_clicks:        shortio.clicks30d ?? null,
-          shortio_human_clicks:  shortio.humanClicks30d ?? null,
-          shortio_links:         shortio.links ?? null,
-          shortio_top_countries: shortio.topCountries ?? null,
-          shortio_top_referrers: shortio.topReferrers ?? null,
+          profile_id:           profileId,
+          date:                 yesterday,
+          shortio_clicks:       Number(domainStats.clicks     ?? 0) || null,
+          shortio_human_clicks: Number(domainStats.humanClicks ?? 0) || null,
+          shortio_top_countries: (domainStats.country || [])
+            .filter((c: any) => c.score > 0).slice(0, 8)
+            .map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
+          shortio_top_referrers: (domainStats.referer || [])
+            .filter((r: any) => r.score > 0).slice(0, 8)
+            .map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
         }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+      }
+
+      if (shioSynced > 0 || !shioErrors.length) {
+        // no-op — succès loggué via shioSynced
       }
     }
   } catch (e: any) {
-    errors.push(`shortio_fetch: ${e?.message || 'unknown'}`);
+    errors.push(`shortio_snapshot: ${e?.message || 'unknown'}`);
   }
 
   // ── YouTube J-1, J-2, J-3 + sync CTR vidéos ──
@@ -263,11 +277,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Non autorisé' }, { status: 401 });
   }
 
-  // Profils avec IG OU YT connectés (plus de restriction IG only)
+  // Profils avec IG, YT OU Short.io connectés
   const { data: integrations } = await supabase
     .from('integrations')
     .select('profile_id, provider, last_ig_poll')
-    .in('provider', ['instagram', 'youtube']);
+    .in('provider', ['instagram', 'youtube', 'shortio']);
 
   if (!integrations?.length) return NextResponse.json({ polled: 0, snapshots: 0 });
 
@@ -325,10 +339,27 @@ export async function GET(request: Request) {
 
             const allLeads = [...dmLeads, ...commentLeads];
             if (allLeads.length > 0) {
+              // Upsert lead : 1 row par prospect, met à jour le dernier LM détecté
               await supabase.from('instagram_leads').upsert(allLeads, {
-                onConflict: 'profile_id,source,ig_user_id,keyword_matched,media_id',
-                ignoreDuplicates: true,
+                onConflict: 'profile_id,ig_user_id',
+                ignoreDuplicates: false,
               });
+              // Historique : toutes les interactions, même si le lead existait déjà
+              const historyRows = allLeads
+                .filter(l => l.ig_user_id)
+                .map(l => ({
+                  profile_id:      l.profile_id,
+                  ig_username:     l.ig_username,
+                  ig_user_id:      l.ig_user_id,
+                  keyword_matched: l.keyword_matched,
+                  media_id:        l.media_id,
+                  lm_url:          null,
+                  lead_magnet_sent: false,
+                  detected_at:     l.detected_at,
+                }));
+              if (historyRows.length > 0) {
+                await supabase.from('instagram_lead_lm_history').insert(historyRows);
+              }
               leadsFound += allLeads.length;
             }
 

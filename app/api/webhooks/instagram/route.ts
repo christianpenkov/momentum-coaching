@@ -261,8 +261,9 @@ export async function POST(request: Request) {
         }
       }
 
-      // Stocke le lead en DB — upsert pour idempotence (Meta peut envoyer le même event en double)
-      await serviceSupabase
+      // Upsert lead — 1 seule row par prospect (profile_id, ig_user_id)
+      // On met à jour le keyword/media/lm si le prospect revient pour un autre LM
+      const { data: upsertedLead } = await serviceSupabase
         .from('instagram_leads')
         .upsert({
           profile_id,
@@ -276,7 +277,25 @@ export async function POST(request: Request) {
           detected_at: timestamp,
           lead_magnet_sent: leadMagnetSent,
           tracking_link: shortLink || null,
-        }, { onConflict: 'profile_id,source,ig_user_id,keyword_matched,media_id', ignoreDuplicates: true });
+        }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
+        .select('id')
+        .maybeSingle();
+
+      // Historique LM : stocke chaque interaction même si lead existait déjà
+      if (commenterId) {
+        await serviceSupabase
+          .from('instagram_lead_lm_history')
+          .insert({
+            profile_id,
+            ig_username: commenterUsername,
+            ig_user_id: commenterId,
+            keyword_matched: matchedKeyword,
+            media_id: mediaId || commentId,
+            lm_url: shortLink || null,
+            lead_magnet_sent: leadMagnetSent,
+            detected_at: timestamp,
+          });
+      }
 
       console.log(`[IG Webhook] Lead stocké — @${commenterUsername}, mot-clé: ${matchedKeyword}`);
       pushEvent({ type: 'lead_stored', commenterUsername, keyword: matchedKeyword, leadMagnetSent });

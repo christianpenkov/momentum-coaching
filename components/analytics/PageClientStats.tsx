@@ -3136,9 +3136,16 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
 
   if (!shortio) return <Empty msg="Connecte ton compte Short.io pour voir les stats." />;
 
-  const bioLinks    = shortio.links.filter((l: any) => l.linkType === 'bio');
-  const postLinks   = shortio.links.filter((l: any) => l.linkType === 'post');
-  const prospectLinks = shortio.links.filter((l: any) => l.linkType === 'prospect');
+  const enrichedShortioLinks = shortio.links.map((l: any) => {
+    if (l.linkType) return l;
+    try {
+      const u = new URL(l.originalUrl || '');
+      return { ...l, linkType: u.searchParams.get('utm_medium') || null };
+    } catch { return l; }
+  });
+  const bioLinks      = enrichedShortioLinks.filter((l: any) => l.linkType === 'bio');
+  const postLinks     = enrichedShortioLinks.filter((l: any) => l.linkType === 'post');
+  const prospectLinks = enrichedShortioLinks.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect');
 
   const igPosts = ig?.posts || [];
   const ytVideos = yt?.videos || [];
@@ -3788,12 +3795,13 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period: globalPeriod, profileId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
+  lmHistory?: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[];
   destinations: DestinationLink[];
   period: Period;
   profileId?: string;
@@ -3901,10 +3909,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
   const igPosts = ig?.posts || [];
   const ytVideos = yt?.videos || [];
 
-  const allShortioLinks: any[] = shortio.links ?? [];
-  const bioLinks    = allShortioLinks.filter((l: any) => l.linkType === 'bio');
-  const postLinks   = allShortioLinks.filter((l: any) => l.linkType === 'post');
-  const prospectLinks = allShortioLinks.filter((l: any) => l.linkType === 'prospect');
+  const allShortioLinks: any[] = (shortio.links ?? []).map((l: any) => {
+    if (l.linkType) return l; // déjà enrichi
+    try {
+      const u = new URL(l.originalUrl || '');
+      return { ...l, linkType: u.searchParams.get('utm_medium') || null };
+    } catch { return l; }
+  });
+  const bioLinks      = allShortioLinks.filter((l: any) => l.linkType === 'bio');
+  const postLinks     = allShortioLinks.filter((l: any) => l.linkType === 'post');
+  const prospectLinks = allShortioLinks.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect');
 
   // Helper : clics sur un lien Short.io pour la période courante.
   // Si sPeriod < 30 → somme les N derniers points du chartData journalier.
@@ -5069,9 +5083,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, period
                     <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>Aucun lead magnet configuré — ajoutez-en via les paramètres</td></tr>
                   )}
                   {leadMagnets.map((lm, i) => {
-                    // Agrège les leads correspondant à ce keyword
+                    // Stats LM depuis l'historique (1 ligne par interaction) — précis même si un prospect a commenté plusieurs LMs
+                    const histForLm = (lmHistory ?? []).filter(h => h.keyword_matched?.toLowerCase() === lm.keyword?.toLowerCase());
                     const lmLeads = (leads as any[]).filter(l => l.keyword?.toLowerCase() === lm.keyword?.toLowerCase());
-                    const leadsCount = lmLeads.filter(l => l.leadMagnetSent).length;
+                    const leadsCount = histForLm.filter(h => h.lead_magnet_sent).length;
                     const clicsLM = lmLeads.filter(l => l.lmClicked).length;
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
                     // Liens Calendly envoyés depuis les prospects liés à ce LM
@@ -5456,16 +5471,21 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     netSubs7d: 0,
   } as any as YTStats : null;
 
-  // Reconstruire shortio depuis le snapshot
-  const shortioChartData: any[] = snap.shortio_chart_data ?? [];
-  const shortioHist = shortioChartData.length > 0 ? {
-    clicks30d: snap.shortio_clicks ?? 0,
-    humanClicks30d: snap.shortio_human_clicks ?? 0,
-    links: snap.shortio_links ?? [],
-    topCountries: snap.shortio_top_countries ?? [],
-    topReferrers: snap.shortio_top_referrers ?? [],
-    chartData: shortioChartData,
-  } as any as ShortioStats : null;
+  // Reconstruire shortio depuis shortio_link_daily_snapshots (via route dédiée)
+  const startDate = new Date(snapshotDate.getTime() - period * 86400000).toISOString().split('T')[0];
+  const endDate = dateStr;
+  let shortioHist: ShortioStats | null = null;
+  try {
+    const shortioRes = await fetch(
+      `/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDate}&endDate=${endDate}`
+    );
+    if (shortioRes.ok) {
+      const shortioData = await shortioRes.json();
+      shortioHist = shortioData?.humanClicks30d != null ? (shortioData as ShortioStats) : null;
+    }
+  } catch {
+    // Dégradé silencieux : shortioHist reste null (comportement identique à avant)
+  }
 
   // Calls pour la période historique depuis la DB
   const periodStart = new Date(snapshotDate.getTime() - period * 86400000).toISOString();
@@ -5499,7 +5519,7 @@ async function fetchSupabaseStats(profileId?: string) {
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5509,6 +5529,10 @@ async function fetchSupabaseStats(profileId?: string) {
       .select('metadata').eq('profile_id', targetId).eq('provider', 'calendly').maybeSingle(),
     supabase.from('pipeline_overrides')
       .select('prospect_key, stage').eq('profile_id', targetId).eq('stage', 'dismissed'),
+    // Historique complet LM — pour les stats par keyword (1 ligne par interaction, pas par prospect)
+    supabase.from('instagram_lead_lm_history')
+      .select('ig_user_id, keyword_matched, lead_magnet_sent, detected_at')
+      .eq('profile_id', targetId).limit(2000),
   ]);
 
   let callsRes: { data: any[] | null };
@@ -5549,7 +5573,10 @@ async function fetchSupabaseStats(profileId?: string) {
   const dismissedKeys = new Set((overridesRes.data ?? []).map((o: any) => o.prospect_key));
   const callsData = (callsRes.data ?? []).filter((c: any) => !dismissedKeys.has(c.id));
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData };
+  const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] =
+    (lmHistoryRes.data ?? []).filter((h: any) => h.ig_user_id && h.keyword_matched);
+
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory };
   } catch { return null; }
 }
 
@@ -5641,6 +5668,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const leadMagnets: LeadMagnet[] = supaData?.leadMagnets ?? [];
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
+  const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
 
   // Instagram — onglets 0, 1, 3
   const { data: igRaw, isLoading: igLoading } = useQuery<IGStats | null>({
@@ -5840,7 +5868,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} period={period} profileId={profileId} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}

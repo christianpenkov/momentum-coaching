@@ -2,11 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import crypto from 'crypto';
 
-// Webhook secret à configurer dans Stripe Dashboard → Webhooks
-const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET!;
-const PLATFORM_URL = process.env.NEXT_PUBLIC_PLATFORM_URL || 'https://momentum.quennel.com';
+const STRIPE_CONNECT_WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET!;
 
-// Client Supabase service-role (bypass RLS) pour les opérations backend
 function getServiceSupabase() {
   return createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -19,72 +16,61 @@ function verifyStripeSignature(payload: string, signature: string, secret: strin
   const timestamp = parts.find(p => p.startsWith('t='))?.split('=')[1];
   const v1 = parts.find(p => p.startsWith('v1='))?.split('=')[1];
   if (!timestamp || !v1) return false;
-
   const signed = `${timestamp}.${payload}`;
   const expected = crypto.createHmac('sha256', secret).update(signed).digest('hex');
   return crypto.timingSafeEqual(Buffer.from(v1), Buffer.from(expected));
 }
 
-async function sendInviteEmail(to: string, inviteUrl: string, customerName: string) {
-  // Utilise Resend (ou un autre provider) pour envoyer l'email
-  // La clé API est récupérée depuis Supabase integrations
+async function handleConnectEvent(event: any) {
   const supabase = getServiceSupabase();
+  const connectedAccountId = event.account as string;
 
-  // Récupérer la clé Resend stockée dans les intégrations du coach
-  // (pour l'instant on envoie via Supabase Auth invite si pas de clé Resend)
-  const resendKey = process.env.RESEND_API_KEY;
+  const { data: integration } = await supabase
+    .from('integrations')
+    .select('profile_id')
+    .eq('provider', 'stripe')
+    .eq('account_label', connectedAccountId)
+    .single();
 
-  if (resendKey) {
-    await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'Momentum <noreply@momentum.quennel.com>',
-        to,
-        subject: '🎯 Ton accès Momentum est prêt',
-        html: `
-          <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; padding: 40px 20px;">
-            <img src="${PLATFORM_URL}/logo-momentum.png" alt="Momentum" width="48" style="margin-bottom: 24px;" />
-            <h1 style="font-size: 24px; font-weight: 800; color: #1a1815; margin: 0 0 12px;">
-              Bienvenue ${customerName} 👋
-            </h1>
-            <p style="font-size: 14px; color: #797569; line-height: 1.7; margin: 0 0 24px;">
-              Ton paiement a été confirmé. Ton espace Momentum est prêt — c'est là que tu vas suivre
-              ta progression, tes tâches, et les ressources de coaching.
-            </p>
-            <a href="${inviteUrl}" style="display: inline-block; background: #0057FF; color: white; padding: 14px 28px; border-radius: 10px; font-weight: 700; font-size: 15px; text-decoration: none;">
-              Créer mon accès →
-            </a>
-            <p style="font-size: 12px; color: #aaa; margin-top: 32px;">
-              Ce lien est valable 7 jours. Si tu as des questions, réponds directement à cet email.
-            </p>
-          </div>
-        `,
-      }),
-    });
-  } else {
-    // Fallback : invite Supabase Auth (envoie un email de confirmation)
-    await supabase.auth.admin.inviteUserByEmail(to, {
-      redirectTo: inviteUrl,
-    });
+  if (!integration?.profile_id) {
+    console.warn(`Stripe Connect event ignoré — compte inconnu: ${connectedAccountId}`);
+    return;
+  }
+
+  const profileId = integration.profile_id;
+
+  if (event.type === 'charge.succeeded' || event.type === 'payment_intent.succeeded') {
+    const obj = event.data.object;
+    if (obj.refunded || (obj.status && obj.status !== 'succeeded')) return;
+
+    await supabase.from('stripe_payments').upsert({
+      profile_id: profileId,
+      payment_id: obj.id,
+      amount: (obj.amount ?? obj.amount_received ?? 0) / 100,
+      currency: obj.currency ?? 'eur',
+      description: obj.description || obj.statement_descriptor || null,
+      date: new Date((obj.created ?? Date.now() / 1000) * 1000).toISOString(),
+      status: obj.status ?? 'succeeded',
+    }, { onConflict: 'profile_id,payment_id' });
+  }
+
+  if (event.type === 'invoice.paid') {
+    const inv = event.data.object;
+    await supabase.from('stripe_payments').upsert({
+      profile_id: profileId,
+      payment_id: inv.id,
+      amount: (inv.amount_paid ?? 0) / 100,
+      currency: inv.currency ?? 'eur',
+      description: inv.description || `Facture ${inv.number}` || null,
+      date: new Date((inv.status_transitions?.paid_at ?? inv.created ?? Date.now() / 1000) * 1000).toISOString(),
+      status: 'succeeded',
+    }, { onConflict: 'profile_id,payment_id' });
   }
 }
 
 export async function POST(request: NextRequest) {
   const payload = await request.text();
   const signature = request.headers.get('stripe-signature') || '';
-
-  // Vérifier la signature Stripe — obligatoire
-  if (!STRIPE_WEBHOOK_SECRET) {
-    console.error('STRIPE_WEBHOOK_SECRET non configuré');
-    return NextResponse.json({ error: 'Webhook non configuré' }, { status: 500 });
-  }
-  if (!verifyStripeSignature(payload, signature, STRIPE_WEBHOOK_SECRET)) {
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
-  }
 
   let event: any;
   try {
@@ -93,83 +79,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
   }
 
-  // On écoute uniquement checkout.session.completed et payment_intent.succeeded
-  if (event.type !== 'checkout.session.completed' && event.type !== 'payment_intent.succeeded') {
-    return NextResponse.json({ received: true });
+  if (!STRIPE_CONNECT_WEBHOOK_SECRET) {
+    console.error('STRIPE_CONNECT_WEBHOOK_SECRET non configuré');
+    return NextResponse.json({ error: 'Webhook non configuré' }, { status: 500 });
   }
 
-  const supabase = getServiceSupabase();
-
-  const session = event.data.object;
-  const customerEmail = session.customer_email || session.customer_details?.email;
-  const customerName = session.customer_details?.name || 'toi';
-  const amount = session.amount_total; // en centimes
-  const stripeCustomerId = session.customer;
-
-  if (!customerEmail) {
-    return NextResponse.json({ error: 'No customer email' }, { status: 400 });
+  if (!verifyStripeSignature(payload, signature, STRIPE_CONNECT_WEBHOOK_SECRET)) {
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
-  // Générer un token d'invitation unique
-  const inviteToken = crypto.randomUUID();
-
-  // Créer le client dans Supabase (sans profile_id pour l'instant)
-  // On cherche d'abord si un client existe déjà avec cet email
-  const { data: existingClient } = await supabase
-    .from('clients')
-    .select('id')
-    .eq('stripe_customer_id', stripeCustomerId)
-    .single();
-
-  let clientId: string;
-
-  if (existingClient) {
-    clientId = existingClient.id;
-    // Renouvellement — mettre à jour le token
-    await supabase.from('clients').update({
-      invite_token: inviteToken,
-      stripe_customer_id: stripeCustomerId,
-    }).eq('id', clientId);
-  } else {
-    // Récupérer le coach (il n'y en a qu'un pour Momentum)
-    const { data: coachProfile } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('role', 'coach')
-      .single();
-
-    if (!coachProfile) {
-      return NextResponse.json({ error: 'No coach found' }, { status: 500 });
-    }
-
-    // Créer le nouveau client
-    const { data: newClient } = await supabase.from('clients').insert({
-      coach_id: coachProfile.id,
-      name: customerName,
-      initials: customerName.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2),
-      week: 1,
-      status: 'green',
-      status_text: 'Nouveau client',
-      momentum_score: 50,
-      client_since: 1,
-      iclosed_rate: 0,
-      calendly_monthly: 0,
-      invite_token: inviteToken,
-      stripe_customer_id: stripeCustomerId,
-      stripe_email: customerEmail,
-    }).select().single();
-
-    if (!newClient) {
-      return NextResponse.json({ error: 'Failed to create client' }, { status: 500 });
-    }
-    clientId = newClient.id;
-  }
-
-  // Construire l'URL d'invitation
-  const inviteUrl = `${PLATFORM_URL}/signup?email=${encodeURIComponent(customerEmail)}&token=${inviteToken}`;
-
-  // Envoyer l'email
-  await sendInviteEmail(customerEmail, inviteUrl, customerName);
-
-  return NextResponse.json({ received: true, clientId });
+  await handleConnectEvent(event);
+  return NextResponse.json({ received: true });
 }

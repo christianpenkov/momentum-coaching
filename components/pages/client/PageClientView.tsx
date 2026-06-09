@@ -7,6 +7,9 @@ import Icon from '@/components/ui/Icon';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
 import { useCallback, useRef, useState } from 'react';
+import { useNotifications } from '@/lib/useNotifications';
+import { useUser } from '@/lib/UserContext';
+import RapportModal from '@/components/ui/RapportModal';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -45,6 +48,10 @@ export default function PageClientView() {
   const { data: client, loading } = useClientSelfData();
   const [taskOverrides, setTaskOverrides] = useState<Record<string, boolean>>({});
   const supabase = useRef(createClient()).current;
+  const { user } = useUser();
+  const { notifs, refresh } = useNotifications(user?.id ?? null, true);
+  const rapportNotifs = notifs.filter(n => n.type === 'rapport_call');
+  const [openRapport, setOpenRapport] = useState<typeof rapportNotifs[0] | null>(null);
 
   const toggleTask = useCallback(async (taskId: string, done: boolean) => {
     setTaskOverrides(prev => ({ ...prev, [taskId]: done }));
@@ -82,6 +89,55 @@ export default function PageClientView() {
 
   return (
     <div className="page-content">
+
+      {/* Rapports de call en attente */}
+      {rapportNotifs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            {rapportNotifs.length} rapport{rapportNotifs.length > 1 ? 's' : ''} en attente
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {rapportNotifs.map(notif => (
+              <div key={notif.id} className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>RAPPORT DE CALL</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
+                      {notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte'}
+                    </div>
+                    {notif.scheduledAt && (
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                        {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                        {' · '}
+                        {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                        {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
+                      </div>
+                    )}
+                  </div>
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
+                    onClick={() => setOpenRapport(notif)}
+                  >
+                    Remplir le rapport
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {openRapport?.callId && (
+        <RapportModal
+          callId={openRapport.callId}
+          inviteeName={openRapport.inviteeName ?? null}
+          scheduledAt={openRapport.scheduledAt ?? null}
+          onClose={() => { setOpenRapport(null); refresh(); }}
+        />
+      )}
+
       {/* Header élève */}
       <div style={{ background: 'linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%)', borderRadius: 16, padding: 'clamp(16px, 4vw, 28px) clamp(14px, 5vw, 32px)', marginBottom: 20, border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(12px, 4vw, 24px)', flexWrap: 'wrap' }}>

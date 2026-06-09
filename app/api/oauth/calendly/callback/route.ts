@@ -85,17 +85,23 @@ export async function GET(request: NextRequest) {
     connected_at: new Date().toISOString(),
   }, { onConflict: 'profile_id,provider' });
 
-  // Enregistre automatiquement le webhook Calendly pour cet utilisateur
-  try {
-    await fetch(`${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/calendly/register-webhook`, {
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+
+  // Pour les élèves : sync immédiat des events depuis connected_at (fire-and-forget)
+  // Pour les coachs : pas de sync Calendly côté leads pour l'instant
+  if (profile?.role === 'client') {
+    const connectedAt = new Date().toISOString();
+    const base = process.env.NEXT_PUBLIC_PLATFORM_URL || '';
+    fetch(`${base}/api/calendly/refresh`, {
       method: 'POST',
-      headers: { Cookie: request.headers.get('cookie') || '' },
-    });
-  } catch {
-    // Non bloquant — le webhook peut être enregistré manuellement si besoin
+      headers: {
+        'Content-Type': 'application/json',
+        'authorization': `Bearer ${process.env.CRON_SECRET}`,
+      },
+      body: JSON.stringify({ profile_id: user.id, connected_at: connectedAt }),
+    }).catch(e => console.error('[Calendly callback] sync trigger failed:', e));
   }
 
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=calendly`);
 }

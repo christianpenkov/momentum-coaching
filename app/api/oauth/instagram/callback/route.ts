@@ -119,6 +119,17 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  // Fire-and-forget backfill 30j (non-bloquant — ne retarde pas le redirect)
+  const backfillUrl = `${process.env.NEXT_PUBLIC_PLATFORM_URL}/api/instagram/backfill`;
+  fetch(backfillUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'authorization': `Bearer ${process.env.CRON_SECRET}`,
+    },
+    body: JSON.stringify({ profile_id: user.id }),
+  }).catch(e => console.error('[IG callback] backfill trigger failed:', e));
+
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=instagram`);

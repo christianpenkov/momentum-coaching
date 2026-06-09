@@ -1,7 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
+import RapportModal from '@/components/ui/RapportModal';
 import { createClient } from '@/lib/supabase/client';
 
 interface Call {
@@ -12,6 +14,21 @@ interface Call {
   join_url: string | null;
   status: string | null;
   notes: string | null;
+  call_type: string | null;
+  calendly_event_uuid: string | null;
+  coach_id: string | null;
+  client_id: string | null;
+  invitee_name: string | null;
+  no_show: boolean | null;
+  deal_closed: boolean | null;
+  revenue: number | null;
+  outcome: string | null;
+}
+
+interface RapportModal {
+  callId: string;
+  inviteeName: string | null;
+  scheduledAt: string | null;
 }
 
 function daysUntil(dateStr: string) {
@@ -33,6 +50,8 @@ function formatTime(dateStr: string) {
 }
 
 export default function PageClientCalls() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasCalendly, setHasCalendly] = useState<boolean | null>(null);
@@ -41,64 +60,105 @@ export default function PageClientCalls() {
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [declineModal, setDeclineModal] = useState<{ callId: string; topic: string; scheduledAt: string } | null>(null);
   const [proposedAt, setProposedAt] = useState('');
+  const [userId, setUserId] = useState<string | null>(null);
 
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+  // Modal rapport
+  const [rapportModal, setRapportModal] = useState<RapportModal | null>(null);
 
-      // Vérifie si Calendly est connecté
-      const { data: integ } = await supabase
-        .from('integrations')
-        .select('id')
-        .eq('profile_id', user.id)
-        .eq('provider', 'calendly')
-        .single();
-      setHasCalendly(!!integ);
+  const load = useCallback(async () => {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    setUserId(user.id);
 
-      // Récupère le client_id lié à ce profil
-      const { data: clientRow } = await supabase
-        .from('clients')
-        .select('id')
-        .eq('profile_id', user.id)
-        .single();
+    const { data: integ } = await supabase
+      .from('integrations')
+      .select('id')
+      .eq('profile_id', user.id)
+      .eq('provider', 'calendly')
+      .single();
+    setHasCalendly(!!integ);
 
-      if (!clientRow) { setLoading(false); return; }
+    // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
+    const { data: calendlyCalls } = await supabase
+      .from('calls')
+      .select('*')
+      .eq('coach_id', user.id)
+      .not('calendly_event_uuid', 'is', null)
+      .order('scheduled_at', { ascending: false });
 
+    // Calls Google Calendar (coach ↔ élève) : client_id = clientRow.id
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('id')
+      .eq('profile_id', user.id)
+      .single();
+
+    let googleCalls: Call[] = [];
+    if (clientRow) {
       const { data } = await supabase
         .from('calls')
         .select('*')
         .eq('client_id', clientRow.id)
+        .is('calendly_event_uuid', null)
         .order('scheduled_at', { ascending: false });
-
-      setCalls(data || []);
-      setLoading(false);
+      googleCalls = (data as Call[]) || [];
     }
-    load();
 
-    // Realtime — mise à jour automatique quand un call est ajouté/modifié
+    const allCalls = [...(calendlyCalls as Call[] || []), ...googleCalls];
+    // Déduplique par id
+    const seen = new Set<string>();
+    const unique = allCalls.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+    setCalls(unique);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    load();
     const supabase = createClient();
     const channel = supabase
       .channel('calls-client')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => {
-        load();
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => { load(); })
       .subscribe();
-
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [load]);
+
+  // Deep link : ?rapport=<call_id> → ouvre la modal une seule fois (depuis push notif)
+  const deepLinkHandled = useRef(false);
+  useEffect(() => {
+    const rapportId = searchParams.get('rapport');
+    if (!rapportId || calls.length === 0 || deepLinkHandled.current) return;
+    const call = calls.find(c => c.id === rapportId);
+    if (!call || call.no_show !== null) return;
+    deepLinkHandled.current = true;
+    setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at });
+  }, [searchParams, calls]);
+
+  function closeRapportModal() {
+    setRapportModal(null);
+    // Retire ?rapport= de l'URL sans reload
+    const url = new URL(window.location.href);
+    url.searchParams.delete('rapport');
+    router.replace(url.pathname + url.search, { scroll: false });
+    load();
+  }
 
   const now = new Date();
-  const pendingCalls = calls.filter(c => c.status === 'pending_acceptance');
+  const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && !c.calendly_event_uuid);
   const upcoming = calls
     .filter(c => c.scheduled_at && new Date(c.scheduled_at) >= now && c.status === 'active')
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  const nextCall = upcoming[0];
+
+  // Calls historique : passés, non annulés
   const history = calls
-    .filter(c => c.scheduled_at && new Date(c.scheduled_at) < now && !['cancelled', 'declined'].includes(c.status || ''))
+    .filter(c => c.scheduled_at && new Date(c.scheduled_at) < now && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
-  const nextCall = upcoming[0];
+  // Rapports en attente : calls Calendly terminés dont no_show = null
+  const pendingRapports = history.filter(c =>
+    c.calendly_event_uuid !== null && c.no_show === null && c.status === 'active'
+  );
 
   async function handleAccept(callId: string) {
     setRespondingId(callId);
@@ -136,15 +196,7 @@ export default function PageClientCalls() {
       const data = await res.json();
       if (data.ok) {
         setSyncMsg(data.synced > 0 ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}` : 'Aucun nouveau call trouvé');
-        const supabase = createClient();
-        const { data: { user } } = await supabase.auth.getUser();
-        if (user) {
-          const { data: clientRow } = await supabase.from('clients').select('id').eq('profile_id', user.id).single();
-          if (clientRow) {
-            const { data } = await supabase.from('calls').select('*').eq('client_id', clientRow.id).order('scheduled_at', { ascending: false });
-            setCalls(data || []);
-          }
-        }
+        await load();
       } else {
         setSyncMsg(data.error || 'Erreur lors de la synchronisation');
       }
@@ -172,7 +224,7 @@ export default function PageClientCalls() {
         <h1 className="page-title">Mes calls</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {syncMsg && (
-            <span style={{ fontSize: 12, color: syncMsg.includes('Erreur') || syncMsg.includes('introuvable') ? 'var(--red)' : 'var(--green)' }}>
+            <span style={{ fontSize: 12, color: syncMsg.includes('Erreur') ? 'var(--red)' : 'var(--green)' }}>
               {syncMsg}
             </span>
           )}
@@ -189,7 +241,44 @@ export default function PageClientCalls() {
         </div>
       </div>
 
-      {/* Demandes de call en attente d'acceptation */}
+      {/* Rapports en attente — prioritaire */}
+      {pendingRapports.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            {pendingRapports.length} rapport{pendingRapports.length > 1 ? 's' : ''} en attente
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {pendingRapports.map(call => (
+              <div key={call.id} className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>RAPPORT DE CALL</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
+                      {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte'}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                      {call.scheduled_at ? formatDate(call.scheduled_at) : '—'}
+                      {call.duration && <span style={{ marginLeft: 8 }}>· {call.duration}</span>}
+                    </div>
+                  </div>
+                  <button
+                    className="btn-primary"
+                    type="button"
+                    style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
+                    onClick={() => {
+                      setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at });
+                    }}
+                  >
+                    Remplir le rapport
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Demandes de call en attente d'acceptation (Google Calendar) */}
       {pendingCalls.length > 0 && (
         <div style={{ marginBottom: 24 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
@@ -268,20 +357,19 @@ export default function PageClientCalls() {
                 {formatTime(nextCall.scheduled_at!)}
                 {nextCall.duration && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
               </div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>
+              {nextCall.invitee_name && (
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>avec {nextCall.invitee_name}</div>
+              )}
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: nextCall.invitee_name ? 2 : 8 }}>
                 {nextCall.topic || 'Session de coaching'}
               </div>
-              <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
-                {nextCall.join_url ? (
+              {nextCall.join_url && (
+                <div style={{ marginTop: 16 }}>
                   <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <Icon name="video" size={14} /> Rejoindre le call
                   </a>
-                ) : (
-                  <button className="btn-primary" type="button" disabled style={{ fontSize: 13, opacity: 0.5 }}>
-                    <Icon name="video" size={14} /> Lien bientôt disponible
-                  </button>
-                )}
-              </div>
+                </div>
+              )}
             </div>
             <div style={{ padding: '20px 24px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 140 }}>
               {(() => {
@@ -333,14 +421,11 @@ export default function PageClientCalls() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
               {[
-                { icon: 'calendar' as const, label: 'Durée', value: nextCall.duration || '—' },
-                { icon: 'calendar' as const, label: 'Heure', value: formatTime(nextCall.scheduled_at!) },
-              ].map(({ icon, label, value }) => (
+                { label: 'Durée', value: nextCall.duration || '—' },
+                { label: 'Heure', value: formatTime(nextCall.scheduled_at!) },
+              ].map(({ label, value }) => (
                 <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <Icon name={icon} size={14} />
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
-                  </div>
+                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
                   <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{value}</span>
                 </div>
               ))}
@@ -356,29 +441,70 @@ export default function PageClientCalls() {
             <div className="card-title">Historique des calls</div>
           </div>
           <div style={{ marginTop: 16 }}>
-            {history.map((call, i) => (
-              <div key={call.id} style={{ padding: '14px 0', borderBottom: i < history.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
-                      {call.topic || 'Session de coaching'}
+            {history.map((call, i) => {
+              const rapportPending = call.calendly_event_uuid && call.no_show === null && call.status === 'active';
+              return (
+                <div key={call.id} style={{ padding: '14px 0', borderBottom: i < history.length - 1 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
+                        {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                        {formatDate(call.scheduled_at!)} · {call.duration || '—'}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {formatDate(call.scheduled_at!)} · {call.duration || '—'}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                      {rapportPending ? (
+                        <button
+                          className="btn-ghost"
+                          type="button"
+                          style={{ fontSize: 11, color: '#f59e0b', border: '1px solid #f59e0b' }}
+                          onClick={() => {
+                            setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at });
+                          }}
+                        >
+                          Rapport
+                        </button>
+                      ) : call.no_show === true ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>No-show</span>
+                      ) : call.deal_closed === true ? (
+                        <span className="pill pill-green" style={{ fontSize: 11 }}>Closé{call.revenue ? ` · ${call.revenue}€` : ''}</span>
+                      ) : call.outcome === 'second_call' ? (
+                        <span className="pill" style={{ fontSize: 11, background: '#3b82f620', color: '#3b82f6' }}>2ème call prévu</span>
+                      ) : call.outcome === 'to_recontact' ? (
+                        <span className="pill" style={{ fontSize: 11, background: '#f59e0b20', color: '#f59e0b' }}>À recontacter</span>
+                      ) : call.outcome === 'not_closed' ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
+                      ) : call.deal_closed === false && call.no_show === false ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
+                      ) : (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Terminé</span>
+                      )}
                     </div>
                   </div>
-                  <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0 }}>Terminé</span>
+                  {call.notes && (
+                    <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
+                      {call.notes}
+                    </div>
+                  )}
                 </div>
-                {call.notes && (
-                  <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
-                    {call.notes}
-                  </div>
-                )}
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
+
+      {/* Modal rapport */}
+      {rapportModal && (
+        <RapportModal
+          callId={rapportModal.callId}
+          inviteeName={rapportModal.inviteeName}
+          scheduledAt={rapportModal.scheduledAt}
+          onClose={closeRapportModal}
+        />
+      )}
+
       {/* Modale refus avec créneau alternatif */}
       {declineModal && (
         <div
