@@ -182,6 +182,122 @@ export async function fetchIgBackfill30d(
 
 // ── Upsert snapshot dans Supabase ────────────────────────────────────────────
 
+// ── Poll leads (DMs + commentaires) ──────────────────────────────────────────
+
+export async function pollIgLeads(
+  profileId: string,
+  token: string,
+  igAccountId: string,
+  since: Date,
+): Promise<{ leadsFound: number; error?: string }> {
+  // Récupère les keywords actifs pour ce profil
+  const { data: kwRows } = await serviceSupabase
+    .from('lead_magnet_keywords')
+    .select('keyword')
+    .eq('profile_id', profileId);
+
+  const keywords = (kwRows || []).map((r: any) => r.keyword as string);
+  if (!keywords.length) return { leadsFound: 0 };
+
+  const allLeads: any[] = [];
+
+  // ── DMs ──
+  try {
+    const threadsRes = await fetch(
+      `https://graph.instagram.com/v21.0/${igAccountId}/conversations?fields=id,updated_time,participants,message_count&limit=50&access_token=${token}`
+    );
+    const threadsData = await threadsRes.json();
+    const threads = (threadsData.data || []).filter(
+      (t: any) => new Date(t.updated_time).getTime() > since.getTime()
+    );
+    await Promise.all(threads.map(async (thread: any) => {
+      const msgRes = await fetch(
+        `https://graph.instagram.com/v21.0/${thread.id}/messages?fields=id,message,from,created_time&limit=20&access_token=${token}`
+      );
+      const msgData = await msgRes.json();
+      for (const msg of msgData?.data || []) {
+        if (!msg.message || msg.from?.id === igAccountId) continue;
+        const text = msg.message.toLowerCase();
+        for (const kw of keywords) {
+          if (text.includes(kw.toLowerCase())) {
+            const participant = thread.participants?.data?.find((p: any) => p.id !== igAccountId);
+            allLeads.push({
+              profile_id: profileId, source: 'dm',
+              ig_username: participant?.username || participant?.name || null,
+              ig_user_id: msg.from?.id ? String(msg.from.id) : null,
+              message: msg.message.slice(0, 500),
+              media_id: thread.id, media_permalink: null,
+              keyword_matched: kw,
+              detected_at: new Date(msg.created_time).toISOString(),
+            });
+            break;
+          }
+        }
+      }
+    }));
+  } catch {}
+
+  // ── Commentaires ──
+  try {
+    const mediaRes = await fetch(
+      `https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,permalink,timestamp&limit=20&access_token=${token}`
+    );
+    const mediaData = await mediaRes.json();
+    const recentMedia = (mediaData.data || []).filter(
+      (m: any) => new Date(m.timestamp).getTime() > since.getTime() - 90 * 24 * 60 * 60 * 1000
+    );
+    await Promise.all(recentMedia.map(async (media: any) => {
+      const commRes = await fetch(
+        `https://graph.instagram.com/v21.0/${media.id}/comments?fields=id,text,timestamp,from,username&limit=50&access_token=${token}`
+      );
+      const commData = await commRes.json();
+      if (commData.error) return;
+      for (const comment of commData.data || []) {
+        if (!comment.text) continue;
+        if (new Date(comment.timestamp).getTime() < since.getTime()) continue;
+        const text = comment.text.toLowerCase();
+        for (const kw of keywords) {
+          if (text.includes(kw.toLowerCase())) {
+            allLeads.push({
+              profile_id: profileId, source: 'comment',
+              ig_username: comment.from?.username || comment.username || null,
+              ig_user_id: comment.from?.id ? String(comment.from.id) : null,
+              message: comment.text.slice(0, 500),
+              media_id: media.id, media_permalink: media.permalink || null,
+              keyword_matched: kw,
+              detected_at: new Date(comment.timestamp).toISOString(),
+            });
+            break;
+          }
+        }
+      }
+    }));
+  } catch {}
+
+  if (!allLeads.length) return { leadsFound: 0 };
+
+  try {
+    await serviceSupabase.from('instagram_leads').upsert(allLeads, {
+      onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false,
+    });
+    const historyRows = allLeads.filter(l => l.ig_user_id).map(l => ({
+      profile_id: l.profile_id, ig_username: l.ig_username, ig_user_id: l.ig_user_id,
+      keyword_matched: l.keyword_matched, media_id: l.media_id,
+      lm_url: null, lead_magnet_sent: false, detected_at: l.detected_at,
+    }));
+    if (historyRows.length) {
+      await serviceSupabase.from('instagram_lead_lm_history').insert(historyRows);
+    }
+    await serviceSupabase.from('integrations')
+      .update({ last_ig_poll: new Date().toISOString() })
+      .eq('profile_id', profileId).eq('provider', 'instagram');
+  } catch (e: any) {
+    return { leadsFound: 0, error: e?.message };
+  }
+
+  return { leadsFound: allLeads.length };
+}
+
 export async function upsertIgSnapshot(
   profileId: string,
   snapshot: IgDaySnapshot,

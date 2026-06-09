@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
-import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot } from '@/lib/ig-fetch';
+import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgLeads } from '@/lib/ig-fetch';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -34,18 +34,26 @@ export async function POST(request: Request) {
   const today = new Date().toISOString().split('T')[0];
   const errors: string[] = [];
 
+  let leadsFound = 0;
   try {
     const creds = await getIgCreds(profileId);
     if (!creds) {
       errors.push('no_token');
     } else {
+      // Snapshot métriques J-0
       const metrics = await fetchIgDayMetrics(creds, today);
       const err = await upsertIgSnapshot(profileId, { date: today, ...metrics }, 'refresh_partial');
       if (err) errors.push(`upsert: ${err}`);
+
+      // Poll leads (DMs + commentaires depuis 24h)
+      const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+      const pollResult = await pollIgLeads(profileId, creds.token, creds.igAccountId, since);
+      leadsFound = pollResult.leadsFound;
+      if (pollResult.error) errors.push(`poll: ${pollResult.error}`);
     }
   } catch (e: any) {
     errors.push(`fetch_error: ${e?.message || 'unknown'}`);
   }
 
-  return NextResponse.json({ ok: errors.length === 0, date: today, errors });
+  return NextResponse.json({ ok: errors.length === 0, date: today, leadsFound, errors });
 }

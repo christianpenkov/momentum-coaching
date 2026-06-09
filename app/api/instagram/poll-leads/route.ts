@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot } from '@/lib/ig-fetch';
+import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgLeads } from '@/lib/ig-fetch';
 import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot, syncYtCtr } from '@/lib/yt-fetch';
 import { getShortioLinkCreds, snapshotShortioLinks } from '@/lib/shortio-fetch';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
@@ -9,100 +9,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-// ── Poll DMs ──────────────────────────────────────────────────────────────────
-async function pollDMs(profileId: string, token: string, igAccountId: string, keywords: string[], since: Date) {
-  const threadsRes = await fetch(
-    `https://graph.instagram.com/v21.0/${igAccountId}/conversations?fields=id,updated_time,participants,message_count&limit=50&access_token=${token}`
-  );
-  const threadsData = await threadsRes.json();
-  if (threadsData.error) return [];
-
-  const threads = (threadsData.data || []).filter(
-    (t: any) => new Date(t.updated_time).getTime() > since.getTime()
-  );
-
-  const leads: any[] = [];
-
-  await Promise.all(threads.map(async (thread: any) => {
-    const msgRes = await fetch(
-      `https://graph.instagram.com/v21.0/${thread.id}/messages?fields=id,message,from,created_time&limit=20&access_token=${token}`
-    );
-    const msgData = await msgRes.json();
-    const messages: any[] = msgData?.data || [];
-
-    for (const msg of messages) {
-      if (!msg.message || msg.from?.id === igAccountId) continue;
-      const text = msg.message.toLowerCase();
-      for (const kw of keywords) {
-        if (text.includes(kw)) {
-          const participant = thread.participants?.data?.find((p: any) => p.id !== igAccountId);
-          leads.push({
-            profile_id: profileId,
-            source: 'dm',
-            ig_username: participant?.username || participant?.name || null,
-            ig_user_id: msg.from?.id ? String(msg.from.id) : null,
-            message: msg.message.slice(0, 500),
-            media_id: thread.id,
-            media_permalink: null,
-            keyword_matched: kw,
-            detected_at: new Date(msg.created_time).toISOString(),
-          });
-          break;
-        }
-      }
-    }
-  }));
-
-  return leads;
-}
-
-// ── Poll commentaires ─────────────────────────────────────────────────────────
-async function pollComments(profileId: string, token: string, igAccountId: string, keywords: string[], since: Date) {
-  const mediaRes = await fetch(
-    `https://graph.instagram.com/v21.0/${igAccountId}/media?fields=id,permalink,timestamp&limit=20&access_token=${token}`
-  );
-  const mediaData = await mediaRes.json();
-  if (mediaData.error) return [];
-
-  const recentMedia = (mediaData.data || []).filter(
-    (m: any) => new Date(m.timestamp).getTime() > since.getTime() - 90 * 24 * 60 * 60 * 1000
-  );
-
-  const leads: any[] = [];
-
-  await Promise.all(recentMedia.map(async (media: any) => {
-    const commRes = await fetch(
-      `https://graph.instagram.com/v21.0/${media.id}/comments?fields=id,text,timestamp,from,username&limit=50&access_token=${token}`
-    );
-    const commData = await commRes.json();
-    if (commData.error) return;
-
-    for (const comment of commData.data || []) {
-      if (!comment.text) continue;
-      if (new Date(comment.timestamp).getTime() < since.getTime()) continue;
-      const text = comment.text.toLowerCase();
-      for (const kw of keywords) {
-        if (text.includes(kw)) {
-          leads.push({
-            profile_id: profileId,
-            source: 'comment',
-            ig_username: comment.from?.username || comment.username || null,
-            ig_user_id: comment.from?.id ? String(comment.from.id) : null,
-            message: comment.text.slice(0, 500),
-            media_id: media.id,
-            media_permalink: media.permalink || null,
-            keyword_matched: kw,
-            detected_at: new Date(comment.timestamp).toISOString(),
-          });
-          break;
-        }
-      }
-    }
-  }));
-
-  return leads;
-}
 
 // ── Snapshot métriques J-1 ────────────────────────────────────────────────────
 // Appels directs via lib/ig-fetch + lib/yt-fetch — plus d'HTTP interne.
@@ -298,20 +204,6 @@ export async function GET(request: Request) {
   }
   const profiles = Array.from(profileMap.values());
 
-  const profileIds = profiles.map(p => p.profile_id);
-
-  // Mots-clés par profil
-  const { data: keywordRows } = await supabase
-    .from('lead_magnet_keywords')
-    .select('profile_id, keyword')
-    .in('profile_id', profileIds);
-
-  const keywordsByProfile: Record<string, string[]> = {};
-  for (const row of keywordRows || []) {
-    if (!keywordsByProfile[row.profile_id]) keywordsByProfile[row.profile_id] = [];
-    keywordsByProfile[row.profile_id].push(row.keyword);
-  }
-
   let polled = 0;
   let leadsFound = 0;
   let snapshots = 0;
@@ -320,59 +212,23 @@ export async function GET(request: Request) {
   for (const profile of profiles) {
     const profileErrors: string[] = [];
 
-    // ── 1. Poll leads IG (si mots-clés configurés et IG connecté) ──
+    // ── 1. Poll leads IG (si IG connecté) ──
     if (profile.hasIg) {
-      const keywords = keywordsByProfile[profile.profile_id] || [];
-      if (keywords.length > 0) {
-        try {
-          const creds = await getIgCreds(profile.profile_id);
-          if (creds) {
-            const { token, igAccountId } = creds;
-            const since = profile.last_ig_poll
-              ? new Date(profile.last_ig_poll)
-              : new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-            const [dmLeads, commentLeads] = await Promise.all([
-              pollDMs(profile.profile_id, token, igAccountId, keywords, since),
-              pollComments(profile.profile_id, token, igAccountId, keywords, since),
-            ]);
-
-            const allLeads = [...dmLeads, ...commentLeads];
-            if (allLeads.length > 0) {
-              // Upsert lead : 1 row par prospect, met à jour le dernier LM détecté
-              await supabase.from('instagram_leads').upsert(allLeads, {
-                onConflict: 'profile_id,ig_user_id',
-                ignoreDuplicates: false,
-              });
-              // Historique : toutes les interactions, même si le lead existait déjà
-              const historyRows = allLeads
-                .filter(l => l.ig_user_id)
-                .map(l => ({
-                  profile_id:      l.profile_id,
-                  ig_username:     l.ig_username,
-                  ig_user_id:      l.ig_user_id,
-                  keyword_matched: l.keyword_matched,
-                  media_id:        l.media_id,
-                  lm_url:          null,
-                  lead_magnet_sent: false,
-                  detected_at:     l.detected_at,
-                }));
-              if (historyRows.length > 0) {
-                await supabase.from('instagram_lead_lm_history').insert(historyRows);
-              }
-              leadsFound += allLeads.length;
-            }
-
-            await supabase.from('integrations')
-              .update({ last_ig_poll: new Date().toISOString() })
-              .eq('profile_id', profile.profile_id)
-              .eq('provider', 'instagram');
-
-            polled++;
-          }
-        } catch {
-          profileErrors.push('lead_poll_failed');
+      try {
+        const creds = await getIgCreds(profile.profile_id);
+        if (creds) {
+          const since = profile.last_ig_poll
+            ? new Date(profile.last_ig_poll)
+            : new Date(Date.now() - 24 * 60 * 60 * 1000);
+          const { leadsFound: found, error } = await pollIgLeads(
+            profile.profile_id, creds.token, creds.igAccountId, since
+          );
+          if (error) profileErrors.push(`lead_poll: ${error}`);
+          leadsFound += found;
+          polled++;
         }
+      } catch {
+        profileErrors.push('lead_poll_failed');
       }
     }
 
