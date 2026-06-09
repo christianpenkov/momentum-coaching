@@ -5658,7 +5658,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   // Onglets : 0=Vue générale, 1=Instagram, 2=YouTube, 3=Funnel & Calls, 4=Business micro, 5=Revenus
 
   // Données Supabase — toujours chargées (rapides, multi-onglets)
-  const { data: supaData } = useQuery({
+  const { data: supaData, refetch: refetchSupa } = useQuery({
     queryKey: ['stats-supa', profileId],
     queryFn: () => fetchSupabaseStats(profileId),
     staleTime: 5 * 60 * 1000,
@@ -5671,7 +5671,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
 
   // Instagram — onglets 0, 1, 3
-  const { data: igRaw, isLoading: igLoading } = useQuery<IGStats | null>({
+  const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
     queryKey: ['stats-ig', profileId],
     queryFn: () => fetchApi(`/api/instagram/stats${q}`),
     enabled: [0, 1, 3].includes(tab),
@@ -5768,6 +5768,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     startCooldown();
     setRefreshing(false);
     refetchIntegStatus();
+    await Promise.all([refetchSupa(), refetchIg()]);
   }
 
   // Données effectives pour TabFunnel : historiques si periodIndex > 0, live sinon
