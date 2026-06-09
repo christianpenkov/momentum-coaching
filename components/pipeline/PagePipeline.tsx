@@ -61,7 +61,7 @@ interface PipelineData {
 // ── Colonnes ──────────────────────────────────────────────────────────────────
 
 const IG_STAGES = [
-  { key: 'lm_sent',       label: 'LM reçu',          color: '#7C3AED', lightBg: '#F5F3FF', dot: '#7C3AED' },
+  { key: 'lm_sent',       label: 'Lead Commentaire / LM reçu', color: '#7C3AED', lightBg: '#F5F3FF', dot: '#7C3AED' },
   { key: 'in_convo',      label: 'En conversation',   color: '#9333EA', lightBg: '#FDF4FF', dot: '#9333EA' },
   { key: 'calendly_sent', label: 'Calendly envoyé',   color: '#D97706', lightBg: '#FFFBEB', dot: '#D97706' },
   { key: 'link_clicked',  label: 'Lien Calendly cliqué', color: '#EA580C', lightBg: '#FFF7ED', dot: '#EA580C' },
@@ -326,13 +326,9 @@ function resolveStage(
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
 ): string {
+  // L'override manuel prend toujours le dessus, y compris en arrière.
   if (!overrideKey) return naturalKey;
-  const naturalIdx = stages.findIndex(s => s.key === naturalKey);
-  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
-  // Le stage final est toujours le plus avancé entre auto et override.
-  // Un drag manuel en arrière est respecté ponctuellement, mais l'auto
-  // reprend ses droits dès qu'elle détecte un signal de progression.
-  return naturalIdx >= overrideIdx ? naturalKey : overrideKey;
+  return overrideKey;
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
