@@ -25,6 +25,8 @@ interface ProspectLink {
   content_id: string | null;
   created_at: string;
   humanClicks30d?: number;
+  calendly_link_sent: boolean;
+  calendly_link_sent_at: string | null;
 }
 
 interface Call {
