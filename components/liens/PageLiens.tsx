@@ -1394,9 +1394,10 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
 
   // Pseudo Instagram
   const [username, setUsername] = useState('');
+  const [igUserId, setIgUserId] = useState<string | null>(null);
   const [usernameSearch, setUsernameSearch] = useState('');
   const [showLeads, setShowLeads] = useState(false);
-  const [leads, setLeads] = useState<{ ig_username: string; detected_at: string; keyword_matched: string; media_id: string | null }[]>([]);
+  const [leads, setLeads] = useState<{ ig_username: string; ig_user_id: string | null; detected_at: string; keyword_matched: string; media_id: string | null }[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
 
   // Contenu source — postMode: 'auto' | 'lead' | 'manual' | 'none'
@@ -1461,8 +1462,9 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
         originalUrl: calendlyUrl.trim(),
         title: `RDV avec @${username}`,
         utmSource: domain, utmMedium: 'dm',
-        utmCampaign: `prospect-${us}`,
-        utmContent: resolvedPostId,
+        utmCampaign: igUserId ? `lead-${igUserId}` : `prospect-${us}`,
+        utmContent: us,
+        utmTerm: username,
         path: us,
       });
       setResult(shortUrl);
@@ -1499,7 +1501,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ fontSize: 12, color: MUTED }}>Envoie ce lien en DM à <strong>@{username}</strong></div>
           <GeneratedUrlRow url={result} label="Lien Calendly" />
-          <button onClick={() => { setResult(null); setUsername(''); setUsernameSearch(''); setPostId(''); setPostMode('auto'); }}
+          <button onClick={() => { setResult(null); setUsername(''); setIgUserId(null); setUsernameSearch(''); setPostId(''); setPostMode('auto'); }}
             style={{ fontSize: 12, color: MUTED, background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', padding: 0, textDecoration: 'underline' }}>
             Générer pour un autre prospect
           </button>
@@ -1540,7 +1542,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                     </div>
                   )}
                   {!leadsLoading && filteredLeads.length > 0 && filteredLeads.map(l => (
-                    <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setUsernameSearch(''); setShowLeads(false); if (l.media_id) { setPostId(l.media_id); setPostMode('lead'); } }}
+                    <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setIgUserId(l.ig_user_id ?? null); setUsernameSearch(''); setShowLeads(false); if (l.media_id) { setPostId(l.media_id); setPostMode('lead'); } }}
                       style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
                       onMouseEnter={e => (e.currentTarget.style.background = SURFACE2)}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>

@@ -18,12 +18,13 @@ async function getCreds(profileId: string): Promise<{ apiKey: string; domainId: 
   return { apiKey: integ.api_key, domainId: (integ.metadata as any)?.domain_id ?? null };
 }
 
-function buildDestUrl(originalUrl: string, utms: { source?: string; medium?: string; campaign?: string; content?: string }) {
+function buildDestUrl(originalUrl: string, utms: { source?: string; medium?: string; campaign?: string; content?: string; term?: string }) {
   const url = new URL(originalUrl);
   if (utms.source) url.searchParams.set('utm_source', utms.source);
   if (utms.medium) url.searchParams.set('utm_medium', utms.medium);
   if (utms.campaign) url.searchParams.set('utm_campaign', utms.campaign);
   if (utms.content) url.searchParams.set('utm_content', utms.content);
+  if (utms.term) url.searchParams.set('utm_term', utms.term);
   return url.toString();
 }
 
@@ -46,7 +47,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
   const body = await request.json();
-  const { profileId, domainId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent, path } = body;
+  const { profileId, domainId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent, utmTerm, path } = body;
 
   const targetProfileId = await resolveProfileId(user, profileId);
   if (!targetProfileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
   if (!creds) return NextResponse.json({ error: 'no_token', profileId: targetProfileId }, { status: 400 });
   const { apiKey, domainId: numericDomainId } = creds;
 
-  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent });
+  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent, term: utmTerm });
 
   const payload: Record<string, any> = {
     domain: domainId,
@@ -111,7 +112,7 @@ export async function PATCH(request: Request) {
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
   const body = await request.json();
-  const { profileId, shortId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent } = body;
+  const { profileId, shortId, originalUrl, title, utmSource, utmMedium, utmCampaign, utmContent, utmTerm } = body;
 
   if (!shortId) return NextResponse.json({ error: 'shortId requis' }, { status: 400 });
 
@@ -122,7 +123,7 @@ export async function PATCH(request: Request) {
   if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 400 });
   const { apiKey } = creds;
 
-  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent });
+  const destUrl = buildDestUrl(originalUrl, { source: utmSource, medium: utmMedium, campaign: utmCampaign, content: utmContent, term: utmTerm });
 
   const res = await fetch(`https://api.short.io/links/${shortId}`, {
     method: 'POST',
