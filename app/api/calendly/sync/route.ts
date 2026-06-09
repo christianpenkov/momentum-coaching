@@ -67,15 +67,19 @@ export async function POST() {
 
   const isCoach = profile?.role === 'coach';
 
-  let coachProfileId = user.id;
+  // calendlyProfileId = là où est stocké le token Calendly (coach)
+  // leadsProfileId = là où sont stockés les leads IG et prospect_links (client)
+  let calendlyProfileId = user.id;
+  let leadsProfileId = user.id;
   if (!isCoach) {
     const { data: clientRow } = await serviceSupabase
       .from('clients').select('coach_id').eq('profile_id', user.id).single();
     if (!clientRow?.coach_id) return NextResponse.json({ error: 'Coach introuvable' }, { status: 404 });
-    coachProfileId = clientRow.coach_id;
+    calendlyProfileId = clientRow.coach_id;
+    // leadsProfileId reste user.id — les leads IG sont sous le client
   }
 
-  const accessToken = await getFreshToken(coachProfileId);
+  const accessToken = await getFreshToken(calendlyProfileId);
   if (!accessToken) {
     return NextResponse.json({ error: 'Token Calendly expiré — reconnecte Calendly dans les réglages', needsReconnect: true }, { status: 401 });
   }
@@ -131,7 +135,7 @@ export async function POST() {
       const { data: leadRow } = await serviceSupabase
         .from('instagram_leads').select('id')
         .eq('ig_user_id', igUserIdFromUtm)
-        .eq('profile_id', coachProfileId)
+        .eq('profile_id', leadsProfileId)
         .order('detected_at', { ascending: false }).limit(1).maybeSingle();
       igLeadId = leadRow?.id ?? null;
     }
@@ -141,7 +145,7 @@ export async function POST() {
     if (shortLinkPath) {
       const { data: pl } = await serviceSupabase
         .from('prospect_links').select('id, ig_lead_id')
-        .eq('profile_id', coachProfileId)
+        .eq('profile_id', leadsProfileId)
         .filter('short_url', 'like', `%/${shortLinkPath}`)
         .maybeSingle();
       if (pl) {
@@ -161,7 +165,7 @@ export async function POST() {
     }
 
     await serviceSupabase.from('calls').upsert({
-      coach_id: coachProfileId,
+      coach_id: leadsProfileId,
       client_id: clientId,
       calendly_event_uuid: eventUuid,
       calendly_uri: event.uri,
