@@ -401,23 +401,11 @@ function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
-  overrideUpdatedAt?: string | null,
-  signalOccurredAt?: string | null,
 ): string {
+  // L'override manuel gagne toujours — y compris pour reculer un lead.
+  // Les signaux automatiques (clic, call) sont enregistrés dans prospect_events
+  // pour les stats mais n'écrasent pas une décision manuelle.
   if (!overrideKey) return naturalKey;
-
-  const naturalIdx = stages.findIndex(s => s.key === naturalKey);
-  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
-
-  // Signal naturel STRICTEMENT au-delà de l'override → le funnel a avancé, ignorer l'override
-  if (naturalIdx > overrideIdx) return naturalKey;
-
-  // Signal naturel postérieur à l'override (même position ou derrière) → le signal prime
-  if (overrideUpdatedAt && signalOccurredAt) {
-    if (new Date(signalOccurredAt) > new Date(overrideUpdatedAt)) return naturalKey;
-  }
-
-  // Override gagne (y compris reculer un lead manuellement)
   return overrideKey;
 }
 
@@ -522,13 +510,7 @@ export default function PagePipeline() {
       }
 
       const override = overrides.find(o => o.prospect_key === username && o.platform === 'ig');
-      // Seuls les signaux automatiques (call booké, clic sur lien) peuvent annuler un override
-      // calendly_link_sent_at et hook_replied_at sont des signaux manuels/contrôlés → exclus
-      const signalOccurredAt =
-        call?.scheduled_at ??
-        prospect?.first_click_at ??
-        null;
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
