@@ -4090,9 +4090,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const lmClics = shortio.links
             .filter((l: any) => lmTrackingUrls.has(l.shortUrl) || lmTrackingUrls.has(l.originalUrl))
             .reduce((s: number, l: any) => s + linkClics(l), 0);
-          const calendlyClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
+          const calendlyActivated = prospectLinks.filter((l: any) => linkClics(l) >= 1).length;
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
-          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyClics / lmCalendlyLinks) * 100) : 0;
+          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivated / lmCalendlyLinks) * 100) : 0;
           const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
           const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
 
