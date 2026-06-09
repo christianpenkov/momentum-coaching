@@ -343,11 +343,26 @@ export default function PagePipeline() {
   const [confirmedKeys, setConfirmedKeys] = useState<Set<string>>(new Set());
   const dropCounters = useRef<Record<string, number>>({});
 
-  const { data, isLoading: loading } = useQuery<PipelineData | null>({
+  const [refreshing, setRefreshing] = useState(false);
+
+  const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
     queryKey: ['pipeline'],
     queryFn: () => fetch('/api/client/pipeline').then(r => r.ok ? r.json() : null),
     staleTime: 2 * 60 * 1000,
   });
+
+  async function handleRefresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    await Promise.allSettled([
+      fetch('/api/instagram/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }),
+      fetch('/api/youtube/refresh-today',   { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }),
+      fetch('/api/shortio/refresh-today',   { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }),
+      fetch('/api/calendly/refresh',         { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }),
+    ]);
+    await refetch();
+    setRefreshing(false);
+  }
 
   useEffect(() => {
     if (data?.overrides) {
@@ -533,7 +548,21 @@ export default function PagePipeline() {
           )}
         </div>
 
-        {/* Onglets */}
+        {/* Rafraîchir + Onglets */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <button
+          onClick={handleRefresh}
+          disabled={refreshing}
+          style={{
+            padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
+            border: '1px solid var(--border)', background: 'var(--surface)',
+            color: refreshing ? 'var(--muted)' : 'var(--ink)', cursor: refreshing ? 'not-allowed' : 'pointer',
+            display: 'flex', alignItems: 'center', gap: 6, transition: 'all .12s',
+          }}
+        >
+          <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+          {refreshing ? 'Maj…' : 'Rafraîchir'}
+        </button>
         <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
           {([
             { key: 'ig', label: 'Instagram', count: igCards.length },
@@ -556,6 +585,7 @@ export default function PagePipeline() {
               }}>{t.count}</span>
             </button>
           ))}
+        </div>
         </div>
       </div>
 
