@@ -164,7 +164,7 @@ export async function POST() {
       }
     }
 
-    await serviceSupabase.from('calls').upsert({
+    const { data: callRow } = await serviceSupabase.from('calls').upsert({
       coach_id: leadsProfileId,
       client_id: clientId,
       calendly_event_uuid: eventUuid,
@@ -186,7 +186,30 @@ export async function POST() {
       status: 'active',
       ready: 'pending',
       reminder_sent: false,
-    }, { onConflict: 'calendly_event_uuid' });
+    }, { onConflict: 'calendly_event_uuid' }).select('id').maybeSingle();
+
+    // Événement call_booked dans prospect_events (fire-and-forget)
+    if (callRow?.id) {
+      let igUsername: string | null = null;
+      if (igLeadId) {
+        const { data: leadRow } = await serviceSupabase
+          .from('instagram_leads').select('ig_username').eq('id', igLeadId).single();
+        igUsername = leadRow?.ig_username ?? null;
+      }
+      serviceSupabase.from('prospect_events').upsert({
+        profile_id:       leadsProfileId,
+        prospect_key:     igUsername ?? eventUuid,
+        platform:         igUsername ? 'ig' : 'yt',
+        event_type:       'call_booked',
+        occurred_at:      scheduledAt ?? new Date().toISOString(),
+        ig_lead_id:       igLeadId,
+        prospect_link_id: prospectLinkId,
+        call_id:          callRow.id,
+      }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
+        if (evtErr) console.error('[calendly/sync] prospect_events upsert:', evtErr.message);
+      });
+    }
+
     synced++;
   }
 

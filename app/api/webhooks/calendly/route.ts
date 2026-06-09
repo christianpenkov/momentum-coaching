@@ -154,6 +154,7 @@ export async function POST(request: NextRequest) {
       }, { onConflict: 'calendly_event_uuid' }).select('id').maybeSingle();
 
       // Relier prospect_link → call via short_link_path
+      let prospectLinkId: string | null = null;
       if (shortLinkPath && callRow?.id) {
         const { data: pl } = await serviceSupabase
           .from('prospect_links')
@@ -162,6 +163,7 @@ export async function POST(request: NextRequest) {
           .filter('short_url', 'like', `%/${shortLinkPath}`)
           .maybeSingle();
         if (pl) {
+          prospectLinkId = pl.id;
           await serviceSupabase
             .from('calls')
             .update({
@@ -179,6 +181,28 @@ export async function POST(request: NextRequest) {
           .from('instagram_leads')
           .update({ calendly_event_uuid: eventUuid })
           .eq('id', igLeadId);
+      }
+
+      // Événement call_booked dans prospect_events
+      if (callRow?.id) {
+        let igUsername: string | null = null;
+        if (igLeadId) {
+          const { data: leadRow } = await serviceSupabase
+            .from('instagram_leads').select('ig_username').eq('id', igLeadId).single();
+          igUsername = leadRow?.ig_username ?? null;
+        }
+        serviceSupabase.from('prospect_events').upsert({
+          profile_id:       clientRow.id,
+          prospect_key:     igUsername ?? eventUuid,
+          platform:         igUsername ? 'ig' : 'yt',
+          event_type:       'call_booked',
+          occurred_at:      scheduledAt ?? new Date().toISOString(),
+          ig_lead_id:       igLeadId,
+          prospect_link_id: prospectLinkId,
+          call_id:          callRow.id,
+        }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
+          if (evtErr) console.error('[webhook/calendly] prospect_events upsert:', evtErr.message);
+        });
       }
     }
   }

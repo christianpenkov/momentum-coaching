@@ -13,6 +13,7 @@ interface IgLead {
   keyword_matched: string;
   lead_magnet_sent: boolean;
   hook_replied: boolean;
+  hook_replied_at: string | null;
   tracking_link: string | null;
   detected_at: string;
   media_id: string | null;
@@ -28,6 +29,7 @@ interface ProspectLink {
   humanClicks30d?: number;
   calendly_link_sent: boolean;
   calendly_link_sent_at: string | null;
+  first_click_at: string | null;
 }
 
 interface Call {
@@ -399,9 +401,22 @@ function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
+  overrideUpdatedAt?: string | null,
+  signalOccurredAt?: string | null,
 ): string {
-  // L'override manuel prend toujours le dessus, y compris en arrière.
   if (!overrideKey) return naturalKey;
+
+  const naturalIdx = stages.findIndex(s => s.key === naturalKey);
+  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
+
+  // Position naturelle >= override → le funnel a progressé au-delà de l'override
+  if (naturalIdx >= overrideIdx) return naturalKey;
+
+  // Signal naturel postérieur à l'override → le signal prime sur l'override
+  if (overrideUpdatedAt && signalOccurredAt) {
+    if (new Date(signalOccurredAt) > new Date(overrideUpdatedAt)) return naturalKey;
+  }
+
   return overrideKey;
 }
 
@@ -505,8 +520,14 @@ export default function PagePipeline() {
         if (call.deal_closed) natural = 'closed';
       }
 
-      const overrideKey = getOverride(username, 'ig');
-      const stageKey = resolveStage(natural, overrideKey, IG_STAGES);
+      const override = overrides.find(o => o.prospect_key === username && o.platform === 'ig');
+      const signalOccurredAt =
+        call?.scheduled_at ??
+        prospect?.calendly_link_sent_at ??
+        prospect?.first_click_at ??
+        lead?.hook_replied_at ??
+        null;
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';

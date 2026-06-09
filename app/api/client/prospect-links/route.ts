@@ -52,6 +52,20 @@ export async function POST(request: Request) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  // Événement calendly_link_sent dans prospect_events (fire-and-forget)
+  supa.from('prospect_events').insert({
+    profile_id:       user.id,
+    prospect_key:     ig_username,
+    platform:         'ig',
+    event_type:       'calendly_link_sent',
+    occurred_at:      new Date().toISOString(),
+    ig_lead_id:       ig_lead_id ?? null,
+    prospect_link_id: data.id,
+  }).then(({ error: evtErr }) => {
+    if (evtErr) console.error('[prospect-links] prospect_events insert:', evtErr.message);
+  });
+
   return NextResponse.json({ link: data });
 }
 
