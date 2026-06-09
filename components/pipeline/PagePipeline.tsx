@@ -409,14 +409,15 @@ function resolveStage(
   const naturalIdx = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
 
-  // Position naturelle >= override → le funnel a progressé au-delà de l'override
-  if (naturalIdx >= overrideIdx) return naturalKey;
+  // Signal naturel STRICTEMENT au-delà de l'override → le funnel a avancé, ignorer l'override
+  if (naturalIdx > overrideIdx) return naturalKey;
 
-  // Signal naturel postérieur à l'override → le signal prime sur l'override
+  // Signal naturel postérieur à l'override (même position ou derrière) → le signal prime
   if (overrideUpdatedAt && signalOccurredAt) {
     if (new Date(signalOccurredAt) > new Date(overrideUpdatedAt)) return naturalKey;
   }
 
+  // Override gagne (y compris reculer un lead manuellement)
   return overrideKey;
 }
 
