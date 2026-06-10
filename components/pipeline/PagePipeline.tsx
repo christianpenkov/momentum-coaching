@@ -926,8 +926,9 @@ export default function PagePipeline() {
     const card = cards.find(c => c.key === cardKey);
     if (!card) return;
 
-    const currentStageIdx = IG_STAGES.findIndex(s => s.key === card.stageKey);
-    const targetStageIdx  = IG_STAGES.findIndex(s => s.key === targetStageKey);
+    const activeStages = tab === 'ig' ? IG_STAGES : YT_STAGES;
+    const currentStageIdx = activeStages.findIndex(s => s.key === card.stageKey);
+    const targetStageIdx  = activeStages.findIndex(s => s.key === targetStageKey);
 
     // Déterminer si on a besoin d'une modale de confirmation
     const isBackwardFromPostCall =
@@ -964,7 +965,6 @@ export default function PagePipeline() {
 
     if (modalCase === 'backward_from_post_call') {
       if (callId) {
-        // Mettre à jour le call selon la raison
         if (reason === 'canceled') {
           await patchCall(callId, { status: 'canceled', cancellation_reason: 'canceled' });
         } else if (reason === 'rescheduled') {
@@ -975,11 +975,15 @@ export default function PagePipeline() {
           await patchCall(callId, { cancellation_reason: 'cold' });
         }
       }
-      // Trouver la meilleure étape connue pour ce lead
-      const card = igCards.find(c => c.key === cardKey);
-      const lead = data?.leads.find(l => l.ig_username.toLowerCase() === cardKey);
-      const prospect = data?.prospects.find(p => p.ig_username.toLowerCase() === cardKey);
-      const bestStage = getBestKnownStage(prospect, lead, events);
+      // Meilleure étape connue : IG → via prospect_events, YT/Autres → call_booked (le seul signal connu)
+      let bestStage: string;
+      if (tab === 'ig') {
+        const lead = data?.leads.find(l => l.ig_username.toLowerCase() === cardKey);
+        const prospect = data?.prospects.find(p => p.ig_username.toLowerCase() === cardKey);
+        bestStage = getBestKnownStage(prospect, lead, events);
+      } else {
+        bestStage = 'call_booked';
+      }
       await saveOverride(cardKey, platform, bestStage, reason);
     } else if (modalCase === 'forward_to_call_booked') {
       await saveOverride(cardKey, platform, 'call_booked', 'manual');
