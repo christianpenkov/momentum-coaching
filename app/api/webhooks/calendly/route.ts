@@ -64,7 +64,6 @@ export async function POST(request: NextRequest) {
 
     // utm_campaign = "lead-{ig_user_id}" → extraire l'ig_user_id pour jointure instagram_leads
     const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
-    // utm_content = postId, utm_source = domaine Short.io, utm_medium = 'dm' → short_link_path
     const shortLinkPath = utmContent || null;
 
     // Durée en minutes
@@ -74,136 +73,184 @@ export async function POST(request: NextRequest) {
       duration = `${mins} min`;
     }
 
-    // Trouve le client par son email invitee ou son organisateur
+    // Reschedule : si old_invitee présent → hériter les données de l'ancien call
+    const oldInviteeUrl: string | null = resource.old_invitee || null;
+    let inheritedIgLeadId: string | null = null;
+    let inheritedProspectLinkId: string | null = null;
+    let inheritedSource: string | null = null;
+    let inheritedUtmCampaign: string | null = null;
+    let inheritedUtmContent: string | null = null;
+    let inheritedCoachId: string | null = null;
+
+    if (oldInviteeUrl) {
+      const oldEventUuid = oldInviteeUrl.split('/').at(-3) || null;
+      if (oldEventUuid) {
+        const { data: oldCall } = await serviceSupabase
+          .from('calls')
+          .select('id, ig_lead_id, prospect_link_id, source, utm_campaign, utm_content, coach_id')
+          .eq('calendly_event_uuid', oldEventUuid)
+          .maybeSingle();
+        if (oldCall) {
+          inheritedIgLeadId = oldCall.ig_lead_id ?? null;
+          inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
+          inheritedSource = oldCall.source ?? null;
+          inheritedUtmCampaign = oldCall.utm_campaign ?? null;
+          inheritedUtmContent = oldCall.utm_content ?? null;
+          inheritedCoachId = oldCall.coach_id ?? null;
+          await serviceSupabase.from('calls').update({ status: 'cancelled' }).eq('id', oldCall.id);
+        }
+      }
+    }
+
+    // Résoudre le profil organisateur du call
+    // Priorité : integration Calendly → coach_id hérité → clientRow
+    // L'organisateur du call Calendly est identifié par son URI dans scheduled_event
     const organizerUri: string = resource.scheduled_event?.event_memberships?.[0]?.user || '';
-    const organizerUuid = organizerUri.split('/').pop() || '';
 
-    // Cherche dans integrations qui a ce compte Calendly
-    let clientRow = null;
-    if (inviteeEmail) {
-      const { data: authUser } = await serviceSupabase
-        .from('profiles')
+    // Cherche dans integrations quel profil possède ce compte Calendly
+    // (le token Calendly est toujours stocké sous le profil de l'élève qui a connecté Calendly)
+    let leadsProfileId: string | null = inheritedCoachId ?? null;
+
+    if (!leadsProfileId && organizerUri) {
+      const { data: integ } = await serviceSupabase
+        .from('integrations')
+        .select('profile_id, metadata')
+        .eq('provider', 'calendly')
+        .maybeSingle();
+      // Cherche le profil dont l'URI Calendly correspond à l'organisateur
+      const { data: allInteg } = await serviceSupabase
+        .from('integrations')
+        .select('profile_id, metadata')
+        .eq('provider', 'calendly');
+      for (const row of (allInteg || [])) {
+        if (row.metadata?.uri === organizerUri || row.metadata?.user_uri === organizerUri) {
+          leadsProfileId = row.profile_id;
+          break;
+        }
+      }
+    }
+
+    // Si toujours pas trouvé : fallback par email invitee → trouver le coach via clients
+    let clientId: string | null = null;
+    if (!leadsProfileId && inviteeEmail) {
+      const { data: authUsers } = await serviceSupabase.auth.admin.listUsers();
+      const matched = authUsers?.users?.find((u: any) => u.email === inviteeEmail);
+      if (matched) {
+        const { data: clientData } = await serviceSupabase
+          .from('clients').select('id, coach_id').eq('profile_id', matched.id).single();
+        if (clientData) {
+          clientId = clientData.id;
+          leadsProfileId = clientData.coach_id;
+        }
+      }
+    }
+
+    if (!leadsProfileId) {
+      console.error('[webhook/calendly] invitee.created: impossible de résoudre le profil organisateur');
+      return NextResponse.json({ ok: true });
+    }
+
+    // Résoudre ig_lead_id via UTM
+    let igLeadId: string | null = null;
+    if (igUserIdFromUtm) {
+      const { data: leadRow } = await serviceSupabase
+        .from('instagram_leads')
         .select('id')
-        .eq('role', 'client')
-        .limit(50);
+        .eq('ig_user_id', igUserIdFromUtm)
+        .eq('profile_id', leadsProfileId)
+        .order('detected_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      igLeadId = leadRow?.id ?? null;
+    }
 
-      if (authUser) {
-        for (const profile of authUser) {
-          const { data: clientData } = await serviceSupabase
-            .from('clients')
-            .select('id, coach_id')
-            .eq('profile_id', profile.id)
-            .single();
-
-          // Vérifie si l'email Supabase Auth correspond
-          const { data: userEmail } = await serviceSupabase.auth.admin.getUserById(profile.id);
-          if (userEmail?.user?.email === inviteeEmail) {
-            clientRow = clientData;
-            break;
-          }
-        }
+    // Résoudre prospect_link_id via short_link_path
+    let prospectLinkId: string | null = null;
+    if (shortLinkPath) {
+      const { data: pl } = await serviceSupabase
+        .from('prospect_links')
+        .select('id, ig_lead_id')
+        .eq('profile_id', leadsProfileId)
+        .filter('short_url', 'like', `%/${shortLinkPath}`)
+        .maybeSingle();
+      if (pl) {
+        prospectLinkId = pl.id;
+        igLeadId = igLeadId ?? pl.ig_lead_id ?? null;
       }
     }
 
-    if (!clientRow) {
-      // Essaie de trouver par email dans la table clients
-      if (inviteeEmail) {
-        const { data } = await serviceSupabase
-          .from('clients')
-          .select('id, coach_id')
-          .eq('email', inviteeEmail)
-          .single();
-        clientRow = data;
+    // Héritage reschedule — fallback si pas de données UTM sur le nouvel event
+    igLeadId = igLeadId ?? inheritedIgLeadId;
+    prospectLinkId = prospectLinkId ?? inheritedProspectLinkId;
+
+    // Résoudre client_id si pas déjà trouvé (cas coach qui connect lui-même)
+    if (!clientId && inviteeEmail) {
+      const { data: authUsers } = await serviceSupabase.auth.admin.listUsers();
+      const matched = authUsers?.users?.find((u: any) => u.email === inviteeEmail);
+      if (matched) {
+        const { data: clientData } = await serviceSupabase
+          .from('clients').select('id').eq('profile_id', matched.id).single();
+        clientId = clientData?.id ?? null;
       }
     }
 
-    if (clientRow) {
-      // Retrouver ig_lead_id si on a un ig_user_id dans les UTMs
-      let igLeadId: string | null = null;
-      if (igUserIdFromUtm) {
+    const baseUpsert: Record<string, any> = {
+      coach_id: leadsProfileId,
+      client_id: clientId,
+      calendly_event_uuid: eventUuid,
+      calendly_uri: eventUri,
+      topic: eventName,
+      scheduled_at: scheduledAt,
+      duration,
+      join_url: joinUrl,
+      invitee_email: inviteeEmail,
+      invitee_name: inviteeName,
+      status: 'active',
+      ready: 'pending',
+      reminder_sent: false,
+    };
+    // UTMs et liens — courants prioritaires, héritage reschedule en fallback
+    if (source || inheritedSource)           baseUpsert.source = source ?? inheritedSource;
+    if (utmCampaign || inheritedUtmCampaign) baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;
+    if (utmMedium)                           baseUpsert.utm_medium = utmMedium;
+    if (utmContent || inheritedUtmContent)   baseUpsert.utm_content = utmContent ?? inheritedUtmContent;
+    if (shortLinkPath || inheritedUtmContent) baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
+    if (igLeadId)      baseUpsert.ig_lead_id = igLeadId;
+    if (prospectLinkId) baseUpsert.prospect_link_id = prospectLinkId;
+
+    const { data: callRow } = await serviceSupabase.from('calls').upsert(
+      baseUpsert,
+      { onConflict: 'calendly_event_uuid' }
+    ).select('id').maybeSingle();
+
+    // Relier le lead au call dans l'autre sens
+    if (igLeadId && callRow?.id) {
+      await serviceSupabase
+        .from('instagram_leads')
+        .update({ calendly_event_uuid: eventUuid })
+        .eq('id', igLeadId);
+    }
+
+    // Événement call_booked dans prospect_events
+    if (callRow?.id) {
+      let igUsername: string | null = null;
+      if (igLeadId) {
         const { data: leadRow } = await serviceSupabase
-          .from('instagram_leads')
-          .select('id')
-          .eq('ig_user_id', igUserIdFromUtm)
-          .eq('profile_id', clientRow.id)
-          .order('detected_at', { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        igLeadId = leadRow?.id ?? null;
+          .from('instagram_leads').select('ig_username').eq('id', igLeadId).single();
+        igUsername = leadRow?.ig_username ?? null;
       }
-
-      const { data: callRow } = await serviceSupabase.from('calls').upsert({
-        client_id: clientRow.id,
-        calendly_event_uuid: eventUuid,
-        calendly_uri: eventUri,
-        topic: eventName,
-        scheduled_at: scheduledAt,
-        duration,
-        join_url: joinUrl,
-        invitee_email: inviteeEmail,
-        invitee_name: inviteeName,
-        source,
-        utm_campaign: utmCampaign,
-        utm_medium: utmMedium,
-        utm_content: utmContent,
-        short_link_path: shortLinkPath,
-        ig_lead_id: igLeadId,
-        status: 'active',
-        ready: 'pending',
-        reminder_sent: false,
-      }, { onConflict: 'calendly_event_uuid' }).select('id').maybeSingle();
-
-      // Relier prospect_link → call via short_link_path
-      let prospectLinkId: string | null = null;
-      if (shortLinkPath && callRow?.id) {
-        const { data: pl } = await serviceSupabase
-          .from('prospect_links')
-          .select('id, ig_lead_id')
-          .eq('profile_id', clientRow.coach_id)
-          .filter('short_url', 'like', `%/${shortLinkPath}`)
-          .maybeSingle();
-        if (pl) {
-          prospectLinkId = pl.id;
-          await serviceSupabase
-            .from('calls')
-            .update({
-              prospect_link_id: pl.id,
-              ig_lead_id: pl.ig_lead_id ?? igLeadId,
-            })
-            .eq('id', callRow.id);
-          igLeadId = igLeadId ?? pl.ig_lead_id ?? null;
-        }
-      }
-
-      // Relier le lead au call dans l'autre sens
-      if (igLeadId && callRow?.id) {
-        await serviceSupabase
-          .from('instagram_leads')
-          .update({ calendly_event_uuid: eventUuid })
-          .eq('id', igLeadId);
-      }
-
-      // Événement call_booked dans prospect_events
-      if (callRow?.id) {
-        let igUsername: string | null = null;
-        if (igLeadId) {
-          const { data: leadRow } = await serviceSupabase
-            .from('instagram_leads').select('ig_username').eq('id', igLeadId).single();
-          igUsername = leadRow?.ig_username ?? null;
-        }
-        serviceSupabase.from('prospect_events').upsert({
-          profile_id:       clientRow.id,
-          prospect_key:     igUsername ?? eventUuid,
-          platform:         igUsername ? 'ig' : 'yt',
-          event_type:       'call_booked',
-          occurred_at:      scheduledAt ?? new Date().toISOString(),
-          ig_lead_id:       igLeadId,
-          prospect_link_id: prospectLinkId,
-          call_id:          callRow.id,
-        }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
-          if (evtErr) console.error('[webhook/calendly] prospect_events upsert:', evtErr.message);
-        });
-      }
+      serviceSupabase.from('prospect_events').upsert({
+        profile_id:       leadsProfileId,
+        prospect_key:     igUsername?.toLowerCase() ?? eventUuid,
+        platform:         igUsername ? 'ig' : (source?.startsWith('yt') ? 'yt' : 'other'),
+        event_type:       'call_booked',
+        occurred_at:      scheduledAt ?? new Date().toISOString(),
+        ig_lead_id:       igLeadId,
+        prospect_link_id: prospectLinkId,
+        call_id:          callRow.id,
+      }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
+        if (evtErr) console.error('[webhook/calendly] prospect_events upsert:', evtErr.message);
+      });
     }
   }
 

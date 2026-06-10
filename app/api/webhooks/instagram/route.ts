@@ -173,14 +173,33 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (leadToUpdate) {
+        const hookRepliedAt = new Date().toISOString();
         await serviceSupabase
           .from('instagram_leads')
           .update({
             hook_replied: true,
             hook_reply_text: msgText.slice(0, 500),
-            hook_replied_at: new Date().toISOString(),
+            hook_replied_at: hookRepliedAt,
           })
           .eq('id', leadToUpdate.id);
+
+        // Récupère ig_username pour prospect_key
+        const { data: leadFull } = await serviceSupabase
+          .from('instagram_leads').select('ig_username').eq('id', leadToUpdate.id).single();
+        if (leadFull?.ig_username) {
+          serviceSupabase.from('prospect_events').insert({
+            profile_id:  pid,
+            prospect_key: leadFull.ig_username.toLowerCase(),
+            platform:    'ig',
+            event_type:  'hook_replied',
+            occurred_at: hookRepliedAt,
+            ig_lead_id:  leadToUpdate.id,
+          }).then(({ error: evtErr }) => {
+            if (evtErr && !evtErr.message.includes('duplicate')) {
+              console.error('[IG Webhook] prospect_events hook_replied:', evtErr.message);
+            }
+          });
+        }
 
         console.log(`[IG Webhook] hook_replied=true — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}, reply: "${msgText.slice(0, 50)}"`);
         pushEvent({ type: 'hook_replied', ig_user_id: senderId, lead_id: leadToUpdate.id, reply_text: msgText.slice(0, 100) });
@@ -332,6 +351,22 @@ export async function POST(request: Request) {
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
         .select('id')
         .maybeSingle();
+
+      // Enregistre l'événement lm_sent dans prospect_events (index partiel = idempotent)
+      if (upsertedLead?.id && commenterUsername) {
+        serviceSupabase.from('prospect_events').insert({
+          profile_id,
+          prospect_key:  commenterUsername.toLowerCase(),
+          platform:      'ig',
+          event_type:    'lm_sent',
+          occurred_at:   timestamp,
+          ig_lead_id:    upsertedLead.id,
+        }).then(({ error: evtErr }) => {
+          if (evtErr && !evtErr.message.includes('duplicate')) {
+            console.error('[IG Webhook] prospect_events lm_sent:', evtErr.message);
+          }
+        });
+      }
 
       // Historique LM : stocke chaque interaction — idempotent via UNIQUE constraint
       if (commenterId) {
