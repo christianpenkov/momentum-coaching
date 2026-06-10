@@ -110,19 +110,41 @@ export async function POST(request: Request) {
 
       // Message envoyé par nous (echo) — détecter si on a envoyé un lien Calendly prospect
       if (isEcho && msgText) {
+        // Cherche TOUS les prospect_links (peu importe si déjà envoyé) pour matcher l'URL
         const { data: prospectLinks } = await serviceSupabase
           .from('prospect_links')
-          .select('id, short_url')
-          .eq('profile_id', pid)
-          .eq('calendly_link_sent', false);
+          .select('id, short_url, ig_username, ig_lead_id, calendly_link_sent')
+          .eq('profile_id', pid);
 
+        const now = new Date().toISOString();
         for (const pl of prospectLinks || []) {
           if (pl.short_url && msgText.includes(pl.short_url)) {
+            // Met à jour calendly_link_sent (idempotent si déjà true)
             await serviceSupabase
               .from('prospect_links')
-              .update({ calendly_link_sent: true, calendly_link_sent_at: new Date().toISOString() })
+              .update({ calendly_link_sent: true, calendly_link_sent_at: now })
               .eq('id', pl.id);
-            console.log(`[IG Webhook] calendly_link_sent=true — prospect_link: ${pl.id}, url: ${pl.short_url}`);
+
+            // Efface l'override pipeline → le signal reprend la main
+            await serviceSupabase
+              .from('pipeline_overrides')
+              .delete()
+              .eq('profile_id', pid)
+              .eq('prospect_key', pl.ig_username)
+              .eq('platform', 'ig');
+
+            // Insère l'événement dans prospect_events
+            await serviceSupabase.from('prospect_events').insert({
+              profile_id:       pid,
+              prospect_key:     pl.ig_username,
+              platform:         'ig',
+              event_type:       'calendly_link_sent',
+              occurred_at:      now,
+              ig_lead_id:       pl.ig_lead_id ?? null,
+              prospect_link_id: pl.id,
+            });
+
+            console.log(`[IG Webhook] calendly_link_sent — prospect_link: ${pl.id}, url: ${pl.short_url}`);
             pushEvent({ type: 'calendly_link_sent', prospect_link_id: pl.id, short_url: pl.short_url });
             break;
           }
