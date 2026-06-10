@@ -57,7 +57,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         if (!c.scheduled_at || !c.duration) return false;
         const match = c.duration.match(/(\d+)/);
         if (!match) return false;
-        const endTime = new Date(c.scheduled_at).getTime() + parseInt(match[1]) * 60 * 1000 + 15 * 60 * 1000;
+        const endTime = new Date(c.scheduled_at).getTime() + parseInt(match[1]) * 60 * 1000;
         return Date.now() >= endTime;
       })
       .map(c => ({

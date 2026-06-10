@@ -140,6 +140,18 @@ export async function syncCalendlyEleve(
       const utmMedium = tracking?.utm_medium || null;
       const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
+      // Détection reschedule : si old_invitee est présent, l'ancien call doit être cancelled
+      const oldInviteeUrl: string | null = invitee?.old_invitee || null;
+      if (oldInviteeUrl) {
+        const parts = oldInviteeUrl.split('/');
+        const oldEventUuid = parts.at(-3) || null;
+        if (oldEventUuid) {
+          await serviceSupabase.from('calls')
+            .update({ status: 'cancelled' })
+            .eq('calendly_event_uuid', oldEventUuid);
+        }
+      }
+
       // coach_id = profileId de l'élève (hôte du call)
       // client_id = null (le lead est externe)
       await serviceSupabase.from('calls').upsert({

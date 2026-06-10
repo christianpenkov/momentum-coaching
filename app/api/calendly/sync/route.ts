@@ -117,10 +117,23 @@ export async function POST() {
       { headers: { Authorization: `Bearer ${accessToken}` } }
     );
     const invitees: any[] = (await inviteesRes.json())?.collection || [];
-    const inviteeEmail = invitees[0]?.email || null;
-    const inviteeName = invitees[0]?.name || null;
-    const questionsAndAnswers = invitees[0]?.questions_and_answers || null;
-    const tracking = invitees[0]?.tracking || null;
+    const invitee0 = invitees[0] || null;
+    const inviteeEmail = invitee0?.email || null;
+    const inviteeName = invitee0?.name || null;
+    const questionsAndAnswers = invitee0?.questions_and_answers || null;
+    const tracking = invitee0?.tracking || null;
+
+    // Détection reschedule : si old_invitee est présent, l'ancien call doit être cancelled
+    const oldInviteeUrl: string | null = invitee0?.old_invitee || null;
+    if (oldInviteeUrl) {
+      const parts = oldInviteeUrl.split('/');
+      const oldEventUuid = parts.at(-3) || null;
+      if (oldEventUuid) {
+        await serviceSupabase.from('calls')
+          .update({ status: 'cancelled' })
+          .eq('calendly_event_uuid', oldEventUuid);
+      }
+    }
     const utmSource = tracking?.utm_source || null;
     const utmMedium = tracking?.utm_medium || null;
     const utmCampaign = tracking?.utm_campaign || null;
