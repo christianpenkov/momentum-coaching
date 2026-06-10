@@ -171,31 +171,30 @@ export async function upsertShortioLinkSnapshot(
 
   if (error) return error.message;
 
-  // Si des clics humains existent, mettre à jour first_click_at sur prospect_links (une seule fois)
+  // Si des clics humains existent, mettre à jour first_click_at avec la date du snapshot courant.
+  // On écrit toujours (pas idempotent) pour qu'un clic après renvoi de lien fasse avancer le pipeline.
   if (row.human_clicks > 0) {
     const { data: pl } = await serviceSupabase
       .from('prospect_links')
       .select('id, ig_username, ig_lead_id, first_click_at')
       .eq('profile_id', profileId)
       .filter('short_url', 'like', `%/${row.path}`)
-      .is('first_click_at', null)
       .maybeSingle();
 
     if (pl) {
-      const firstClickAt = `${row.date}T12:00:00.000Z`; // date du snapshot, midi UTC par défaut
+      const snapshotClickAt = `${row.date}T12:00:00.000Z`;
       await serviceSupabase
         .from('prospect_links')
-        .update({ first_click_at: firstClickAt })
-        .eq('id', pl.id)
-        .is('first_click_at', null); // idempotent
+        .update({ first_click_at: snapshotClickAt })
+        .eq('id', pl.id);
 
-      // Insérer l'événement link_clicked dans prospect_events
+      // Upsert l'événement link_clicked avec la date du snapshot courant
       await serviceSupabase.from('prospect_events').upsert({
         profile_id:       profileId,
         prospect_key:     pl.ig_username,
         platform:         'ig',
         event_type:       'link_clicked',
-        occurred_at:      firstClickAt,
+        occurred_at:      snapshotClickAt,
         ig_lead_id:       pl.ig_lead_id,
         prospect_link_id: pl.id,
       }, { onConflict: 'prospect_link_id,event_type' });
