@@ -432,7 +432,7 @@ export default function PagePipeline() {
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
     queryKey: ['pipeline'],
     queryFn: () => fetch('/api/client/pipeline').then(r => r.ok ? r.json() : null),
-    staleTime: 2 * 60 * 1000,
+    staleTime: 0,
   });
 
   async function handleRefresh() {
