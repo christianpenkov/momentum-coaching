@@ -9,13 +9,13 @@ const supa = createClient(
 
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const callId = params.id;
+  const { id: callId } = await params;
   if (!callId) return NextResponse.json({ error: 'ID requis' }, { status: 400 });
 
   let body: any;
