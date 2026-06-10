@@ -726,7 +726,7 @@ export default function PagePipeline() {
         if (call.status === 'canceled') {
           // Call annulé → meilleure étape connue (events chargés = pas de flash)
           natural = getBestKnownStage(prospect, lead, events);
-        } else if (call.no_show) {
+        } else if (call.no_show === true) {
           // No-show → meilleure étape connue + badge rouge
           natural = getBestKnownStage(prospect, lead, events);
           badge = 'no_show';
@@ -785,7 +785,7 @@ export default function PagePipeline() {
       const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
 
       let badge: CardData['badge'] = null;
-      if (call.no_show) badge = 'no_show';
+      if (call.no_show === true) badge = 'no_show';
       else if (call.rescheduled && new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
 
       ytCards.push({
