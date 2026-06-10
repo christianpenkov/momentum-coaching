@@ -52,6 +52,7 @@ export default function PageClientView() {
   const { notifs, refresh } = useNotifications(user?.id ?? null, true);
   const rapportNotifs = notifs.filter(n => n.type === 'rapport_call');
   const [openRapport, setOpenRapport] = useState<typeof rapportNotifs[0] | null>(null);
+  const [rapportIdx, setRapportIdx] = useState(0);
 
   const toggleTask = useCallback(async (taskId: string, done: boolean) => {
     setTaskOverrides(prev => ({ ...prev, [taskId]: done }));
@@ -79,8 +80,6 @@ export default function PageClientView() {
       </div>
     );
   }
-
-  const [rapportIdx, setRapportIdx] = useState(0);
 
   const tasks = client.tasks.map(t => ({ ...t, done: taskOverrides[t.id] ?? t.done }));
   const last = client.latestMetrics;
