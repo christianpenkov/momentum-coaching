@@ -531,17 +531,20 @@ export default function PagePipeline() {
         if (call.deal_closed) natural = 'closed';
       }
 
-      const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      // Signal le plus récent parmi les événements automatiques (hors actions manuelles)
-      const autoSignals = [
-        call?.created_at,              // moment où le call a été réservé (pas la date du RDV)
-        prospect?.first_click_at,      // clic sur lien Short.io
-        prospect?.calendly_link_sent_at, // nouveau lien envoyé
-      ].filter(Boolean) as string[];
-      const signalOccurredAt = autoSignals.length
-        ? autoSignals.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
-        : null;
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
+      // Un call booké est un fait objectif — jamais écrasé par un override manuel
+      const stageKey = call
+        ? natural
+        : (() => {
+            const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
+            const autoSignals = [
+              prospect?.first_click_at,
+              prospect?.calendly_link_sent_at,
+            ].filter(Boolean) as string[];
+            const signalOccurredAt = autoSignals.length
+              ? autoSignals.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
+              : null;
+            return resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
+          })();
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
