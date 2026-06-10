@@ -123,15 +123,32 @@ export async function POST() {
     const questionsAndAnswers = invitee0?.questions_and_answers || null;
     const tracking = invitee0?.tracking || null;
 
-    // Détection reschedule : si old_invitee est présent, l'ancien call doit être cancelled
+    // Détection reschedule : si old_invitee est présent, cancel l'ancien call
+    // et récupère ses données (ig_lead_id, UTMs) pour les hériter sur le nouveau
     const oldInviteeUrl: string | null = invitee0?.old_invitee || null;
+    let inheritedIgLeadId: string | null = null;
+    let inheritedProspectLinkId: string | null = null;
+    let inheritedUtmCampaign: string | null = null;
+    let inheritedUtmContent: string | null = null;
+    let inheritedSource: string | null = null;
     if (oldInviteeUrl) {
-      const parts = oldInviteeUrl.split('/');
-      const oldEventUuid = parts.at(-3) || null;
+      const oldEventUuid = oldInviteeUrl.split('/').at(-3) || null;
       if (oldEventUuid) {
-        await serviceSupabase.from('calls')
-          .update({ status: 'cancelled' })
-          .eq('calendly_event_uuid', oldEventUuid);
+        const { data: oldCall } = await serviceSupabase
+          .from('calls')
+          .select('id, ig_lead_id, prospect_link_id, utm_campaign, utm_content, source')
+          .eq('calendly_event_uuid', oldEventUuid)
+          .maybeSingle();
+        if (oldCall) {
+          inheritedIgLeadId = oldCall.ig_lead_id ?? null;
+          inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
+          inheritedUtmCampaign = oldCall.utm_campaign ?? null;
+          inheritedUtmContent = oldCall.utm_content ?? null;
+          inheritedSource = oldCall.source ?? null;
+          await serviceSupabase.from('calls')
+            .update({ status: 'cancelled' })
+            .eq('id', oldCall.id);
+        }
       }
     }
     const utmSource = tracking?.utm_source || null;
@@ -167,6 +184,10 @@ export async function POST() {
       }
     }
 
+    // Héritage depuis l'ancien call (reschedule) — fallback si pas trouvé via UTMs
+    igLeadId = igLeadId ?? inheritedIgLeadId;
+    prospectLinkId = prospectLinkId ?? inheritedProspectLinkId;
+
     let clientId: string | null = null;
     if (inviteeEmail) {
       const { data: authUsers } = await serviceSupabase.auth.admin.listUsers();
@@ -194,12 +215,12 @@ export async function POST() {
       ready: 'pending',
       reminder_sent: false,
     };
-    // UTMs et liens prospect — seulement si présents (ne pas écraser un ig_lead_id déjà lié)
-    if (source)          baseUpsert.source = source;
-    if (utmCampaign)     baseUpsert.utm_campaign = utmCampaign;
-    if (utmMedium)       baseUpsert.utm_medium = utmMedium;
-    if (utmContent)      baseUpsert.utm_content = utmContent;
-    if (shortLinkPath)   baseUpsert.short_link_path = shortLinkPath;
+    // UTMs et liens prospect — UTMs actuels prioritaires, héritage reschedule en fallback
+    if (source || inheritedSource)             baseUpsert.source = source ?? inheritedSource;
+    if (utmCampaign || inheritedUtmCampaign)   baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;
+    if (utmMedium)                             baseUpsert.utm_medium = utmMedium;
+    if (utmContent || inheritedUtmContent)     baseUpsert.utm_content = utmContent ?? inheritedUtmContent;
+    if (shortLinkPath || inheritedUtmContent)  baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
     if (igLeadId)        baseUpsert.ig_lead_id = igLeadId;
     if (prospectLinkId)  baseUpsert.prospect_link_id = prospectLinkId;
 

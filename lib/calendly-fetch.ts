@@ -140,21 +140,33 @@ export async function syncCalendlyEleve(
       const utmMedium = tracking?.utm_medium || null;
       const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
-      // Détection reschedule : si old_invitee est présent, l'ancien call doit être cancelled
+      // Détection reschedule : cancel l'ancien call et hérite ses données
       const oldInviteeUrl: string | null = invitee?.old_invitee || null;
+      let inheritedIgLeadId: string | null = null;
+      let inheritedProspectLinkId: string | null = null;
+      let inheritedSource: string | null = null;
       if (oldInviteeUrl) {
-        const parts = oldInviteeUrl.split('/');
-        const oldEventUuid = parts.at(-3) || null;
+        const oldEventUuid = oldInviteeUrl.split('/').at(-3) || null;
         if (oldEventUuid) {
-          await serviceSupabase.from('calls')
-            .update({ status: 'cancelled' })
-            .eq('calendly_event_uuid', oldEventUuid);
+          const { data: oldCall } = await serviceSupabase
+            .from('calls')
+            .select('id, ig_lead_id, prospect_link_id, source')
+            .eq('calendly_event_uuid', oldEventUuid)
+            .maybeSingle();
+          if (oldCall) {
+            inheritedIgLeadId = oldCall.ig_lead_id ?? null;
+            inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
+            inheritedSource = oldCall.source ?? null;
+            await serviceSupabase.from('calls')
+              .update({ status: 'cancelled' })
+              .eq('id', oldCall.id);
+          }
         }
       }
 
       // coach_id = profileId de l'élève (hôte du call)
       // client_id = null (le lead est externe)
-      await serviceSupabase.from('calls').upsert({
+      const upsertData: Record<string, any> = {
         coach_id: profileId,
         client_id: null,
         call_type: 'calendly',
@@ -167,11 +179,16 @@ export async function syncCalendlyEleve(
         invitee_email: inviteeEmail,
         invitee_name: inviteeName,
         calendly_qa: questionsAndAnswers,
-        source,
+        source: source ?? inheritedSource,
         status: isCanceled ? 'canceled' : 'active',
         ready: 'pending',
         reminder_sent: false,
-      }, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false });
+      };
+      // Héritage reschedule — fallback si pas de données UTM sur le nouvel event
+      if (inheritedIgLeadId)      upsertData.ig_lead_id = inheritedIgLeadId;
+      if (inheritedProspectLinkId) upsertData.prospect_link_id = inheritedProspectLinkId;
+
+      await serviceSupabase.from('calls').upsert(upsertData, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false });
 
       synced++;
     } catch (e: any) {
