@@ -41,9 +41,11 @@ interface Call {
   no_show: boolean | null;
   no_show_at: string | null;
   deal_closed: boolean | null;
+  outcome: string | null;
   revenue: number | null;
   source: string | null;
   ig_lead_id: string | null;
+  prospect_id: string | null;
   utm_content: string | null;
   utm_medium: string | null;
   short_link_path: string | null;
@@ -51,6 +53,15 @@ interface Call {
   rescheduled: boolean | null;
   rescheduled_at: string | null;
   cancellation_reason: string | null;
+}
+
+interface NonIgProspect {
+  id: string;
+  platform: 'yt' | 'other';
+  email: string | null;
+  name: string | null;
+  source: string | null;
+  created_at: string;
 }
 
 interface Override {
@@ -75,6 +86,7 @@ interface ProspectEvent {
 interface PipelineData {
   leads: IgLead[];
   prospects: ProspectLink[];
+  nonIgProspects: NonIgProspect[];
   calls: Call[];
   overrides: Override[];
   events: ProspectEvent[];
@@ -767,46 +779,70 @@ export default function PagePipeline() {
     }
   }
 
-  // ── Build YT cards ──────────────────────────────────────────────────────────
+  // ── Build YT / Autres cards ──────────────────────────────────────────────────
+  // On groupe les calls par prospect_id (fiche persistante) ou par call.id (fallback ancien call)
+  // pour que les rebooks d'un même lead ne créent pas deux cartes distinctes.
 
   const ytCards: CardData[] = [];
   const otherCards: CardData[] = [];
   if (data) {
-    const ytCalls = data.calls.filter(c => {
+    // Map prospect_id → calls (trié par scheduled_at desc pour prendre le plus récent)
+    const nonIgCalls = data.calls.filter(c => {
       const src = c.source?.toLowerCase() ?? '';
       return !src.startsWith('ig') && !c.ig_lead_id;
     });
-    for (const call of ytCalls) {
-      let natural: YtStageKey = 'call_booked';
-      if (call.deal_closed) natural = 'closed';
-      // C1 fix : showed_up uniquement via formulaire, plus d'auto
 
-      const override = effectiveOverrides.find(o => o.prospect_key === call.id && o.platform === 'yt');
+    // Grouper par prospect_id quand disponible, sinon par call.id
+    const prospectGroups = new Map<string, typeof nonIgCalls>();
+    for (const call of nonIgCalls) {
+      const groupKey = call.prospect_id ?? call.id;
+      if (!prospectGroups.has(groupKey)) prospectGroups.set(groupKey, []);
+      prospectGroups.get(groupKey)!.push(call);
+    }
+
+    for (const [prospectKey, calls] of prospectGroups) {
+      // Call le plus récent pour les infos affichées
+      const latestCall = calls.sort((a, b) =>
+        new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()
+      )[0];
+
+      // Étape naturelle : la plus avancée parmi tous les calls du prospect
+      let natural: YtStageKey = 'call_booked';
+      if (calls.some(c => c.deal_closed)) natural = 'closed';
+      else if (calls.some(c => c.outcome === 'showed_up' || c.outcome === 'second_call')) natural = 'showed_up';
+
+      const effectiveSrc = latestCall.source?.toLowerCase() ?? '';
+      const platform: 'yt' | 'other' = effectiveSrc.startsWith('yt') ? 'yt' : 'other';
+
+      const override = effectiveOverrides.find(o => o.prospect_key === prospectKey && o.platform === platform);
       const stageKey = resolveStage(natural, override?.stage, YT_STAGES);
       const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
 
+      // Badge : priorité au call le plus récent
       let badge: CardData['badge'] = null;
-      if (call.no_show === true) badge = 'no_show';
-      else if (call.rescheduled && new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
+      if (latestCall.no_show === true) badge = 'no_show';
+      else if (latestCall.rescheduled && new Date(latestCall.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
+
+      const noSource = !latestCall.source && !latestCall.utm_medium && !latestCall.utm_content;
 
       const card: CardData = {
-        key: call.id,
-        name: call.invitee_name || 'Prospect',
-        sub: call.utm_medium
-          ? `${call.utm_medium}${call.utm_content ? ` · ${call.utm_content.slice(0, 12)}` : ''}`
-          : (call.source ?? ''),
-        date: timeAgo(call.scheduled_at),
+        key: prospectKey,
+        name: latestCall.invitee_name || 'Prospect',
+        sub: latestCall.utm_medium
+          ? `${latestCall.utm_medium}${latestCall.utm_content ? ` · ${latestCall.utm_content.slice(0, 12)}` : ''}`
+          : (latestCall.source ?? ''),
+        date: timeAgo(latestCall.scheduled_at),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
-        extra: call.revenue ? `${call.revenue.toLocaleString('fr-FR')} €` : undefined,
-        noSource: !call.source && !call.utm_medium && !call.utm_content,
+        extra: latestCall.revenue ? `${latestCall.revenue.toLocaleString('fr-FR')} €` : undefined,
+        noSource,
         badge,
-        callId: call.id,
-        callScheduledAt: call.scheduled_at,
-        callStatus: call.status,
+        callId: latestCall.id,
+        callScheduledAt: latestCall.scheduled_at,
+        callStatus: latestCall.status,
       };
-      // Sans source détectée → onglet "Autres"
-      if (card.noSource) {
+
+      if (noSource) {
         otherCards.push({ ...card, noSource: false });
       } else {
         ytCards.push(card);

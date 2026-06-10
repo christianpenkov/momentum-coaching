@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { upsertProspect } from '@/lib/prospects';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -194,6 +195,20 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Upsert prospect non-IG (YT / Autres) — crée ou retrouve la fiche prospect
+    const effectiveSource = source ?? inheritedSource ?? null;
+    const effectivePlatform: 'yt' | 'other' = effectiveSource?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
+    let prospectId: string | null = null;
+    if (!igLeadId) {
+      prospectId = await upsertProspect({
+        profileId: leadsProfileId,
+        platform: effectivePlatform,
+        email: inviteeEmail,
+        name: inviteeName,
+        source: effectiveSource,
+      });
+    }
+
     const baseUpsert: Record<string, any> = {
       coach_id: leadsProfileId,
       client_id: clientId,
@@ -209,14 +224,14 @@ export async function POST(request: NextRequest) {
       ready: 'pending',
       reminder_sent: false,
     };
-    // UTMs et liens — courants prioritaires, héritage reschedule en fallback
-    if (source || inheritedSource)           baseUpsert.source = source ?? inheritedSource;
+    if (effectiveSource)                     baseUpsert.source = effectiveSource;
     if (utmCampaign || inheritedUtmCampaign) baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;
     if (utmMedium)                           baseUpsert.utm_medium = utmMedium;
     if (utmContent || inheritedUtmContent)   baseUpsert.utm_content = utmContent ?? inheritedUtmContent;
     if (shortLinkPath || inheritedUtmContent) baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
     if (igLeadId)      baseUpsert.ig_lead_id = igLeadId;
     if (prospectLinkId) baseUpsert.prospect_link_id = prospectLinkId;
+    if (prospectId)    baseUpsert.prospect_id = prospectId;
 
     const { data: callRow } = await serviceSupabase.from('calls').upsert(
       baseUpsert,
@@ -239,10 +254,12 @@ export async function POST(request: NextRequest) {
           .from('instagram_leads').select('ig_username').eq('id', igLeadId).single();
         igUsername = leadRow?.ig_username ?? null;
       }
+      const prospectKey = igUsername?.toLowerCase() ?? prospectId ?? eventUuid;
+      const platform = igUsername ? 'ig' : effectivePlatform;
       serviceSupabase.from('prospect_events').upsert({
         profile_id:       leadsProfileId,
-        prospect_key:     igUsername?.toLowerCase() ?? eventUuid,
-        platform:         igUsername ? 'ig' : (source?.toLowerCase().startsWith('yt') ? 'yt' : 'other'),
+        prospect_key:     prospectKey,
+        platform,
         event_type:       'call_booked',
         occurred_at:      scheduledAt ?? new Date().toISOString(),
         ig_lead_id:       igLeadId,

@@ -59,7 +59,7 @@ export async function PATCH(
   // Récupère le call avec ig_lead_id + source pour le lien pipeline
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('id, coach_id, client_id, calendly_event_uuid, ig_lead_id, source')
+    .select('id, coach_id, client_id, calendly_event_uuid, ig_lead_id, source, prospect_id')
     .eq('id', id)
     .single();
 
@@ -124,16 +124,18 @@ export async function PATCH(
     }
   }
 
-  // ── Leads non-IG (YT, bio, autres) — pipeline override sans ig_lead_id ──
+  // ── Leads non-IG (YT, bio, autres) — pipeline override via prospect_id ──
   if (outcome && !igLeadId) {
-    const platform = call.source?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
+    const platform: 'yt' | 'other' = call.source?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
     const targetStage = outcome === 'no_show'
-      ? 'calendly_sent' // meilleure étape connue par défaut sans prospect_events IG
+      ? 'calendly_sent'
       : (outcomeToStage(outcome) ?? 'showed_up');
+    // prospect_id = fiche prospect persistante → même key si le lead rebook un 2ème call
+    const prospectKey: string = call.prospect_id ?? call.id;
 
     serviceSupabase.from('pipeline_overrides').upsert({
       profile_id:   call.coach_id,
-      prospect_key: call.id,
+      prospect_key: prospectKey,
       platform,
       stage:        targetStage,
       reason:       `rapport:${outcome}`,
