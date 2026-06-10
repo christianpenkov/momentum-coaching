@@ -54,6 +54,8 @@ export default function PageClientCalendar() {
       let calendlyQuery = supabase.from('calls').select('*')
         .eq('coach_id', client.profile_id)
         .not('calendly_event_uuid', 'is', null)
+        .neq('status', 'cancelled')
+        .neq('status', 'canceled')
         .order('scheduled_at', { ascending: true });
       if (connectedAt) calendlyQuery = calendlyQuery.gte('scheduled_at', connectedAt);
       const { data: calendlyCalls } = await calendlyQuery;
