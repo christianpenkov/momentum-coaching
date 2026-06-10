@@ -164,7 +164,8 @@ export async function POST() {
       }
     }
 
-    const { data: callRow } = await serviceSupabase.from('calls').upsert({
+    // Champs de base — toujours écrits
+    const baseUpsert: Record<string, any> = {
       coach_id: leadsProfileId,
       client_id: clientId,
       calendly_event_uuid: eventUuid,
@@ -176,17 +177,23 @@ export async function POST() {
       invitee_email: inviteeEmail,
       invitee_name: inviteeName,
       calendly_qa: questionsAndAnswers,
-      source,
-      utm_campaign: utmCampaign,
-      utm_medium: utmMedium,
-      utm_content: utmContent,
-      short_link_path: shortLinkPath,
-      ig_lead_id: igLeadId,
-      prospect_link_id: prospectLinkId,
       status: 'active',
       ready: 'pending',
       reminder_sent: false,
-    }, { onConflict: 'calendly_event_uuid' }).select('id').maybeSingle();
+    };
+    // UTMs et liens prospect — seulement si présents (ne pas écraser un ig_lead_id déjà lié)
+    if (source)          baseUpsert.source = source;
+    if (utmCampaign)     baseUpsert.utm_campaign = utmCampaign;
+    if (utmMedium)       baseUpsert.utm_medium = utmMedium;
+    if (utmContent)      baseUpsert.utm_content = utmContent;
+    if (shortLinkPath)   baseUpsert.short_link_path = shortLinkPath;
+    if (igLeadId)        baseUpsert.ig_lead_id = igLeadId;
+    if (prospectLinkId)  baseUpsert.prospect_link_id = prospectLinkId;
+
+    const { data: callRow } = await serviceSupabase.from('calls').upsert(
+      baseUpsert,
+      { onConflict: 'calendly_event_uuid' }
+    ).select('id').maybeSingle();
 
     // Événement call_booked dans prospect_events (fire-and-forget)
     if (callRow?.id) {
