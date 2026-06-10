@@ -73,19 +73,28 @@ export default function PageClientCalls() {
 
     const { data: integ } = await supabase
       .from('integrations')
-      .select('id')
+      .select('id, connected_at')
       .eq('profile_id', user.id)
       .eq('provider', 'calendly')
       .single();
     setHasCalendly(!!integ);
 
+    // Date de connexion Calendly — les calls antérieurs sont ignorés partout
+    const calendlyConnectedAt: string | null = integ?.connected_at ?? null;
+
     // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
-    const { data: calendlyCalls } = await supabase
+    let calendlyQuery = supabase
       .from('calls')
       .select('*')
       .eq('coach_id', user.id)
       .not('calendly_event_uuid', 'is', null)
       .order('scheduled_at', { ascending: false });
+
+    if (calendlyConnectedAt) {
+      calendlyQuery = calendlyQuery.gte('scheduled_at', calendlyConnectedAt);
+    }
+
+    const { data: calendlyCalls } = await calendlyQuery;
 
     // Calls Google Calendar (coach ↔ élève) : client_id = clientRow.id
     const { data: clientRow } = await supabase

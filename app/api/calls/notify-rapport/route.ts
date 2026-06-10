@@ -17,6 +17,21 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
+  // Récupère la date de connexion Calendly de chaque profil pour ne pas notifier sur les vieux calls
+  const { data: integrations } = await serviceSupabase
+    .from('integrations')
+    .select('profile_id, connected_at')
+    .eq('provider', 'calendly')
+    .not('connected_at', 'is', null);
+
+  // Map profileId → connected_at
+  const connectedAtByProfile = new Map<string, string>();
+  for (const row of integrations ?? []) {
+    if (row.profile_id && row.connected_at) {
+      connectedAtByProfile.set(row.profile_id, row.connected_at);
+    }
+  }
+
   // Récupère tous les calls actifs Calendly dont la fin théorique + 15 min est passée
   // et pour lesquels la notif n'a pas encore été envoyée.
   // duration est stocké comme "30 min", "60 min", etc.
@@ -46,6 +61,10 @@ export async function GET(request: Request) {
 
   for (const call of calls) {
     try {
+      // Ignore les calls antérieurs à la connexion Calendly du profil
+      const connectedAt = connectedAtByProfile.get(call.coach_id);
+      if (connectedAt && new Date(call.scheduled_at) < new Date(connectedAt)) continue;
+
       const durationMin = parseDurationMinutes(call.duration);
       if (durationMin === null) continue;
 

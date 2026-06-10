@@ -14,6 +14,24 @@ export async function GET() {
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+  // Récupère la date de connexion Calendly pour filtrer les vieux calls
+  const { data: integRow } = await supa.from('integrations')
+    .select('connected_at')
+    .eq('profile_id', user.id)
+    .eq('provider', 'calendly')
+    .maybeSingle();
+  const calendlyConnectedAt: string | null = integRow?.connected_at ?? null;
+
+  let callsQuery = supa.from('calls')
+    .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, no_show_at, deal_closed, revenue, source, ig_lead_id, utm_content, utm_medium, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason')
+    .or(`coach_id.eq.${user.id},client_id.in.(select id from clients where profile_id = '${user.id}')`)
+    .not('calendly_event_uuid', 'is', null)
+    .order('scheduled_at', { ascending: false });
+
+  if (calendlyConnectedAt) {
+    callsQuery = callsQuery.gte('scheduled_at', calendlyConnectedAt);
+  }
+
   const [leadsRes, prospectsRes, callsRes, overridesRes, clicksRes, eventsRes] = await Promise.all([
     supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source')
@@ -24,11 +42,7 @@ export async function GET() {
       .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, first_click_at')
       .eq('profile_id', user.id)
       .order('created_at', { ascending: false }),
-    supa.from('calls')
-      .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, no_show_at, deal_closed, revenue, source, ig_lead_id, utm_content, utm_medium, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason')
-      .or(`coach_id.eq.${user.id},client_id.in.(select id from clients where profile_id = '${user.id}')`)
-      .not('calendly_event_uuid', 'is', null)
-      .order('scheduled_at', { ascending: false }),
+    callsQuery,
     supa.from('pipeline_overrides')
       .select('prospect_key, platform, stage, updated_at, reason')
       .eq('profile_id', user.id),
