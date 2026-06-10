@@ -182,7 +182,7 @@ export async function upsertShortioLinkSnapshot(
       .maybeSingle();
 
     if (pl) {
-      const snapshotClickAt = `${row.date}T12:00:00.000Z`;
+      const snapshotClickAt = new Date().toISOString();
       await serviceSupabase
         .from('prospect_links')
         .update({ first_click_at: snapshotClickAt })
