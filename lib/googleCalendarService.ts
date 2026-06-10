@@ -83,14 +83,14 @@ async function getClientGoogleEmail(clientId: string): Promise<string | null> {
 }
 
 // Envoie une notif push à un profile_id donné
-async function sendPushToProfile(profileId: string, title: string, body: string, url: string) {
+async function sendPushToProfile(profileId: string, title: string, body: string, url: string): Promise<boolean> {
   const sb = serviceSupabase();
   const { data: subs } = await sb
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
     .eq('profile_id', profileId);
 
-  if (!subs || subs.length === 0) return;
+  if (!subs || subs.length === 0) return false;
 
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT!.trim(),
@@ -108,15 +108,22 @@ async function sendPushToProfile(profileId: string, title: string, body: string,
     )
   );
 
-  // Nettoyer les subscriptions expirées
+  // Nettoyer les subscriptions expirées (410 = gone, 404 = not found)
   const expired = results
     .map((r, i) => ({ r, sub: subs[i] }))
-    .filter(({ r }) => r.status === 'rejected' && (r as PromiseRejectedResult).reason?.statusCode === 410);
+    .filter(({ r }) => {
+      if (r.status !== 'rejected') return false;
+      const code = (r as PromiseRejectedResult).reason?.statusCode;
+      return code === 410 || code === 404;
+    });
   if (expired.length > 0) {
     await sb.from('push_subscriptions')
       .delete()
       .in('endpoint', expired.map(({ sub }) => sub.endpoint));
   }
+
+  // Retourne true seulement si au moins une livraison a été acceptée (201)
+  return results.some(r => r.status === 'fulfilled');
 }
 
 export async function createGoogleCall(params: {

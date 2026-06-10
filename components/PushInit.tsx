@@ -87,18 +87,18 @@ export default function PushInit({ userId }: { userId: string }) {
 
 async function silentRegister(userId: string) {
   try {
-    // S'assurer que le SW est enregistré et actif
     await navigator.serviceWorker.register('/sw.js');
     const reg = await navigator.serviceWorker.ready;
 
-    // Toujours unsub + resub pour garantir la clé VAPID correcte
-    const existing = await reg.pushManager.getSubscription();
-    if (existing) await existing.unsubscribe();
-
-    const sub = await reg.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
-    });
+    // Réutiliser la subscription existante si elle est valide — iOS génère un nouvel
+    // endpoint à chaque unsubscribe/resubscribe, ce qui accumule des entrées en DB.
+    let sub = await reg.pushManager.getSubscription();
+    if (!sub) {
+      sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!),
+      });
+    }
 
     const subJson = sub.toJSON();
     console.log('[PushInit] Subscription endpoint:', sub.endpoint.slice(0, 50) + '...');

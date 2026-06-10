@@ -12,6 +12,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'invalid' }, { status: 400 });
   }
 
+  // Nettoyer les vieilles subscriptions du même profil (> 7 jours sans activité)
+  const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+  await supabase.from('push_subscriptions')
+    .delete()
+    .eq('profile_id', userId)
+    .neq('endpoint', subscription.endpoint)
+    .lt('created_at', cutoff);
+
   const { error } = await supabase.from('push_subscriptions').upsert({
     profile_id: userId,
     endpoint: subscription.endpoint,

@@ -75,23 +75,28 @@ export async function GET(request: Request) {
       if (now < triggerTime) continue; // Pas encore l'heure
 
       // Envoie la push à l'élève (coach_id = profileId de l'élève pour les calls Calendly)
-      await sendPushToProfile(
+      const delivered = await sendPushToProfile(
         call.coach_id,
         'Rapport de call',
         `Comment s'est passé ton appel${call.invitee_name ? ` avec ${call.invitee_name}` : ''} ? Remplis ton rapport.`,
         `/client/calls?rapport=${call.id}`
       );
 
-      // Marque comme envoyé (idempotence)
-      const { error: updateError } = await serviceSupabase
-        .from('calls')
-        .update({ rapport_notif_sent: true })
-        .eq('id', call.id);
+      // Ne marque comme envoyé que si au moins une livraison a été acceptée (201)
+      // Si aucune sub active, on ne marque pas — le cron retentera au prochain cycle
+      if (delivered) {
+        const { error: updateError } = await serviceSupabase
+          .from('calls')
+          .update({ rapport_notif_sent: true })
+          .eq('id', call.id);
 
-      if (updateError) {
-        errors.push(`update_${call.id}: ${updateError.message}`);
+        if (updateError) {
+          errors.push(`update_${call.id}: ${updateError.message}`);
+        } else {
+          notified++;
+        }
       } else {
-        notified++;
+        errors.push(`no_delivery_${call.id}: aucune subscription active`);
       }
     } catch (e: any) {
       errors.push(`call_${call.id}: ${e?.message || 'unknown'}`);
