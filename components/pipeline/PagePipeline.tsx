@@ -450,29 +450,30 @@ export default function PagePipeline() {
 
   useEffect(() => {
     if (data?.overrides) {
-      // Merge : garde le local si son updated_at est plus récent (drop optimiste pas encore persisté)
-      setOverrides(prev => {
-        const merged = [...data.overrides] as Override[];
-        for (const local of prev) {
-          const idx = merged.findIndex(o => o.prospect_key === local.prospect_key && o.platform === local.platform);
-          if (idx >= 0) {
-            if (new Date(local.updated_at) > new Date(merged[idx].updated_at)) {
-              merged[idx] = local;
-            }
-          } else {
-            merged.push(local);
-          }
-        }
-        return merged;
-      });
       setDismissedKeys(new Set(data.overrides.filter((o: Override) => o.stage === 'dismissed').map((o: Override) => o.prospect_key)));
       setConfirmedKeys(new Set(data.overrides.filter((o: Override) => o.stage === 'confirmed_lead').map((o: Override) => o.prospect_key)));
     }
   }, [data?.overrides]);
 
+  // Overrides effectifs = DB + drops optimistes locaux (local gagne si plus récent)
+  const effectiveOverrides: Override[] = (() => {
+    const base: Override[] = data?.overrides ?? [];
+    if (overrides.length === 0) return base;
+    const merged = [...base];
+    for (const local of overrides) {
+      const idx = merged.findIndex(o => o.prospect_key === local.prospect_key && o.platform === local.platform);
+      if (idx >= 0) {
+        if (new Date(local.updated_at) > new Date(merged[idx].updated_at)) merged[idx] = local;
+      } else {
+        merged.push(local);
+      }
+    }
+    return merged;
+  })();
+
   const getOverride = useCallback((key: string, platform: 'ig' | 'yt') =>
-    overrides.find(o => o.prospect_key === key && o.platform === platform)?.stage ?? null,
-  [overrides]);
+    effectiveOverrides.find(o => o.prospect_key === key && o.platform === platform)?.stage ?? null,
+  [effectiveOverrides]);
 
   const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt', stage: string) => {
     setOverrides(prev => {
@@ -530,7 +531,7 @@ export default function PagePipeline() {
         if (call.deal_closed) natural = 'closed';
       }
 
-      const override = overrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
+      const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
       // Signal le plus récent parmi les événements automatiques (hors actions manuelles)
       const autoSignals = [
         call?.scheduled_at,           // call booké
