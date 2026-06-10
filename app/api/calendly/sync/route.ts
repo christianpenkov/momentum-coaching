@@ -91,6 +91,11 @@ export async function POST() {
   const userUri = meData?.resource?.uri;
   if (!userUri) return NextResponse.json({ error: 'Profil Calendly introuvable' }, { status: 400 });
 
+  // Stocke user_uri dans metadata pour que le webhook Calendly puisse résoudre le profil organisateur
+  await serviceSupabase.from('integrations').update({
+    metadata: { ...meData?.resource, user_uri: userUri },
+  }).eq('profile_id', leadsProfileId).eq('provider', 'calendly');
+
   const eventsRes = await fetch(
     `https://api.calendly.com/scheduled_events?user=${encodeURIComponent(userUri)}&status=active&count=100`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
