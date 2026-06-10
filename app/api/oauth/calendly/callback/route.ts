@@ -87,11 +87,17 @@ export async function GET(request: NextRequest) {
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
 
+  const base = process.env.NEXT_PUBLIC_PLATFORM_URL || '';
+
+  // Enregistrement webhook Calendly — pour tous les rôles (fire-and-forget)
+  fetch(`${base}/api/calendly/register-webhook`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', cookie: request.headers.get('cookie') || '' },
+  }).catch(e => console.error('[Calendly callback] register-webhook failed:', e));
+
   // Pour les élèves : sync immédiat des events depuis connected_at (fire-and-forget)
-  // Pour les coachs : pas de sync Calendly côté leads pour l'instant
   if (profile?.role === 'client') {
     const connectedAt = new Date().toISOString();
-    const base = process.env.NEXT_PUBLIC_PLATFORM_URL || '';
     fetch(`${base}/api/calendly/refresh`, {
       method: 'POST',
       headers: {
