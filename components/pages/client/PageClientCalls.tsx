@@ -274,7 +274,7 @@ export default function PageClientCalls() {
                   disabled={rapportIdx === 0}
                   style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 ? 0.3 : 1 }}
                 >
-                  <Icon name="chevron-left" size={14} />
+                  ‹
                 </button>
                 <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 36, textAlign: 'center' }}>{rapportIdx + 1} / {pendingRapports.length}</span>
                 <button
@@ -283,7 +283,7 @@ export default function PageClientCalls() {
                   disabled={rapportIdx === pendingRapports.length - 1}
                   style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: rapportIdx === pendingRapports.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === pendingRapports.length - 1 ? 0.3 : 1 }}
                 >
-                  <Icon name="chevron-right" size={14} />
+                  ›
                 </button>
               </div>
             )}
@@ -488,7 +488,7 @@ export default function PageClientCalls() {
                   disabled={historyIdx === 0}
                   style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: historyIdx === 0 ? 'default' : 'pointer', opacity: historyIdx === 0 ? 0.3 : 1 }}
                 >
-                  <Icon name="chevron-left" size={14} />
+                  ‹
                 </button>
                 <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 36, textAlign: 'center' }}>{historyIdx + 1} / {history.length}</span>
                 <button
@@ -497,7 +497,7 @@ export default function PageClientCalls() {
                   disabled={historyIdx === history.length - 1}
                   style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: historyIdx === history.length - 1 ? 'default' : 'pointer', opacity: historyIdx === history.length - 1 ? 0.3 : 1 }}
                 >
-                  <Icon name="chevron-right" size={14} />
+                  ›
                 </button>
               </div>
             )}
