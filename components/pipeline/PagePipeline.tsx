@@ -534,7 +534,7 @@ export default function PagePipeline() {
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
       // Signal le plus récent parmi les événements automatiques (hors actions manuelles)
       const autoSignals = [
-        call?.scheduled_at,           // call booké
+        call?.created_at,              // moment où le call a été réservé (pas la date du RDV)
         prospect?.first_click_at,      // clic sur lien Short.io
         prospect?.calendly_link_sent_at, // nouveau lien envoyé
       ].filter(Boolean) as string[];
