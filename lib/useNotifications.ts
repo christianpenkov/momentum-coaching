@@ -51,15 +51,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     const { data: calls } = await callsQuery;
 
     const rapportNotifs: AppNotif[] = (calls || [])
-      .filter(c => {
-        // outcome = source de vérité : tous les chemins du formulaire l'écrivent
-        if (c.outcome !== null) return false;
-        if (!c.scheduled_at || !c.duration) return false;
-        const match = c.duration.match(/(\d+)/);
-        if (!match) return false;
-        const endTime = new Date(c.scheduled_at).getTime() + parseInt(match[1]) * 60 * 1000;
-        return Date.now() >= endTime;
-      })
+      .filter(c => c.outcome === null)
       .map(c => ({
         id: `rapport_${c.id}`,
         type: 'rapport_call' as NotifType,
