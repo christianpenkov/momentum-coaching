@@ -25,8 +25,17 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     const supabase = createClient();
     const now = new Date().toISOString();
 
+    // ── Date de connexion Calendly — cutoff pour ignorer les vieux calls ──
+    const { data: integ } = await supabase
+      .from('integrations')
+      .select('connected_at')
+      .eq('profile_id', profileId)
+      .eq('provider', 'calendly')
+      .maybeSingle();
+    const calendlyConnectedAt: string | null = integ?.connected_at ?? null;
+
     // ── Rapports de call en attente ──
-    const { data: calls } = await supabase
+    let callsQuery = supabase
       .from('calls')
       .select('id, invitee_name, scheduled_at, duration')
       .eq('coach_id', profileId)
@@ -34,6 +43,12 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .is('no_show', null)
       .not('calendly_event_uuid', 'is', null)
       .lt('scheduled_at', now);
+
+    if (calendlyConnectedAt) {
+      callsQuery = callsQuery.gte('scheduled_at', calendlyConnectedAt);
+    }
+
+    const { data: calls } = await callsQuery;
 
     const rapportNotifs: AppNotif[] = (calls || [])
       .filter(c => {
