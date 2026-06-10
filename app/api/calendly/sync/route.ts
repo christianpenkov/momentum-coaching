@@ -123,15 +123,26 @@ export async function POST() {
     const questionsAndAnswers = invitee0?.questions_and_answers || null;
     const tracking = invitee0?.tracking || null;
 
-    // Détection reschedule : si old_invitee est présent, cancel l'ancien call
-    // et récupère ses données (ig_lead_id, UTMs) pour les hériter sur le nouveau
+    // Détection reschedule — deux cas :
+    // CAS A : event canceled + rescheduled=true → stocker new_invitee sur l'ancien call
+    // CAS B : nouvel event avec old_invitee → hériter les données de l'ancien call
     const oldInviteeUrl: string | null = invitee0?.old_invitee || null;
+    const isRescheduled: boolean = invitee0?.rescheduled === true;
+    const newInviteeUrl: string | null = invitee0?.new_invitee || null;
+    const eventIsCanceled = event.status === 'canceled';
     let inheritedIgLeadId: string | null = null;
     let inheritedProspectLinkId: string | null = null;
     let inheritedUtmCampaign: string | null = null;
     let inheritedUtmContent: string | null = null;
     let inheritedSource: string | null = null;
-    if (oldInviteeUrl) {
+
+    if (eventIsCanceled && isRescheduled && newInviteeUrl) {
+      // CAS A : ancien call — on stocke le lien vers le futur event
+      await serviceSupabase.from('calls')
+        .update({ status: 'cancelled', next_rescheduled_uri: newInviteeUrl })
+        .eq('calendly_event_uuid', eventUuid);
+    } else if (oldInviteeUrl) {
+      // CAS B : nouvel event — on hérite depuis l'ancien call
       const oldEventUuid = oldInviteeUrl.split('/').at(-3) || null;
       if (oldEventUuid) {
         const { data: oldCall } = await serviceSupabase

@@ -141,11 +141,23 @@ export async function syncCalendlyEleve(
       const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
       // Détection reschedule : cancel l'ancien call et hérite ses données
+      // CAS B : nouvel event avec old_invitee → on hérite depuis l'ancien call
+      // CAS A : ancien event canceled avec rescheduled=true → on stocke new_invitee pour lien futur
       const oldInviteeUrl: string | null = invitee?.old_invitee || null;
+      const isRescheduled: boolean = invitee?.rescheduled === true;
+      const newInviteeUrl: string | null = invitee?.new_invitee || null;
       let inheritedIgLeadId: string | null = null;
       let inheritedProspectLinkId: string | null = null;
       let inheritedSource: string | null = null;
-      if (oldInviteeUrl) {
+
+      if (isCanceled && isRescheduled && newInviteeUrl) {
+        // CAS A : cet event est l'ancien — on stocke new_invitee pour que le nouvel event
+        // puisse hériter même si le cron l'attrape avant que old_invitee soit disponible
+        await serviceSupabase.from('calls')
+          .update({ status: 'cancelled', next_rescheduled_uri: newInviteeUrl })
+          .eq('calendly_event_uuid', eventUuid);
+      } else if (oldInviteeUrl) {
+        // CAS B : cet event est le nouveau — on cherche l'ancien par old_invitee
         const oldEventUuid = oldInviteeUrl.split('/').at(-3) || null;
         if (oldEventUuid) {
           const { data: oldCall } = await serviceSupabase
