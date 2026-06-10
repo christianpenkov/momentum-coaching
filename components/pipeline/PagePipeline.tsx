@@ -821,11 +821,13 @@ export default function PagePipeline() {
 
   const filteredOtherCards = otherCards.filter(c => !dismissedKeys.has(c.key));
 
-  const stages = YT_STAGES; // Autres utilise le même kanban que YT
+  const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
   const platform = tab;
 
   // Application des filtres IG
   const filteredIgCards = igCards.filter(c => {
+    // Par défaut, les dismissed sont cachés sauf si filtre Archivés actif
+    if (!filterArchived && dismissedKeys.has(c.key)) return false;
     if (filterNoShow && c.badge !== 'no_show') return false;
     if (filterArchived && c.stageKey !== 'dismissed') return false;
     if (filterCanceled) {
