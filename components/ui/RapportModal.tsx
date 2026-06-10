@@ -206,16 +206,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
                 disabled={saving}
                 onClick={() => save({ no_show: false, deal_closed: false, revenue: 0, outcome: 'to_recontact' })}
               >
-                À recontacter
+                Pas closé — à recontacter
               </button>
               <button
                 className="btn-ghost"
                 type="button"
                 style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--muted)', border: '1px solid var(--border)' }}
                 disabled={saving}
-                onClick={() => save({ no_show: false, deal_closed: false, revenue: 0, outcome: 'not_closed' })}
+                onClick={() => save({ no_show: false, deal_closed: false, revenue: 0, outcome: 'not_qualified' })}
               >
-                Pas closé
+                Pas qualifié
               </button>
             </div>
           </div>

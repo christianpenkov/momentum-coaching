@@ -518,8 +518,10 @@ export default function PageClientCalls() {
                         <span className="pill" style={{ fontSize: 11, background: '#3b82f620', color: '#3b82f6' }}>2ème call prévu</span>
                       ) : call.outcome === 'to_recontact' ? (
                         <span className="pill" style={{ fontSize: 11, background: '#f59e0b20', color: '#f59e0b' }}>À recontacter</span>
-                      ) : call.outcome === 'not_closed' ? (
-                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
+                      ) : call.outcome === 'not_closed' || call.outcome === 'not_qualified' ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>
+                          {call.outcome === 'not_qualified' ? 'Pas qualifié' : 'Pas closé'}
+                        </span>
                       ) : call.deal_closed === false && call.no_show === false ? (
                         <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
                       ) : (
