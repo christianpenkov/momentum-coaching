@@ -55,7 +55,7 @@ interface Call {
 
 interface Override {
   prospect_key: string;
-  platform: 'ig' | 'yt';
+  platform: 'ig' | 'yt' | 'other';
   stage: string;
   updated_at: string;
   reason?: string | null;
@@ -201,7 +201,7 @@ function PipelineCard({
   stages: typeof IG_STAGES | typeof YT_STAGES;
   isDragging: boolean;
   onDragStart: (e: React.DragEvent, cardKey: string) => void;
-  platform: 'ig' | 'yt';
+  platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string) => void;
@@ -416,7 +416,7 @@ function KanbanColumn({
   onDragOver: (e: React.DragEvent) => void;
   onDragLeave: (e: React.DragEvent) => void;
   isDropTarget: boolean;
-  platform: 'ig' | 'yt';
+  platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string) => void;
@@ -597,7 +597,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, callId, onConfirm, onCanc
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export default function PagePipeline() {
-  const [tab, setTab] = useState<'ig' | 'yt'>('ig');
+  const [tab, setTab] = useState<'ig' | 'yt' | 'other'>('ig');
   const [overrides, setOverrides] = useState<Override[]>([]);
   const [draggingKey, setDraggingKey] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
@@ -664,7 +664,7 @@ export default function PagePipeline() {
     return merged;
   })();
 
-  const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt', stage: string, reason?: string) => {
+  const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt' | 'other', stage: string, reason?: string) => {
     setOverrides(prev => {
       const idx = prev.findIndex(o => o.prospect_key === key && o.platform === platform);
       const entry: Override = { prospect_key: key, platform, stage, updated_at: new Date().toISOString(), reason };
@@ -770,6 +770,7 @@ export default function PagePipeline() {
   // ── Build YT cards ──────────────────────────────────────────────────────────
 
   const ytCards: CardData[] = [];
+  const otherCards: CardData[] = [];
   if (data) {
     const ytCalls = data.calls.filter(c => {
       const src = c.source?.toLowerCase() ?? '';
@@ -788,7 +789,7 @@ export default function PagePipeline() {
       if (call.no_show === true) badge = 'no_show';
       else if (call.rescheduled && new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
 
-      ytCards.push({
+      const card: CardData = {
         key: call.id,
         name: call.invitee_name || 'Prospect',
         sub: call.utm_medium
@@ -803,7 +804,13 @@ export default function PagePipeline() {
         callId: call.id,
         callScheduledAt: call.scheduled_at,
         callStatus: call.status,
-      });
+      };
+      // Sans source détectée → onglet "Autres"
+      if (card.noSource) {
+        otherCards.push({ ...card, noSource: false });
+      } else {
+        ytCards.push(card);
+      }
     }
   }
 
@@ -812,7 +819,9 @@ export default function PagePipeline() {
     .filter(c => !dismissedKeys.has(c.key))
     .map(c => confirmedKeys.has(c.key) ? { ...c, noSource: false } : c);
 
-  const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
+  const filteredOtherCards = otherCards.filter(c => !dismissedKeys.has(c.key));
+
+  const stages = YT_STAGES; // Autres utilise le même kanban que YT
   const platform = tab;
 
   // Application des filtres IG
@@ -827,7 +836,7 @@ export default function PagePipeline() {
     return true;
   });
 
-  const cards = tab === 'ig' ? filteredIgCards : filteredYtCards;
+  const cards = tab === 'ig' ? filteredIgCards : tab === 'yt' ? filteredYtCards : filteredOtherCards;
 
   // ── Suppression lead ────────────────────────────────────────────────────────
 
@@ -987,6 +996,7 @@ export default function PagePipeline() {
             {([
               { key: 'ig', label: 'Instagram', count: igCards.length },
               { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
+              { key: 'other', label: 'Autres', count: filteredOtherCards.length },
             ] as const).map(t => (
               <button key={t.key} onClick={() => setTab(t.key)} style={{
                 padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6,
@@ -1092,12 +1102,14 @@ export default function PagePipeline() {
           </div>
           <div style={{ textAlign: 'center' }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 4 }}>
-              {tab === 'ig' ? 'Aucun lead Instagram' : 'Aucun call YouTube'}
+              {tab === 'ig' ? 'Aucun lead Instagram' : tab === 'yt' ? 'Aucun call YouTube' : 'Aucun call sans source'}
             </div>
             <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6, maxWidth: 260 }}>
               {tab === 'ig'
                 ? 'Les prospects apparaissent ici dès qu\'ils reçoivent ton lead magnet en DM.'
-                : 'Les calls bookés depuis tes liens YouTube description apparaissent ici.'}
+                : tab === 'yt'
+                ? 'Les calls bookés depuis tes liens YouTube description apparaissent ici.'
+                : 'Les calls sans source tracée (bio directe, bouche à oreille, etc.) apparaissent ici.'}
             </div>
           </div>
         </div>

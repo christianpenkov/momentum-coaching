@@ -56,10 +56,10 @@ export async function PATCH(
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  // Récupère le call avec ig_lead_id pour le lien pipeline
+  // Récupère le call avec ig_lead_id + source pour le lien pipeline
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('id, coach_id, client_id, calendly_event_uuid, ig_lead_id')
+    .select('id, coach_id, client_id, calendly_event_uuid, ig_lead_id, source')
     .eq('id', id)
     .single();
 
@@ -122,6 +122,25 @@ export async function PATCH(
         if (ovErr) console.error('[rapport] pipeline_override upsert:', ovErr.message);
       });
     }
+  }
+
+  // ── Leads non-IG (YT, bio, autres) — pipeline override sans ig_lead_id ──
+  if (outcome && !igLeadId) {
+    const platform = call.source?.startsWith('yt') ? 'yt' : 'other';
+    const targetStage = outcome === 'no_show'
+      ? 'calendly_sent' // meilleure étape connue par défaut sans prospect_events IG
+      : (outcomeToStage(outcome) ?? 'showed_up');
+
+    serviceSupabase.from('pipeline_overrides').upsert({
+      profile_id:   call.coach_id,
+      prospect_key: call.id,
+      platform,
+      stage:        targetStage,
+      reason:       `rapport:${outcome}`,
+      updated_at:   new Date().toISOString(),
+    }, { onConflict: 'profile_id,prospect_key,platform' }).then(({ error: ovErr }) => {
+      if (ovErr) console.error('[rapport] pipeline_override non-IG upsert:', ovErr.message);
+    });
   }
 
   return NextResponse.json({ ok: true });
