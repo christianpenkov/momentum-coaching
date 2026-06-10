@@ -45,9 +45,30 @@ export default function PageClientCalendar() {
 
   useEffect(() => {
     if (!client) return;
-    supabase.from('calls').select('*').eq('client_id', client.id)
-      .order('scheduled_at', { ascending: true })
-      .then(({ data }) => setCalls(data || []));
+    const load = async () => {
+      // Calls Calendly : coach_id = profileId de l'élève
+      const { data: integ } = await supabase.from('integrations')
+        .select('connected_at').eq('profile_id', client.profile_id).eq('provider', 'calendly').maybeSingle();
+      const connectedAt: string | null = integ?.connected_at ?? null;
+
+      let calendlyQuery = supabase.from('calls').select('*')
+        .eq('coach_id', client.profile_id)
+        .not('calendly_event_uuid', 'is', null)
+        .order('scheduled_at', { ascending: true });
+      if (connectedAt) calendlyQuery = calendlyQuery.gte('scheduled_at', connectedAt);
+      const { data: calendlyCalls } = await calendlyQuery;
+
+      // Calls Google Calendar : client_id = client.id
+      const { data: googleCalls } = await supabase.from('calls').select('*')
+        .eq('client_id', client.id)
+        .is('calendly_event_uuid', null)
+        .order('scheduled_at', { ascending: true });
+
+      const all = [...(calendlyCalls || []), ...(googleCalls || [])];
+      const seen = new Set<string>();
+      setCalls(all.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; }) as Call[]);
+    };
+    load();
   }, [client?.id]);
 
   async function handleAccept(callId: string) {
