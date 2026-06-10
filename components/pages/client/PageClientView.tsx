@@ -80,6 +80,8 @@ export default function PageClientView() {
     );
   }
 
+  const [rapportIdx, setRapportIdx] = useState(0);
+
   const tasks = client.tasks.map(t => ({ ...t, done: taskOverrides[t.id] ?? t.done }));
   const last = client.latestMetrics;
   const prev = client.prevMetrics;
@@ -90,41 +92,64 @@ export default function PageClientView() {
   return (
     <div className="page-content">
 
-      {/* Rapports de call en attente */}
+      {/* Rapports de call en attente — carrousel avec flèches latérales */}
       {rapportNotifs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
             {rapportNotifs.length} rapport{rapportNotifs.length > 1 ? 's' : ''} en attente
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {rapportNotifs.map(notif => (
-              <div key={notif.id} className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>RAPPORT DE CALL</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-                      {notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte'}
-                    </div>
-                    {notif.scheduledAt && (
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                        {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                        {' · '}
-                        {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                        {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {/* Flèche gauche */}
+            <button
+              type="button"
+              onClick={() => setRapportIdx(i => Math.max(0, i - 1))}
+              disabled={rapportIdx === 0 || rapportNotifs.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
+            >‹</button>
+
+            {/* Carte */}
+            {(() => {
+              const notif = rapportNotifs[rapportIdx];
+              if (!notif) return null;
+              return (
+                <div className="card" style={{ flex: 1, borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                        RAPPORT DE CALL{rapportNotifs.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{rapportIdx + 1} / {rapportNotifs.length}</span>}
                       </div>
-                    )}
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
+                        {notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte'}
+                      </div>
+                      {notif.scheduledAt && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                          {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                          {' · '}
+                          {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                          {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="btn-primary"
+                      type="button"
+                      style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
+                      onClick={() => setOpenRapport(notif)}
+                    >
+                      Remplir le rapport
+                    </button>
                   </div>
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
-                    onClick={() => setOpenRapport(notif)}
-                  >
-                    Remplir le rapport
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })()}
+
+            {/* Flèche droite */}
+            <button
+              type="button"
+              onClick={() => setRapportIdx(i => Math.min(rapportNotifs.length - 1, i + 1))}
+              disabled={rapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === rapportNotifs.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
+            >›</button>
           </div>
         </div>
       )}

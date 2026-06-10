@@ -259,63 +259,56 @@ export default function PageClientCalls() {
         </div>
       </div>
 
-      {/* Rapports en attente — carrousel horizontal */}
+      {/* Rapports en attente — carrousel, flèches latérales */}
       {pendingRapports.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
-              {pendingRapports.length} rapport{pendingRapports.length > 1 ? 's' : ''} en attente
-            </div>
-            {pendingRapports.length > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => setRapportIdx(i => Math.max(0, i - 1))}
-                  disabled={rapportIdx === 0}
-                  style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 ? 0.3 : 1 }}
-                >
-                  ‹
-                </button>
-                <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 36, textAlign: 'center' }}>{rapportIdx + 1} / {pendingRapports.length}</span>
-                <button
-                  type="button"
-                  onClick={() => setRapportIdx(i => Math.min(pendingRapports.length - 1, i + 1))}
-                  disabled={rapportIdx === pendingRapports.length - 1}
-                  style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: rapportIdx === pendingRapports.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === pendingRapports.length - 1 ? 0.3 : 1 }}
-                >
-                  ›
-                </button>
-              </div>
-            )}
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            {pendingRapports.length} rapport{pendingRapports.length > 1 ? 's' : ''} en attente
           </div>
-          {(() => {
-            const call = pendingRapports[rapportIdx];
-            if (!call) return null;
-            return (
-              <div className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>RAPPORT DE CALL</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-                      {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setRapportIdx(i => Math.max(0, i - 1))}
+              disabled={rapportIdx === 0 || pendingRapports.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 || pendingRapports.length <= 1 ? 0.2 : 1 }}
+            >‹</button>
+            {(() => {
+              const call = pendingRapports[rapportIdx];
+              if (!call) return null;
+              return (
+                <div className="card" style={{ flex: 1, borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                        RAPPORT DE CALL{pendingRapports.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{rapportIdx + 1} / {pendingRapports.length}</span>}
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
+                        {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                        {call.scheduled_at ? formatDate(call.scheduled_at) : '—'}
+                        {call.duration && <span style={{ marginLeft: 8 }}>· {call.duration}</span>}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {call.scheduled_at ? formatDate(call.scheduled_at) : '—'}
-                      {call.duration && <span style={{ marginLeft: 8 }}>· {call.duration}</span>}
-                    </div>
+                    <button
+                      className="btn-primary"
+                      type="button"
+                      style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
+                      onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
+                    >
+                      Remplir le rapport
+                    </button>
                   </div>
-                  <button
-                    className="btn-primary"
-                    type="button"
-                    style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
-                    onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
-                  >
-                    Remplir le rapport
-                  </button>
                 </div>
-              </div>
-            );
-          })()}
+              );
+            })()}
+            <button
+              type="button"
+              onClick={() => setRapportIdx(i => Math.min(pendingRapports.length - 1, i + 1))}
+              disabled={rapportIdx === pendingRapports.length - 1 || pendingRapports.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === pendingRapports.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === pendingRapports.length - 1 || pendingRapports.length <= 1 ? 0.2 : 1 }}
+            >›</button>
+          </div>
         </div>
       )}
 
@@ -475,83 +468,79 @@ export default function PageClientCalls() {
         </div>
       )}
 
-      {/* Historique — carrousel horizontal */}
+      {/* Historique — carrousel, flèches latérales */}
       {history.length > 0 && (
-        <div className="card">
-          <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div className="card-title">Historique des calls</div>
-            {history.length > 1 && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <button
-                  type="button"
-                  onClick={() => setHistoryIdx(i => Math.max(0, i - 1))}
-                  disabled={historyIdx === 0}
-                  style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: historyIdx === 0 ? 'default' : 'pointer', opacity: historyIdx === 0 ? 0.3 : 1 }}
-                >
-                  ‹
-                </button>
-                <span style={{ fontSize: 11, color: 'var(--muted)', minWidth: 36, textAlign: 'center' }}>{historyIdx + 1} / {history.length}</span>
-                <button
-                  type="button"
-                  onClick={() => setHistoryIdx(i => Math.min(history.length - 1, i + 1))}
-                  disabled={historyIdx === history.length - 1}
-                  style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 6, width: 28, height: 28, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: historyIdx === history.length - 1 ? 'default' : 'pointer', opacity: historyIdx === history.length - 1 ? 0.3 : 1 }}
-                >
-                  ›
-                </button>
-              </div>
-            )}
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            Historique des calls
           </div>
-          {(() => {
-            const call = history[historyIdx];
-            if (!call) return null;
-            const rapportPending = call.calendly_event_uuid && call.no_show === null && call.status === 'active';
-            return (
-              <div style={{ marginTop: 16 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
-                      {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setHistoryIdx(i => Math.max(0, i - 1))}
+              disabled={historyIdx === 0 || history.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: historyIdx === 0 ? 'default' : 'pointer', opacity: historyIdx === 0 || history.length <= 1 ? 0.2 : 1 }}
+            >‹</button>
+            {(() => {
+              const call = history[historyIdx];
+              if (!call) return null;
+              const rapportPending = call.calendly_event_uuid && call.no_show === null && call.status === 'active';
+              return (
+                <div className="card" style={{ flex: 1, padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
+                        CALL{history.length > 1 && <span style={{ fontWeight: 400, marginLeft: 8 }}>{historyIdx + 1} / {history.length}</span>}
+                      </div>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
+                        {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                        {formatDate(call.scheduled_at!)} · {call.duration || '—'}
+                      </div>
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {formatDate(call.scheduled_at!)} · {call.duration || '—'}
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+                      {rapportPending ? (
+                        <button
+                          className="btn-ghost"
+                          type="button"
+                          style={{ fontSize: 11, color: '#f59e0b', border: '1px solid #f59e0b' }}
+                          onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
+                        >
+                          Rapport
+                        </button>
+                      ) : call.no_show === true ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>No-show</span>
+                      ) : call.deal_closed === true ? (
+                        <span className="pill pill-green" style={{ fontSize: 11 }}>Closé{call.revenue ? ` · ${call.revenue}€` : ''}</span>
+                      ) : call.outcome === 'second_call' ? (
+                        <span className="pill" style={{ fontSize: 11, background: '#3b82f620', color: '#3b82f6' }}>2ème call prévu</span>
+                      ) : call.outcome === 'to_recontact' ? (
+                        <span className="pill" style={{ fontSize: 11, background: '#f59e0b20', color: '#f59e0b' }}>À recontacter</span>
+                      ) : call.outcome === 'not_closed' ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
+                      ) : call.deal_closed === false && call.no_show === false ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
+                      ) : (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Terminé</span>
+                      )}
                     </div>
                   </div>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                    {rapportPending ? (
-                      <button
-                        className="btn-ghost"
-                        type="button"
-                        style={{ fontSize: 11, color: '#f59e0b', border: '1px solid #f59e0b' }}
-                        onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
-                      >
-                        Rapport
-                      </button>
-                    ) : call.no_show === true ? (
-                      <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>No-show</span>
-                    ) : call.deal_closed === true ? (
-                      <span className="pill pill-green" style={{ fontSize: 11 }}>Closé{call.revenue ? ` · ${call.revenue}€` : ''}</span>
-                    ) : call.outcome === 'second_call' ? (
-                      <span className="pill" style={{ fontSize: 11, background: '#3b82f620', color: '#3b82f6' }}>2ème call prévu</span>
-                    ) : call.outcome === 'to_recontact' ? (
-                      <span className="pill" style={{ fontSize: 11, background: '#f59e0b20', color: '#f59e0b' }}>À recontacter</span>
-                    ) : call.outcome === 'not_closed' ? (
-                      <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
-                    ) : call.deal_closed === false && call.no_show === false ? (
-                      <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
-                    ) : (
-                      <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Terminé</span>
-                    )}
-                  </div>
+                  {call.notes && (
+                    <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
+                      {call.notes}
+                    </div>
+                  )}
                 </div>
-                {call.notes && (
-                  <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
-                    {call.notes}
-                  </div>
-                )}
-              </div>
-            );
-          })()}
+              );
+            })()}
+            <button
+              type="button"
+              onClick={() => setHistoryIdx(i => Math.min(history.length - 1, i + 1))}
+              disabled={historyIdx === history.length - 1 || history.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: historyIdx === history.length - 1 ? 'default' : 'pointer', opacity: historyIdx === history.length - 1 || history.length <= 1 ? 0.2 : 1 }}
+            >›</button>
+          </div>
         </div>
       )}
 
