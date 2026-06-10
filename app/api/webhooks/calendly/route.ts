@@ -242,7 +242,7 @@ export async function POST(request: NextRequest) {
       serviceSupabase.from('prospect_events').upsert({
         profile_id:       leadsProfileId,
         prospect_key:     igUsername?.toLowerCase() ?? eventUuid,
-        platform:         igUsername ? 'ig' : (source?.startsWith('yt') ? 'yt' : 'other'),
+        platform:         igUsername ? 'ig' : (source?.toLowerCase().startsWith('yt') ? 'yt' : 'other'),
         event_type:       'call_booked',
         occurred_at:      scheduledAt ?? new Date().toISOString(),
         ig_lead_id:       igLeadId,

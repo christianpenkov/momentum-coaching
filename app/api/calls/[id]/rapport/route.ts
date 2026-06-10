@@ -126,7 +126,7 @@ export async function PATCH(
 
   // ── Leads non-IG (YT, bio, autres) — pipeline override sans ig_lead_id ──
   if (outcome && !igLeadId) {
-    const platform = call.source?.startsWith('yt') ? 'yt' : 'other';
+    const platform = call.source?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
     const targetStage = outcome === 'no_show'
       ? 'calendly_sent' // meilleure étape connue par défaut sans prospect_events IG
       : (outcomeToStage(outcome) ?? 'showed_up');
