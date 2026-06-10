@@ -14,7 +14,7 @@ export async function GET() {
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const [leadsRes, prospectsRes, callsRes, overridesRes, clicksRes] = await Promise.all([
+  const [leadsRes, prospectsRes, callsRes, overridesRes, clicksRes, eventsRes] = await Promise.all([
     supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source')
       .eq('profile_id', user.id)
@@ -25,20 +25,25 @@ export async function GET() {
       .eq('profile_id', user.id)
       .order('created_at', { ascending: false }),
     supa.from('calls')
-      .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, deal_closed, revenue, source, ig_lead_id, utm_content, utm_medium, short_link_path, created_at')
+      .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, no_show_at, deal_closed, revenue, source, ig_lead_id, utm_content, utm_medium, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason')
       .or(`coach_id.eq.${user.id},client_id.in.(select id from clients where profile_id = '${user.id}')`)
       .not('calendly_event_uuid', 'is', null)
       .order('scheduled_at', { ascending: false }),
     supa.from('pipeline_overrides')
-      .select('prospect_key, platform, stage, updated_at')
+      .select('prospect_key, platform, stage, updated_at, reason')
       .eq('profile_id', user.id),
     supa.from('shortio_link_daily_snapshots')
       .select('short_url, human_clicks')
       .eq('profile_id', user.id)
       .gte('date', since30d),
+    supa.from('prospect_events')
+      .select('id, prospect_key, platform, event_type, occurred_at, ig_lead_id, prospect_link_id, call_id')
+      .eq('profile_id', user.id)
+      .order('occurred_at', { ascending: false }),
   ]);
 
   if (clicksRes.error) console.warn('[pipeline] shortio_link_daily_snapshots fetch failed:', clicksRes.error.message);
+  if (eventsRes.error) console.warn('[pipeline] prospect_events fetch failed:', eventsRes.error.message);
 
   // Agrège human_clicks par short_url sur 30j
   const clicksByUrl = new Map<string, number>();
@@ -57,6 +62,7 @@ export async function GET() {
     prospects,
     calls: callsRes.data ?? [],
     overrides: overridesRes.data ?? [],
+    events: eventsRes.data ?? [],
   });
 }
 
@@ -68,11 +74,12 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { prospect_key, platform, stage } = body;
+  const { prospect_key, platform, stage, reason } = body;
   if (!prospect_key || !platform || !stage) return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
 
   const { error } = await supa.from('pipeline_overrides').upsert({
     profile_id: user.id, prospect_key, platform, stage, updated_at: new Date().toISOString(),
+    ...(reason ? { reason } : {}),
   }, { onConflict: 'profile_id,prospect_key,platform' });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

@@ -208,12 +208,113 @@ export async function POST(request: NextRequest) {
   }
 
   if (event === 'invitee.canceled') {
-    // Call annulé
     if (eventUuid) {
+      // Récupérer le call pour pouvoir invalider l'override pipeline
+      const { data: callRow } = await serviceSupabase
+        .from('calls')
+        .select('id, ig_lead_id, client_id, short_link_path')
+        .eq('calendly_event_uuid', eventUuid)
+        .maybeSingle();
+
       await serviceSupabase
         .from('calls')
-        .update({ status: 'cancelled' })
+        .update({ status: 'canceled', cancellation_reason: 'canceled' })
         .eq('calendly_event_uuid', eventUuid);
+
+      // Invalider l'override pipeline_overrides pour que le lead recule
+      if (callRow?.ig_lead_id) {
+        const { data: leadRow } = await serviceSupabase
+          .from('instagram_leads').select('ig_username, profile_id').eq('id', callRow.ig_lead_id).single();
+        if (leadRow) {
+          // Trouver la meilleure étape connue via prospect_events
+          const { data: eventsRows } = await serviceSupabase
+            .from('prospect_events')
+            .select('event_type')
+            .eq('profile_id', leadRow.profile_id)
+            .eq('prospect_key', leadRow.ig_username.toLowerCase())
+            .eq('platform', 'ig')
+            .order('occurred_at', { ascending: false });
+
+          let bestStage = 'lm_sent';
+          if (eventsRows?.some((e: any) => e.event_type === 'link_clicked')) bestStage = 'link_clicked';
+          else if (eventsRows?.some((e: any) => e.event_type === 'calendly_link_sent')) bestStage = 'calendly_sent';
+
+          await serviceSupabase.from('pipeline_overrides').upsert({
+            profile_id: leadRow.profile_id,
+            prospect_key: leadRow.ig_username.toLowerCase(),
+            platform: 'ig',
+            stage: bestStage,
+            reason: 'canceled',
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'profile_id,prospect_key,platform' });
+        }
+      }
+    }
+  }
+
+  if (event === 'invitee.rescheduled') {
+    if (eventUuid) {
+      const newStartTime = resource.scheduled_event?.start_time || resource.new_event?.start_time || null;
+      const now = new Date().toISOString();
+      const { data: callRow } = await serviceSupabase
+        .from('calls')
+        .select('id, scheduled_at')
+        .eq('calendly_event_uuid', eventUuid)
+        .maybeSingle();
+
+      if (callRow) {
+        const wasAfterScheduled = callRow.scheduled_at && new Date(callRow.scheduled_at).getTime() < Date.now();
+        await serviceSupabase.from('calls').update({
+          scheduled_at: newStartTime,
+          rescheduled: true,
+          rescheduled_at: wasAfterScheduled ? now : null,
+        }).eq('id', callRow.id);
+      }
+    }
+  }
+
+  if (event === 'invitee.no_show') {
+    if (eventUuid) {
+      const { data: callRow } = await serviceSupabase
+        .from('calls')
+        .select('id, ig_lead_id')
+        .eq('calendly_event_uuid', eventUuid)
+        .maybeSingle();
+
+      if (callRow) {
+        await serviceSupabase.from('calls').update({
+          no_show: true,
+          no_show_at: new Date().toISOString(),
+        }).eq('id', callRow.id);
+
+        // Invalider l'override pipeline pour que le lead recule vers meilleure étape connue
+        if (callRow.ig_lead_id) {
+          const { data: leadRow } = await serviceSupabase
+            .from('instagram_leads').select('ig_username, profile_id').eq('id', callRow.ig_lead_id).single();
+          if (leadRow) {
+            const { data: eventsRows } = await serviceSupabase
+              .from('prospect_events')
+              .select('event_type')
+              .eq('profile_id', leadRow.profile_id)
+              .eq('prospect_key', leadRow.ig_username.toLowerCase())
+              .eq('platform', 'ig')
+              .order('occurred_at', { ascending: false });
+
+            let bestStage = 'lm_sent';
+            if (eventsRows?.some((e: any) => e.event_type === 'link_clicked')) bestStage = 'link_clicked';
+            else if (eventsRows?.some((e: any) => e.event_type === 'calendly_link_sent')) bestStage = 'calendly_sent';
+
+            await serviceSupabase.from('pipeline_overrides').upsert({
+              profile_id: leadRow.profile_id,
+              prospect_key: leadRow.ig_username.toLowerCase(),
+              platform: 'ig',
+              stage: bestStage,
+              reason: 'no_show',
+              updated_at: new Date().toISOString(),
+            }, { onConflict: 'profile_id,prospect_key,platform' });
+          }
+        }
+      }
     }
   }
 

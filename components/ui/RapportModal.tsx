@@ -4,7 +4,7 @@ import { useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 
-type RapportStep = 'show_up' | 'closed' | 'revenue';
+type RapportStep = 'show_up' | 'closed' | 'revenue' | 'rescheduled';
 
 interface Props {
   callId: string;
@@ -28,15 +28,32 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  async function save(patch: { no_show?: boolean; deal_closed?: boolean; revenue?: number; outcome?: string }) {
+  async function save(patch: { no_show?: boolean; deal_closed?: boolean; revenue?: number; outcome?: string; rescheduled?: boolean; rescheduled_at?: string }) {
     setSaving(true);
-    await fetch(`/api/calls/${callId}/rapport`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    });
+    // Champs rapport classiques via route dédiée
+    const rapportFields: Record<string, any> = {};
+    const callFields: Record<string, any> = {};
+    for (const [k, v] of Object.entries(patch)) {
+      if (['rescheduled', 'rescheduled_at'].includes(k)) callFields[k] = v;
+      else rapportFields[k] = v;
+    }
+    const calls: Promise<any>[] = [];
+    if (Object.keys(rapportFields).length > 0) {
+      calls.push(fetch(`/api/calls/${callId}/rapport`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rapportFields),
+      }));
+    }
+    if (Object.keys(callFields).length > 0) {
+      calls.push(fetch(`/api/client/calls/${callId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(callFields),
+      }));
+    }
+    await Promise.all(calls);
     setSaving(false);
-    // Signale à tous les hooks useNotifications de se rafraîchir immédiatement
     window.dispatchEvent(new Event('notifs-refresh'));
     onClose();
   }
@@ -106,7 +123,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
                 Oui, il était là
               </button>
               <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--muted)' }} disabled={saving} onClick={() => handleShowUp(false)}>
-                Non-show
+                No-show
+              </button>
+              <button
+                className="btn-ghost"
+                type="button"
+                style={{ width: '100%', padding: '14px', fontSize: 14, color: '#d97706', border: '1px solid #fcd34d' }}
+                disabled={saving}
+                onClick={() => save({ rescheduled: true, rescheduled_at: new Date().toISOString() })}
+              >
+                Appel reporté — nouvelle date à planifier
               </button>
             </div>
           </div>

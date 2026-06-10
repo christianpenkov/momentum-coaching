@@ -26,6 +26,7 @@ export async function GET(request: Request) {
     .eq('status', 'active')
     .is('no_show', null)
     .eq('rapport_notif_sent', false)
+    .eq('rescheduled', false)  // ne pas notifier les calls reportés
     .not('calendly_event_uuid', 'is', null)
     .not('scheduled_at', 'is', null)
     .not('duration', 'is', null);

@@ -155,9 +155,13 @@ export default function PageClientCalls() {
     .filter(c => c.scheduled_at && new Date(c.scheduled_at) < now && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
-  // Rapports en attente : calls Calendly terminés dont no_show = null
-  const pendingRapports = history.filter(c =>
-    c.calendly_event_uuid !== null && c.no_show === null && c.status === 'active'
+  // Rapports en attente : calls Calendly dont scheduled_at <= now et no_show = null (inclut les calls en cours)
+  const pendingRapports = calls.filter(c =>
+    c.calendly_event_uuid !== null &&
+    c.no_show === null &&
+    c.status === 'active' &&
+    c.scheduled_at !== null &&
+    new Date(c.scheduled_at).getTime() <= now.getTime()
   );
 
   async function handleAccept(callId: string) {

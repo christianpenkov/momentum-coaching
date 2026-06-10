@@ -39,6 +39,7 @@ interface Call {
   scheduled_at: string;
   status: string;
   no_show: boolean | null;
+  no_show_at: string | null;
   deal_closed: boolean | null;
   revenue: number | null;
   source: string | null;
@@ -47,6 +48,9 @@ interface Call {
   utm_medium: string | null;
   short_link_path: string | null;
   created_at: string;
+  rescheduled: boolean | null;
+  rescheduled_at: string | null;
+  cancellation_reason: string | null;
 }
 
 interface Override {
@@ -54,6 +58,18 @@ interface Override {
   platform: 'ig' | 'yt';
   stage: string;
   updated_at: string;
+  reason?: string | null;
+}
+
+interface ProspectEvent {
+  id: string;
+  prospect_key: string;
+  platform: string;
+  event_type: string;
+  occurred_at: string;
+  ig_lead_id: string | null;
+  prospect_link_id: string | null;
+  call_id: string | null;
 }
 
 interface PipelineData {
@@ -61,6 +77,7 @@ interface PipelineData {
   prospects: ProspectLink[];
   calls: Call[];
   overrides: Override[];
+  events: ProspectEvent[];
 }
 
 // ── Colonnes ──────────────────────────────────────────────────────────────────
@@ -83,6 +100,10 @@ const YT_STAGES = [
 
 type IgStageKey = typeof IG_STAGES[number]['key'];
 type YtStageKey = typeof YT_STAGES[number]['key'];
+
+// Ensembles pour la règle pré-call / post-call
+const POST_CALL_STAGES = new Set(['call_booked', 'showed_up', 'closed']);
+const PRE_CALL_STAGES  = new Set(['lm_sent', 'in_convo', 'calendly_sent', 'link_clicked']);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -107,6 +128,53 @@ function avatarInitials(name: string): string {
   return name.replace(/^@/, '').split(/[\s._-]/).map(w => w[0] || '').join('').toUpperCase().slice(0, 2) || '??';
 }
 
+// ── resolveStage révisé ───────────────────────────────────────────────────────
+// Règle : un signal pré-call ne peut pas faire reculer une étape post-call (override)
+
+function resolveStage(
+  naturalKey: string,
+  overrideKey: string | null | undefined,
+  stages: readonly { key: string }[],
+  overrideUpdatedAt?: string | null,
+  signalOccurredAt?: string | null,
+): string {
+  if (!overrideKey) return naturalKey;
+
+  const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
+  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
+
+  // Signal naturel >= override → le funnel a avancé, on suit le naturel
+  if (naturalIdx >= overrideIdx) return naturalKey;
+
+  // Un signal pré-call ne peut pas écraser un override post-call
+  if (POST_CALL_STAGES.has(overrideKey) && PRE_CALL_STAGES.has(naturalKey)) {
+    return overrideKey;
+  }
+
+  // Signal auto arrivé APRÈS l'override → reprend la main
+  if (overrideUpdatedAt && signalOccurredAt) {
+    if (new Date(signalOccurredAt) > new Date(overrideUpdatedAt)) return naturalKey;
+  }
+
+  return overrideKey;
+}
+
+// ── getBestKnownStage ─────────────────────────────────────────────────────────
+// Meilleure étape connue d'un lead avant call_booked, basée sur prospect_events
+
+function getBestKnownStage(
+  prospect: ProspectLink | undefined,
+  lead: IgLead | undefined,
+  events: ProspectEvent[],
+): IgStageKey {
+  const username = (prospect?.ig_username ?? lead?.ig_username ?? '').toLowerCase();
+  const leadEvents = events.filter(e => e.prospect_key.toLowerCase() === username && e.platform === 'ig');
+  if (leadEvents.some(e => e.event_type === 'link_clicked')) return 'link_clicked';
+  if (leadEvents.some(e => e.event_type === 'calendly_link_sent')) return 'calendly_sent';
+  if (lead?.hook_replied) return 'in_convo';
+  return 'lm_sent';
+}
+
 // ── Card ──────────────────────────────────────────────────────────────────────
 
 interface CardData {
@@ -118,6 +186,12 @@ interface CardData {
   stageIdx: number;
   extra?: string;
   noSource?: boolean;
+  // Badges post-call
+  badge?: 'no_show' | 'rescheduled' | null;
+  // Pour afficher le bouton compte-rendu
+  callId?: string;
+  callScheduledAt?: string;
+  callStatus?: string;
 }
 
 function PipelineCard({
@@ -136,6 +210,11 @@ function PipelineCard({
   const [confirmDelete, setConfirmDelete] = useState(false);
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
+
+  // Bouton "Remplir compte-rendu" visible dès le début du call
+  const now = Date.now();
+  const showCompteRendu = card.callId && card.callScheduledAt && card.callStatus === 'active'
+    && new Date(card.callScheduledAt).getTime() <= now;
 
   return (
     <>
@@ -161,7 +240,7 @@ function PipelineCard({
       onMouseEnter={e => { if (!isDragging) e.currentTarget.style.boxShadow = '0 2px 8px rgba(0,0,0,.09)'; }}
       onMouseLeave={e => { e.currentTarget.style.boxShadow = 'none'; }}
     >
-      {/* Row 1 : avatar + nom */}
+      {/* Row 1 : avatar + nom + badges */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{
           width: 26, height: 26, borderRadius: 7, background: ac, flexShrink: 0,
@@ -171,8 +250,18 @@ function PipelineCard({
           {avatarInitials(card.name)}
         </div>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 }}>
             @{card.name}
+            {card.badge === 'no_show' && (
+              <span style={{ fontSize: 9, fontWeight: 700, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+                No-show
+              </span>
+            )}
+            {card.badge === 'rescheduled' && (
+              <span style={{ fontSize: 9, fontWeight: 700, background: '#fffbeb', color: '#d97706', border: '1px solid #fcd34d', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+                Reporté
+              </span>
+            )}
           </div>
           {card.sub && (
             <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
@@ -197,6 +286,26 @@ function PipelineCard({
         <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {card.extra}
         </div>
+      )}
+
+      {/* Bouton compte-rendu dès le début du call */}
+      {showCompteRendu && (
+        <a
+          href={`/client/calls/${card.callId}`}
+          draggable={false}
+          onMouseDown={e => e.stopPropagation()}
+          style={{
+            display: 'block', textAlign: 'center', fontSize: 10, fontWeight: 600,
+            padding: '5px 8px', borderRadius: 6,
+            background: '#EFF6FF', color: '#2563EB',
+            border: '1px solid #BFDBFE',
+            textDecoration: 'none', transition: 'all .12s',
+          }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563EB'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#EFF6FF'; (e.currentTarget as HTMLElement).style.color = '#2563EB'; }}
+        >
+          Remplir compte-rendu
+        </a>
       )}
 
       {platform === 'yt' && card.noSource && (
@@ -226,7 +335,7 @@ function PipelineCard({
       )}
     </div>
 
-    {/* Menu clic droit — portal pour échapper au stacking context du kanban */}
+    {/* Menu clic droit */}
     {ctxMenu && createPortal(
       <>
         <div
@@ -257,7 +366,7 @@ function PipelineCard({
       document.body
     )}
 
-    {/* Modale confirmation suppression — portal pour backdrop plein écran */}
+    {/* Modale confirmation suppression */}
     {confirmDelete && createPortal(
       <>
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={() => setConfirmDelete(false)} />
@@ -313,26 +422,13 @@ function KanbanColumn({
   onDeleteLead?: (key: string) => void;
 }) {
   return (
-    <div
-      style={{
-        width: 220,
-        flexShrink: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 6,
-        transition: 'background .1s',
-        alignSelf: 'stretch',
-      }}
-    >
-      {/* Header */}
+    <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, transition: 'background .1s', alignSelf: 'stretch' }}>
       <div style={{
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '7px 10px',
-        borderRadius: 7,
+        padding: '7px 10px', borderRadius: 7,
         background: isDropTarget ? stage.lightBg : 'var(--surface-2)',
         border: `1px solid ${isDropTarget ? stage.color + '55' : 'var(--border)'}`,
-        transition: 'all .12s',
-        flexShrink: 0,
+        transition: 'all .12s', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
           <div style={{ width: 7, height: 7, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
@@ -351,27 +447,19 @@ function KanbanColumn({
         </span>
       </div>
 
-      {/* Drop zone — reçoit tous les events drag sur toute la hauteur */}
       <div
         onDrop={e => onDrop(e, stage.key)}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         style={{
-          display: 'flex', flexDirection: 'column', gap: 5,
-          flex: 1,
-          minHeight: 80,
-          padding: isDropTarget ? '4px' : '0',
-          borderRadius: 8,
+          display: 'flex', flexDirection: 'column', gap: 5, flex: 1, minHeight: 80,
+          padding: isDropTarget ? '4px' : '0', borderRadius: 8,
           background: isDropTarget ? stage.lightBg + 'BB' : 'transparent',
           border: isDropTarget ? `1.5px dashed ${stage.color}66` : '1.5px dashed transparent',
           transition: 'all .12s',
         }}>
         {cards.length === 0 && !isDropTarget && (
-          <div style={{
-            border: '1px dashed var(--border)', borderRadius: 7,
-            padding: '14px 10px', textAlign: 'center',
-            fontSize: 10, color: 'var(--faint)',
-          }}>
+          <div style={{ border: '1px dashed var(--border)', borderRadius: 7, padding: '14px 10px', textAlign: 'center', fontSize: 10, color: 'var(--faint)' }}>
             Glisser ici
           </div>
         )}
@@ -393,27 +481,117 @@ function KanbanColumn({
   );
 }
 
-// ── Logique override intelligente ─────────────────────────────────────────────
-// Si la position naturelle est >= à la position manuelle, on suit la position naturelle.
-// Si la position naturelle est < à la position manuelle, on garde le manuel.
+// ── ConfirmMoveModal ──────────────────────────────────────────────────────────
 
-function resolveStage(
-  naturalKey: string,
-  overrideKey: string | null | undefined,
-  stages: readonly { key: string }[],
-  overrideUpdatedAt?: string | null,
-  signalOccurredAt?: string | null,
-): string {
-  if (!overrideKey) return naturalKey;
+type ConfirmCase =
+  | 'backward_from_post_call'   // recul depuis call_booked / showed_up / closed
+  | 'forward_to_call_booked'    // avancée manuelle vers call_booked
+  | 'forward_to_showed_up'      // avancée manuelle vers showed_up
+  | 'forward_to_closed';        // avancée manuelle vers closed
 
-  // Si un signal automatique est arrivé APRÈS l'override → le signal reprend la main
-  // (ex: nouveau lien envoyé, call booké après un recul manuel)
-  if (overrideUpdatedAt && signalOccurredAt) {
-    if (new Date(signalOccurredAt) > new Date(overrideUpdatedAt)) return naturalKey;
-  }
+interface ConfirmMoveModalProps {
+  case: ConfirmCase;
+  cardName: string;
+  callId: string | null;
+  onConfirm: (reason: string, extraData?: Record<string, any>) => void;
+  onCancel: () => void;
+}
 
-  // Override gagne — y compris pour reculer
-  return overrideKey;
+function ConfirmMoveModal({ case: modalCase, cardName, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
+  const [reason, setReason] = useState('');
+
+  const backwardReasons = [
+    { value: 'canceled',    label: 'Call annulé' },
+    { value: 'rescheduled', label: 'Call reporté (nouvelle date à fixer)' },
+    { value: 'error',       label: "Erreur d'attribution (jamais réservé)" },
+    { value: 'cold',        label: 'Lead refroidi / plus intéressé' },
+  ];
+
+  return createPortal(
+    <>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={onCancel} />
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+        zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '24px 28px', minWidth: 340, maxWidth: 420,
+        boxShadow: '0 8px 32px rgba(0,0,0,.18)',
+      }}>
+        {modalCase === 'backward_from_post_call' && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Déplacer @{cardName} en arrière</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>Quelle est la raison de ce déplacement ?</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {backwardReasons.map(r => (
+                <label key={r.value} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '8px 12px', borderRadius: 8, border: `1px solid ${reason === r.value ? '#2563EB' : 'var(--border)'}`, background: reason === r.value ? '#EFF6FF' : 'transparent', transition: 'all .12s' }}>
+                  <input
+                    type="radio"
+                    name="reason"
+                    value={r.value}
+                    checked={reason === r.value}
+                    onChange={() => setReason(r.value)}
+                    style={{ accentColor: '#2563EB' }}
+                  />
+                  <span style={{ fontSize: 12, fontWeight: 500, color: reason === r.value ? '#2563EB' : 'var(--ink)' }}>{r.label}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
+
+        {modalCase === 'forward_to_call_booked' && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Confirmer un call manuel ?</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+              Un appel a bien été réservé manuellement ? Cela ne crée pas d&apos;entrée Calendly.
+            </div>
+          </>
+        )}
+
+        {modalCase === 'forward_to_showed_up' && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Marquer comme présent ?</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+              Confirmer que @{cardName} s&apos;est présenté à l&apos;appel ?
+            </div>
+          </>
+        )}
+
+        {modalCase === 'forward_to_closed' && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Marquer comme deal fermé ?</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+              Cette action compte dans les statistiques de conversion.
+            </div>
+          </>
+        )}
+
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button
+            onMouseDown={onCancel}
+            style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
+          >
+            Annuler
+          </button>
+          <button
+            onMouseDown={() => {
+              if (modalCase === 'backward_from_post_call' && !reason) return;
+              onConfirm(reason || modalCase);
+            }}
+            disabled={modalCase === 'backward_from_post_call' && !reason}
+            style={{
+              padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none',
+              background: modalCase === 'backward_from_post_call' && !reason ? 'var(--border)' : '#2563EB',
+              color: modalCase === 'backward_from_post_call' && !reason ? 'var(--muted)' : '#fff',
+              cursor: modalCase === 'backward_from_post_call' && !reason ? 'not-allowed' : 'pointer',
+            }}
+          >
+            Confirmer
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -428,6 +606,21 @@ export default function PagePipeline() {
   const dropCounters = useRef<Record<string, number>>({});
 
   const [refreshing, setRefreshing] = useState(false);
+
+  // Filtres
+  const [filterNoShow, setFilterNoShow] = useState(false);
+  const [filterArchived, setFilterArchived] = useState(false);
+  const [filterCanceled, setFilterCanceled] = useState(false);
+  const [filterRescheduled, setFilterRescheduled] = useState(false);
+
+  // Modale de confirmation drag-and-drop
+  const [confirmModal, setConfirmModal] = useState<{
+    case: ConfirmCase;
+    cardKey: string;
+    cardName: string;
+    targetStageKey: string;
+    callId: string | null;
+  } | null>(null);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
     queryKey: ['pipeline'],
@@ -471,32 +664,34 @@ export default function PagePipeline() {
     return merged;
   })();
 
-  const getOverride = useCallback((key: string, platform: 'ig' | 'yt') =>
-    effectiveOverrides.find(o => o.prospect_key === key && o.platform === platform)?.stage ?? null,
-  [effectiveOverrides]);
-
-  const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt', stage: string) => {
+  const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt', stage: string, reason?: string) => {
     setOverrides(prev => {
       const idx = prev.findIndex(o => o.prospect_key === key && o.platform === platform);
-      const entry: Override = { prospect_key: key, platform, stage, updated_at: new Date().toISOString() };
+      const entry: Override = { prospect_key: key, platform, stage, updated_at: new Date().toISOString(), reason };
       return idx >= 0 ? prev.map((o, i) => i === idx ? entry : o) : [...prev, entry];
     });
     await fetch('/api/client/pipeline', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prospect_key: key, platform, stage }),
+      body: JSON.stringify({ prospect_key: key, platform, stage, reason }),
+    });
+  }, []);
+
+  const patchCall = useCallback(async (callId: string, fields: Record<string, any>) => {
+    await fetch(`/api/client/calls/${callId}`, {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(fields),
     });
   }, []);
 
   // ── Build IG cards ──────────────────────────────────────────────────────────
-  // Source de vérité = union instagram_leads ∪ prospect_links
-  // Un username dans prospect_links sans lead = cold DM direct → démarre en "calendly_sent"
+
+  const events = data?.events ?? [];
 
   const igCards: CardData[] = [];
   if (data) {
     const seen = new Set<string>();
-
-    // Collecte tous les usernames à afficher
     const allUsernames = new Set<string>([
       ...data.leads.map(l => l.ig_username.toLowerCase()),
       ...data.prospects.map(p => p.ig_username.toLowerCase()),
@@ -509,42 +704,50 @@ export default function PagePipeline() {
       const lead = data.leads.find(l => l.ig_username.toLowerCase() === username);
       const prospect = data.prospects.find(p => p.ig_username.toLowerCase() === username);
 
-      // Étape naturelle — part du signal le plus bas disponible
+      // Étape naturelle
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
       if (lead?.hook_replied) natural = 'in_convo';
       if (prospect?.calendly_link_sent) natural = 'calendly_sent';
-      if (prospect && prospect.humanClicks30d && prospect.humanClicks30d > 0) natural = 'link_clicked';
+      if (prospect?.first_click_at) natural = 'link_clicked'; // C2 fix : utiliser first_click_at
 
-      // Short.io paths are always flat (no subdirectories) — .slice(1) strips the leading /
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
         : null;
+
       const call = data.calls.find(c => {
         if (lead && c.ig_lead_id === lead.id) return true;
-        if (prospect && c.short_link_path && prospectPath &&
-          c.short_link_path === prospectPath) return true;
+        if (prospect && c.short_link_path && prospectPath && c.short_link_path === prospectPath) return true;
         return false;
       });
+
+      let badge: CardData['badge'] = null;
+
       if (call) {
-        natural = 'call_booked';
-        if (new Date(call.scheduled_at) < new Date() && call.status === 'active' && !call.no_show) natural = 'showed_up';
-        if (call.deal_closed) natural = 'closed';
+        if (call.status === 'canceled') {
+          // Call annulé → meilleure étape connue (events chargés = pas de flash)
+          natural = getBestKnownStage(prospect, lead, events);
+        } else if (call.no_show) {
+          // No-show → meilleure étape connue + badge rouge
+          natural = getBestKnownStage(prospect, lead, events);
+          badge = 'no_show';
+        } else if (call.rescheduled) {
+          // Reporté : reste en call_booked mais badge orange si après l'heure prévue
+          natural = 'call_booked';
+          if (new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
+        } else {
+          natural = 'call_booked';
+          // C1 fix : showed_up uniquement via formulaire (deal_closed) — plus d'auto
+          if (call.deal_closed) natural = 'closed';
+        }
       }
 
-      // Un call booké est un fait objectif — jamais écrasé par un override manuel
-      const stageKey = call
-        ? natural
-        : (() => {
-            const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-            const autoSignals = [
-              prospect?.first_click_at,
-              prospect?.calendly_link_sent_at,
-            ].filter(Boolean) as string[];
-            const signalOccurredAt = autoSignals.length
-              ? autoSignals.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
-              : null;
-            return resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
-          })();
+      // Override toujours applicable, mais appliquer la règle POST_CALL / PRE_CALL
+      const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
+      const autoSignals = [prospect?.first_click_at, prospect?.calendly_link_sent_at].filter(Boolean) as string[];
+      const signalOccurredAt = autoSignals.length
+        ? autoSignals.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
+        : null;
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
@@ -556,6 +759,10 @@ export default function PagePipeline() {
         date: timeAgo(detectedAt),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
+        badge,
+        callId: call?.id ?? undefined,
+        callScheduledAt: call?.scheduled_at ?? undefined,
+        callStatus: call?.status ?? undefined,
       });
     }
   }
@@ -564,19 +771,22 @@ export default function PagePipeline() {
 
   const ytCards: CardData[] = [];
   if (data) {
-    // Tous les calls non-IG apparaissent — ceux sans UTM sont marqués "sans source"
     const ytCalls = data.calls.filter(c => {
       const src = c.source?.toLowerCase() ?? '';
       return !src.startsWith('ig') && !c.ig_lead_id;
     });
     for (const call of ytCalls) {
       let natural: YtStageKey = 'call_booked';
-      if (new Date(call.scheduled_at) < new Date() && call.status === 'active' && !call.no_show) natural = 'showed_up';
       if (call.deal_closed) natural = 'closed';
+      // C1 fix : showed_up uniquement via formulaire, plus d'auto
 
-      const overrideKey = getOverride(call.id, 'yt');
-      const stageKey = resolveStage(natural, overrideKey, YT_STAGES);
+      const override = effectiveOverrides.find(o => o.prospect_key === call.id && o.platform === 'yt');
+      const stageKey = resolveStage(natural, override?.stage, YT_STAGES);
       const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
+
+      let badge: CardData['badge'] = null;
+      if (call.no_show) badge = 'no_show';
+      else if (call.rescheduled && new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
 
       ytCards.push({
         key: call.id,
@@ -589,6 +799,10 @@ export default function PagePipeline() {
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
         extra: call.revenue ? `${call.revenue.toLocaleString('fr-FR')} €` : undefined,
         noSource: !call.source && !call.utm_medium && !call.utm_content,
+        badge,
+        callId: call.id,
+        callScheduledAt: call.scheduled_at,
+        callStatus: call.status,
       });
     }
   }
@@ -599,8 +813,21 @@ export default function PagePipeline() {
     .map(c => confirmedKeys.has(c.key) ? { ...c, noSource: false } : c);
 
   const stages = tab === 'ig' ? IG_STAGES : YT_STAGES;
-  const cards = tab === 'ig' ? igCards : filteredYtCards;
   const platform = tab;
+
+  // Application des filtres IG
+  const filteredIgCards = igCards.filter(c => {
+    if (filterNoShow && c.badge !== 'no_show') return false;
+    if (filterArchived && c.stageKey !== 'dismissed') return false;
+    if (filterCanceled) {
+      const call = data?.calls.find(ca => ca.id === c.callId);
+      if (!call || call.status !== 'canceled') return false;
+    }
+    if (filterRescheduled && c.badge !== 'rescheduled') return false;
+    return true;
+  });
+
+  const cards = tab === 'ig' ? filteredIgCards : filteredYtCards;
 
   // ── Suppression lead ────────────────────────────────────────────────────────
 
@@ -613,12 +840,11 @@ export default function PagePipeline() {
     await refetch();
   }, [refetch]);
 
-  // ── Drag & drop ─────────────────────────────────────────────────────────────
+  // ── Drag & drop + modale de confirmation ────────────────────────────────────
 
   const handleDragStart = (e: React.DragEvent, cardKey: string) => {
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', cardKey);
-    // Laisser le navigateur capturer le ghost avant de masquer la carte
     setTimeout(() => setDraggingKey(cardKey), 0);
   };
 
@@ -649,10 +875,79 @@ export default function PagePipeline() {
     setDraggingKey(null);
     setDropTarget(null);
     dropCounters.current = {};
+
+    const card = cards.find(c => c.key === cardKey);
+    if (!card) return;
+
+    const currentStageIdx = IG_STAGES.findIndex(s => s.key === card.stageKey);
+    const targetStageIdx  = IG_STAGES.findIndex(s => s.key === targetStageKey);
+
+    // Déterminer si on a besoin d'une modale de confirmation
+    const isBackwardFromPostCall =
+      POST_CALL_STAGES.has(card.stageKey) && targetStageIdx < currentStageIdx;
+    const isForwardToCallBooked = targetStageKey === 'call_booked' && !card.callId;
+    const isForwardToShowedUp   = targetStageKey === 'showed_up';
+    const isForwardToClosed     = targetStageKey === 'closed';
+
+    if (isBackwardFromPostCall) {
+      setConfirmModal({ case: 'backward_from_post_call', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      return;
+    }
+    if (isForwardToCallBooked) {
+      setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      return;
+    }
+    if (isForwardToShowedUp) {
+      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      return;
+    }
+    if (isForwardToClosed) {
+      setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      return;
+    }
+
+    // Pas de confirmation nécessaire → override direct
     saveOverride(cardKey, platform, targetStageKey);
   };
 
+  const handleConfirmMove = async (reason: string) => {
+    if (!confirmModal) return;
+    const { case: modalCase, cardKey, targetStageKey, callId } = confirmModal;
+    setConfirmModal(null);
+
+    if (modalCase === 'backward_from_post_call') {
+      if (callId) {
+        // Mettre à jour le call selon la raison
+        if (reason === 'canceled') {
+          await patchCall(callId, { status: 'canceled', cancellation_reason: 'canceled' });
+        } else if (reason === 'rescheduled') {
+          await patchCall(callId, { rescheduled: true, rescheduled_at: new Date().toISOString(), cancellation_reason: 'rescheduled' });
+        } else if (reason === 'error') {
+          await patchCall(callId, { ig_lead_id: null, cancellation_reason: 'error' });
+        } else if (reason === 'cold') {
+          await patchCall(callId, { cancellation_reason: 'cold' });
+        }
+      }
+      // Trouver la meilleure étape connue pour ce lead
+      const card = igCards.find(c => c.key === cardKey);
+      const lead = data?.leads.find(l => l.ig_username.toLowerCase() === cardKey);
+      const prospect = data?.prospects.find(p => p.ig_username.toLowerCase() === cardKey);
+      const bestStage = getBestKnownStage(prospect, lead, events);
+      await saveOverride(cardKey, platform, bestStage, reason);
+    } else if (modalCase === 'forward_to_call_booked') {
+      await saveOverride(cardKey, platform, 'call_booked', 'manual');
+    } else if (modalCase === 'forward_to_showed_up') {
+      await saveOverride(cardKey, platform, 'showed_up', 'manual');
+    } else if (modalCase === 'forward_to_closed') {
+      if (callId) await patchCall(callId, { deal_closed: true });
+      await saveOverride(cardKey, platform, 'closed', 'manual');
+    }
+
+    await refetch();
+  };
+
   const totalProspects = cards.length;
+  const anyFilter = filterNoShow || filterArchived || filterCanceled || filterRescheduled;
 
   return (
     <div
@@ -674,46 +969,79 @@ export default function PagePipeline() {
           )}
         </div>
 
-        {/* Rafraîchir + Onglets */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <button
-          onClick={handleRefresh}
-          disabled={refreshing}
-          style={{
-            padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
-            border: '1px solid var(--border)', background: 'var(--surface)',
-            color: refreshing ? 'var(--muted)' : 'var(--ink)', cursor: refreshing ? 'not-allowed' : 'pointer',
-            display: 'flex', alignItems: 'center', gap: 6, transition: 'all .12s',
-          }}
-        >
-          <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
-          {refreshing ? 'Maj…' : 'Rafraîchir'}
-        </button>
-        <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
-          {([
-            { key: 'ig', label: 'Instagram', count: igCards.length },
-            { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
-          ] as const).map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)} style={{
-              padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6,
-              cursor: 'pointer', border: 'none', transition: 'all .12s',
-              background: tab === t.key ? 'var(--surface)' : 'transparent',
-              color: tab === t.key ? 'var(--ink)' : 'var(--muted)',
-              boxShadow: tab === t.key ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}>
-              {t.label}
-              <span style={{
-                fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
-                borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
-                background: tab === t.key ? 'var(--surface-2)' : 'transparent',
-                color: tab === t.key ? 'var(--ink)' : 'var(--faint)',
-              }}>{t.count}</span>
-            </button>
-          ))}
-        </div>
+          <button
+            onClick={handleRefresh}
+            disabled={refreshing}
+            style={{
+              padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
+              border: '1px solid var(--border)', background: 'var(--surface)',
+              color: refreshing ? 'var(--muted)' : 'var(--ink)', cursor: refreshing ? 'not-allowed' : 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6, transition: 'all .12s',
+            }}
+          >
+            <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
+            {refreshing ? 'Maj…' : 'Rafraîchir'}
+          </button>
+          <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+            {([
+              { key: 'ig', label: 'Instagram', count: igCards.length },
+              { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
+            ] as const).map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)} style={{
+                padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6,
+                cursor: 'pointer', border: 'none', transition: 'all .12s',
+                background: tab === t.key ? 'var(--surface)' : 'transparent',
+                color: tab === t.key ? 'var(--ink)' : 'var(--muted)',
+                boxShadow: tab === t.key ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+                display: 'flex', alignItems: 'center', gap: 6,
+              }}>
+                {t.label}
+                <span style={{
+                  fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
+                  borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
+                  background: tab === t.key ? 'var(--surface-2)' : 'transparent',
+                  color: tab === t.key ? 'var(--ink)' : 'var(--faint)',
+                }}>{t.count}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
+
+      {/* Filtres IG */}
+      {tab === 'ig' && (
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+          {[
+            { key: 'no_show', label: 'No-shows', value: filterNoShow, set: setFilterNoShow, color: '#dc2626', bg: '#fef2f2' },
+            { key: 'archived', label: 'Archivés', value: filterArchived, set: setFilterArchived, color: '#6b7280', bg: '#f3f4f6' },
+            { key: 'canceled', label: 'Annulés', value: filterCanceled, set: setFilterCanceled, color: '#7C3AED', bg: '#F5F3FF' },
+            { key: 'rescheduled', label: 'Reportés', value: filterRescheduled, set: setFilterRescheduled, color: '#d97706', bg: '#fffbeb' },
+          ].map(f => (
+            <button
+              key={f.key}
+              onClick={() => f.set(!f.value)}
+              style={{
+                padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                border: `1px solid ${f.value ? f.color : 'var(--border)'}`,
+                background: f.value ? f.bg : 'transparent',
+                color: f.value ? f.color : 'var(--muted)',
+                transition: 'all .12s',
+              }}
+            >
+              {f.label}
+            </button>
+          ))}
+          {anyFilter && (
+            <button
+              onClick={() => { setFilterNoShow(false); setFilterArchived(false); setFilterCanceled(false); setFilterRescheduled(false); }}
+              style={{ padding: '4px 10px', fontSize: 11, fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
+            >
+              Effacer filtres
+            </button>
+          )}
+        </div>
+      )}
 
       {/* Bloque pointer events sur les cartes non-draggées pendant un drag */}
       {draggingKey && (
@@ -726,14 +1054,8 @@ export default function PagePipeline() {
           <div style={{ fontSize: 12, color: 'var(--muted)' }}>Chargement…</div>
         </div>
       ) : (
-        <div style={{
-          flex: 1, overflowX: 'auto', overflowY: 'auto',
-          paddingBottom: 16,
-        }}>
-          <div style={{
-            display: 'flex', gap: 8, alignItems: 'stretch',
-            minWidth: 'max-content', height: '100%',
-          }}>
+        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16 }}>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
             {stages.map(stage => {
               const stageCards = cards.filter(c => c.stageIdx === stages.findIndex(s => s.key === stage.key));
               return (
@@ -779,6 +1101,17 @@ export default function PagePipeline() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modale de confirmation drag-and-drop */}
+      {confirmModal && (
+        <ConfirmMoveModal
+          case={confirmModal.case}
+          cardName={confirmModal.cardName}
+          callId={confirmModal.callId}
+          onConfirm={handleConfirmMove}
+          onCancel={() => setConfirmModal(null)}
+        />
       )}
     </div>
   );
