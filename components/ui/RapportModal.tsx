@@ -2,7 +2,9 @@
 
 import { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import Lottie from 'lottie-react';
 import Icon from '@/components/ui/Icon';
+import celebrationAnimation from '@/public/animations/celebration.json';
 
 type RapportStep = 'show_up' | 'closed' | 'revenue' | 'rescheduled' | 'celebration';
 
@@ -21,76 +23,26 @@ function formatTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
-// Particules de confetti animées en CSS pur
 function CelebrationOverlay({ onDone }: { onDone: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onDone, 3200);
+    const timer = setTimeout(onDone, 2600);
     return () => clearTimeout(timer);
   }, [onDone]);
 
-  const colors = ['#f59e0b', '#10b981', '#3b82f6', '#f43f5e', '#8b5cf6', '#ec4899', '#06b6d4'];
-  const particles = Array.from({ length: 48 }, (_, i) => ({
-    id: i,
-    color: colors[i % colors.length],
-    left: `${Math.random() * 100}%`,
-    delay: `${Math.random() * 0.8}s`,
-    duration: `${1.2 + Math.random() * 1.2}s`,
-    size: `${6 + Math.random() * 8}px`,
-    rotate: `${Math.random() * 360}deg`,
-  }));
-
   return createPortal(
-    <>
-      <style>{`
-        @keyframes confetti-fall {
-          0%   { transform: translateY(-60px) rotate(0deg) scale(1); opacity: 1; }
-          80%  { opacity: 1; }
-          100% { transform: translateY(110vh) rotate(720deg) scale(0.6); opacity: 0; }
-        }
-        @keyframes celebration-pop {
-          0%   { transform: translate(-50%, -50%) scale(0.6); opacity: 0; }
-          20%  { transform: translate(-50%, -50%) scale(1.08); opacity: 1; }
-          30%  { transform: translate(-50%, -50%) scale(0.96); }
-          40%  { transform: translate(-50%, -50%) scale(1.02); }
-          50%  { transform: translate(-50%, -50%) scale(1); }
-          80%  { opacity: 1; }
-          100% { transform: translate(-50%, -50%) scale(1); opacity: 0; }
-        }
-      `}</style>
-      {/* Fond semi-transparent */}
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.65)', zIndex: 5000 }} />
-      {/* Confettis */}
-      {particles.map(p => (
-        <div
-          key={p.id}
-          style={{
-            position: 'fixed',
-            top: '-20px',
-            left: p.left,
-            width: p.size,
-            height: p.size,
-            background: p.color,
-            borderRadius: Math.random() > 0.5 ? '50%' : '2px',
-            zIndex: 5001,
-            animation: `confetti-fall ${p.duration} ${p.delay} ease-in forwards`,
-            transform: `rotate(${p.rotate})`,
-          }}
-        />
-      ))}
-      {/* Message central */}
-      <div style={{
-        position: 'fixed',
-        left: '50%',
-        top: '50%',
-        zIndex: 5002,
-        textAlign: 'center',
-        animation: 'celebration-pop 3.2s ease-out forwards',
-      }}>
-        <div style={{ fontSize: 64, lineHeight: 1, marginBottom: 12 }}>🎉</div>
-        <div style={{ fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px', marginBottom: 6 }}>Lead closé !</div>
-        <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.8)', fontWeight: 500 }}>Félicitations, continue comme ça 🔥</div>
-      </div>
-    </>,
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 5000,
+      background: 'rgba(0,0,0,0.75)',
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    }}>
+      <Lottie
+        animationData={celebrationAnimation}
+        loop={false}
+        style={{ width: 320, height: 320 }}
+      />
+      <div style={{ fontSize: 26, fontWeight: 900, color: '#fff', letterSpacing: '-0.5px', marginTop: -20, marginBottom: 6, textAlign: 'center' }}>Lead closé !</div>
+      <div style={{ fontSize: 15, color: 'rgba(255,255,255,0.75)', fontWeight: 500, textAlign: 'center' }}>Félicitations, continue comme ça 🔥</div>
+    </div>,
     document.body
   );
 }
