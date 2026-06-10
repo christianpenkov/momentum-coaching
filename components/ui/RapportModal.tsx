@@ -25,8 +25,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
   const [step, setStep] = useState<RapportStep>('show_up');
   const [revenue, setRevenue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [confirmClose, setConfirmClose] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  function requestClose() {
+    if (step === 'show_up') { onClose(); return; }
+    setConfirmClose(true);
+  }
 
   async function save(patch: { no_show?: boolean; deal_closed?: boolean; revenue?: number; outcome?: string; rescheduled?: boolean; rescheduled_at?: string }) {
     setSaving(true);
@@ -70,10 +76,41 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
 
   return createPortal(
     <>
+      {/* Confirmation fermeture en plein milieu */}
+      {confirmClose && (
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 4000 }} />
+          <div style={{ position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 4001, background: 'var(--surface)', borderRadius: 16, padding: '28px 24px', width: '100%', maxWidth: 340, textAlign: 'center' }}>
+            <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Fermer sans terminer ?</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>
+              Le rapport n'a pas été enregistré. Il restera en attente.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ flex: 1 }}
+                onClick={() => setConfirmClose(false)}
+              >
+                Continuer
+              </button>
+              <button
+                type="button"
+                className="btn-primary"
+                style={{ flex: 1, background: 'var(--red, #ef4444)' }}
+                onClick={onClose}
+              >
+                Fermer quand même
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Overlay */}
       <div
         style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 3000 }}
-        onClick={onClose}
+        onClick={requestClose}
       />
       {/* Panel — bottom-sheet normal, full-screen à l'étape revenue */}
       <div
@@ -108,7 +145,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
               </div>
             )}
           </div>
-          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)' }}>
+          <button type="button" onClick={requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)' }}>
             <Icon name="x" size={18} />
           </button>
         </div>
