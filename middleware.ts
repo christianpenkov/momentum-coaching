@@ -23,10 +23,12 @@ export async function middleware(request: NextRequest) {
     }
   );
 
-  const { data: { user } } = await supabase.auth.getUser();
+  // getSession lit le cookie local sans appel réseau — évite les déconnexions PWA
+  // Le client gère le refresh automatiquement via le SDK Supabase
+  const { data: { session } } = await supabase.auth.getSession();
 
   // Pas de session → login
-  if (!user) {
+  if (!session) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('next', pathname);
     return NextResponse.redirect(loginUrl);
@@ -36,7 +38,7 @@ export async function middleware(request: NextRequest) {
   const { data: profile } = await supabase
     .from('profiles')
     .select('role')
-    .eq('id', user.id)
+    .eq('id', session.user.id)
     .single();
 
   const role = profile?.role;

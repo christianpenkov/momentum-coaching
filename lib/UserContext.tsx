@@ -23,10 +23,10 @@ export function UserProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-      const { data: { user: authUser } } = await supabase.auth.getUser();
-      if (!authUser) { setLoading(false); return; }
+    const supabase = createClient();
+
+    async function loadUser(authUser: { id: string; email?: string } | null) {
+      if (!authUser) { setUser(null); setLoading(false); return; }
 
       const { data: profile } = await supabase
         .from('profiles')
@@ -49,7 +49,29 @@ export function UserProvider({ children }: { children: ReactNode }) {
       });
       setLoading(false);
     }
-    load();
+
+    // Charge l'utilisateur initial
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      loadUser(session?.user ?? null);
+    });
+
+    // Écoute les changements d'auth (login, logout, token refresh)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      loadUser(session?.user ?? null);
+    });
+
+    // Refresh du token quand l'app PWA revient au premier plan
+    function handleVisibilityChange() {
+      if (document.visibilityState === 'visible') {
+        supabase.auth.getSession();
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      subscription.unsubscribe();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
   }, []);
 
   return <UserContext.Provider value={{ user, loading }}>{children}</UserContext.Provider>;
