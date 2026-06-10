@@ -169,10 +169,13 @@ export default function PageClientCalls() {
     .filter(c => c.scheduled_at && new Date(c.scheduled_at) < now && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
-  // Rapports en attente : calls Calendly dont scheduled_at <= now et no_show = null (inclut les calls en cours)
+  // Rapports en attente : calls Calendly passés sans rapport rempli
+  // Rapport rempli = no_show, outcome OU deal_closed est renseigné
   const pendingRapports = calls.filter(c =>
     c.calendly_event_uuid !== null &&
     c.no_show === null &&
+    c.outcome === null &&
+    c.deal_closed === null &&
     c.status === 'active' &&
     c.scheduled_at !== null &&
     new Date(c.scheduled_at).getTime() <= now.getTime()

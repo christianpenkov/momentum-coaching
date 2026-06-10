@@ -37,10 +37,9 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     // ── Rapports de call en attente ──
     let callsQuery = supabase
       .from('calls')
-      .select('id, invitee_name, scheduled_at, duration')
+      .select('id, invitee_name, scheduled_at, duration, no_show, outcome, deal_closed')
       .eq('coach_id', profileId)
       .eq('status', 'active')
-      .is('no_show', null)
       .not('calendly_event_uuid', 'is', null)
       .lt('scheduled_at', now);
 
@@ -52,6 +51,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
 
     const rapportNotifs: AppNotif[] = (calls || [])
       .filter(c => {
+        // Rapport considéré rempli si no_show, outcome OU deal_closed est renseigné
+        if (c.no_show !== null || c.outcome !== null || c.deal_closed !== null) return false;
         if (!c.scheduled_at || !c.duration) return false;
         const match = c.duration.match(/(\d+)/);
         if (!match) return false;
