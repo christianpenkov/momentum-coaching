@@ -53,14 +53,17 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Effacer l'override manuel existant → le nouveau signal reprend automatiquement la main
+  // Pose un override calendly_sent avec updated_at = now — un clic antérieur ne court-circuite pas l'étape
   supa.from('pipeline_overrides')
-    .delete()
-    .eq('profile_id', user.id)
-    .eq('prospect_key', ig_username)
-    .eq('platform', 'ig')
-    .then(({ error: delErr }) => {
-      if (delErr) console.error('[prospect-links] pipeline_overrides delete:', delErr.message);
+    .upsert({
+      profile_id:   user.id,
+      prospect_key: ig_username,
+      platform:     'ig',
+      stage:        'calendly_sent',
+      updated_at:   new Date().toISOString(),
+    }, { onConflict: 'profile_id,prospect_key,platform' })
+    .then(({ error: upsertErr }) => {
+      if (upsertErr) console.error('[prospect-links] pipeline_overrides upsert:', upsertErr.message);
     });
 
   // Événement calendly_link_sent dans prospect_events (fire-and-forget)

@@ -125,13 +125,16 @@ export async function POST(request: Request) {
               .update({ calendly_link_sent: true, calendly_link_sent_at: now })
               .eq('id', pl.id);
 
-            // Efface l'override pipeline → le signal reprend la main
+            // Remplace l'override par calendly_sent (now) — un clic antérieur ne doit pas court-circuiter cette étape
             await serviceSupabase
               .from('pipeline_overrides')
-              .delete()
-              .eq('profile_id', pid)
-              .eq('prospect_key', pl.ig_username)
-              .eq('platform', 'ig');
+              .upsert({
+                profile_id:    pid,
+                prospect_key:  pl.ig_username,
+                platform:      'ig',
+                stage:         'calendly_sent',
+                updated_at:    now,
+              }, { onConflict: 'profile_id,prospect_key,platform' });
 
             // Insère l'événement dans prospect_events
             await serviceSupabase.from('prospect_events').insert({
