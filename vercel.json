@@ -1,16 +1,1 @@
-{
-  "crons": [
-    {
-      "path": "/api/instagram/poll-leads",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/calendly/cron-sync",
-      "schedule": "0 6 * * *"
-    },
-    {
-      "path": "/api/instagram/cron-refresh-tokens",
-      "schedule": "0 6 * * 1"
-    }
-  ]
-}
+{}
