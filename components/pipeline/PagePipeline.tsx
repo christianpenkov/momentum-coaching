@@ -221,6 +221,7 @@ function PipelineCard({
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
 
@@ -370,7 +371,7 @@ function PipelineCard({
           padding: '4px 0', minWidth: 160,
         }}>
           <button
-            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmDelete(true); }}
+            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmDelete(true); setDeleteConfirmed(false); }}
             style={{
               display: 'block', width: '100%', textAlign: 'left',
               padding: '8px 14px', fontSize: 12, fontWeight: 500,
@@ -397,19 +398,28 @@ function PipelineCard({
           borderRadius: 12, padding: '24px 28px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
         }}>
           <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Supprimer @{card.name} ?</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-            Cette action supprime définitivement le lead, le lien Calendly et tous les overrides associés.
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+            Cette action supprime définitivement le lead et son historique.
           </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink)', marginBottom: 20, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={deleteConfirmed}
+              onChange={e => setDeleteConfirmed(e.target.checked)}
+              style={{ width: 14, height: 14, cursor: 'pointer' }}
+            />
+            Je comprends que cette action est irréversible
+          </label>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
             <button
-              onMouseDown={() => setConfirmDelete(false)}
+              onMouseDown={() => { setConfirmDelete(false); setDeleteConfirmed(false); }}
               style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
             >
               Annuler
             </button>
             <button
-              onMouseDown={() => { setConfirmDelete(false); onDeleteLead?.(card.key); }}
-              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: 'pointer' }}
+              onMouseDown={() => { if (!deleteConfirmed) return; setConfirmDelete(false); setDeleteConfirmed(false); onDeleteLead?.(card.key); }}
+              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: deleteConfirmed ? 'pointer' : 'not-allowed', opacity: deleteConfirmed ? 1 : 0.4 }}
             >
               Supprimer
             </button>
