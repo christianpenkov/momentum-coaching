@@ -11,6 +11,23 @@ const serviceSupabase = createClient(
 const VERIFY_TOKEN = process.env.INSTAGRAM_WEBHOOK_VERIFY_TOKEN!;
 const APP_SECRET = process.env.INSTAGRAM_CLIENT_SECRET!;
 
+function sanitizeInstagramUsername(raw: string): string {
+  return raw.toLowerCase().trim().replace(/^@/, '').replace(/\s+/g, '').replace(/[^a-z0-9._]/g, '');
+}
+
+async function attemptShortioCreate(apiKey: string, payload: object): Promise<Response> {
+  const opts: RequestInit = {
+    method: 'POST',
+    headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(payload),
+  };
+  const res = await fetch('https://api.short.io/links', opts);
+  if (!res.ok && res.status !== 409) {
+    await new Promise(r => setTimeout(r, 500));
+    return fetch('https://api.short.io/links', opts);
+  }
+  return res;
+}
 
 // Vérifie la signature Meta pour sécuriser le webhook
 function verifySignature(body: string, signature: string | null): boolean {
@@ -276,7 +293,8 @@ export async function POST(request: Request) {
       // Génère un lien Short.io unique par (lead × post × keyword) si lm_url est disponible
       let shortLink = cl.lm_short_url;
       if (cl.lm_url && commenterUsername) {
-        const lmPath = `lm-${cl.lm_keyword.toLowerCase().replace(/[^a-z0-9]/g, '')}-${commenterUsername.toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
+        const cleanUsername = sanitizeInstagramUsername(commenterUsername);
+        const lmPath = `lm-${cl.lm_keyword.toLowerCase().replace(/[^a-z0-9-]/g, '')}-${cleanUsername}`;
         try {
           // Appel direct Short.io — pas de fetch HTTP interne pour éviter les problèmes d'URL en prod
           const { data: shortioInteg } = await serviceSupabase
@@ -296,13 +314,9 @@ export async function POST(request: Request) {
             destUrl.searchParams.set('utm_source', 'ig');
             destUrl.searchParams.set('utm_medium', 'dm');
             destUrl.searchParams.set('utm_campaign', `lm-${cl.lm_keyword.toLowerCase()}`);
-            destUrl.searchParams.set('utm_content', commenterUsername.toLowerCase());
+            destUrl.searchParams.set('utm_content', cleanUsername);
 
-            const res = await fetch('https://api.short.io/links', {
-              method: 'POST',
-              headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
-              body: JSON.stringify({ domain, originalURL: destUrl.toString(), title: `LM — ${commenterUsername}`, path: lmPath }),
-            });
+            const res = await attemptShortioCreate(apiKey, { domain, originalURL: destUrl.toString(), title: `LM — ${commenterUsername}`, path: lmPath });
 
             if (res.status === 409) {
               // Lien déjà existant pour ce lead → récupérer l'URL existante
