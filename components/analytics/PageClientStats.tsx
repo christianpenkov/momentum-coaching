@@ -84,6 +84,7 @@ interface CallRecord {
   invitee_name: string; invitee_email: string; duration: number;
   no_show?: boolean; deal_closed?: boolean; revenue?: number;
   rescheduled?: boolean; source?: string; notes?: string;
+  ig_lead_id?: string | null;
 }
 interface StripeStats {
   mrr: number; monthlyRevenue: number; activeSubscriptions: number;
@@ -767,7 +768,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToMediaId }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; leadIdToMediaId: Map<string, string> }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const now = new Date();
@@ -813,11 +814,6 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
   const igCallsAll = calls.filter(c => c.source?.startsWith('ig'));
   const ytCallsAll = calls.filter(c => c.source?.startsWith('yt'));
   const igPosts = ig?.posts || [];
-  const igTotalReach = igPosts.reduce((s, p) => s + (p.reach || 0), 0);
-  const igTotalCallsBooked = igCallsAll.filter(c => c.status === 'active').length;
-  const igTotalNoShow = igCallsAll.filter(c => c.no_show).length;
-  const igTotalClosed = igCallsAll.filter(c => c.deal_closed).length;
-  const igTotalRev = igCallsAll.reduce((s, c) => s + (c.revenue || 0), 0);
   const ytVideos = yt?.videos || [];
   const ytTotalViews = ytVideos.reduce((s, v) => s + v.views30d, 0);
   const ytTotalCallsBooked = ytCallsAll.filter(c => c.status === 'active').length;
@@ -825,17 +821,38 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period }: { ig: I
   const ytTotalClosed = ytCallsAll.filter(c => c.deal_closed).length;
   const ytTotalRev = ytCallsAll.reduce((s, c) => s + (c.revenue || 0), 0);
 
+  // Attribution réelle calls IG → post via ig_lead_id → media_id
+  // Fallback proportionnel pour les calls IG sans ig_lead_id (anciens calls)
+  const igCallsWithLead = igCallsAll.filter(c => c.ig_lead_id && leadIdToMediaId.has(c.ig_lead_id));
+  const igCallsWithoutLead = igCallsAll.filter(c => !c.ig_lead_id || !leadIdToMediaId.has(c.ig_lead_id));
+  const igTotalReach = igPosts.reduce((s, p) => s + (p.reach || 0), 0);
+  const igFallbackCallsBooked = igCallsWithoutLead.filter(c => c.status === 'active').length;
+  const igFallbackNoShow = igCallsWithoutLead.filter(c => c.no_show).length;
+  const igFallbackClosed = igCallsWithoutLead.filter(c => c.deal_closed).length;
+  const igFallbackRev = igCallsWithoutLead.reduce((s, c) => s + (c.revenue || 0), 0);
+
   type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; revenueTotal: number; revenuePerCall: number };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
+      // Calls réels attribuables à ce post via ig_lead_id
+      const realCalls = igCallsWithLead.filter(c => leadIdToMediaId.get(c.ig_lead_id!) === p.id);
+      const realBooked = realCalls.filter(c => c.status === 'active').length;
+      const realNoShow = realCalls.filter(c => c.no_show).length;
+      const realClosed = realCalls.filter(c => c.deal_closed).length;
+      const realRev = realCalls.reduce((s, c) => s + (c.revenue || 0), 0);
+      // Fallback proportionnel pour calls sans attribution directe
       const share = igTotalReach > 0 ? (p.reach || 0) / igTotalReach : 0;
-      const callsBooked = Math.round(igTotalCallsBooked * share);
-      const noShowCount = Math.min(callsBooked, Math.round(igTotalNoShow * share));
-      const closedCount = Math.min(callsBooked - noShowCount, Math.round(igTotalClosed * share));
+      const fallbackBooked = Math.round(igFallbackCallsBooked * share);
+      const fallbackNoShow = Math.round(igFallbackNoShow * share);
+      const fallbackClosed = Math.round(igFallbackClosed * share);
+      const fallbackRev = Math.round(igFallbackRev * share);
+      const callsBooked = realBooked + fallbackBooked;
+      const noShowCount = Math.min(callsBooked, realNoShow + fallbackNoShow);
+      const closedCount = Math.min(callsBooked - noShowCount, realClosed + fallbackClosed);
+      const revTotal = realRev + fallbackRev;
       const honored = callsBooked - noShowCount;
       const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
-      const revTotal = Math.round(igTotalRev * share);
       const avgWatchTimeMin = p.avgWatchTimeMs ? Math.round(p.avgWatchTimeMs / 1000 / 60 * 10) / 10 : null;
       return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: p.views || p.reach || 0, totalViews: p.views || p.reach || 0, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0 };
     }),
@@ -5521,7 +5538,7 @@ async function fetchSupabaseStats(profileId?: string) {
 
   const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes] = await Promise.all([
     supabase.from('instagram_leads')
-      .select('ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
+      .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
     supabase.from('lead_magnets')
       .select('id, name, keyword, url').eq('profile_id', targetId).order('created_at', { ascending: true }),
@@ -5576,7 +5593,13 @@ async function fetchSupabaseStats(profileId?: string) {
   const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] =
     (lmHistoryRes.data ?? []).filter((h: any) => h.ig_user_id && h.keyword_matched);
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory };
+  // Map ig_lead_id (UUID) → media_id pour attribution réelle calls/contenu
+  const leadIdToMediaId = new Map<string, string>();
+  for (const l of (leadsRes.data ?? [])) {
+    if (l.id && l.media_id) leadIdToMediaId.set(l.id, l.media_id);
+  }
+
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId };
   } catch { return null; }
 }
 
@@ -5669,6 +5692,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
   const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
+  const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
@@ -5865,7 +5889,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       {loading ? <Loading /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} />}
+          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
