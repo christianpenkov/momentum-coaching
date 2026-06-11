@@ -201,27 +201,37 @@ export async function upsertShortioLinkSnapshot(
     }
 
     // Second check : lien LM personnalisé sur instagram_leads.tracking_link
-    if (!pl && row.human_clicks > 0) {
-      const { data: igLead } = await serviceSupabase
-        .from('instagram_leads')
-        .select('id, ig_username, profile_id')
+    // On vérifie le total cumulé (pas juste le snapshot du jour) pour ne pas rater les clics passés
+    if (!pl) {
+      const { data: cumulRow } = await serviceSupabase
+        .from('shortio_link_daily_snapshots')
+        .select('human_clicks')
         .eq('profile_id', profileId)
-        .filter('tracking_link', 'like', `%/${row.path}`)
+        .eq('path', row.path)
+        .gt('human_clicks', 0)
+        .limit(1)
         .maybeSingle();
 
-      if (igLead) {
-        serviceSupabase.from('prospect_events').insert({
-          profile_id:  profileId,
-          prospect_key: igLead.ig_username.toLowerCase(),
-          platform:    'ig',
-          event_type:  'lm_clicked',
-          occurred_at: new Date().toISOString(),
-          ig_lead_id:  igLead.id,
-        }).then(({ error: evtErr }) => {
-          if (evtErr && !evtErr.message.includes('duplicate')) {
-            console.error('[shortio-fetch] lm_clicked insert:', evtErr.message);
-          }
-        });
+      if (cumulRow) {
+        const { data: igLead } = await serviceSupabase
+          .from('instagram_leads')
+          .select('id, ig_username, profile_id')
+          .eq('profile_id', profileId)
+          .filter('tracking_link', 'like', `%/${row.path}`)
+          .maybeSingle();
+
+        if (igLead) {
+          serviceSupabase.from('prospect_events').upsert({
+            profile_id:   profileId,
+            prospect_key: igLead.ig_username.toLowerCase(),
+            platform:     'ig',
+            event_type:   'lm_clicked',
+            occurred_at:  new Date().toISOString(),
+            ig_lead_id:   igLead.id,
+          }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true }).then(({ error: evtErr }) => {
+            if (evtErr) console.error('[shortio-fetch] lm_clicked upsert:', evtErr.message);
+          });
+        }
       }
     }
   }
