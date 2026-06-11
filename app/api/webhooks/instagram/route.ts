@@ -278,25 +278,46 @@ export async function POST(request: Request) {
       if (cl.lm_url && commenterUsername) {
         const lmPath = `lm-${cl.lm_keyword.toLowerCase().replace(/[^a-z0-9]/g, '')}-${commenterUsername.toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
         try {
-          const shortioRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/shortio/links`, {
-            method: 'POST',
-            headers: { 'content-type': 'application/json' },
-            body: JSON.stringify({
-              profileId: profile_id,
-              originalUrl: cl.lm_url,
-              title: `LM — ${commenterUsername}`,
-              utmSource: 'ig',
-              utmMedium: 'dm',
-              utmCampaign: `lm-${cl.lm_keyword.toLowerCase()}`,
-              utmContent: commenterUsername.toLowerCase(),
-              path: lmPath,
-            }),
-          });
-          if (shortioRes.ok) {
-            const shortioData = await shortioRes.json();
-            if (shortioData.shortUrl) shortLink = shortioData.shortUrl;
-          } else {
-            console.warn('[IG Webhook] Short.io lien LM personnalisé échoué, fallback lm_short_url');
+          // Appel direct Short.io — pas de fetch HTTP interne pour éviter les problèmes d'URL en prod
+          const { data: shortioInteg } = await serviceSupabase
+            .from('integrations')
+            .select('api_key, metadata')
+            .eq('profile_id', profile_id)
+            .eq('provider', 'shortio')
+            .single();
+
+          if (shortioInteg?.api_key && shortioInteg?.metadata?.domain_id) {
+            const apiKey = shortioInteg.api_key;
+            const domainId = shortioInteg.metadata.domain_id;
+
+            // Construit l'URL avec UTMs
+            const destUrl = new URL(cl.lm_url);
+            destUrl.searchParams.set('utm_source', 'ig');
+            destUrl.searchParams.set('utm_medium', 'dm');
+            destUrl.searchParams.set('utm_campaign', `lm-${cl.lm_keyword.toLowerCase()}`);
+            destUrl.searchParams.set('utm_content', commenterUsername.toLowerCase());
+
+            const res = await fetch('https://api.short.io/links', {
+              method: 'POST',
+              headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+              body: JSON.stringify({ domain: domainId, originalURL: destUrl.toString(), title: `LM — ${commenterUsername}`, path: lmPath }),
+            });
+
+            if (res.status === 409) {
+              // Lien déjà existant pour ce lead → récupérer l'URL existante
+              const existingRes = await fetch(
+                `https://api.short.io/api/links?domain_id=${domainId}&limit=150`,
+                { headers: { authorization: apiKey, accept: 'application/json' } }
+              );
+              const existingData = await existingRes.json().catch(() => ({}));
+              const existing = (existingData?.links || []).find((l: any) => l.path === lmPath);
+              if (existing) shortLink = existing.secureShortURL || existing.shortURL || shortLink;
+            } else if (res.ok) {
+              const data = await res.json().catch(() => ({}));
+              if (data.secureShortURL || data.shortURL) shortLink = data.secureShortURL || data.shortURL;
+            } else {
+              console.warn('[IG Webhook] Short.io lien LM personnalisé échoué, fallback lm_short_url, status:', res.status);
+            }
           }
         } catch (err) {
           console.warn('[IG Webhook] Short.io lien LM personnalisé exception, fallback lm_short_url:', err);
