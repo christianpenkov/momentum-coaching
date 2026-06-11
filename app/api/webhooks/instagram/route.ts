@@ -244,7 +244,7 @@ export async function POST(request: Request) {
 
       const { data: contentLinks } = await serviceSupabase
         .from('content_links')
-        .select('lm_keyword, lm_short_url, dm_opener_message, dm_lm_message')
+        .select('lm_keyword, lm_short_url, lm_url, dm_opener_message, dm_lm_message')
         .eq('profile_id', profile_id)
         .eq('content_id', mediaId)
         .not('lm_keyword', 'is', null)
@@ -272,7 +272,36 @@ export async function POST(request: Request) {
       pushEvent({ type: 'keyword_matched', keyword: matchedKeyword, commenterUsername, mediaId });
 
       let leadMagnetSent = false;
-      const shortLink = cl.lm_short_url;
+
+      // Génère un lien Short.io unique par (lead × post × keyword) si lm_url est disponible
+      let shortLink = cl.lm_short_url;
+      if (cl.lm_url && commenterUsername) {
+        const lmPath = `lm-${cl.lm_keyword.toLowerCase().replace(/[^a-z0-9]/g, '')}-${commenterUsername.toLowerCase().replace(/[^a-z0-9_]/g, '')}`;
+        try {
+          const shortioRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/shortio/links`, {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+              profileId: profile_id,
+              originalUrl: cl.lm_url,
+              title: `LM — ${commenterUsername}`,
+              utmSource: 'ig',
+              utmMedium: 'dm',
+              utmCampaign: `lm-${cl.lm_keyword.toLowerCase()}`,
+              utmContent: commenterUsername.toLowerCase(),
+              path: lmPath,
+            }),
+          });
+          if (shortioRes.ok) {
+            const shortioData = await shortioRes.json();
+            if (shortioData.shortUrl) shortLink = shortioData.shortUrl;
+          } else {
+            console.warn('[IG Webhook] Short.io lien LM personnalisé échoué, fallback lm_short_url');
+          }
+        } catch (err) {
+          console.warn('[IG Webhook] Short.io lien LM personnalisé exception, fallback lm_short_url:', err);
+        }
+      }
 
       // Construit le DM 1 : remplace {{lien_lm}} par le lien, ou utilise le message par défaut
       const rawDm1 = cl.dm_lm_message || `👋 Voici le lien comme promis ! {{lien_lm}}`;

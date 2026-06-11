@@ -93,9 +93,10 @@ export async function POST() {
   if (!userUri) return NextResponse.json({ error: 'Profil Calendly introuvable' }, { status: 400 });
 
   // Stocke user_uri dans metadata pour que le webhook Calendly puisse résoudre le profil organisateur
+  // Le token Calendly est sur calendlyProfileId (le coach), pas leadsProfileId (l'élève)
   await serviceSupabase.from('integrations').update({
     metadata: { ...meData?.resource, user_uri: userUri },
-  }).eq('profile_id', leadsProfileId).eq('provider', 'calendly');
+  }).eq('profile_id', calendlyProfileId).eq('provider', 'calendly');
 
   const eventsRes = await fetch(
     `https://api.calendly.com/scheduled_events?user=${encodeURIComponent(userUri)}&status=active&count=100`,
@@ -227,6 +228,9 @@ export async function POST() {
         name: inviteeName,
         source: effectiveSource,
       });
+      if (!prospectId) {
+        console.warn('[calendly/sync] prospect non résolu — email et nom manquants, eventUuid:', eventUuid);
+      }
     }
 
     // Champs de base — toujours écrits

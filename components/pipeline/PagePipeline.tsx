@@ -200,6 +200,7 @@ interface CardData {
   noSource?: boolean;
   // Badges post-call
   badge?: 'no_show' | 'rescheduled' | null;
+  lmClickedAt?: string | null;
   // Pour afficher le bouton compte-rendu
   callId?: string;
   callScheduledAt?: string;
@@ -272,6 +273,14 @@ function PipelineCard({
             {card.badge === 'rescheduled' && (
               <span style={{ fontSize: 9, fontWeight: 700, background: '#fffbeb', color: '#d97706', border: '1px solid #fcd34d', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
                 Reporté
+              </span>
+            )}
+            {card.lmClickedAt && (
+              <span
+                title={`Lead magnet ouvert le ${new Date(card.lmClickedAt).toLocaleDateString('fr-FR')}`}
+                style={{ fontSize: 9, fontWeight: 700, background: '#f0fdf4', color: '#16a34a', border: '1px solid #86efac', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}
+              >
+                ✓ LM
               </span>
             )}
           </div>
@@ -764,6 +773,8 @@ export default function PagePipeline() {
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
 
+      const lmClickedEvent = lead ? events.find(e => e.ig_lead_id === lead.id && e.event_type === 'lm_clicked') : null;
+
       igCards.push({
         key: username,
         name: username,
@@ -772,6 +783,7 @@ export default function PagePipeline() {
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
         badge,
+        lmClickedAt: lmClickedEvent?.occurred_at ?? null,
         callId: call?.id ?? undefined,
         callScheduledAt: call?.scheduled_at ?? undefined,
         callStatus: call?.status ?? undefined,

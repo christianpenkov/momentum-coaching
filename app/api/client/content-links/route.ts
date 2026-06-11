@@ -36,7 +36,7 @@ export async function POST(request: Request) {
     desc_calendly_short_id, desc_calendly_short_url,
     desc_lm_short_id, desc_lm_short_url, desc_lm_lm_id,
     desc_custom_short_id, desc_custom_short_url,
-    lm_id, lm_short_url, lm_keyword, dm_opener_message, dm_lm_message,
+    lm_id, lm_short_url, lm_url, lm_keyword, dm_opener_message, dm_lm_message,
   } = body;
 
   if (!content_id || !platform) return NextResponse.json({ error: 'content_id et platform requis' }, { status: 400 });
@@ -63,6 +63,7 @@ export async function POST(request: Request) {
       ...(desc_custom_short_url !== undefined && { desc_custom_short_url }),
       ...(lm_id !== undefined && { lm_id }),
       ...(lm_short_url !== undefined && { lm_short_url }),
+      ...(lm_url !== undefined && { lm_url }),
       ...(lm_keyword !== undefined && { lm_keyword }),
       ...(dm_opener_message !== undefined && { dm_opener_message }),
       ...(dm_lm_message !== undefined && { dm_lm_message }),

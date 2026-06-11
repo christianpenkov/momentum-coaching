@@ -975,7 +975,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       // Sauvegarder dans content_links
       await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null }),
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_url: lmUrl || null, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null }),
       });
       setResult(shortUrl);
       setDm2Text(dmMessage || '');

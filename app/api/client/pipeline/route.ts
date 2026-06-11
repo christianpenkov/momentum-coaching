@@ -23,7 +23,7 @@ export async function GET() {
   const calendlyConnectedAt: string | null = integRow?.connected_at ?? null;
 
   let callsQuery = supa.from('calls')
-    .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, no_show_at, deal_closed, revenue, source, ig_lead_id, prospect_id, utm_content, utm_medium, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason')
+    .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason')
     .or(`coach_id.eq.${user.id},client_id.in.(select id from clients where profile_id = '${user.id}')`)
     .not('calendly_event_uuid', 'is', null)
     .order('scheduled_at', { ascending: false });

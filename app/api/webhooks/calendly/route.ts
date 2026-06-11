@@ -113,11 +113,6 @@ export async function POST(request: NextRequest) {
     let leadsProfileId: string | null = inheritedCoachId ?? null;
 
     if (!leadsProfileId && organizerUri) {
-      const { data: integ } = await serviceSupabase
-        .from('integrations')
-        .select('profile_id, metadata')
-        .eq('provider', 'calendly')
-        .maybeSingle();
       // Cherche le profil dont l'URI Calendly correspond à l'organisateur
       const { data: allInteg } = await serviceSupabase
         .from('integrations')
@@ -207,6 +202,9 @@ export async function POST(request: NextRequest) {
         name: inviteeName,
         source: effectiveSource,
       });
+      if (!prospectId) {
+        console.warn('[webhook/calendly] prospect non résolu — email et nom manquants, eventUuid:', eventUuid);
+      }
     }
 
     const baseUpsert: Record<string, any> = {

@@ -200,7 +200,38 @@ export async function syncCalendlyEleve(
       if (inheritedIgLeadId)      upsertData.ig_lead_id = inheritedIgLeadId;
       if (inheritedProspectLinkId) upsertData.prospect_link_id = inheritedProspectLinkId;
 
-      await serviceSupabase.from('calls').upsert(upsertData, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false });
+      const { data: callRow } = await serviceSupabase.from('calls')
+        .upsert(upsertData, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false })
+        .select('id, ig_lead_id')
+        .maybeSingle();
+
+      // Call annulé : faire reculer le lead dans le pipeline (même logique que webhook invitee.canceled)
+      if (isCanceled && callRow?.ig_lead_id) {
+        const { data: leadRow } = await serviceSupabase
+          .from('instagram_leads').select('ig_username, profile_id').eq('id', callRow.ig_lead_id).single();
+        if (leadRow) {
+          const { data: eventsRows } = await serviceSupabase
+            .from('prospect_events')
+            .select('event_type')
+            .eq('profile_id', leadRow.profile_id)
+            .eq('prospect_key', leadRow.ig_username.toLowerCase())
+            .eq('platform', 'ig')
+            .order('occurred_at', { ascending: false });
+
+          let bestStage = 'lm_sent';
+          if (eventsRows?.some((e: any) => e.event_type === 'link_clicked')) bestStage = 'link_clicked';
+          else if (eventsRows?.some((e: any) => e.event_type === 'calendly_link_sent')) bestStage = 'calendly_sent';
+
+          await serviceSupabase.from('pipeline_overrides').upsert({
+            profile_id: leadRow.profile_id,
+            prospect_key: leadRow.ig_username.toLowerCase(),
+            platform: 'ig',
+            stage: bestStage,
+            reason: 'canceled',
+            updated_at: new Date().toISOString(),
+          }, { onConflict: 'profile_id,prospect_key,platform' });
+        }
+      }
 
       synced++;
     } catch (e: any) {
