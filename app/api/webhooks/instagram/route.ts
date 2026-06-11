@@ -286,8 +286,9 @@ export async function POST(request: Request) {
             .eq('provider', 'shortio')
             .single();
 
-          if (shortioInteg?.api_key && shortioInteg?.metadata?.domain_id) {
+          if (shortioInteg?.api_key && shortioInteg?.metadata?.domain && shortioInteg?.metadata?.domain_id) {
             const apiKey = shortioInteg.api_key;
+            const domain = shortioInteg.metadata.domain;
             const domainId = shortioInteg.metadata.domain_id;
 
             // Construit l'URL avec UTMs
@@ -300,7 +301,7 @@ export async function POST(request: Request) {
             const res = await fetch('https://api.short.io/links', {
               method: 'POST',
               headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
-              body: JSON.stringify({ domain: domainId, originalURL: destUrl.toString(), title: `LM — ${commenterUsername}`, path: lmPath }),
+              body: JSON.stringify({ domain, originalURL: destUrl.toString(), title: `LM — ${commenterUsername}`, path: lmPath }),
             });
 
             if (res.status === 409) {
