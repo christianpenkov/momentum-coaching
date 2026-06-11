@@ -3034,6 +3034,7 @@ interface MockLead {
   leadMagnetSent: boolean;
   hookReplied?: boolean;
   trackingLink?: string | null;
+  lmClicked?: boolean;
 }
 
 interface DestinationLink {
@@ -5104,7 +5105,13 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     const histForLm = (lmHistory ?? []).filter(h => h.keyword_matched?.toLowerCase() === lm.keyword?.toLowerCase());
                     const lmLeads = (leads as any[]).filter(l => l.keyword?.toLowerCase() === lm.keyword?.toLowerCase());
                     const leadsCount = histForLm.filter(h => h.lead_magnet_sent).length;
-                    const clicsLM = lmLeads.filter(l => l.lmClicked).length;
+                    // Clics LM réels depuis Short.io : liens avec path lm-{keyword}-* (utm_medium=leadmagnet ou dm)
+                    const lmKeywordSlug = (lm.keyword || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+                    const lmShortLinks = allShortioLinks.filter((sl: any) => {
+                      const path: string = sl.path || '';
+                      return path.startsWith(`lm-${lmKeywordSlug}-`) || path.startsWith(`lm-${lmKeywordSlug}`);
+                    });
+                    const clicsLM = lmShortLinks.reduce((s: number, sl: any) => s + linkClics(sl), 0);
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
                     // Liens Calendly envoyés depuis les prospects liés à ce LM
                     const lmProspects = prospectLinks.filter((l: any) => {
