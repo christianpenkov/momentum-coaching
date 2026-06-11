@@ -276,6 +276,13 @@ function PipelineCard({
                 Reporté
               </span>
             )}
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
+            {card.sub && (
+              <span style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {card.sub}
+              </span>
+            )}
             {card.lmClickedAt && (
               <span
                 title={`Lead magnet ouvert le ${new Date(card.lmClickedAt).toLocaleDateString('fr-FR')}`}
@@ -285,11 +292,6 @@ function PipelineCard({
               </span>
             )}
           </div>
-          {card.sub && (
-            <div style={{ fontSize: 10, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1 }}>
-              {card.sub}
-            </div>
-          )}
         </div>
         <div style={{ fontSize: 10, color: 'var(--faint)', flexShrink: 0 }}>{card.date}</div>
       </div>
