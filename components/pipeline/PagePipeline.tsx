@@ -768,7 +768,12 @@ export default function PagePipeline() {
       // 2) sinon le premier par scheduled_at DESC (déjà trié par la query)
       const matchingCalls = data.calls.filter(c => {
         if (lead && c.ig_lead_id === lead.id) return true;
-        if (prospect && c.short_link_path && prospectPath && c.short_link_path === prospectPath) return true;
+        // short_link_path uniquement si le call n'a pas d'ig_lead_id lié à un autre lead
+        // (évite qu'un call d'un ancien lead supprimé soit rattaché au nouveau lead du même username)
+        if (prospect && c.short_link_path && prospectPath && c.short_link_path === prospectPath) {
+          if (c.ig_lead_id && lead && c.ig_lead_id !== lead.id) return false;
+          return true;
+        }
         return false;
       });
       const call = matchingCalls.find(c => c.status === 'active' && !c.no_show) ?? matchingCalls[0];
