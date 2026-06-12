@@ -789,7 +789,14 @@ export default function PagePipeline() {
       let latestNaturalSignalAt: string | null = null;
       if (lead?.hook_replied) { natural = 'in_convo'; latestNaturalSignalAt = lead.hook_replied_at ?? null; }
       if (calendlySentValid) { natural = 'calendly_sent'; latestNaturalSignalAt = prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at ?? null; }
-      if (linkClickedValid) { natural = 'link_clicked'; latestNaturalSignalAt = prospect?.first_click_at ?? null; }
+      if (linkClickedValid) {
+        natural = 'link_clicked';
+        // max(first_click_at, last_calendly_link_sent_at) : renvoyer le lien après un recul
+        // doit aussi compter comme signal récent, même si le clic est antérieur
+        const t1 = prospect?.first_click_at ?? null;
+        const t2 = prospect?.last_calendly_link_sent_at ?? null;
+        latestNaturalSignalAt = t1 && t2 ? (new Date(t1) > new Date(t2) ? t1 : t2) : (t1 ?? t2);
+      }
 
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
