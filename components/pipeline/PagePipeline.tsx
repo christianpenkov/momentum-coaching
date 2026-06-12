@@ -322,7 +322,7 @@ function PipelineCard({
       {/* Bouton compte-rendu dès le début du call */}
       {showCompteRendu && (
         <a
-          href={`/client/calls/${card.callId}`}
+          href={`/client/calls?rapport=${card.callId}`}
           draggable={false}
           onMouseDown={e => e.stopPropagation()}
           style={{

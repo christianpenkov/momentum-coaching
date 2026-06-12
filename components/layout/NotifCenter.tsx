@@ -16,14 +16,15 @@ export default function NotifCenter({ notifs, onClose, onRapportDone }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [rapportNotif, setRapportNotif] = useState<AppNotif | null>(null);
 
-  // Ferme si clic dehors
+  // Ferme si clic dehors — désactivé si la modale rapport est ouverte
   useEffect(() => {
     function handler(e: MouseEvent) {
+      if (rapportNotif) return;
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
+  }, [onClose, rapportNotif]);
 
   function handleRapportDone() {
     setRapportNotif(null);
