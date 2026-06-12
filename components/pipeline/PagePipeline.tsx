@@ -73,6 +73,7 @@ interface Override {
   stage: string;
   updated_at: string;
   reason?: string | null;
+  natural_at_override?: string | null; // stage naturel au moment du recul
 }
 
 interface ProspectEvent {
@@ -150,24 +151,34 @@ function resolveStage(
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
   overrideReason?: string | null,
+  naturalAtOverride?: string | null,
   overrideUpdatedAt?: string | null,
-  naturalSignalAt?: string | null,
+  latestNaturalSignalAt?: string | null,
 ): string {
   if (!overrideKey) return naturalKey;
 
-  const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
-  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
+  const naturalIdx           = stages.findIndex(s => s.key === naturalKey);
+  const overrideIdx          = stages.findIndex(s => s.key === overrideKey);
+  const naturalAtOverrideIdx = naturalAtOverride ? stages.findIndex(s => s.key === naturalAtOverride) : -1;
 
   if (overrideReason === 'manual') {
-    if (naturalIdx <= overrideIdx) return overrideKey; // naturel pas encore devant → override tient
-    // naturel devant : il gagne seulement si le signal qui le cause est POSTÉRIEUR au recul
-    if (overrideUpdatedAt && naturalSignalAt) {
-      if (new Date(naturalSignalAt) > new Date(overrideUpdatedAt)) return naturalKey;
-    } else {
-      // pas de timestamps → le naturel gagne (signal antérieur inconnu, on fait confiance au naturel)
-      return naturalKey;
+    // Cas 1 : le naturel a PROGRESSÉ au-delà de ce qu'il était au moment du recul
+    // → un nouveau signal plus avancé est arrivé → naturel gagne
+    if (naturalAtOverrideIdx >= 0 && naturalIdx > naturalAtOverrideIdx) return naturalKey;
+
+    // Cas 2 : le naturel est au MÊME niveau qu'au moment du recul, mais un signal
+    // plus récent que le recul existe (ex: nouveau message après recul in_convo→lm_sent)
+    // → utiliser overrideUpdatedAt vs latestNaturalSignalAt pour trancher
+    if (naturalAtOverrideIdx >= 0 && naturalIdx === naturalAtOverrideIdx) {
+      if (overrideUpdatedAt && latestNaturalSignalAt) {
+        if (new Date(latestNaturalSignalAt) > new Date(overrideUpdatedAt)) return naturalKey;
+      }
     }
-    return overrideKey; // signal antérieur au recul → override tient
+
+    // Cas 3 : override ancien sans natural_at_override → fallback index simple
+    if (naturalAtOverrideIdx < 0 && naturalIdx > overrideIdx) return naturalKey;
+
+    return overrideKey;
   }
 
   // Override automatique : naturel >= override → on suit le naturel
@@ -216,6 +227,7 @@ interface CardData {
   callId?: string;
   callScheduledAt?: string;
   callStatus?: string;
+  naturalKey: string; // stage naturel avant override — pour natural_at_override
 }
 
 function PipelineCard({
@@ -676,6 +688,7 @@ export default function PagePipeline() {
     targetStageKey: string;
     targetStageLabel: string;
     callId: string | null;
+    naturalKey: string; // stage naturel au moment du drag — stocké dans natural_at_override
   } | null>(null);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
@@ -720,16 +733,16 @@ export default function PagePipeline() {
     return merged;
   })();
 
-  const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt' | 'other', stage: string, reason?: string) => {
+  const saveOverride = useCallback(async (key: string, platform: 'ig' | 'yt' | 'other', stage: string, reason?: string, naturalAtOverride?: string) => {
     setOverrides(prev => {
       const idx = prev.findIndex(o => o.prospect_key === key && o.platform === platform);
-      const entry: Override = { prospect_key: key, platform, stage, updated_at: new Date().toISOString(), reason };
+      const entry: Override = { prospect_key: key, platform, stage, updated_at: new Date().toISOString(), reason, natural_at_override: naturalAtOverride ?? null };
       return idx >= 0 ? prev.map((o, i) => i === idx ? entry : o) : [...prev, entry];
     });
     await fetch('/api/client/pipeline', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ prospect_key: key, platform, stage, reason }),
+      body: JSON.stringify({ prospect_key: key, platform, stage, reason, natural_at_override: naturalAtOverride ?? null }),
     });
   }, []);
 
@@ -773,27 +786,10 @@ export default function PagePipeline() {
         new Date(prospect.first_click_at) > new Date(prospect.calendly_link_sent_at);
 
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
-      let naturalSignalAt: string | null = null;
-      if (lead?.hook_replied) { natural = 'in_convo'; naturalSignalAt = lead.hook_replied_at ?? null; }
-      if (calendlySentValid) {
-        natural = 'calendly_sent';
-        // last_calendly_link_sent_at = timestamp du dernier renvoi → permet de détecter
-        // qu'un envoi a eu lieu APRÈS un recul manuel, même si first_click_at existe déjà
-        naturalSignalAt = prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at ?? null;
-      }
-      if (linkClickedValid) {
-        natural = 'link_clicked';
-        // naturalSignalAt = max(first_click_at, last_calendly_link_sent_at)
-        // Renvoyer le lien après un recul doit aussi compter comme signal récent,
-        // même si le natural reste link_clicked (clic antérieur + renvoi postérieur)
-        const clickAt = prospect?.first_click_at ?? null;
-        const lastSentAt = prospect?.last_calendly_link_sent_at ?? null;
-        if (clickAt && lastSentAt) {
-          naturalSignalAt = new Date(clickAt) > new Date(lastSentAt) ? clickAt : lastSentAt;
-        } else {
-          naturalSignalAt = clickAt ?? lastSentAt;
-        }
-      }
+      let latestNaturalSignalAt: string | null = null;
+      if (lead?.hook_replied) { natural = 'in_convo'; latestNaturalSignalAt = lead.hook_replied_at ?? null; }
+      if (calendlySentValid) { natural = 'calendly_sent'; latestNaturalSignalAt = prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at ?? null; }
+      if (linkClickedValid) { natural = 'link_clicked'; latestNaturalSignalAt = prospect?.first_click_at ?? null; }
 
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
@@ -829,14 +825,12 @@ export default function PagePipeline() {
           if (new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
         } else {
           natural = 'call_booked';
-          naturalSignalAt = call.scheduled_at ?? null;
-          // C1 fix : showed_up uniquement via formulaire (deal_closed) — plus d'auto
-          if (call.deal_closed) { natural = 'closed'; naturalSignalAt = null; }
+          if (call.deal_closed) natural = 'closed';
         }
       }
 
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason, override?.updated_at, naturalSignalAt);
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason, override?.natural_at_override, override?.updated_at, latestNaturalSignalAt);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
@@ -855,6 +849,7 @@ export default function PagePipeline() {
         callId: call?.id ?? undefined,
         callScheduledAt: call?.scheduled_at ?? undefined,
         callStatus: call?.status ?? undefined,
+        naturalKey: natural,
       });
     }
   }
@@ -923,6 +918,7 @@ export default function PagePipeline() {
         callId: latestCall.id,
         callScheduledAt: latestCall.scheduled_at,
         callStatus: latestCall.status,
+        naturalKey: natural,
       };
 
       if (noSource) {
@@ -1025,30 +1021,32 @@ export default function PagePipeline() {
 
     const targetStageLabel = activeStages.find(s => s.key === targetStageKey)?.label ?? targetStageKey;
 
+    const naturalKey = card.naturalKey;
+
     if (isBackwardFromPostCall) {
-      setConfirmModal({ case: 'backward_from_post_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
+      setConfirmModal({ case: 'backward_from_post_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
       return;
     }
     if (isForwardToCallBooked) {
-      setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
+      setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
       return;
     }
     if (isForwardToShowedUp) {
-      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
+      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
       return;
     }
     if (isForwardToClosed) {
-      setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
+      setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
       return;
     }
 
     // Tous les autres mouvements → modale simple
-    setConfirmModal({ case: 'simple_move', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
+    setConfirmModal({ case: 'simple_move', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
   };
 
   const handleConfirmMove = async (reason: string) => {
     if (!confirmModal) return;
-    const { case: modalCase, cardKey, targetStageKey, callId } = confirmModal;
+    const { case: modalCase, cardKey, targetStageKey, callId, naturalKey } = confirmModal;
     setConfirmModal(null);
 
     if (modalCase === 'backward_from_post_call') {
@@ -1063,7 +1061,6 @@ export default function PagePipeline() {
           await patchCall(callId, { cancellation_reason: 'cold' });
         }
       }
-      // Meilleure étape connue : IG → via prospect_events, YT/Autres → call_booked (le seul signal connu)
       let bestStage: string;
       if (tab === 'ig') {
         const lead = data?.leads.find(l => l.ig_username.toLowerCase() === cardKey);
@@ -1072,16 +1069,16 @@ export default function PagePipeline() {
       } else {
         bestStage = 'call_booked';
       }
-      await saveOverride(cardKey, platform, bestStage, reason);
+      await saveOverride(cardKey, platform, bestStage, reason, naturalKey);
     } else if (modalCase === 'forward_to_call_booked') {
-      await saveOverride(cardKey, platform, 'call_booked', 'manual');
+      await saveOverride(cardKey, platform, 'call_booked', 'manual', naturalKey);
     } else if (modalCase === 'forward_to_showed_up') {
-      await saveOverride(cardKey, platform, 'showed_up', 'manual');
+      await saveOverride(cardKey, platform, 'showed_up', 'manual', naturalKey);
     } else if (modalCase === 'forward_to_closed') {
       if (callId) await patchCall(callId, { deal_closed: true });
-      await saveOverride(cardKey, platform, 'closed', 'manual');
+      await saveOverride(cardKey, platform, 'closed', 'manual', naturalKey);
     } else if (modalCase === 'simple_move') {
-      await saveOverride(cardKey, platform, targetStageKey, 'manual');
+      await saveOverride(cardKey, platform, targetStageKey, 'manual', naturalKey);
     }
 
     await refetch();

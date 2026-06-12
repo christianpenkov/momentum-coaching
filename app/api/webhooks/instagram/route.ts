@@ -219,49 +219,47 @@ export async function POST(request: Request) {
       if (!senderId || !msgText) continue;
 
       // Le sender est le prospect — cherche un lead avec cet ig_user_id
-      // qui a reçu le LM (lead_magnet_sent = true) et n'a pas encore répondu
+      // qui a reçu le LM (lead_magnet_sent = true).
+      // On cherche SANS filtrer sur hook_replied pour toujours mettre à jour hook_replied_at
+      // (même si déjà true) → permet de détecter un nouveau message après un recul manuel.
 
       const { data: leadToUpdate } = await serviceSupabase
         .from('instagram_leads')
-        .select('id, hook_replied')
+        .select('id, hook_replied, ig_username')
         .eq('profile_id', pid)
         .eq('ig_user_id', senderId)
         .eq('lead_magnet_sent', true)
-        .eq('hook_replied', false)
         .order('detected_at', { ascending: false })
         .limit(1)
         .maybeSingle();
 
       if (leadToUpdate) {
         const hookRepliedAt = new Date().toISOString();
+        const wasAlreadyReplied = leadToUpdate.hook_replied;
         await serviceSupabase
           .from('instagram_leads')
           .update({
             hook_replied: true,
             hook_reply_text: msgText.slice(0, 500),
-            hook_replied_at: hookRepliedAt,
+            hook_replied_at: hookRepliedAt, // toujours mis à jour → trace le dernier message
           })
           .eq('id', leadToUpdate.id);
 
-        // Récupère ig_username pour prospect_key
-        const { data: leadFull } = await serviceSupabase
-          .from('instagram_leads').select('ig_username').eq('id', leadToUpdate.id).single();
-        if (leadFull?.ig_username) {
+        if (leadToUpdate.ig_username) {
+          // Insère un event hook_replied à chaque message (pas de dédup ici — chaque message compte)
           serviceSupabase.from('prospect_events').insert({
             profile_id:  pid,
-            prospect_key: leadFull.ig_username.toLowerCase(),
+            prospect_key: leadToUpdate.ig_username.toLowerCase(),
             platform:    'ig',
             event_type:  'hook_replied',
             occurred_at: hookRepliedAt,
             ig_lead_id:  leadToUpdate.id,
           }).then(({ error: evtErr }) => {
-            if (evtErr && !evtErr.message.includes('duplicate')) {
-              console.error('[IG Webhook] prospect_events hook_replied:', evtErr.message);
-            }
+            if (evtErr) console.error('[IG Webhook] prospect_events hook_replied:', evtErr.message);
           });
         }
 
-        console.log(`[IG Webhook] hook_replied=true — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}, reply: "${msgText.slice(0, 50)}"`);
+        console.log(`[IG Webhook] hook_replied${wasAlreadyReplied ? ' (repeat)' : ''} — ig_user_id: ${senderId}, lead: ${leadToUpdate.id}, reply: "${msgText.slice(0, 50)}"`);
         pushEvent({ type: 'hook_replied', ig_user_id: senderId, lead_id: leadToUpdate.id, reply_text: msgText.slice(0, 100) });
       }
     }

@@ -48,7 +48,7 @@ export async function GET() {
       .order('created_at', { ascending: false }),
     callsQuery,
     supa.from('pipeline_overrides')
-      .select('prospect_key, platform, stage, updated_at, reason')
+      .select('prospect_key, platform, stage, updated_at, reason, natural_at_override')
       .eq('profile_id', user.id),
     supa.from('shortio_link_daily_snapshots')
       .select('short_url, human_clicks')
@@ -93,12 +93,13 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { prospect_key, platform, stage, reason } = body;
+  const { prospect_key, platform, stage, reason, natural_at_override } = body;
   if (!prospect_key || !platform || !stage) return NextResponse.json({ error: 'Champs requis manquants' }, { status: 400 });
 
   const { error } = await supa.from('pipeline_overrides').upsert({
     profile_id: user.id, prospect_key, platform, stage, updated_at: new Date().toISOString(),
     ...(reason ? { reason } : {}),
+    ...(natural_at_override !== undefined ? { natural_at_override } : {}),
   }, { onConflict: 'profile_id,prospect_key,platform' });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
