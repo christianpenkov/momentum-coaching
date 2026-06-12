@@ -282,9 +282,11 @@ export async function syncCalendlyEleve(
       // Écrire call_booked dans prospect_events si lead résolu et call actif
       // prospect_events_call_event_uidx est un index partiel (WHERE call_id IS NOT NULL)
       // → onConflict incompatible avec Supabase → select + insert conditionnel
-      if (!isCanceled && callRow?.id && finalIgLeadId) {
+      // Fallback : si finalIgLeadId null mais que le call avait déjà un ig_lead_id en DB, l'utiliser
+      const effectiveIgLeadId = finalIgLeadId ?? callRow?.ig_lead_id ?? null;
+      if (!isCanceled && callRow?.id && effectiveIgLeadId) {
         const { data: igLead } = await serviceSupabase
-          .from('instagram_leads').select('ig_username').eq('id', finalIgLeadId).single();
+          .from('instagram_leads').select('ig_username').eq('id', effectiveIgLeadId).single();
         if (igLead) {
           const { data: existingEvt } = await serviceSupabase
             .from('prospect_events')
@@ -299,7 +301,7 @@ export async function syncCalendlyEleve(
               platform:         'ig',
               event_type:       'call_booked',
               occurred_at:      scheduledAt ?? new Date().toISOString(),
-              ig_lead_id:       finalIgLeadId,
+              ig_lead_id:       effectiveIgLeadId,
               prospect_link_id: finalProspectLinkId,
               call_id:          callRow.id,
             }).then(({ error: evtErr }) => {
@@ -309,7 +311,7 @@ export async function syncCalendlyEleve(
           // Lier le lead au call dans l'autre sens
           await serviceSupabase.from('instagram_leads')
             .update({ calendly_event_uuid: eventUuid })
-            .eq('id', finalIgLeadId);
+            .eq('id', effectiveIgLeadId);
         }
       }
 
