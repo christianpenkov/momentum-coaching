@@ -180,7 +180,14 @@ function getBestKnownStage(
   events: ProspectEvent[],
 ): IgStageKey {
   const username = (prospect?.ig_username ?? lead?.ig_username ?? '').toLowerCase();
-  const leadEvents = events.filter(e => e.prospect_key.toLowerCase() === username && e.platform === 'ig');
+  // Si le lead a un id connu, on n'accepte que les events liés à CE lead précis
+  // (ou sans ig_lead_id pour les events legacy). Évite qu'un event d'un ancien lead
+  // contaminate un nouveau lead du même username.
+  const leadEvents = events.filter(e => {
+    if (e.prospect_key.toLowerCase() !== username || e.platform !== 'ig') return false;
+    if (lead?.id && e.ig_lead_id && e.ig_lead_id !== lead.id) return false;
+    return true;
+  });
   if (leadEvents.some(e => e.event_type === 'link_clicked')) return 'link_clicked';
   if (leadEvents.some(e => e.event_type === 'calendly_link_sent')) return 'calendly_sent';
   if (lead?.hook_replied) return 'in_convo';

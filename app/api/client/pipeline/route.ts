@@ -116,11 +116,32 @@ export async function DELETE(request: Request) {
   const { ig_username } = body;
   if (!ig_username) return NextResponse.json({ error: 'ig_username requis' }, { status: 400 });
 
-  await Promise.all([
+  // Récupère les ig_lead_ids à supprimer avant de faire les deletes
+  const { data: leadsToDelete } = await supa
+    .from('instagram_leads')
+    .select('id')
+    .eq('profile_id', user.id)
+    .eq('ig_username', ig_username);
+
+  const leadIds = (leadsToDelete ?? []).map((l: any) => l.id);
+
+  const deleteOps: Promise<any>[] = [
     supa.from('instagram_leads').delete().eq('profile_id', user.id).eq('ig_username', ig_username),
     supa.from('prospect_links').delete().eq('profile_id', user.id).eq('ig_username', ig_username),
     supa.from('pipeline_overrides').delete().eq('profile_id', user.id).eq('prospect_key', ig_username),
-  ]);
+    // Nettoie les events liés au(x) lead(s) supprimé(s) pour éviter pollution du pipeline
+    // si le même username recommente plus tard (nouveau lead, histoire repart de zéro)
+    supa.from('prospect_events').delete().eq('profile_id', user.id).eq('prospect_key', ig_username.toLowerCase()),
+  ];
+
+  // Si des ig_lead_ids existent, nettoie aussi par FK directe (redondant mais exhaustif)
+  if (leadIds.length > 0) {
+    deleteOps.push(
+      supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds),
+    );
+  }
+
+  await Promise.all(deleteOps);
 
   return NextResponse.json({ ok: true });
 }
