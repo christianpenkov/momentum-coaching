@@ -150,38 +150,11 @@ function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
-  overrideReason?: string | null,
-  naturalAtOverride?: string | null,
-  overrideUpdatedAt?: string | null,
-  latestNaturalSignalAt?: string | null,
 ): string {
   if (!overrideKey) return naturalKey;
-
-  const naturalIdx           = stages.findIndex(s => s.key === naturalKey);
-  const overrideIdx          = stages.findIndex(s => s.key === overrideKey);
-  const naturalAtOverrideIdx = naturalAtOverride ? stages.findIndex(s => s.key === naturalAtOverride) : -1;
-
-  if (overrideReason === 'manual') {
-    // Cas 1 : le naturel a PROGRESSÉ au-delà de ce qu'il était au moment du recul
-    // → un nouveau signal plus avancé est arrivé → naturel gagne
-    if (naturalAtOverrideIdx >= 0 && naturalIdx > naturalAtOverrideIdx) return naturalKey;
-
-    // Cas 2 : le naturel est au MÊME niveau qu'au moment du recul, mais un signal
-    // plus récent que le recul existe (ex: nouveau message après recul in_convo→lm_sent)
-    // → utiliser overrideUpdatedAt vs latestNaturalSignalAt pour trancher
-    if (naturalAtOverrideIdx >= 0 && naturalIdx === naturalAtOverrideIdx) {
-      if (overrideUpdatedAt && latestNaturalSignalAt) {
-        if (new Date(latestNaturalSignalAt) > new Date(overrideUpdatedAt)) return naturalKey;
-      }
-    }
-
-    // Cas 3 : override ancien sans natural_at_override → fallback index simple
-    if (naturalAtOverrideIdx < 0 && naturalIdx > overrideIdx) return naturalKey;
-
-    return overrideKey;
-  }
-
-  // Override automatique : naturel >= override → on suit le naturel
+  const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
+  const overrideIdx = stages.findIndex(s => s.key === overrideKey);
+  // Le naturel gagne s'il est au moins aussi avancé que l'override
   if (naturalIdx >= overrideIdx) return naturalKey;
   return overrideKey;
 }
@@ -540,6 +513,7 @@ function KanbanColumn({
 // ── ConfirmMoveModal ──────────────────────────────────────────────────────────
 
 type ConfirmCase =
+  | 'backward_pre_call'         // recul vers un stage pré-call (reset complet des signaux)
   | 'backward_from_post_call'   // recul depuis call_booked / showed_up / closed
   | 'forward_to_call_booked'    // avancée manuelle vers call_booked
   | 'forward_to_showed_up'      // avancée manuelle vers showed_up
@@ -549,13 +523,42 @@ type ConfirmCase =
 interface ConfirmMoveModalProps {
   case: ConfirmCase;
   cardName: string;
+  targetStageKey: string;
   targetStageLabel: string;
+  currentStageKey: string;
   callId: string | null;
   onConfirm: (reason: string, extraData?: Record<string, any>) => void;
   onCancel: () => void;
 }
 
-function ConfirmMoveModal({ case: modalCase, cardName, targetStageLabel, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
+const PRE_CALL_STAGE_LABELS: Record<string, string> = {
+  lm_sent:       'LM reçu',
+  in_convo:      'En conversation',
+  calendly_sent: 'Calendly envoyé',
+  link_clicked:  'Lien cliqué',
+};
+
+function getResetDescription(targetStage: string, currentStage: string, hasCall: boolean): string[] {
+  const items: string[] = [];
+  const stages = ['lm_sent', 'in_convo', 'calendly_sent', 'link_clicked'];
+  const targetIdx = stages.indexOf(targetStage);
+
+  if (targetIdx < stages.indexOf('in_convo')) {
+    items.push('La réponse au message de bienvenue sera effacée');
+  }
+  if (targetIdx < stages.indexOf('calendly_sent')) {
+    items.push("L'envoi du lien Calendly sera effacé");
+  }
+  if (targetIdx < stages.indexOf('link_clicked')) {
+    items.push('Le clic sur le lien Calendly sera effacé');
+  }
+  if (hasCall) {
+    items.push('Le call Calendly réservé sera détaché (il reste dans ton historique mais ne sera plus lié à ce lead)');
+  }
+  return items;
+}
+
+function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetStageLabel, currentStageKey, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
   const [reason, setReason] = useState('');
 
   const backwardReasons = [
@@ -574,6 +577,28 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageLabel, callId,
         borderRadius: 12, padding: '24px 28px', minWidth: 340, maxWidth: 420,
         boxShadow: '0 8px 32px rgba(0,0,0,.18)',
       }}>
+        {modalCase === 'backward_pre_call' && (() => {
+          const resetItems = getResetDescription(targetStageKey, currentStageKey, !!callId);
+          return (
+            <>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+                Reculer @{cardName} vers &laquo;&nbsp;{targetStageLabel}&nbsp;&raquo;
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+                Pour repartir proprement depuis cette étape, voici ce qui sera effacé :
+              </div>
+              <ul style={{ margin: '0 0 16px 0', padding: '0 0 0 18px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {resetItems.map((item, i) => (
+                  <li key={i} style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.4 }}>{item}</li>
+                ))}
+              </ul>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 20, padding: '8px 12px', background: 'var(--surface-alt, #f8f8f8)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                Après ça, le pipeline reprendra automatiquement dès qu&apos;un nouveau signal arrive (message, lien envoyé, clic...).
+              </div>
+            </>
+          );
+        })()}
+
         {modalCase === 'backward_from_post_call' && (
           <>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Déplacer @{cardName} en arrière</div>
@@ -647,12 +672,12 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageLabel, callId,
             disabled={modalCase === 'backward_from_post_call' && !reason}
             style={{
               padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none',
-              background: modalCase === 'backward_from_post_call' && !reason ? 'var(--border)' : '#2563EB',
-              color: modalCase === 'backward_from_post_call' && !reason ? 'var(--muted)' : '#fff',
-              cursor: modalCase === 'backward_from_post_call' && !reason ? 'not-allowed' : 'pointer',
+              background: (modalCase === 'backward_from_post_call' && !reason) ? 'var(--border)' : (modalCase === 'backward_pre_call' ? '#DC2626' : '#2563EB'),
+              color: (modalCase === 'backward_from_post_call' && !reason) ? 'var(--muted)' : '#fff',
+              cursor: (modalCase === 'backward_from_post_call' && !reason) ? 'not-allowed' : 'pointer',
             }}
           >
-            Confirmer
+            {modalCase === 'backward_pre_call' ? 'Effacer et reculer' : 'Confirmer'}
           </button>
         </div>
       </div>
@@ -687,8 +712,9 @@ export default function PagePipeline() {
     cardName: string;
     targetStageKey: string;
     targetStageLabel: string;
+    currentStageKey: string;
     callId: string | null;
-    naturalKey: string; // stage naturel au moment du drag — stocké dans natural_at_override
+    naturalKey: string;
   } | null>(null);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
@@ -786,17 +812,9 @@ export default function PagePipeline() {
         new Date(prospect.first_click_at) > new Date(prospect.calendly_link_sent_at);
 
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
-      let latestNaturalSignalAt: string | null = null;
-      if (lead?.hook_replied) { natural = 'in_convo'; latestNaturalSignalAt = lead.hook_replied_at ?? null; }
-      if (calendlySentValid) { natural = 'calendly_sent'; latestNaturalSignalAt = prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at ?? null; }
-      if (linkClickedValid) {
-        natural = 'link_clicked';
-        // max(first_click_at, last_calendly_link_sent_at) : renvoyer le lien après un recul
-        // doit aussi compter comme signal récent, même si le clic est antérieur
-        const t1 = prospect?.first_click_at ?? null;
-        const t2 = prospect?.last_calendly_link_sent_at ?? null;
-        latestNaturalSignalAt = t1 && t2 ? (new Date(t1) > new Date(t2) ? t1 : t2) : (t1 ?? t2);
-      }
+      if (lead?.hook_replied) { natural = 'in_convo'; }
+      if (calendlySentValid) { natural = 'calendly_sent'; }
+      if (linkClickedValid)  { natural = 'link_clicked'; }
 
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
@@ -837,7 +855,7 @@ export default function PagePipeline() {
       }
 
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason, override?.natural_at_override, override?.updated_at, latestNaturalSignalAt);
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
@@ -900,7 +918,7 @@ export default function PagePipeline() {
       const platform: 'yt' | 'other' = effectiveSrc.startsWith('yt') ? 'yt' : 'other';
 
       const override = effectiveOverrides.find(o => o.prospect_key === prospectKey && o.platform === platform);
-      const stageKey = resolveStage(natural, override?.stage, YT_STAGES, override?.reason);
+      const stageKey = resolveStage(natural, override?.stage, YT_STAGES);
       const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
 
       // Badge : priorité au call le plus récent
@@ -1016,45 +1034,66 @@ export default function PagePipeline() {
     const currentStageIdx = activeStages.findIndex(s => s.key === card.stageKey);
     const targetStageIdx  = activeStages.findIndex(s => s.key === targetStageKey);
 
-    // Déterminer si on a besoin d'une modale de confirmation
+    // Ne rien faire si on drop sur la même colonne
+    if (card.stageKey === targetStageKey) return;
+
+    const targetStageLabel = activeStages.find(s => s.key === targetStageKey)?.label ?? targetStageKey;
+    const naturalKey = card.naturalKey;
+    const currentStageKey = card.stageKey;
+
+    // Déterminer le type de mouvement
+    const isBackwardPreCall =
+      tab === 'ig' &&
+      PRE_CALL_STAGES.has(targetStageKey as any) &&
+      targetStageIdx < currentStageIdx;
     const isBackwardFromPostCall =
       POST_CALL_STAGES.has(card.stageKey) && targetStageIdx < currentStageIdx;
     const isForwardToCallBooked = targetStageKey === 'call_booked' && !card.callId;
     const isForwardToShowedUp   = targetStageKey === 'showed_up';
     const isForwardToClosed     = targetStageKey === 'closed';
 
-    // Ne rien faire si on drop sur la même colonne
-    if (card.stageKey === targetStageKey) return;
-
-    const targetStageLabel = activeStages.find(s => s.key === targetStageKey)?.label ?? targetStageKey;
-
-    const naturalKey = card.naturalKey;
-
+    if (isBackwardPreCall) {
+      setConfirmModal({ case: 'backward_pre_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
+      return;
+    }
     if (isBackwardFromPostCall) {
-      setConfirmModal({ case: 'backward_from_post_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
+      setConfirmModal({ case: 'backward_from_post_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
       return;
     }
     if (isForwardToCallBooked) {
-      setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
+      setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
       return;
     }
     if (isForwardToShowedUp) {
-      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
+      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
       return;
     }
     if (isForwardToClosed) {
-      setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
+      setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
       return;
     }
 
     // Tous les autres mouvements → modale simple
-    setConfirmModal({ case: 'simple_move', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null, naturalKey });
+    setConfirmModal({ case: 'simple_move', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
   };
 
   const handleConfirmMove = async (reason: string) => {
     if (!confirmModal) return;
     const { case: modalCase, cardKey, targetStageKey, callId, naturalKey } = confirmModal;
     setConfirmModal(null);
+
+    if (modalCase === 'backward_pre_call') {
+      // Reset complet : supprime tous les signaux devant le targetStage
+      await fetch('/api/client/pipeline/reset', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ig_username: cardKey, target_stage: targetStageKey }),
+      });
+      // Supprimer l'override local pour que le natural prenne le dessus
+      setOverrides(prev => prev.filter(o => !(o.prospect_key === cardKey && o.platform === 'ig')));
+      await refetch();
+      return;
+    }
 
     if (modalCase === 'backward_from_post_call') {
       if (callId) {
@@ -1256,7 +1295,9 @@ export default function PagePipeline() {
         <ConfirmMoveModal
           case={confirmModal.case}
           cardName={confirmModal.cardName}
+          targetStageKey={confirmModal.targetStageKey}
           targetStageLabel={confirmModal.targetStageLabel}
+          currentStageKey={confirmModal.currentStageKey}
           callId={confirmModal.callId}
           onConfirm={handleConfirmMove}
           onCancel={() => setConfirmModal(null)}
