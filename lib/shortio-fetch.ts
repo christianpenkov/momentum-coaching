@@ -248,10 +248,11 @@ export async function upsertShortioLinkSnapshot(
   return null;
 }
 
-// ── Click stream : attribution lm_clicked avec timestamp précis ──────────────
+// ── Click stream : attribution lm_clicked + link_clicked avec timestamp précis ──
 // afterDate : ISO string — ne récupère que les clics après cette date
-// Filtre human=true et paths lm-* uniquement
-// Vérifie que le clic est postérieur à detected_at du lead
+// Traite deux types de liens :
+//   - lm-* → lm_clicked sur instagram_leads.tracking_link
+//   - liens Calendly (prospect_links) → link_clicked si clic postérieur à calendly_link_sent_at
 export async function syncLmClickStream(
   profileId: string,
   creds: ShortioLinkCreds,
@@ -271,12 +272,10 @@ export async function syncLmClickStream(
 
     const data = await res.json();
     const rawClicks: { path: string; dt: string; human: boolean }[] = data?.clicks ?? data ?? [];
+    const humanClicks = rawClicks.filter(c => c.human === true && c.path);
 
-    const lmClicks = rawClicks.filter(c =>
-      c.human === true && c.path?.replace(/^\//, '').startsWith('lm-')
-    );
-
-    for (const click of lmClicks) {
+    // ── LM clicks (paths lm-*) ──────────────────────────────────────────────
+    for (const click of humanClicks.filter(c => c.path.replace(/^\//, '').startsWith('lm-'))) {
       const clickedAt = click.dt ? new Date(click.dt).toISOString() : new Date().toISOString();
       const cleanPath = click.path.replace(/^\//, '');
 
@@ -290,8 +289,7 @@ export async function syncLmClickStream(
       if (!igLead) continue;
       if (new Date(clickedAt) < new Date(igLead.detected_at)) continue;
 
-      // prospect_events_lm_clicked_unique est un index partiel (WHERE event_type = 'lm_clicked')
-      // Supabase ne peut pas résoudre onConflict sur un index partiel → select + insert conditionnel
+      // index partiel → select + insert conditionnel
       const { data: existing } = await serviceSupabase
         .from('prospect_events')
         .select('id')
@@ -309,6 +307,54 @@ export async function syncLmClickStream(
           ig_lead_id:   igLead.id,
         });
         if (evtErr) errors.push(`lm_clicked_${cleanPath}: ${evtErr.message}`);
+      }
+    }
+
+    // ── Calendly link clicks (prospect_links) ───────────────────────────────
+    // Tous les clics humains sur des paths non-lm — on cherche le prospect_link correspondant
+    for (const click of humanClicks.filter(c => !c.path.replace(/^\//, '').startsWith('lm-'))) {
+      const clickedAt = click.dt ? new Date(click.dt).toISOString() : new Date().toISOString();
+      const cleanPath = click.path.replace(/^\//, '');
+
+      const { data: pl } = await serviceSupabase
+        .from('prospect_links')
+        .select('id, ig_username, ig_lead_id, calendly_link_sent, calendly_link_sent_at, first_click_at')
+        .eq('profile_id', profileId)
+        .filter('short_url', 'like', `%/${cleanPath}`)
+        .maybeSingle();
+
+      if (!pl) continue;
+      if (!pl.calendly_link_sent || !pl.calendly_link_sent_at) continue;
+      // Le clic doit être postérieur à l'envoi du lien
+      if (new Date(clickedAt) <= new Date(pl.calendly_link_sent_at)) continue;
+
+      // Écrire first_click_at si pas encore renseigné
+      if (!pl.first_click_at) {
+        await serviceSupabase
+          .from('prospect_links')
+          .update({ first_click_at: clickedAt })
+          .eq('id', pl.id);
+      }
+
+      // Upsert link_clicked dans prospect_events (index partiel sur prospect_link_id,event_type)
+      const { data: existingEvt } = await serviceSupabase
+        .from('prospect_events')
+        .select('id')
+        .eq('prospect_link_id', pl.id)
+        .eq('event_type', 'link_clicked')
+        .maybeSingle();
+
+      if (!existingEvt) {
+        const { error: evtErr } = await serviceSupabase.from('prospect_events').insert({
+          profile_id:       profileId,
+          prospect_key:     pl.ig_username.toLowerCase(),
+          platform:         'ig',
+          event_type:       'link_clicked',
+          occurred_at:      clickedAt,
+          ig_lead_id:       pl.ig_lead_id,
+          prospect_link_id: pl.id,
+        });
+        if (evtErr) errors.push(`link_clicked_${cleanPath}: ${evtErr.message}`);
       }
     }
   } catch (e: any) {
