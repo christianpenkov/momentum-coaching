@@ -271,8 +271,20 @@ export async function syncCalendlyEleve(
       if (utmContent)           upsertData.utm_content     = utmContent;
       if (utmMedium)            upsertData.utm_medium      = utmMedium;
       if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
-      if (finalIgLeadId)        upsertData.ig_lead_id      = finalIgLeadId;
       if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;
+
+      // Ne pas écraser ig_lead_id si le call existe déjà avec un lead lié —
+      // évite qu'un nouveau lead du même ig_user_id (après suppression + recommentaire)
+      // récupère un ancien call qui ne lui appartient pas
+      if (finalIgLeadId) {
+        const { data: existingCall } = await serviceSupabase.from('calls')
+          .select('ig_lead_id')
+          .eq('calendly_event_uuid', eventUuid)
+          .maybeSingle();
+        if (!existingCall?.ig_lead_id) {
+          upsertData.ig_lead_id = finalIgLeadId;
+        }
+      }
 
       const { data: callRow } = await serviceSupabase.from('calls')
         .upsert(upsertData, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false })
