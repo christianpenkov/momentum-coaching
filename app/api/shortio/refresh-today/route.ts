@@ -73,8 +73,9 @@ export async function POST(request: Request) {
   // Filtre afterDate = il y a 2h pour ne pas parcourir toute l'historique
   // Même avec 500+ liens LM, seuls les clics récents sont retournés (max 500 par requête)
   try {
-    // Depuis minuit aujourd'hui — couvre toute la journée peu importe l'heure du refresh
-    const afterDate = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z').toISOString();
+    // 24h glissantes — couvre le gap entre le dernier refresh et maintenant
+    // ignoreDuplicates=true sur l'upsert évite les doublons si un clic est vu deux fois
+    const afterDate = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
     const clicksRes = await fetch(
       `https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`,
       {
