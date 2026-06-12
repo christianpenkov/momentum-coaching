@@ -221,16 +221,15 @@ export async function upsertShortioLinkSnapshot(
           .maybeSingle();
 
         if (igLead) {
-          serviceSupabase.from('prospect_events').upsert({
+          const { error: evtErr } = await serviceSupabase.from('prospect_events').upsert({
             profile_id:   profileId,
             prospect_key: igLead.ig_username.toLowerCase(),
             platform:     'ig',
             event_type:   'lm_clicked',
             occurred_at:  new Date().toISOString(),
             ig_lead_id:   igLead.id,
-          }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true }).then(({ error: evtErr }) => {
-            if (evtErr) console.error('[shortio-fetch] lm_clicked upsert:', evtErr.message);
-          });
+          }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true });
+          if (evtErr) console.error('[shortio-fetch] lm_clicked upsert:', evtErr.message);
         }
       }
     }
