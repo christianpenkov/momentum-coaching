@@ -148,16 +148,20 @@ function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
+  overrideReason?: string | null,
 ): string {
   if (!overrideKey) return naturalKey;
 
   const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
 
-  // Signal naturel >= override → le funnel a avancé, on suit le naturel
+  // Override manuel (drag volontaire) → toujours respecté, quelle que soit la position
+  if (overrideReason === 'manual') return overrideKey;
+
+  // Signal naturel >= override → le funnel a avancé automatiquement, on suit le naturel
   if (naturalIdx >= overrideIdx) return naturalKey;
 
-  // L'override gagne toujours quand le naturel est en dessous
+  // L'override gagne quand le naturel est en dessous
   return overrideKey;
 }
 
@@ -792,7 +796,7 @@ export default function PagePipeline() {
 
       // Override toujours applicable, mais appliquer la règle POST_CALL / PRE_CALL
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
@@ -854,7 +858,7 @@ export default function PagePipeline() {
       const platform: 'yt' | 'other' = effectiveSrc.startsWith('yt') ? 'yt' : 'other';
 
       const override = effectiveOverrides.find(o => o.prospect_key === prospectKey && o.platform === platform);
-      const stageKey = resolveStage(natural, override?.stage, YT_STAGES);
+      const stageKey = resolveStage(natural, override?.stage, YT_STAGES, override?.reason);
       const stageIdx = YT_STAGES.findIndex(s => s.key === stageKey);
 
       // Badge : priorité au call le plus récent
@@ -993,8 +997,8 @@ export default function PagePipeline() {
       return;
     }
 
-    // Pas de confirmation nécessaire → override direct
-    saveOverride(cardKey, platform, targetStageKey);
+    // Pas de confirmation nécessaire → override direct (manuel)
+    saveOverride(cardKey, platform, targetStageKey, 'manual');
   };
 
   const handleConfirmMove = async (reason: string) => {
