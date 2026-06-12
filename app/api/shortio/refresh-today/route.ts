@@ -69,5 +69,57 @@ export async function POST(request: Request) {
     errors.push(`domain_fetch: ${e?.message || 'unknown'}`);
   }
 
+  // 3. Click stream — clics bruts des 2 dernières heures pour attribution LM précise
+  // Filtre afterDate = il y a 2h pour ne pas parcourir toute l'historique
+  // Même avec 500+ liens LM, seuls les clics récents sont retournés (max 500 par requête)
+  try {
+    const afterDate = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const clicksRes = await fetch(
+      `https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`,
+      {
+        method: 'POST',
+        headers: { authorization: creds.apiKey, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ limit: 500, afterDate }),
+      }
+    );
+    if (clicksRes.ok) {
+      const clicksData = await clicksRes.json();
+      const rawClicks: { path: string; dt: string }[] = clicksData?.clicks ?? clicksData ?? [];
+
+      // On ne traite que les paths LM (lm-*)
+      const lmClicks = rawClicks.filter(c => c.path?.startsWith('lm-'));
+
+      for (const click of lmClicks) {
+        const clickedAt = click.dt ? new Date(click.dt).toISOString() : new Date().toISOString();
+
+        // Trouver le lead via tracking_link
+        const { data: igLead } = await serviceSupabase
+          .from('instagram_leads')
+          .select('id, ig_username, detected_at')
+          .eq('profile_id', profileId)
+          .filter('tracking_link', 'like', `%/${click.path}`)
+          .maybeSingle();
+
+        if (!igLead) continue;
+
+        // Vérifier que le clic est APRÈS la détection du lead (pas un clic antérieur)
+        if (new Date(clickedAt) < new Date(igLead.detected_at)) continue;
+
+        const { error: evtErr } = await serviceSupabase.from('prospect_events').upsert({
+          profile_id:   profileId,
+          prospect_key: igLead.ig_username.toLowerCase(),
+          platform:     'ig',
+          event_type:   'lm_clicked',
+          occurred_at:  clickedAt,
+          ig_lead_id:   igLead.id,
+        }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true });
+
+        if (evtErr) errors.push(`lm_clicked_${click.path}: ${evtErr.message}`);
+      }
+    }
+  } catch (e: any) {
+    errors.push(`click_stream: ${e?.message || 'unknown'}`);
+  }
+
   return NextResponse.json({ ok: errors.length === 0, date: today, synced_links: synced, errors });
 }
