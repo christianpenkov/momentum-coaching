@@ -135,9 +135,12 @@ export async function DELETE(request: Request) {
   ];
 
   // Si des ig_lead_ids existent, nettoie aussi par FK directe (redondant mais exhaustif)
+  // + détache les calls liés pour éviter qu'un futur lead du même username les récupère
   if (leadIds.length > 0) {
     deleteOps.push(
       supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
+      supa.from('calls').update({ ig_lead_id: null, prospect_link_id: null })
+        .eq('coach_id', user.id).in('ig_lead_id', leadIds).then(),
     );
   }
 
