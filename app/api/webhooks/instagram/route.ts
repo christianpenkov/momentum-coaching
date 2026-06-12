@@ -133,7 +133,7 @@ export async function POST(request: Request) {
 
         const { data: allLinks } = await serviceSupabase
           .from('prospect_links')
-          .select('id, short_url, ig_username, ig_lead_id, calendly_link_sent')
+          .select('id, short_url, ig_username, ig_lead_id, calendly_link_sent, first_click_at')
           .eq('profile_id', pid);
 
         const matchedLink = (allLinks || []).find(pl => pl.short_url && msgText.includes(pl.short_url));
