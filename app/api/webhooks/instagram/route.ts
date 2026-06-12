@@ -184,16 +184,9 @@ export async function POST(request: Request) {
           .update({ calendly_link_sent: true, calendly_link_sent_at: now })
           .eq('id', matchedLink.id);
 
-        // Override pipeline → calendly_sent
-        await serviceSupabase
-          .from('pipeline_overrides')
-          .upsert({
-            profile_id:   pid,
-            prospect_key: matchedLink.ig_username,
-            platform:     'ig',
-            stage:        'calendly_sent',
-            updated_at:   now,
-          }, { onConflict: 'profile_id,prospect_key,platform' });
+        // Pas d'override pipeline_overrides — calendly_sent est un signal auto
+        // calculé depuis prospect_links.calendly_link_sent dans le pipeline.
+        // Un override manuel bloquerait les signaux suivants (ex: link_clicked).
 
         // Événement prospect_events
         await serviceSupabase.from('prospect_events').insert({
