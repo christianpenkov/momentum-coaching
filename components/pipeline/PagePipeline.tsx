@@ -763,11 +763,15 @@ export default function PagePipeline() {
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
         : null;
 
-      const call = data.calls.find(c => {
+      // Parmi tous les calls du lead, prendre le plus pertinent :
+      // 1) actif sans no_show en priorité (le vrai call booké)
+      // 2) sinon le premier par scheduled_at DESC (déjà trié par la query)
+      const matchingCalls = data.calls.filter(c => {
         if (lead && c.ig_lead_id === lead.id) return true;
         if (prospect && c.short_link_path && prospectPath && c.short_link_path === prospectPath) return true;
         return false;
       });
+      const call = matchingCalls.find(c => c.status === 'active' && !c.no_show) ?? matchingCalls[0];
 
       let badge: CardData['badge'] = null;
 
