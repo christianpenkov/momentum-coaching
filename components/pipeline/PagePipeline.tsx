@@ -754,7 +754,9 @@ export default function PagePipeline() {
       const calendlySentValid = prospect?.calendly_link_sent &&
         (!leadDetectedAt || !prospect.calendly_link_sent_at || new Date(prospect.calendly_link_sent_at) > leadDetectedAt);
       const linkClickedValid = prospect?.first_click_at &&
-        (!leadDetectedAt || new Date(prospect.first_click_at) > leadDetectedAt);
+        prospect?.calendly_link_sent &&
+        prospect?.calendly_link_sent_at &&
+        new Date(prospect.first_click_at) > new Date(prospect.calendly_link_sent_at);
 
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
       if (lead?.hook_replied) natural = 'in_convo';
