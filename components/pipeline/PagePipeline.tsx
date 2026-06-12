@@ -781,7 +781,19 @@ export default function PagePipeline() {
         // qu'un envoi a eu lieu APRÈS un recul manuel, même si first_click_at existe déjà
         naturalSignalAt = prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at ?? null;
       }
-      if (linkClickedValid) { natural = 'link_clicked'; naturalSignalAt = prospect?.first_click_at ?? null; }
+      if (linkClickedValid) {
+        natural = 'link_clicked';
+        // naturalSignalAt = max(first_click_at, last_calendly_link_sent_at)
+        // Renvoyer le lien après un recul doit aussi compter comme signal récent,
+        // même si le natural reste link_clicked (clic antérieur + renvoi postérieur)
+        const clickAt = prospect?.first_click_at ?? null;
+        const lastSentAt = prospect?.last_calendly_link_sent_at ?? null;
+        if (clickAt && lastSentAt) {
+          naturalSignalAt = new Date(clickAt) > new Date(lastSentAt) ? clickAt : lastSentAt;
+        } else {
+          naturalSignalAt = clickAt ?? lastSentAt;
+        }
+      }
 
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
