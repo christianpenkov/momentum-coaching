@@ -560,6 +560,7 @@ function getResetDescription(targetStage: string, currentStage: string, hasCall:
 
 function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetStageLabel, currentStageKey, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
   const [reason, setReason] = useState('');
+  const [irreversibleChecked, setIrreversibleChecked] = useState(false);
 
   const backwardReasons = [
     { value: 'canceled',    label: 'Call annulé' },
@@ -592,9 +593,20 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
                   <li key={i} style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.4 }}>{item}</li>
                 ))}
               </ul>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 20, padding: '8px 12px', background: 'var(--surface-alt, #f8f8f8)', borderRadius: 8, border: '1px solid var(--border)' }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 16, padding: '8px 12px', background: 'var(--surface-alt, #f8f8f8)', borderRadius: 8, border: '1px solid var(--border)' }}>
                 Après ça, le pipeline reprendra automatiquement dès qu&apos;un nouveau signal arrive (message, lien envoyé, clic...).
               </div>
+              <label style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer', marginBottom: 20 }}>
+                <input
+                  type="checkbox"
+                  checked={irreversibleChecked}
+                  onChange={e => setIrreversibleChecked(e.target.checked)}
+                  style={{ marginTop: 2, accentColor: '#DC2626', flexShrink: 0 }}
+                />
+                <span style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.4 }}>
+                  Je comprends que cette action est irréversible
+                </span>
+              </label>
             </>
           );
         })()}
@@ -667,14 +679,25 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
           <button
             onMouseDown={() => {
               if (modalCase === 'backward_from_post_call' && !reason) return;
+              if (modalCase === 'backward_pre_call' && !irreversibleChecked) return;
               onConfirm(reason || 'manual');
             }}
-            disabled={modalCase === 'backward_from_post_call' && !reason}
+            disabled={
+              (modalCase === 'backward_from_post_call' && !reason) ||
+              (modalCase === 'backward_pre_call' && !irreversibleChecked)
+            }
             style={{
               padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none',
-              background: (modalCase === 'backward_from_post_call' && !reason) ? 'var(--border)' : (modalCase === 'backward_pre_call' ? '#DC2626' : '#2563EB'),
-              color: (modalCase === 'backward_from_post_call' && !reason) ? 'var(--muted)' : '#fff',
-              cursor: (modalCase === 'backward_from_post_call' && !reason) ? 'not-allowed' : 'pointer',
+              background:
+                (modalCase === 'backward_from_post_call' && !reason) ? 'var(--border)' :
+                (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--border)' :
+                modalCase === 'backward_pre_call' ? '#DC2626' : '#2563EB',
+              color:
+                (modalCase === 'backward_from_post_call' && !reason) ? 'var(--muted)' :
+                (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--muted)' : '#fff',
+              cursor:
+                (modalCase === 'backward_from_post_call' && !reason) ? 'not-allowed' :
+                (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'not-allowed' : 'pointer',
             }}
           >
             {modalCase === 'backward_pre_call' ? 'Effacer et reculer' : 'Confirmer'}
