@@ -814,10 +814,11 @@ export default function PagePipeline() {
       }
 
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      // Signal naturel le plus récent : hook_replied_at, calendly_link_sent_at, first_click_at, call.scheduled_at
+      // Signaux qui peuvent superseder un override manuel : uniquement ceux qui indiquent
+      // une progression réelle (clic sur le lien, call booké). hook_replied_at et
+      // calendly_link_sent_at correspondent à des stages en-dessous — les inclure ferait
+      // annuler un override "in_convo" dès qu'on renvoie le lien.
       const signalDates = [
-        lead?.hook_replied_at,
-        prospect?.calendly_link_sent_at,
         prospect?.first_click_at,
         call?.scheduled_at,
       ].filter(Boolean) as string[];
