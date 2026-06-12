@@ -171,17 +171,19 @@ export async function upsertShortioLinkSnapshot(
 
   if (error) return error.message;
 
-  // Si des clics humains existent, mettre à jour first_click_at avec la date du snapshot courant.
-  // On écrit toujours (pas idempotent) pour qu'un clic après renvoi de lien fasse avancer le pipeline.
+  // Si des clics humains existent, mettre à jour first_click_at.
+  // Condition stricte : le lien doit avoir été envoyé (calendly_link_sent = true).
+  // Sans envoi confirmé, les clics viennent forcément d'un lead précédent qui avait
+  // utilisé le même path Short.io — on ne les comptabilise pas pour ce lead.
   if (row.human_clicks > 0) {
     const { data: pl } = await serviceSupabase
       .from('prospect_links')
-      .select('id, ig_username, ig_lead_id, first_click_at')
+      .select('id, ig_username, ig_lead_id, first_click_at, calendly_link_sent')
       .eq('profile_id', profileId)
       .filter('short_url', 'like', `%/${row.path}`)
       .maybeSingle();
 
-    if (pl) {
+    if (pl && pl.calendly_link_sent) {
       const snapshotClickAt = new Date().toISOString();
       await serviceSupabase
         .from('prospect_links')
