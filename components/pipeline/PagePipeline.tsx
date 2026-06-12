@@ -767,13 +767,12 @@ export default function PagePipeline() {
       // 1) actif sans no_show en priorité (le vrai call booké)
       // 2) sinon le premier par scheduled_at DESC (déjà trié par la query)
       const matchingCalls = data.calls.filter(c => {
+        // Seul critère fiable : ig_lead_id correspond exactement au lead courant
+        // short_link_path seul ne suffit pas — un call détaché (ig_lead_id=null) ou
+        // appartenant à un ancien lead ne doit jamais être rattaché au lead courant
         if (lead && c.ig_lead_id === lead.id) return true;
-        // short_link_path uniquement si le call n'a pas d'ig_lead_id lié à un autre lead
-        // (évite qu'un call d'un ancien lead supprimé soit rattaché au nouveau lead du même username)
-        if (prospect && c.short_link_path && prospectPath && c.short_link_path === prospectPath) {
-          if (c.ig_lead_id && lead && c.ig_lead_id !== lead.id) return false;
-          return true;
-        }
+        // Pour les prospects sans lead (cold DM pur) : short_link_path OK seulement si pas d'ig_lead_id
+        if (!lead && prospect && c.short_link_path && prospectPath && c.short_link_path === prospectPath && !c.ig_lead_id) return true;
         return false;
       });
       const call = matchingCalls.find(c => c.status === 'active' && !c.no_show) ?? matchingCalls[0];
