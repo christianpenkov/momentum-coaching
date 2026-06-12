@@ -273,15 +273,16 @@ export async function syncCalendlyEleve(
       if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
       if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;
 
-      // Ne pas écraser ig_lead_id si le call existe déjà avec un lead lié —
-      // évite qu'un nouveau lead du même ig_user_id (après suppression + recommentaire)
-      // récupère un ancien call qui ne lui appartient pas
+      // Ne pas re-résoudre ig_lead_id si le call existe déjà en DB —
+      // short_link_path renseigné = call déjà résolu une fois (lead peut avoir été supprimé depuis)
+      // Évite qu'un nouveau lead du même ig_user_id récupère un ancien call
       if (finalIgLeadId) {
         const { data: existingCall } = await serviceSupabase.from('calls')
-          .select('ig_lead_id')
+          .select('ig_lead_id, short_link_path')
           .eq('calendly_event_uuid', eventUuid)
           .maybeSingle();
-        if (!existingCall?.ig_lead_id) {
+        const alreadyResolved = existingCall && (existingCall.ig_lead_id || existingCall.short_link_path);
+        if (!alreadyResolved) {
           upsertData.ig_lead_id = finalIgLeadId;
         }
       }
