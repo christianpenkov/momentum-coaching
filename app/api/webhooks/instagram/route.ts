@@ -178,10 +178,17 @@ export async function POST(request: Request) {
           }
         }
 
-        // Marque le lien comme envoyé (idempotent)
+        // Marque le lien comme envoyé.
+        // Ne pas écraser calendly_link_sent_at si first_click_at est déjà renseigné :
+        // renvoi du lien après un clic réel ferait passer first_click_at < calendly_link_sent_at
+        // → le guard linkClickedValid deviendrait faux et le clic disparaîtrait du pipeline.
+        const linkUpdateData: Record<string, any> = { calendly_link_sent: true };
+        if (!matchedLink.first_click_at) {
+          linkUpdateData.calendly_link_sent_at = now;
+        }
         await serviceSupabase
           .from('prospect_links')
-          .update({ calendly_link_sent: true, calendly_link_sent_at: now })
+          .update(linkUpdateData)
           .eq('id', matchedLink.id);
 
         // Pas d'override pipeline_overrides — calendly_sent est un signal auto
