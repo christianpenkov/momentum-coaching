@@ -280,22 +280,32 @@ export async function syncCalendlyEleve(
         .maybeSingle();
 
       // Écrire call_booked dans prospect_events si lead résolu et call actif
+      // prospect_events_call_event_uidx est un index partiel (WHERE call_id IS NOT NULL)
+      // → onConflict incompatible avec Supabase → select + insert conditionnel
       if (!isCanceled && callRow?.id && finalIgLeadId) {
         const { data: igLead } = await serviceSupabase
           .from('instagram_leads').select('ig_username').eq('id', finalIgLeadId).single();
         if (igLead) {
-          serviceSupabase.from('prospect_events').upsert({
-            profile_id:       profileId,
-            prospect_key:     igLead.ig_username.toLowerCase(),
-            platform:         'ig',
-            event_type:       'call_booked',
-            occurred_at:      scheduledAt ?? new Date().toISOString(),
-            ig_lead_id:       finalIgLeadId,
-            prospect_link_id: finalProspectLinkId,
-            call_id:          callRow.id,
-          }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
-            if (evtErr) console.error('[calendly-fetch] prospect_events call_booked:', evtErr.message);
-          });
+          const { data: existingEvt } = await serviceSupabase
+            .from('prospect_events')
+            .select('id')
+            .eq('call_id', callRow.id)
+            .eq('event_type', 'call_booked')
+            .maybeSingle();
+          if (!existingEvt) {
+            serviceSupabase.from('prospect_events').insert({
+              profile_id:       profileId,
+              prospect_key:     igLead.ig_username.toLowerCase(),
+              platform:         'ig',
+              event_type:       'call_booked',
+              occurred_at:      scheduledAt ?? new Date().toISOString(),
+              ig_lead_id:       finalIgLeadId,
+              prospect_link_id: finalProspectLinkId,
+              call_id:          callRow.id,
+            }).then(({ error: evtErr }) => {
+              if (evtErr) console.error('[calendly-fetch] prospect_events call_booked:', evtErr.message);
+            });
+          }
           // Lier le lead au call dans l'autre sens
           await serviceSupabase.from('instagram_leads')
             .update({ calendly_event_uuid: eventUuid })
