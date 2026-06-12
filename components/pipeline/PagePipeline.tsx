@@ -155,15 +155,11 @@ function resolveStage(
   const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
 
-  // Override manuel :
-  // - Backward (override < natural) : recul conscient du coach → tient toujours,
-  //   le pipeline naturel ne peut pas l'annuler.
-  // - Forward (override > natural) : avance manuelle → tient jusqu'à ce que le
-  //   naturel rattrape ou dépasse (naturalIdx >= overrideIdx).
+  // Override manuel : le naturel gagne toujours dès qu'il dépasse l'override,
+  // que ce soit vers l'avant (avance auto) ou qu'il ait rattrapé un recul.
+  // L'override ne tient que si le naturel est encore en dessous ou au même niveau.
   if (overrideReason === 'manual') {
-    const isBackward = overrideIdx < naturalIdx;
-    if (isBackward) return overrideKey;
-    if (naturalIdx >= overrideIdx) return naturalKey;
+    if (naturalIdx > overrideIdx) return naturalKey;
     return overrideKey;
   }
 
