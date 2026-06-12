@@ -178,28 +178,36 @@ export async function upsertShortioLinkSnapshot(
   if (row.human_clicks > 0) {
     const { data: pl } = await serviceSupabase
       .from('prospect_links')
-      .select('id, ig_username, ig_lead_id, first_click_at, calendly_link_sent')
+      .select('id, ig_username, ig_lead_id, first_click_at, calendly_link_sent, calendly_link_sent_at')
       .eq('profile_id', profileId)
       .filter('short_url', 'like', `%/${row.path}`)
       .maybeSingle();
 
-    if (pl && pl.calendly_link_sent) {
-      const snapshotClickAt = new Date().toISOString();
-      await serviceSupabase
-        .from('prospect_links')
-        .update({ first_click_at: snapshotClickAt })
-        .eq('id', pl.id);
+    if (pl && pl.calendly_link_sent && pl.calendly_link_sent_at) {
+      // Ne comptabiliser un clic que si le snapshot date d'après l'envoi du lien
+      // Les clics cumulés historiques (path Short.io réutilisé) sont ignorés
+      const snapshotDate = new Date(row.date + 'T00:00:00Z');
+      const sentAt = new Date(pl.calendly_link_sent_at);
+      const clickIsAfterSend = snapshotDate >= new Date(sentAt.toISOString().slice(0, 10) + 'T00:00:00Z');
 
-      // Upsert l'événement link_clicked avec la date du snapshot courant
-      await serviceSupabase.from('prospect_events').upsert({
-        profile_id:       profileId,
-        prospect_key:     pl.ig_username,
-        platform:         'ig',
-        event_type:       'link_clicked',
-        occurred_at:      snapshotClickAt,
-        ig_lead_id:       pl.ig_lead_id,
-        prospect_link_id: pl.id,
-      }, { onConflict: 'prospect_link_id,event_type' });
+      if (clickIsAfterSend && !pl.first_click_at) {
+        const snapshotClickAt = new Date().toISOString();
+        await serviceSupabase
+          .from('prospect_links')
+          .update({ first_click_at: snapshotClickAt })
+          .eq('id', pl.id);
+
+        // Upsert l'événement link_clicked avec la date du snapshot courant
+        await serviceSupabase.from('prospect_events').upsert({
+          profile_id:       profileId,
+          prospect_key:     pl.ig_username,
+          platform:         'ig',
+          event_type:       'link_clicked',
+          occurred_at:      snapshotClickAt,
+          ig_lead_id:       pl.ig_lead_id,
+          prospect_link_id: pl.id,
+        }, { onConflict: 'prospect_link_id,event_type' });
+      }
     }
 
     // Second check : lien LM personnalisé sur instagram_leads.tracking_link
