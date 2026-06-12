@@ -127,68 +127,87 @@ export async function POST(request: Request) {
 
       // Message envoyé par nous (echo) — détecter si on a envoyé un lien Calendly prospect
       if (isEcho && msgText) {
-        // recipientId = ig_user_id du destinataire du DM (l'autre personne dans la conv)
-        // On résout l'ig_username du destinataire pour ne matcher que son prospect_link
-        // et éviter qu'envoyer le lien de A dans la conv de B comptabilise A
-        let recipientUsername: string | null = null;
-        if (recipientId) {
-          const { data: recipientLead } = await serviceSupabase
-            .from('instagram_leads')
-            .select('ig_username')
-            .eq('profile_id', pid)
-            .eq('ig_user_id', recipientId)
-            .order('detected_at', { ascending: false })
-            .limit(1)
-            .maybeSingle();
-          recipientUsername = recipientLead?.ig_username ?? null;
-        }
+        // recipientId = ig_user_id du destinataire (fourni par Meta dans l'echo)
+        // On trouve le prospect_link par URL, puis on vérifie que le destinataire correspond.
+        // Si c'est un cold DM (ig_lead_id null) → on crée la fiche lead à ce moment-là.
 
-        const prospectLinksQuery = serviceSupabase
+        const { data: allLinks } = await serviceSupabase
           .from('prospect_links')
           .select('id, short_url, ig_username, ig_lead_id, calendly_link_sent')
           .eq('profile_id', pid);
 
-        // Si on connaît le destinataire, on restreint aux liens créés pour lui
-        const { data: prospectLinks } = recipientUsername
-          ? await prospectLinksQuery.eq('ig_username', recipientUsername)
-          : await prospectLinksQuery;
+        const matchedLink = (allLinks || []).find(pl => pl.short_url && msgText.includes(pl.short_url));
+        if (!matchedLink) { continue; }
 
         const now = new Date().toISOString();
-        for (const pl of prospectLinks || []) {
-          if (pl.short_url && msgText.includes(pl.short_url)) {
-            // Met à jour calendly_link_sent (idempotent si déjà true)
-            await serviceSupabase
-              .from('prospect_links')
-              .update({ calendly_link_sent: true, calendly_link_sent_at: now })
-              .eq('id', pl.id);
+        let igLeadId: string | null = matchedLink.ig_lead_id ?? null;
 
-            // Remplace l'override par calendly_sent (now) — un clic antérieur ne doit pas court-circuiter cette étape
-            await serviceSupabase
-              .from('pipeline_overrides')
-              .upsert({
-                profile_id:    pid,
-                prospect_key:  pl.ig_username,
-                platform:      'ig',
-                stage:         'calendly_sent',
-                updated_at:    now,
-              }, { onConflict: 'profile_id,prospect_key,platform' });
-
-            // Insère l'événement dans prospect_events
-            await serviceSupabase.from('prospect_events').insert({
-              profile_id:       pid,
-              prospect_key:     pl.ig_username,
-              platform:         'ig',
-              event_type:       'calendly_link_sent',
-              occurred_at:      now,
-              ig_lead_id:       pl.ig_lead_id ?? null,
-              prospect_link_id: pl.id,
-            });
-
-            console.log(`[IG Webhook] calendly_link_sent — prospect_link: ${pl.id}, url: ${pl.short_url}`);
-            pushEvent({ type: 'calendly_link_sent', prospect_link_id: pl.id, short_url: pl.short_url });
-            break;
+        // Sécurité anti-mauvais-destinataire : si le lien est lié à un lead avec un ig_user_id
+        // différent du recipientId réel → le coach a envoyé le lien de A à B → on ignore
+        if (recipientId && igLeadId) {
+          const { data: linkedLead } = await serviceSupabase
+            .from('instagram_leads')
+            .select('ig_user_id')
+            .eq('id', igLeadId)
+            .maybeSingle();
+          if (linkedLead?.ig_user_id && linkedLead.ig_user_id !== recipientId) {
+            console.warn(`[IG Webhook] echo ignoré — lien de ${matchedLink.ig_username} envoyé au mauvais destinataire (${recipientId})`);
+            continue;
           }
         }
+
+        // Cold DM : pas de lead existant → on crée la fiche maintenant
+        // L'ig_username vient du prospect_link créé manuellement dans l'UI
+        if (!igLeadId && matchedLink.ig_username) {
+          const { data: newLead } = await serviceSupabase
+            .from('instagram_leads')
+            .insert({
+              profile_id:       pid,
+              ig_username:      matchedLink.ig_username,
+              ig_user_id:       recipientId || null,
+              source:           'cold_dm',
+              keyword_matched:  'cold_dm',
+              lead_magnet_sent: false,
+              hook_replied:     false,
+            })
+            .select('id')
+            .single();
+          if (newLead) {
+            igLeadId = newLead.id;
+            await serviceSupabase.from('prospect_links').update({ ig_lead_id: igLeadId }).eq('id', matchedLink.id);
+          }
+        }
+
+        // Marque le lien comme envoyé (idempotent)
+        await serviceSupabase
+          .from('prospect_links')
+          .update({ calendly_link_sent: true, calendly_link_sent_at: now })
+          .eq('id', matchedLink.id);
+
+        // Override pipeline → calendly_sent
+        await serviceSupabase
+          .from('pipeline_overrides')
+          .upsert({
+            profile_id:   pid,
+            prospect_key: matchedLink.ig_username,
+            platform:     'ig',
+            stage:        'calendly_sent',
+            updated_at:   now,
+          }, { onConflict: 'profile_id,prospect_key,platform' });
+
+        // Événement prospect_events
+        await serviceSupabase.from('prospect_events').insert({
+          profile_id:       pid,
+          prospect_key:     matchedLink.ig_username,
+          platform:         'ig',
+          event_type:       'calendly_link_sent',
+          occurred_at:      now,
+          ig_lead_id:       igLeadId,
+          prospect_link_id: matchedLink.id,
+        });
+
+        console.log(`[IG Webhook] calendly_link_sent — prospect_link: ${matchedLink.id}, url: ${matchedLink.short_url}`);
+        pushEvent({ type: 'calendly_link_sent', prospect_link_id: matchedLink.id, short_url: matchedLink.short_url });
         continue;
       }
 
