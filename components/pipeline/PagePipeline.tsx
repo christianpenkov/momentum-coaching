@@ -28,7 +28,8 @@ interface ProspectLink {
   created_at: string;
   humanClicks30d?: number;
   calendly_link_sent: boolean;
-  calendly_link_sent_at: string | null;
+  calendly_link_sent_at: string | null;       // premier envoi (figé — guard linkClickedValid)
+  last_calendly_link_sent_at: string | null;  // dernier envoi (mis à jour à chaque renvoi)
   first_click_at: string | null;
 }
 
@@ -774,7 +775,12 @@ export default function PagePipeline() {
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
       let naturalSignalAt: string | null = null;
       if (lead?.hook_replied) { natural = 'in_convo'; naturalSignalAt = lead.hook_replied_at ?? null; }
-      if (calendlySentValid) { natural = 'calendly_sent'; naturalSignalAt = prospect?.calendly_link_sent_at ?? null; }
+      if (calendlySentValid) {
+        natural = 'calendly_sent';
+        // last_calendly_link_sent_at = timestamp du dernier renvoi → permet de détecter
+        // qu'un envoi a eu lieu APRÈS un recul manuel, même si first_click_at existe déjà
+        naturalSignalAt = prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at ?? null;
+      }
       if (linkClickedValid) { natural = 'link_clicked'; naturalSignalAt = prospect?.first_click_at ?? null; }
 
       const prospectPath = prospect?.short_url

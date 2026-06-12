@@ -133,7 +133,7 @@ export async function POST(request: Request) {
 
         const { data: allLinks } = await serviceSupabase
           .from('prospect_links')
-          .select('id, short_url, ig_username, ig_lead_id, calendly_link_sent, first_click_at')
+          .select('id, short_url, ig_username, ig_lead_id, calendly_link_sent, calendly_link_sent_at, first_click_at')
           .eq('profile_id', pid);
 
         const matchedLink = (allLinks || []).find(pl => pl.short_url && msgText.includes(pl.short_url));
@@ -180,10 +180,14 @@ export async function POST(request: Request) {
 
         // Marque le lien comme envoyé.
         // Ne pas écraser calendly_link_sent_at si first_click_at est déjà renseigné :
-        // renvoi du lien après un clic réel ferait passer first_click_at < calendly_link_sent_at
-        // → le guard linkClickedValid deviendrait faux et le clic disparaîtrait du pipeline.
-        const linkUpdateData: Record<string, any> = { calendly_link_sent: true };
-        if (!matchedLink.first_click_at) {
+        // calendly_link_sent_at = timestamp du PREMIER envoi (figé, sert de guard pour linkClickedValid)
+        // last_calendly_link_sent_at = timestamp du DERNIER envoi (mis à jour à chaque renvoi,
+        //   sert de naturalSignalAt pour calendly_sent dans resolveStage)
+        const linkUpdateData: Record<string, any> = {
+          calendly_link_sent: true,
+          last_calendly_link_sent_at: now,
+        };
+        if (!matchedLink.calendly_link_sent_at) {
           linkUpdateData.calendly_link_sent_at = now;
         }
         await serviceSupabase
