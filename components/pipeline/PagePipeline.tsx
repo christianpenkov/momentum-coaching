@@ -149,18 +149,24 @@ function resolveStage(
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
   overrideReason?: string | null,
+  overrideUpdatedAt?: string | null,
+  naturalSignalAt?: string | null,
 ): string {
   if (!overrideKey) return naturalKey;
 
   const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
 
-  // Override manuel : le naturel gagne toujours dès qu'il dépasse l'override,
-  // que ce soit vers l'avant (avance auto) ou qu'il ait rattrapé un recul.
-  // L'override ne tient que si le naturel est encore en dessous ou au même niveau.
   if (overrideReason === 'manual') {
-    if (naturalIdx > overrideIdx) return naturalKey;
-    return overrideKey;
+    if (naturalIdx <= overrideIdx) return overrideKey; // naturel pas encore devant → override tient
+    // naturel devant : il gagne seulement si le signal qui le cause est POSTÉRIEUR au recul
+    if (overrideUpdatedAt && naturalSignalAt) {
+      if (new Date(naturalSignalAt) > new Date(overrideUpdatedAt)) return naturalKey;
+    } else {
+      // pas de timestamps → le naturel gagne (signal antérieur inconnu, on fait confiance au naturel)
+      return naturalKey;
+    }
+    return overrideKey; // signal antérieur au recul → override tient
   }
 
   // Override automatique : naturel >= override → on suit le naturel
@@ -766,9 +772,10 @@ export default function PagePipeline() {
         new Date(prospect.first_click_at) > new Date(prospect.calendly_link_sent_at);
 
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
-      if (lead?.hook_replied) natural = 'in_convo';
-      if (calendlySentValid) natural = 'calendly_sent';
-      if (linkClickedValid) natural = 'link_clicked';
+      let naturalSignalAt: string | null = null;
+      if (lead?.hook_replied) { natural = 'in_convo'; naturalSignalAt = lead.hook_replied_at ?? null; }
+      if (calendlySentValid) { natural = 'calendly_sent'; naturalSignalAt = prospect?.calendly_link_sent_at ?? null; }
+      if (linkClickedValid) { natural = 'link_clicked'; naturalSignalAt = prospect?.first_click_at ?? null; }
 
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
@@ -804,13 +811,14 @@ export default function PagePipeline() {
           if (new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
         } else {
           natural = 'call_booked';
+          naturalSignalAt = call.scheduled_at ?? null;
           // C1 fix : showed_up uniquement via formulaire (deal_closed) — plus d'auto
-          if (call.deal_closed) natural = 'closed';
+          if (call.deal_closed) { natural = 'closed'; naturalSignalAt = null; }
         }
       }
 
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason);
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason, override?.updated_at, naturalSignalAt);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
