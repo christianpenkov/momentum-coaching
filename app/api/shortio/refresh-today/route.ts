@@ -89,7 +89,8 @@ export async function POST(request: Request) {
       const rawClicks: { path: string; dt: string }[] = clicksData?.clicks ?? clicksData ?? [];
 
       // On ne traite que les paths LM (lm-*)
-      const lmClicks = rawClicks.filter(c => c.path?.startsWith('lm-'));
+      // Le path dans le click stream peut avoir un slash initial ("/lm-...") ou non ("lm-...")
+      const lmClicks = rawClicks.filter(c => c.path?.replace(/^\//, '').startsWith('lm-'));
 
       for (const click of lmClicks) {
         const clickedAt = click.dt ? new Date(click.dt).toISOString() : new Date().toISOString();
@@ -99,10 +100,13 @@ export async function POST(request: Request) {
           .from('instagram_leads')
           .select('id, ig_username, detected_at')
           .eq('profile_id', profileId)
-          .filter('tracking_link', 'like', `%/${click.path}`)
+          .filter('tracking_link', 'like', `%/${click.path.replace(/^\//, '')}`)
           .maybeSingle();
 
         if (!igLead) continue;
+
+        // Ignorer les clics non-humains (bots Meta, crawlers)
+        if (click.human === false) continue;
 
         // Vérifier que le clic est APRÈS la détection du lead (pas un clic antérieur)
         if (new Date(clickedAt) < new Date(igLead.detected_at)) continue;
