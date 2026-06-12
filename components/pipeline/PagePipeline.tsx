@@ -836,8 +836,15 @@ export default function PagePipeline() {
   if (data) {
     // Map prospect_id → calls (trié par scheduled_at desc pour prendre le plus récent)
     const nonIgCalls = data.calls.filter(c => {
+      if (c.ig_lead_id) return false;
       const src = c.source?.toLowerCase() ?? '';
-      return !src.startsWith('ig') && !c.ig_lead_id;
+      if (src.startsWith('ig')) return false;
+      // Exclure les calls IG détachés : utm_medium=dm ou utm_campaign lead-/prospect-
+      const medium = c.utm_medium?.toLowerCase() ?? '';
+      if (medium === 'dm') return false;
+      const campaign = c.utm_campaign?.toLowerCase() ?? '';
+      if (campaign.startsWith('lead-') || campaign.startsWith('prospect-')) return false;
+      return true;
     });
 
     // Grouper par prospect_id quand disponible, sinon par call.id
