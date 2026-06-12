@@ -127,11 +127,31 @@ export async function POST(request: Request) {
 
       // Message envoyé par nous (echo) — détecter si on a envoyé un lien Calendly prospect
       if (isEcho && msgText) {
-        // Cherche TOUS les prospect_links (peu importe si déjà envoyé) pour matcher l'URL
-        const { data: prospectLinks } = await serviceSupabase
+        // recipientId = ig_user_id du destinataire du DM (l'autre personne dans la conv)
+        // On résout l'ig_username du destinataire pour ne matcher que son prospect_link
+        // et éviter qu'envoyer le lien de A dans la conv de B comptabilise A
+        let recipientUsername: string | null = null;
+        if (recipientId) {
+          const { data: recipientLead } = await serviceSupabase
+            .from('instagram_leads')
+            .select('ig_username')
+            .eq('profile_id', pid)
+            .eq('ig_user_id', recipientId)
+            .order('detected_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          recipientUsername = recipientLead?.ig_username ?? null;
+        }
+
+        const prospectLinksQuery = serviceSupabase
           .from('prospect_links')
           .select('id, short_url, ig_username, ig_lead_id, calendly_link_sent')
           .eq('profile_id', pid);
+
+        // Si on connaît le destinataire, on restreint aux liens créés pour lui
+        const { data: prospectLinks } = recipientUsername
+          ? await prospectLinksQuery.eq('ig_username', recipientUsername)
+          : await prospectLinksQuery;
 
         const now = new Date().toISOString();
         for (const pl of prospectLinks || []) {
