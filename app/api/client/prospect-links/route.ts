@@ -53,31 +53,9 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  // Pose un override calendly_sent avec updated_at = now — un clic antérieur ne court-circuite pas l'étape
-  supa.from('pipeline_overrides')
-    .upsert({
-      profile_id:   user.id,
-      prospect_key: ig_username,
-      platform:     'ig',
-      stage:        'calendly_sent',
-      updated_at:   new Date().toISOString(),
-    }, { onConflict: 'profile_id,prospect_key,platform' })
-    .then(({ error: upsertErr }) => {
-      if (upsertErr) console.error('[prospect-links] pipeline_overrides upsert:', upsertErr.message);
-    });
-
-  // Événement calendly_link_sent dans prospect_events (fire-and-forget)
-  supa.from('prospect_events').insert({
-    profile_id:       user.id,
-    prospect_key:     ig_username,
-    platform:         'ig',
-    event_type:       'calendly_link_sent',
-    occurred_at:      new Date().toISOString(),
-    ig_lead_id:       ig_lead_id ?? null,
-    prospect_link_id: data.id,
-  }).then(({ error: evtErr }) => {
-    if (evtErr) console.error('[prospect-links] prospect_events insert:', evtErr.message);
-  });
+  // NE PAS poser calendly_sent ici — le lien est créé mais pas encore envoyé.
+  // L'override + prospect_events calendly_link_sent sont posés par le webhook IG
+  // quand Meta envoie l'echo du DM contenant l'URL Short.io.
 
   return NextResponse.json({ link: data });
 }
