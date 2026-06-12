@@ -155,18 +155,20 @@ function resolveStage(
   const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
 
-  // Override manuel : respecté sauf si le stage naturel est STRICTEMENT plus avancé.
-  // Le timestamp n'est pas un critère fiable (les signaux arrivent dans n'importe quel ordre).
-  // Règle simple : si natural a progressé au-delà de l'override → le pipeline automatique a pris le dessus.
+  // Override manuel :
+  // - Backward (override < natural) : recul conscient du coach → tient toujours,
+  //   le pipeline naturel ne peut pas l'annuler.
+  // - Forward (override > natural) : avance manuelle → tient jusqu'à ce que le
+  //   naturel rattrape ou dépasse (naturalIdx >= overrideIdx).
   if (overrideReason === 'manual') {
-    if (naturalIdx > overrideIdx) return naturalKey;
+    const isBackward = overrideIdx < naturalIdx;
+    if (isBackward) return overrideKey;
+    if (naturalIdx >= overrideIdx) return naturalKey;
     return overrideKey;
   }
 
-  // Signal naturel >= override → le funnel a avancé automatiquement, on suit le naturel
+  // Override automatique : naturel >= override → on suit le naturel
   if (naturalIdx >= overrideIdx) return naturalKey;
-
-  // L'override gagne quand le naturel est en dessous
   return overrideKey;
 }
 
