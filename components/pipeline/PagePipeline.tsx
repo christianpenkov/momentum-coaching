@@ -149,14 +149,21 @@ function resolveStage(
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
   overrideReason?: string | null,
+  overrideUpdatedAt?: string | null,
+  latestSignalAt?: string | null,
 ): string {
   if (!overrideKey) return naturalKey;
 
   const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
 
-  // Override manuel (drag volontaire) → toujours respecté, quelle que soit la position
-  if (overrideReason === 'manual') return overrideKey;
+  // Override manuel : respecté sauf si un signal naturel plus avancé ET postérieur à l'override arrive
+  if (overrideReason === 'manual') {
+    if (naturalIdx > overrideIdx && overrideUpdatedAt && latestSignalAt) {
+      if (new Date(latestSignalAt) > new Date(overrideUpdatedAt)) return naturalKey;
+    }
+    return overrideKey;
+  }
 
   // Signal naturel >= override → le funnel a avancé automatiquement, on suit le naturel
   if (naturalIdx >= overrideIdx) return naturalKey;
@@ -521,17 +528,19 @@ type ConfirmCase =
   | 'backward_from_post_call'   // recul depuis call_booked / showed_up / closed
   | 'forward_to_call_booked'    // avancée manuelle vers call_booked
   | 'forward_to_showed_up'      // avancée manuelle vers showed_up
-  | 'forward_to_closed';        // avancée manuelle vers closed
+  | 'forward_to_closed'         // avancée manuelle vers closed
+  | 'simple_move';              // tout autre déplacement
 
 interface ConfirmMoveModalProps {
   case: ConfirmCase;
   cardName: string;
+  targetStageLabel: string;
   callId: string | null;
   onConfirm: (reason: string, extraData?: Record<string, any>) => void;
   onCancel: () => void;
 }
 
-function ConfirmMoveModal({ case: modalCase, cardName, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
+function ConfirmMoveModal({ case: modalCase, cardName, targetStageLabel, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
   const [reason, setReason] = useState('');
 
   const backwardReasons = [
@@ -599,6 +608,15 @@ function ConfirmMoveModal({ case: modalCase, cardName, callId, onConfirm, onCanc
           </>
         )}
 
+        {modalCase === 'simple_move' && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Déplacer vers &laquo;&nbsp;{targetStageLabel}&nbsp;&raquo; ?</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+              @{cardName} sera déplacé manuellement. Le pipeline automatique continuera de s&apos;appliquer si un signal plus avancé est détecté.
+            </div>
+          </>
+        )}
+
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button
             onMouseDown={onCancel}
@@ -609,7 +627,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, callId, onConfirm, onCanc
           <button
             onMouseDown={() => {
               if (modalCase === 'backward_from_post_call' && !reason) return;
-              onConfirm(reason || modalCase);
+              onConfirm(reason || 'manual');
             }}
             disabled={modalCase === 'backward_from_post_call' && !reason}
             style={{
@@ -653,6 +671,7 @@ export default function PagePipeline() {
     cardKey: string;
     cardName: string;
     targetStageKey: string;
+    targetStageLabel: string;
     callId: string | null;
   } | null>(null);
 
@@ -794,9 +813,18 @@ export default function PagePipeline() {
         }
       }
 
-      // Override toujours applicable, mais appliquer la règle POST_CALL / PRE_CALL
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason);
+      // Signal naturel le plus récent : hook_replied_at, calendly_link_sent_at, first_click_at, call.scheduled_at
+      const signalDates = [
+        lead?.hook_replied_at,
+        prospect?.calendly_link_sent_at,
+        prospect?.first_click_at,
+        call?.scheduled_at,
+      ].filter(Boolean) as string[];
+      const latestSignalAt = signalDates.length
+        ? signalDates.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
+        : null;
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason, override?.updated_at, latestSignalAt);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
@@ -980,25 +1008,30 @@ export default function PagePipeline() {
     const isForwardToShowedUp   = targetStageKey === 'showed_up';
     const isForwardToClosed     = targetStageKey === 'closed';
 
+    // Ne rien faire si on drop sur la même colonne
+    if (card.stageKey === targetStageKey) return;
+
+    const targetStageLabel = activeStages.find(s => s.key === targetStageKey)?.label ?? targetStageKey;
+
     if (isBackwardFromPostCall) {
-      setConfirmModal({ case: 'backward_from_post_call', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      setConfirmModal({ case: 'backward_from_post_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
       return;
     }
     if (isForwardToCallBooked) {
-      setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      setConfirmModal({ case: 'forward_to_call_booked', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
       return;
     }
     if (isForwardToShowedUp) {
-      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      setConfirmModal({ case: 'forward_to_showed_up', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
       return;
     }
     if (isForwardToClosed) {
-      setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, callId: card.callId ?? null });
+      setConfirmModal({ case: 'forward_to_closed', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
       return;
     }
 
-    // Pas de confirmation nécessaire → override direct (manuel)
-    saveOverride(cardKey, platform, targetStageKey, 'manual');
+    // Tous les autres mouvements → modale simple
+    setConfirmModal({ case: 'simple_move', cardKey, cardName: card.name, targetStageKey, targetStageLabel, callId: card.callId ?? null });
   };
 
   const handleConfirmMove = async (reason: string) => {
@@ -1035,6 +1068,8 @@ export default function PagePipeline() {
     } else if (modalCase === 'forward_to_closed') {
       if (callId) await patchCall(callId, { deal_closed: true });
       await saveOverride(cardKey, platform, 'closed', 'manual');
+    } else if (modalCase === 'simple_move') {
+      await saveOverride(cardKey, platform, targetStageKey, 'manual');
     }
 
     await refetch();
@@ -1205,6 +1240,7 @@ export default function PagePipeline() {
         <ConfirmMoveModal
           case={confirmModal.case}
           cardName={confirmModal.cardName}
+          targetStageLabel={confirmModal.targetStageLabel}
           callId={confirmModal.callId}
           onConfirm={handleConfirmMove}
           onCancel={() => setConfirmModal(null)}

@@ -134,6 +134,7 @@ export async function syncCalendlyEleve(
 
       const inviteeEmail = invitee?.email || null;
       const inviteeName = invitee?.name || null;
+      const bookedAt = invitee?.created_at || null; // timestamp exact de réservation (ISO UTC)
       const questionsAndAnswers = invitee?.questions_and_answers || null;
       const tracking = invitee?.tracking || null;
       const utmSource = tracking?.utm_source || null;
@@ -272,6 +273,7 @@ export async function syncCalendlyEleve(
       if (utmMedium)            upsertData.utm_medium      = utmMedium;
       if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
       if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;
+      if (bookedAt)             upsertData.booked_at       = bookedAt;
 
       // Ne pas re-résoudre ig_lead_id si le call existe déjà en DB —
       // short_link_path renseigné = call déjà résolu une fois (lead peut avoir été supprimé depuis)
