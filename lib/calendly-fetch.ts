@@ -142,8 +142,10 @@ export async function syncCalendlyEleve(
       const utmContent = tracking?.utm_content || null;
       const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
-      // utm_campaign = "lead-{ig_user_id}" → résoudre l'ig_lead_id (même logique que webhook)
+      // utm_campaign = "lead-{ig_user_id}" → résoudre l'ig_lead_id
+      // utm_campaign = "prospect-{slug}" → fallback : cherche par prospect_link.ig_username
       const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
+      const prospectSlugFromUtm = utmCampaign?.startsWith('prospect-') ? utmCampaign.slice(9) : null;
       const shortLinkPath = utmContent || null;
 
       // Détection reschedule : cancel l'ancien call et hérite ses données
@@ -208,6 +210,37 @@ export async function syncCalendlyEleve(
         if (pl) {
           resolvedProspectLinkId = pl.id;
           resolvedIgLeadId = resolvedIgLeadId ?? pl.ig_lead_id ?? null;
+        }
+      }
+
+      // Fallback : utm_campaign = "prospect-{slug}" (cold DM sans ig_user_id au moment de la génération)
+      // On cherche le prospect_link par ig_username déduit du slug, puis le lead lié
+      if (!resolvedIgLeadId && !resolvedProspectLinkId && prospectSlugFromUtm) {
+        // Le slug est slugifié (tirets) → reconvertir en underscore pour matcher ig_username
+        const guessedUsername = prospectSlugFromUtm.replace(/-/g, '_');
+        const { data: pl } = await serviceSupabase
+          .from('prospect_links')
+          .select('id, ig_lead_id, ig_username')
+          .eq('profile_id', profileId)
+          .or(`ig_username.eq.${guessedUsername},ig_username.eq.${prospectSlugFromUtm}`)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (pl) {
+          resolvedProspectLinkId = pl.id;
+          resolvedIgLeadId = pl.ig_lead_id ?? null;
+        }
+        // Si toujours pas de lead, chercher directement dans instagram_leads par username
+        if (!resolvedIgLeadId) {
+          const { data: leadRow } = await serviceSupabase
+            .from('instagram_leads')
+            .select('id')
+            .eq('profile_id', profileId)
+            .or(`ig_username.eq.${guessedUsername},ig_username.eq.${prospectSlugFromUtm}`)
+            .order('detected_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          resolvedIgLeadId = leadRow?.id ?? null;
         }
       }
 
