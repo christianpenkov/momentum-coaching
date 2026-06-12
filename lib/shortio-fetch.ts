@@ -280,16 +280,26 @@ export async function syncLmClickStream(
       if (!igLead) continue;
       if (new Date(clickedAt) < new Date(igLead.detected_at)) continue;
 
-      const { error: evtErr } = await serviceSupabase.from('prospect_events').upsert({
-        profile_id:   profileId,
-        prospect_key: igLead.ig_username.toLowerCase(),
-        platform:     'ig',
-        event_type:   'lm_clicked',
-        occurred_at:  clickedAt,
-        ig_lead_id:   igLead.id,
-      }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true });
+      // prospect_events_lm_clicked_unique est un index partiel (WHERE event_type = 'lm_clicked')
+      // Supabase ne peut pas résoudre onConflict sur un index partiel → select + insert conditionnel
+      const { data: existing } = await serviceSupabase
+        .from('prospect_events')
+        .select('id')
+        .eq('ig_lead_id', igLead.id)
+        .eq('event_type', 'lm_clicked')
+        .maybeSingle();
 
-      if (evtErr) errors.push(`lm_clicked_${cleanPath}: ${evtErr.message}`);
+      if (!existing) {
+        const { error: evtErr } = await serviceSupabase.from('prospect_events').insert({
+          profile_id:   profileId,
+          prospect_key: igLead.ig_username.toLowerCase(),
+          platform:     'ig',
+          event_type:   'lm_clicked',
+          occurred_at:  clickedAt,
+          ig_lead_id:   igLead.id,
+        });
+        if (evtErr) errors.push(`lm_clicked_${cleanPath}: ${evtErr.message}`);
+      }
     }
   } catch (e: any) {
     errors.push(`click_stream: ${e?.message || 'unknown'}`);
