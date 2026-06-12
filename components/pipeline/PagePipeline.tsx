@@ -745,10 +745,19 @@ export default function PagePipeline() {
       const prospect = data.prospects.find(p => p.ig_username.toLowerCase() === username);
 
       // Étape naturelle
+      // Pour calendly_sent et link_clicked : le signal doit être postérieur à detected_at du lead
+      // (même logique que syncLmClickStream pour les clics LM) — évite les clics/envois anciens
+      // d'un lien réutilisé avec le même path Short.io de polluer un nouveau lead
+      const leadDetectedAt = lead?.detected_at ? new Date(lead.detected_at) : null;
+      const calendlySentValid = prospect?.calendly_link_sent &&
+        (!leadDetectedAt || !prospect.calendly_link_sent_at || new Date(prospect.calendly_link_sent_at) > leadDetectedAt);
+      const linkClickedValid = prospect?.first_click_at &&
+        (!leadDetectedAt || new Date(prospect.first_click_at) > leadDetectedAt);
+
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
       if (lead?.hook_replied) natural = 'in_convo';
-      if (prospect?.calendly_link_sent) natural = 'calendly_sent';
-      if (prospect?.first_click_at) natural = 'link_clicked'; // C2 fix : utiliser first_click_at
+      if (calendlySentValid) natural = 'calendly_sent';
+      if (linkClickedValid) natural = 'link_clicked';
 
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
