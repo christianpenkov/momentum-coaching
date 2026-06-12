@@ -142,15 +142,12 @@ function avatarInitials(name: string): string {
   return name.replace(/^@/, '').split(/[\s._-]/).map(w => w[0] || '').join('').toUpperCase().slice(0, 2) || '??';
 }
 
-// ── resolveStage révisé ───────────────────────────────────────────────────────
-// Règle : un signal pré-call ne peut pas faire reculer une étape post-call (override)
+// ── resolveStage ──────────────────────────────────────────────────────────────
 
 function resolveStage(
   naturalKey: string,
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
-  overrideUpdatedAt?: string | null,
-  signalOccurredAt?: string | null,
 ): string {
   if (!overrideKey) return naturalKey;
 
@@ -160,16 +157,7 @@ function resolveStage(
   // Signal naturel >= override → le funnel a avancé, on suit le naturel
   if (naturalIdx >= overrideIdx) return naturalKey;
 
-  // Un signal pré-call ne peut pas écraser un override post-call
-  if (POST_CALL_STAGES.has(overrideKey) && PRE_CALL_STAGES.has(naturalKey)) {
-    return overrideKey;
-  }
-
-  // Signal auto arrivé APRÈS l'override → reprend la main
-  if (overrideUpdatedAt && signalOccurredAt) {
-    if (new Date(signalOccurredAt) > new Date(overrideUpdatedAt)) return naturalKey;
-  }
-
+  // L'override gagne toujours quand le naturel est en dessous
   return overrideKey;
 }
 
@@ -804,11 +792,7 @@ export default function PagePipeline() {
 
       // Override toujours applicable, mais appliquer la règle POST_CALL / PRE_CALL
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      const autoSignals = [prospect?.first_click_at, prospect?.calendly_link_sent_at].filter(Boolean) as string[];
-      const signalOccurredAt = autoSignals.length
-        ? autoSignals.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
-        : null;
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.updated_at, signalOccurredAt);
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
