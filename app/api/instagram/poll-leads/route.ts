@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgComments, pollIgHookReplied } from '@/lib/ig-fetch';
 import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot, syncYtCtr } from '@/lib/yt-fetch';
-import { getShortioLinkCreds, snapshotShortioLinks } from '@/lib/shortio-fetch';
+import { getShortioLinkCreds, snapshotShortioLinks, syncLmClickStream } from '@/lib/shortio-fetch';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
 
 const supabase = createClient(
@@ -67,9 +67,10 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
       }
 
-      if (shioSynced > 0 || !shioErrors.length) {
-        // no-op — succès loggué via shioSynced
-      }
+      // Click stream — 48h glissantes pour attribution lm_clicked avec timestamp précis
+      const afterDate = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const clickStreamErrors = await syncLmClickStream(profileId, shioCreds, afterDate);
+      if (clickStreamErrors.length) errors.push(...clickStreamErrors.map(e => `shortio_click_stream: ${e}`));
     }
   } catch (e: any) {
     errors.push(`shortio_snapshot: ${e?.message || 'unknown'}`);

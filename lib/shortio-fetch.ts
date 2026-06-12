@@ -238,6 +238,65 @@ export async function upsertShortioLinkSnapshot(
   return null;
 }
 
+// ── Click stream : attribution lm_clicked avec timestamp précis ──────────────
+// afterDate : ISO string — ne récupère que les clics après cette date
+// Filtre human=true et paths lm-* uniquement
+// Vérifie que le clic est postérieur à detected_at du lead
+export async function syncLmClickStream(
+  profileId: string,
+  creds: ShortioLinkCreds,
+  afterDate: string,
+): Promise<string[]> {
+  const errors: string[] = [];
+  try {
+    const res = await fetch(
+      `https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`,
+      {
+        method: 'POST',
+        headers: { authorization: creds.apiKey, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ limit: 500, afterDate }),
+      }
+    );
+    if (!res.ok) return [`click_stream_${res.status}`];
+
+    const data = await res.json();
+    const rawClicks: { path: string; dt: string; human: boolean }[] = data?.clicks ?? data ?? [];
+
+    const lmClicks = rawClicks.filter(c =>
+      c.human === true && c.path?.replace(/^\//, '').startsWith('lm-')
+    );
+
+    for (const click of lmClicks) {
+      const clickedAt = click.dt ? new Date(click.dt).toISOString() : new Date().toISOString();
+      const cleanPath = click.path.replace(/^\//, '');
+
+      const { data: igLead } = await serviceSupabase
+        .from('instagram_leads')
+        .select('id, ig_username, detected_at')
+        .eq('profile_id', profileId)
+        .filter('tracking_link', 'like', `%/${cleanPath}`)
+        .maybeSingle();
+
+      if (!igLead) continue;
+      if (new Date(clickedAt) < new Date(igLead.detected_at)) continue;
+
+      const { error: evtErr } = await serviceSupabase.from('prospect_events').upsert({
+        profile_id:   profileId,
+        prospect_key: igLead.ig_username.toLowerCase(),
+        platform:     'ig',
+        event_type:   'lm_clicked',
+        occurred_at:  clickedAt,
+        ig_lead_id:   igLead.id,
+      }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true });
+
+      if (evtErr) errors.push(`lm_clicked_${cleanPath}: ${evtErr.message}`);
+    }
+  } catch (e: any) {
+    errors.push(`click_stream: ${e?.message || 'unknown'}`);
+  }
+  return errors;
+}
+
 // ── Helper principal : snapshot complet pour un profil sur une période ────────
 export async function snapshotShortioLinks(
   profileId: string,
