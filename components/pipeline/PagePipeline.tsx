@@ -149,19 +149,17 @@ function resolveStage(
   overrideKey: string | null | undefined,
   stages: readonly { key: string }[],
   overrideReason?: string | null,
-  overrideUpdatedAt?: string | null,
-  latestSignalAt?: string | null,
 ): string {
   if (!overrideKey) return naturalKey;
 
   const naturalIdx  = stages.findIndex(s => s.key === naturalKey);
   const overrideIdx = stages.findIndex(s => s.key === overrideKey);
 
-  // Override manuel : respecté sauf si un signal naturel plus avancé ET postérieur à l'override arrive
+  // Override manuel : respecté sauf si le stage naturel est STRICTEMENT plus avancé.
+  // Le timestamp n'est pas un critère fiable (les signaux arrivent dans n'importe quel ordre).
+  // Règle simple : si natural a progressé au-delà de l'override → le pipeline automatique a pris le dessus.
   if (overrideReason === 'manual') {
-    if (naturalIdx > overrideIdx && overrideUpdatedAt && latestSignalAt) {
-      if (new Date(latestSignalAt) > new Date(overrideUpdatedAt)) return naturalKey;
-    }
+    if (naturalIdx > overrideIdx) return naturalKey;
     return overrideKey;
   }
 
@@ -814,18 +812,7 @@ export default function PagePipeline() {
       }
 
       const override = effectiveOverrides.find(o => o.prospect_key.toLowerCase() === username && o.platform === 'ig');
-      // Signaux qui peuvent superseder un override manuel : uniquement ceux qui indiquent
-      // une progression réelle (clic sur le lien, call booké). hook_replied_at et
-      // calendly_link_sent_at correspondent à des stages en-dessous — les inclure ferait
-      // annuler un override "in_convo" dès qu'on renvoie le lien.
-      const signalDates = [
-        prospect?.first_click_at,
-        call?.scheduled_at,
-      ].filter(Boolean) as string[];
-      const latestSignalAt = signalDates.length
-        ? signalDates.reduce((a, b) => (new Date(a) > new Date(b) ? a : b))
-        : null;
-      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason, override?.updated_at, latestSignalAt);
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES, override?.reason);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
       const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
