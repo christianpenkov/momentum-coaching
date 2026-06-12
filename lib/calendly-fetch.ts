@@ -214,8 +214,8 @@ export async function syncCalendlyEleve(
       const finalIgLeadId = resolvedIgLeadId ?? inheritedIgLeadId;
       const finalProspectLinkId = resolvedProspectLinkId ?? inheritedProspectLinkId;
 
-      // coach_id = profileId de l'élève (hôte du call)
-      // client_id = null (le lead est externe)
+      // coach_id = hôte du call (profile_id du compte Calendly connecté — élève ou coach)
+      // client_id = null (le lead/invité est externe, pas un utilisateur Momentum)
       const upsertData: Record<string, any> = {
         coach_id: profileId,
         client_id: null,

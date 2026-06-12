@@ -8,7 +8,8 @@ const serviceSupabase = createClient(
 );
 
 // GET /api/calls/notify-rapport
-// Cron Vercel toutes les 15 min — détecte les calls terminés sans rapport et envoie une push.
+// Cron toutes les 30 min — détecte les calls terminés sans rapport et envoie une push.
+// La notif est envoyée à l'heure exacte de fin du call (scheduled_at + duration).
 // Appels Calendly uniquement (calendly_event_uuid IS NOT NULL).
 // Calls annulés ou reprogrammés (status='canceled') → ignorés.
 export async function GET(request: Request) {
@@ -70,7 +71,7 @@ export async function GET(request: Request) {
 
       const scheduledAt = new Date(call.scheduled_at).getTime();
       const endTime = scheduledAt + durationMin * 60 * 1000;
-      const triggerTime = endTime + 15 * 60 * 1000; // +15 min après la fin
+      const triggerTime = endTime; // à la fin exacte du call
 
       if (now < triggerTime) continue; // Pas encore l'heure
 
