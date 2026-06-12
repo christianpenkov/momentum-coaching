@@ -138,7 +138,13 @@ export async function syncCalendlyEleve(
       const tracking = invitee?.tracking || null;
       const utmSource = tracking?.utm_source || null;
       const utmMedium = tracking?.utm_medium || null;
+      const utmCampaign = tracking?.utm_campaign || null;
+      const utmContent = tracking?.utm_content || null;
       const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
+
+      // utm_campaign = "lead-{ig_user_id}" → résoudre l'ig_lead_id (même logique que webhook)
+      const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
+      const shortLinkPath = utmContent || null;
 
       // Détection reschedule : cancel l'ancien call et hérite ses données
       // CAS B : nouvel event avec old_invitee → on hérite depuis l'ancien call
@@ -149,6 +155,8 @@ export async function syncCalendlyEleve(
       let inheritedIgLeadId: string | null = null;
       let inheritedProspectLinkId: string | null = null;
       let inheritedSource: string | null = null;
+      let resolvedIgLeadId: string | null = null;
+      let resolvedProspectLinkId: string | null = null;
 
       if (isCanceled && isRescheduled && newInviteeUrl) {
         // CAS A : cet event est l'ancien — on stocke new_invitee pour que le nouvel event
@@ -176,6 +184,36 @@ export async function syncCalendlyEleve(
         }
       }
 
+      // Résoudre ig_lead_id via utm_campaign="lead-{ig_user_id}"
+      if (igUserIdFromUtm) {
+        const { data: leadRow } = await serviceSupabase
+          .from('instagram_leads')
+          .select('id')
+          .eq('ig_user_id', igUserIdFromUtm)
+          .eq('profile_id', profileId)
+          .order('detected_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        resolvedIgLeadId = leadRow?.id ?? null;
+      }
+
+      // Résoudre prospect_link_id via utm_content = short_link_path
+      if (shortLinkPath) {
+        const { data: pl } = await serviceSupabase
+          .from('prospect_links')
+          .select('id, ig_lead_id')
+          .eq('profile_id', profileId)
+          .filter('short_url', 'like', `%/${shortLinkPath}`)
+          .maybeSingle();
+        if (pl) {
+          resolvedProspectLinkId = pl.id;
+          resolvedIgLeadId = resolvedIgLeadId ?? pl.ig_lead_id ?? null;
+        }
+      }
+
+      const finalIgLeadId = resolvedIgLeadId ?? inheritedIgLeadId;
+      const finalProspectLinkId = resolvedProspectLinkId ?? inheritedProspectLinkId;
+
       // coach_id = profileId de l'élève (hôte du call)
       // client_id = null (le lead est externe)
       const upsertData: Record<string, any> = {
@@ -196,14 +234,41 @@ export async function syncCalendlyEleve(
         ready: 'pending',
         reminder_sent: false,
       };
-      // Héritage reschedule — fallback si pas de données UTM sur le nouvel event
-      if (inheritedIgLeadId)      upsertData.ig_lead_id = inheritedIgLeadId;
-      if (inheritedProspectLinkId) upsertData.prospect_link_id = inheritedProspectLinkId;
+      if (utmCampaign)          upsertData.utm_campaign    = utmCampaign;
+      if (utmContent)           upsertData.utm_content     = utmContent;
+      if (utmMedium)            upsertData.utm_medium      = utmMedium;
+      if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
+      if (finalIgLeadId)        upsertData.ig_lead_id      = finalIgLeadId;
+      if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;
 
       const { data: callRow } = await serviceSupabase.from('calls')
         .upsert(upsertData, { onConflict: 'calendly_event_uuid', ignoreDuplicates: false })
         .select('id, ig_lead_id')
         .maybeSingle();
+
+      // Écrire call_booked dans prospect_events si lead résolu et call actif
+      if (!isCanceled && callRow?.id && finalIgLeadId) {
+        const { data: igLead } = await serviceSupabase
+          .from('instagram_leads').select('ig_username').eq('id', finalIgLeadId).single();
+        if (igLead) {
+          serviceSupabase.from('prospect_events').upsert({
+            profile_id:       profileId,
+            prospect_key:     igLead.ig_username.toLowerCase(),
+            platform:         'ig',
+            event_type:       'call_booked',
+            occurred_at:      scheduledAt ?? new Date().toISOString(),
+            ig_lead_id:       finalIgLeadId,
+            prospect_link_id: finalProspectLinkId,
+            call_id:          callRow.id,
+          }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
+            if (evtErr) console.error('[calendly-fetch] prospect_events call_booked:', evtErr.message);
+          });
+          // Lier le lead au call dans l'autre sens
+          await serviceSupabase.from('instagram_leads')
+            .update({ calendly_event_uuid: eventUuid })
+            .eq('id', finalIgLeadId);
+        }
+      }
 
       // Call annulé : faire reculer le lead dans le pipeline (même logique que webhook invitee.canceled)
       if (isCanceled && callRow?.ig_lead_id) {
