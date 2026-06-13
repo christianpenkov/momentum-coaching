@@ -49,6 +49,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           ? supabase.from('tasks').select('*').in('client_id', ids).order('created_at', { ascending: true })
           : { data: [], error: null },
         supabase.from('calls').select('*').eq('coach_id', user.id)
+          .neq('ignored', true)
           .order('scheduled_at', { ascending: false }).limit(100),
       ]);
 
@@ -98,6 +99,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       .channel(`calls-realtime-${userId}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => {
         supabase.from('calls').select('*').eq('coach_id', userId)
+          .neq('ignored', true)
           .order('scheduled_at', { ascending: false }).limit(100)
           .then(({ data }) => { if (data) setCalls(data); });
       })

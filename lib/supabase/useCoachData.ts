@@ -57,6 +57,7 @@ export function useCoachData(): CoachData {
           : Promise.resolve({ data: [], error: null }),
         clientIds.length > 0
           ? supabase.from('calls').select('*').in('client_id', clientIds)
+              .neq('ignored', true)
               .gte('scheduled_at', new Date().toISOString().split('T')[0])
               .order('scheduled_at', { ascending: true })
               .limit(20)

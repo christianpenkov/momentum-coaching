@@ -25,6 +25,7 @@ export async function GET(request: NextRequest) {
     .from('calls')
     .select('id, client_id, topic, scheduled_at, join_url, reminder_24h_sent, reminder_15min_sent')
     .eq('status', 'active')
+    .neq('ignored', true)
     .gte('scheduled_at', now.toISOString())
     .lte('scheduled_at', in24h5.toISOString());
 

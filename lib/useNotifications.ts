@@ -41,6 +41,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .eq('coach_id', profileId)
       .eq('status', 'active')
       .is('outcome', null)
+      .neq('ignored', true)
       .not('calendly_event_uuid', 'is', null)
       .lt('scheduled_at', now);
 
