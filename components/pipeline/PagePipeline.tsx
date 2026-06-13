@@ -581,8 +581,21 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
   const [irreversibleChecked, setIrreversibleChecked] = useState(false);
   const [advanceChecked, setAdvanceChecked] = useState<Set<string>>(new Set());
 
+  // call_booked manuel
+  const [callDate, setCallDate] = useState('');
+  const [callTime, setCallTime] = useState('');
+  const [callDuration, setCallDuration] = useState('60');
+  const [callName, setCallName] = useState(cardName);
+  const [callEmail, setCallEmail] = useState('');
+
+  // closed manuel
+  const [revenue, setRevenue] = useState('');
+
   const advanceConfirmations = modalCase === 'forward_pre_call' ? getAdvanceConfirmations(targetStageKey) : [];
   const allAdvanceChecked = advanceConfirmations.length > 0 && advanceConfirmations.every(c => advanceChecked.has(c.id));
+
+  const callBookedValid = callDate && callTime && callName.trim();
+  const closedValid = revenue !== '' && !isNaN(Number(revenue)) && Number(revenue) >= 0;
 
   function toggleAdvance(id: string) {
     setAdvanceChecked(prev => {
@@ -689,27 +702,67 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
 
         {modalCase === 'forward_to_call_booked' && (
           <>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Confirmer un call manuel ?</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-              Un appel a bien été réservé manuellement ? Cela ne crée pas d&apos;entrée Calendly.
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Enregistrer le call de @{cardName}</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              Renseigne les infos du call pour que le rapport soit envoyé au bon moment.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Date du call</div>
+                  <input type="date" value={callDate} onChange={e => setCallDate(e.target.value)}
+                    style={{ width: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Heure de début</div>
+                  <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)}
+                    style={{ width: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }} />
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Durée du call</div>
+                <div style={{ display: 'flex', gap: 6 }}>
+                  {['30', '45', '60', '90'].map(d => (
+                    <button key={d} onMouseDown={() => setCallDuration(d)}
+                      style={{ flex: 1, padding: '6px 0', fontSize: 12, borderRadius: 7, border: `1px solid ${callDuration === d ? '#2563EB' : 'var(--border)'}`, background: callDuration === d ? '#EFF6FF' : 'transparent', color: callDuration === d ? '#2563EB' : 'var(--ink)', cursor: 'pointer', fontWeight: 600 }}>
+                      {d} min
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Nom du lead</div>
+                <input type="text" value={callName} onChange={e => setCallName(e.target.value)} placeholder="Prénom Nom"
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }} />
+              </div>
+              <div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Email (optionnel)</div>
+                <input type="email" value={callEmail} onChange={e => setCallEmail(e.target.value)} placeholder="lead@email.com"
+                  style={{ width: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }} />
+              </div>
             </div>
           </>
         )}
 
         {modalCase === 'forward_to_showed_up' && (
           <>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Marquer comme présent ?</div>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>@{cardName} s&apos;est présenté au call ?</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-              Confirmer que @{cardName} s&apos;est présenté à l&apos;appel ?
+              Confirme que le lead était bien présent. Cela sera compté dans ton taux de show-up.
             </div>
           </>
         )}
 
         {modalCase === 'forward_to_closed' && (
           <>
-            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Marquer comme deal fermé ?</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-              Cette action compte dans les statistiques de conversion.
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Deal fermé avec @{cardName} ?</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+              Indique le montant pour que le chiffre d&apos;affaires soit comptabilisé dans les stats.
+            </div>
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Montant du deal (€)</div>
+              <input type="number" min="0" step="1" value={revenue} onChange={e => setRevenue(e.target.value)} placeholder="ex : 1500"
+                style={{ width: '100%', padding: '6px 10px', fontSize: 13, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }} />
             </div>
           </>
         )}
@@ -735,12 +788,26 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
               if (modalCase === 'backward_from_post_call' && !reason) return;
               if (modalCase === 'backward_pre_call' && !irreversibleChecked) return;
               if (modalCase === 'forward_pre_call' && !allAdvanceChecked) return;
-              onConfirm(reason || 'manual');
+              if (modalCase === 'forward_to_call_booked' && !callBookedValid) return;
+              if (modalCase === 'forward_to_closed' && !closedValid) return;
+              const extraData: Record<string, any> = {};
+              if (modalCase === 'forward_to_call_booked') {
+                extraData.scheduledAt = `${callDate}T${callTime}:00`;
+                extraData.duration = callDuration;
+                extraData.inviteeName = callName.trim();
+                extraData.inviteeEmail = callEmail.trim() || null;
+              }
+              if (modalCase === 'forward_to_closed') {
+                extraData.revenue = Number(revenue);
+              }
+              onConfirm(reason || 'manual', extraData);
             }}
             disabled={
               (modalCase === 'backward_from_post_call' && !reason) ||
               (modalCase === 'backward_pre_call' && !irreversibleChecked) ||
-              (modalCase === 'forward_pre_call' && !allAdvanceChecked)
+              (modalCase === 'forward_pre_call' && !allAdvanceChecked) ||
+              (modalCase === 'forward_to_call_booked' && !callBookedValid) ||
+              (modalCase === 'forward_to_closed' && !closedValid)
             }
             style={{
               padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none',
@@ -748,15 +815,21 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
                 (modalCase === 'backward_from_post_call' && !reason) ? 'var(--border)' :
                 (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--border)' :
                 (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'var(--border)' :
+                (modalCase === 'forward_to_call_booked' && !callBookedValid) ? 'var(--border)' :
+                (modalCase === 'forward_to_closed' && !closedValid) ? 'var(--border)' :
                 modalCase === 'backward_pre_call' ? '#DC2626' : '#2563EB',
               color:
                 (modalCase === 'backward_from_post_call' && !reason) ? 'var(--muted)' :
                 (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--muted)' :
-                (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'var(--muted)' : '#fff',
+                (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'var(--muted)' :
+                (modalCase === 'forward_to_call_booked' && !callBookedValid) ? 'var(--muted)' :
+                (modalCase === 'forward_to_closed' && !closedValid) ? 'var(--muted)' : '#fff',
               cursor:
                 (modalCase === 'backward_from_post_call' && !reason) ? 'not-allowed' :
                 (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'not-allowed' :
-                (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'not-allowed' : 'pointer',
+                (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'not-allowed' :
+                (modalCase === 'forward_to_call_booked' && !callBookedValid) ? 'not-allowed' :
+                (modalCase === 'forward_to_closed' && !closedValid) ? 'not-allowed' : 'pointer',
             }}
           >
             {modalCase === 'backward_pre_call' ? 'Effacer et reculer' : 'Confirmer'}
@@ -1168,7 +1241,7 @@ export default function PagePipeline() {
     setConfirmModal({ case: 'simple_move', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
   };
 
-  const handleConfirmMove = async (reason: string) => {
+  const handleConfirmMove = async (reason: string, extraData?: Record<string, any>) => {
     if (!confirmModal) return;
     const { case: modalCase, cardKey, targetStageKey, callId, naturalKey } = confirmModal;
     setConfirmModal(null);
@@ -1218,11 +1291,25 @@ export default function PagePipeline() {
       }
       await saveOverride(cardKey, platform, bestStage, reason, naturalKey);
     } else if (modalCase === 'forward_to_call_booked') {
-      await saveOverride(cardKey, platform, 'call_booked', 'manual', naturalKey);
+      // Créer un vrai call en DB avec les infos saisies dans la modale
+      await fetch('/api/client/calls', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          ig_username: cardKey,
+          scheduled_at: extraData?.scheduledAt,
+          duration: extraData?.duration ? `${extraData.duration} min` : '60 min',
+          invitee_name: extraData?.inviteeName ?? cardKey,
+          invitee_email: extraData?.inviteeEmail ?? null,
+          call_type: 'manual',
+          manual_override: true,
+          source: 'ig',
+        }),
+      });
     } else if (modalCase === 'forward_to_showed_up') {
       await saveOverride(cardKey, platform, 'showed_up', 'manual', naturalKey);
     } else if (modalCase === 'forward_to_closed') {
-      if (callId) await patchCall(callId, { deal_closed: true });
+      if (callId) await patchCall(callId, { deal_closed: true, revenue: extraData?.revenue ?? null });
       await saveOverride(cardKey, platform, 'closed', 'manual', naturalKey);
     } else if (modalCase === 'simple_move') {
       await saveOverride(cardKey, platform, targetStageKey, 'manual', naturalKey);
