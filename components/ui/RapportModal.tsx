@@ -28,6 +28,7 @@ interface Props {
   callId: string;
   inviteeName: string | null;
   scheduledAt: string | null;
+  isFollowUp?: boolean;
   onClose: () => void;
 }
 
@@ -59,7 +60,7 @@ function CelebrationOverlay({ onDone }: { onDone: () => void }) {
   );
 }
 
-export default function RapportModal({ callId, inviteeName, scheduledAt, onClose }: Props) {
+export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, onClose }: Props) {
   const [step, setStep] = useState<RapportStep>('show_up');
   const [revenue, setRevenue] = useState('');
   const [saving, setSaving] = useState(false);
@@ -397,7 +398,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
                 </button>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
                   onClick={handleSecondCall}>
-                  2ème call prévu
+                  {isFollowUp ? 'Prochain call prévu' : '2ème call prévu'}
                 </button>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
                   onClick={async () => { setSaving(true); await patchRapport({ no_show: false, deal_closed: false, revenue: 0, outcome: 'to_recontact' }); setSaving(false); onClose(); }}>
@@ -411,11 +412,13 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
             </div>
           )}
 
-          {/* ── 2ème call : trouvé auto ─────────────────────────────────────── */}
+          {/* ── Prochain call : trouvé auto ─────────────────────────────────── */}
           {step === 'second_call_found' && foundCall && (
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>2ème call détecté ✓</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.6 }}>Calendly a détecté un 2ème rendez-vous :</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
+                {isFollowUp ? 'Prochain call détecté ✓' : '2ème call détecté ✓'}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.6 }}>Calendly a détecté un prochain rendez-vous :</div>
               <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 24 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{formatDate(foundCall.scheduledAt)}</div>
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatTime(foundCall.scheduledAt)}</div>
@@ -429,11 +432,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
             </div>
           )}
 
-          {/* ── 2ème call : comment va-t-il reréserver ? ────────────────────── */}
+          {/* ── Prochain call : comment va-t-il reréserver ? ────────────────── */}
           {step === 'second_call_how' && (
             <div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Comment va-t-il reréserver ?</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Aucun 2ème call n'a été détecté sur Calendly.</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Aucun prochain call n'a été détecté sur Calendly.</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
                   onClick={confirmSecondCallViaCalendly}>
@@ -451,11 +454,13 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
             </div>
           )}
 
-          {/* ── 2ème call : saisie manuelle ─────────────────────────────────── */}
+          {/* ── Prochain call : saisie manuelle ─────────────────────────────── */}
           {step === 'second_call_manual_date' && (
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Date du 2ème call</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>Renseigne les horaires du 2ème appel.</div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
+                {isFollowUp ? 'Date du prochain call' : 'Date du 2ème call'}
+              </div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>Renseigne les horaires du prochain appel.</div>
               <ManualDateForm date={manualDate} setDate={setManualDate} timeStart={manualTimeStart} setTimeStart={setManualTimeStart} timeEnd={manualTimeEnd} setTimeEnd={setManualTimeEnd} />
               <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginTop: 20 }} disabled={saving || !manualValid}
                 onClick={confirmSecondCallManual}>
@@ -464,13 +469,15 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, onClose
             </div>
           )}
 
-          {/* ── 2ème call : confirmation finale ─────────────────────────────── */}
+          {/* ── Prochain call : confirmation finale ──────────────────────────── */}
           {step === 'second_call_done' && (
             <div style={{ textAlign: 'center', padding: '16px 0 8px' }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>✅</div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>2ème call enregistré</div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
+                {isFollowUp ? 'Prochain call enregistré' : '2ème call enregistré'}
+              </div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 28, lineHeight: 1.6 }}>
-                Le 2ème call est enregistré et ne comptera pas dans les statistiques de calls bookés.
+                Ce call est enregistré et ne comptera pas dans les statistiques de calls bookés.
               </div>
               <button className="btn-primary" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700 }} onClick={onClose}>Fermer</button>
             </div>

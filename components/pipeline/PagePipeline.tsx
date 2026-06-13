@@ -203,6 +203,7 @@ interface CardData {
   callScheduledAt?: string;
   callStatus?: string;
   callOutcome?: string | null;
+  callIsFollowUp?: boolean;
   naturalKey: string; // stage naturel avant override — pour natural_at_override
 }
 
@@ -217,7 +218,7 @@ function PipelineCard({
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string) => void;
-  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -331,7 +332,7 @@ function PipelineCard({
           onMouseDown={e => e.stopPropagation()}
           onClick={e => {
             e.stopPropagation();
-            onRapportClick?.(card.callId!, card.name, card.callScheduledAt!);
+            onRapportClick?.(card.callId!, card.name, card.callScheduledAt!, card.callIsFollowUp ?? false);
           }}
           style={{
             display: 'block', width: '100%', textAlign: 'center', fontSize: 10, fontWeight: 600,
@@ -468,7 +469,7 @@ function KanbanColumn({
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string) => void;
-  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
 }) {
   return (
     <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, transition: 'background .1s', alignSelf: 'stretch' }}>
@@ -902,6 +903,7 @@ export default function PagePipeline() {
     callId: string;
     inviteeName: string;
     scheduledAt: string;
+    isFollowUp?: boolean;
   } | null>(null);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
@@ -1068,6 +1070,7 @@ export default function PagePipeline() {
         callScheduledAt: call?.scheduled_at ?? undefined,
         callStatus: call?.status ?? undefined,
         callOutcome: call?.outcome ?? null,
+        callIsFollowUp: call?.is_follow_up ?? false,
         naturalKey: natural,
       });
     }
@@ -1493,7 +1496,7 @@ export default function PagePipeline() {
                   onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
                   onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
                   onDeleteLead={handleDeleteLead}
-                  onRapportClick={(callId, inviteeName, scheduledAt) => setRapportModal({ callId, inviteeName, scheduledAt })}
+                  onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp })}
                 />
               );
             })}
@@ -1545,6 +1548,7 @@ export default function PagePipeline() {
           callId={rapportModal.callId}
           inviteeName={rapportModal.inviteeName}
           scheduledAt={rapportModal.scheduledAt}
+          isFollowUp={rapportModal.isFollowUp}
           onClose={() => { setRapportModal(null); refetch(); }}
         />
       )}
