@@ -329,6 +329,24 @@ export async function POST(request: Request) {
       console.log(`[IG Webhook] Mot-clé "${matchedKeyword}" matché sur post ${mediaId} — @${commenterUsername}`);
       pushEvent({ type: 'keyword_matched', keyword: matchedKeyword, commenterUsername, mediaId });
 
+      // Cooldown 1 min : si on a déjà envoyé ce LM à cet utilisateur dans la dernière minute, skip
+      if (commenterId) {
+        const cooldownCutoff = new Date(Date.now() - 60 * 1000).toISOString();
+        const { data: recentDm } = await serviceSupabase
+          .from('instagram_lead_lm_history')
+          .select('id')
+          .eq('ig_user_id', commenterId)
+          .eq('keyword_matched', matchedKeyword)
+          .eq('profile_id', profile_id)
+          .gte('detected_at', cooldownCutoff)
+          .limit(1)
+          .maybeSingle();
+        if (recentDm) {
+          pushEvent({ type: 'cooldown_skip', commenterUsername, keyword: matchedKeyword });
+          continue;
+        }
+      }
+
       let leadMagnetSent = false;
 
       // Génère un lien Short.io unique par (lead × post × keyword) si lm_url est disponible
