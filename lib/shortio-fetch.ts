@@ -171,46 +171,11 @@ export async function upsertShortioLinkSnapshot(
 
   if (error) return error.message;
 
-  // Si des clics humains existent, mettre à jour first_click_at.
-  // Condition stricte : le lien doit avoir été envoyé (calendly_link_sent = true).
-  // Sans envoi confirmé, les clics viennent forcément d'un lead précédent qui avait
-  // utilisé le même path Short.io — on ne les comptabilise pas pour ce lead.
+  // NE PAS écrire first_click_at depuis le snapshot daily :
+  // les stats agrégées Short.io comptent certains bots comme humanClicks (incohérence API).
+  // Seul le click stream temps réel (syncLmClickStream) a le détail human:true par clic
+  // et est la seule source fiable pour écrire first_click_at sur prospect_links.
   if (row.human_clicks > 0) {
-    const { data: pl } = await serviceSupabase
-      .from('prospect_links')
-      .select('id, ig_username, ig_lead_id, first_click_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at')
-      .eq('profile_id', profileId)
-      .filter('short_url', 'like', `%/${row.path}`)
-      .maybeSingle();
-
-    if (pl && pl.calendly_link_sent && pl.calendly_link_sent_at) {
-      // Ne comptabiliser un clic que si le snapshot date d'après l'envoi du lien
-      // Utiliser last_calendly_link_sent_at (dernier envoi) pour éviter les clics d'un lead précédent
-      const snapshotDate = new Date(row.date + 'T00:00:00Z');
-      const sentAt = new Date(pl.last_calendly_link_sent_at ?? pl.calendly_link_sent_at);
-      // Le snapshot est en granularité jour — on garde le guard jour mais on exclut
-      // les bots du jour même via le chemin temps-réel (60s guard ci-dessus)
-      const clickIsAfterSend = snapshotDate >= new Date(sentAt.toISOString().slice(0, 10) + 'T00:00:00Z');
-
-      if (clickIsAfterSend && !pl.first_click_at) {
-        const snapshotClickAt = new Date().toISOString();
-        await serviceSupabase
-          .from('prospect_links')
-          .update({ first_click_at: snapshotClickAt })
-          .eq('id', pl.id);
-
-        // Upsert l'événement link_clicked avec la date du snapshot courant
-        await serviceSupabase.from('prospect_events').upsert({
-          profile_id:       profileId,
-          prospect_key:     pl.ig_username,
-          platform:         'ig',
-          event_type:       'link_clicked',
-          occurred_at:      snapshotClickAt,
-          ig_lead_id:       pl.ig_lead_id,
-          prospect_link_id: pl.id,
-        }, { onConflict: 'prospect_link_id,event_type' });
-      }
-    }
 
     // Second check : lien LM personnalisé sur instagram_leads.tracking_link
     // On vérifie le total cumulé (pas juste le snapshot du jour) pour ne pas rater les clics passés
