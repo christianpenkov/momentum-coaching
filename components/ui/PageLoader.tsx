@@ -8,7 +8,7 @@ export default function PageLoader() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: var(--bg, var(--surface, #ffffff));
+          background: var(--bg, #fbfbf7);
           z-index: 9999;
         }
 
