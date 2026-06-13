@@ -113,6 +113,36 @@ export async function GET(request: Request) {
     debug.statsTest = statsTest;
   }
 
+  // 5. Clics bruts last_clicks — voir champ human pour chaque clic
+  let rawClicksTest: any = null;
+  if (domainId) {
+    const afterDate = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+    const clicksRes = await fetch(
+      `https://api-v2.short.io/statistics/domain/${domainId}/last_clicks`,
+      {
+        method: 'POST',
+        headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ limit: 20, afterDate }),
+      }
+    );
+    const clicksJson = await clicksRes.json().catch(() => null);
+    const clicks: any[] = clicksJson?.clicks ?? clicksJson ?? [];
+    rawClicksTest = {
+      status: clicksRes.status,
+      total: clicks.length,
+      clicks: clicks.map((c: any) => ({
+        path: c.path,
+        dt: c.dt,
+        human: c.human,
+        browser: c.browser,
+        os: c.os,
+        country: c.country,
+        referer: c.referer,
+      })),
+    };
+    debug.rawClicks = rawClicksTest;
+  }
+
   return NextResponse.json({
     ok: true,
     message: 'Connexion Short.io opérationnelle',

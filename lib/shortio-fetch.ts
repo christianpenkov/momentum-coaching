@@ -188,6 +188,8 @@ export async function upsertShortioLinkSnapshot(
       // Utiliser last_calendly_link_sent_at (dernier envoi) pour éviter les clics d'un lead précédent
       const snapshotDate = new Date(row.date + 'T00:00:00Z');
       const sentAt = new Date(pl.last_calendly_link_sent_at ?? pl.calendly_link_sent_at);
+      // Le snapshot est en granularité jour — on garde le guard jour mais on exclut
+      // les bots du jour même via le chemin temps-réel (60s guard ci-dessus)
       const clickIsAfterSend = snapshotDate >= new Date(sentAt.toISOString().slice(0, 10) + 'T00:00:00Z');
 
       if (clickIsAfterSend && !pl.first_click_at) {
@@ -326,8 +328,9 @@ export async function syncLmClickStream(
       if (!pl) continue;
       if (!pl.calendly_link_sent || !pl.calendly_link_sent_at) continue;
       // Le clic doit être postérieur au dernier envoi du lien (pas au premier)
+      // + au moins 60s après l'envoi pour ignorer les bots/crawlers Instagram
       const sentRefAt = pl.last_calendly_link_sent_at ?? pl.calendly_link_sent_at;
-      if (new Date(clickedAt) <= new Date(sentRefAt)) continue;
+      if (new Date(clickedAt) <= new Date(new Date(sentRefAt).getTime() + 60_000)) continue;
 
       // Écrire first_click_at si pas encore renseigné
       if (!pl.first_click_at) {
