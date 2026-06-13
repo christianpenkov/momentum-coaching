@@ -203,7 +203,7 @@ export async function upsertShortioLinkSnapshot(
             prospect_key: igLead.ig_username.toLowerCase(),
             platform:     'ig',
             event_type:   'lm_clicked',
-            occurred_at:  new Date().toISOString(),
+            occurred_at:  new Date(row.date + 'T12:00:00Z').toISOString(),
             ig_lead_id:   igLead.id,
           }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: true });
           if (evtErr) console.error('[shortio-fetch] lm_clicked upsert:', evtErr.message);
@@ -291,11 +291,9 @@ export async function syncLmClickStream(
         .maybeSingle();
 
       if (!pl) continue;
-      if (!pl.calendly_link_sent || !pl.calendly_link_sent_at) continue;
-      // Le clic doit être postérieur au dernier envoi du lien (pas au premier)
-      // + au moins 60s après l'envoi pour ignorer les bots/crawlers Instagram
       const sentRefAt = pl.last_calendly_link_sent_at ?? pl.calendly_link_sent_at;
-      if (new Date(clickedAt) <= new Date(new Date(sentRefAt).getTime() + 60_000)) continue;
+      if (!pl.calendly_link_sent || !sentRefAt) continue;
+      if (new Date(clickedAt) <= new Date(sentRefAt)) continue;
 
       // Écrire first_click_at si pas encore renseigné
       if (!pl.first_click_at) {
