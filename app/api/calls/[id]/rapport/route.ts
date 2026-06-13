@@ -12,6 +12,7 @@ function outcomeToStage(outcome: string): string | null {
   switch (outcome) {
     case 'closed':       return 'closed';
     case 'no_show':      return null; // recul vers meilleure étape connue
+    case 'rescheduled':  return 'call_booked'; // reste en call_booked avec badge orange
     case 'showed_up':
     case 'second_call':
     case 'to_recontact':

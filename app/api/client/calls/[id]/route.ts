@@ -42,7 +42,7 @@ export async function PATCH(
   if (!isOwner) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
 
   // Champs autorisés à mettre à jour
-  const allowed = ['status', 'no_show', 'no_show_at', 'rescheduled', 'rescheduled_at', 'cancellation_reason', 'deal_closed', 'ig_lead_id'];
+  const allowed = ['status', 'no_show', 'no_show_at', 'rescheduled', 'rescheduled_at', 'scheduled_at', 'cancellation_reason', 'deal_closed', 'ig_lead_id', 'is_follow_up'];
   const update: Record<string, any> = {};
   for (const field of allowed) {
     if (field in body) update[field] = body[field];

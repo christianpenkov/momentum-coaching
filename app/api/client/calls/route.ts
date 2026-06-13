@@ -15,7 +15,7 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { ig_username, scheduled_at, duration, invitee_name, invitee_email, call_type, manual_override, source } = body;
+  const { ig_username, scheduled_at, duration, invitee_name, invitee_email, call_type, manual_override, source, is_follow_up } = body;
   if (!scheduled_at) return NextResponse.json({ error: 'scheduled_at requis' }, { status: 400 });
 
   // Récupérer le lead et le prospect_link pour lier le call
@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     call_type: call_type ?? 'manual',
     manual_override: manual_override ?? true,
     source: source ?? 'ig',
+    is_follow_up: is_follow_up ?? false,
     booked_at: new Date().toISOString(),
   }).select('id').single();
 
