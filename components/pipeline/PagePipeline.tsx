@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
+import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -1469,7 +1470,7 @@ export default function PagePipeline() {
       {/* Kanban board */}
       {loading ? (
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Chargement…</div>
+          <InlineLoader />
         </div>
       ) : (
         <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16 }}>

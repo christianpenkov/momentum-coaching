@@ -1,5 +1,6 @@
-export default function InlineLoader() {
-  return (
+// --uib-speed: 0.6s (durée d'un cycle complet par point)
+export default function InlineLoader({ fullPage }: { fullPage?: boolean } = {}) {
+  const dots = (
     <>
       <style>{`
         .dot-wave {
@@ -30,19 +31,30 @@ export default function InlineLoader() {
         .dot-wave__dot:nth-child(4) { animation: dw-jump var(--uib-speed) ease-in-out infinite; }
 
         @keyframes dw-jump {
-          0%, 100% { transform: translateY(0px);    }
-          50%       { transform: translateY(-200%);  }
+          0%, 100% { transform: translateY(0px);   }
+          50%       { transform: translateY(-200%); }
         }
       `}</style>
-
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '32px 0' }}>
-        <div className="dot-wave">
-          <div className="dot-wave__dot" />
-          <div className="dot-wave__dot" />
-          <div className="dot-wave__dot" />
-          <div className="dot-wave__dot" />
-        </div>
+      <div className="dot-wave">
+        <div className="dot-wave__dot" />
+        <div className="dot-wave__dot" />
+        <div className="dot-wave__dot" />
+        <div className="dot-wave__dot" />
       </div>
     </>
+  );
+
+  if (fullPage) {
+    return (
+      <div style={{ position: 'fixed', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg, #fbfbf7)', zIndex: 9999 }}>
+        {dots}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '32px 0' }}>
+      {dots}
+    </div>
   );
 }

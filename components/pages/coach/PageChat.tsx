@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
@@ -671,7 +671,7 @@ export default function PageChat() {
     };
   }, [userId, activeId, supabase]);
 
-  if (loading) return <PageLoader />;
+  if (loading) return <InlineLoader fullPage />;
 
   if (clients.length === 0) return (
     <div className="page-content">

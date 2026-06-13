@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
@@ -82,7 +82,7 @@ export default function PageClients() {
     red: clients.filter(c => c.status === 'red').length,
   };
 
-  if (loading) return <PageLoader />;
+  if (loading) return <InlineLoader fullPage />;
 
   return (
     <div className="page-content">

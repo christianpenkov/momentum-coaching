@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -27,7 +27,7 @@ export default function PageAnalytics() {
   const { clients, loading } = useSupabaseClients();
   const [platform, setPlatform] = useState<Platform>('ig');
 
-  if (loading) return <PageLoader />;
+  if (loading) return <InlineLoader fullPage />;
 
   // ── KPIs agrégés ──────────────────────────────────────────────────────────
   const totalMRR = clients.reduce((s, c) => s + (c.latestMetrics?.stripe_mrr || 0), 0);

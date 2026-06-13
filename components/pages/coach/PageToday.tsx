@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
@@ -36,7 +36,7 @@ export default function PageToday() {
   const dayLabel = today.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const dayCapitalized = dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1);
 
-  if (loading) return <PageLoader />;
+  if (loading) return <InlineLoader fullPage />;
 
   return (
     <div className="page-content">
