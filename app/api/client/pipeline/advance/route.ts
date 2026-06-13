@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { ig_username, target_stage } = body;
+  const { ig_username, target_stage, current_stage } = body;
   if (!ig_username || !target_stage) return NextResponse.json({ error: 'ig_username et target_stage requis' }, { status: 400 });
   if (!IG_PRE_CALL.includes(target_stage) || target_stage === 'lm_sent') {
     return NextResponse.json({ error: 'target_stage invalide pour un advance' }, { status: 400 });
@@ -26,10 +26,12 @@ export async function POST(request: Request) {
 
   const username = ig_username.toLowerCase();
   const now = new Date().toISOString();
-  const today = now.slice(0, 10); // YYYY-MM-DD
-  const targetIdx = IG_PRE_CALL.indexOf(target_stage as IgPreCallStage);
+  const today = now.slice(0, 10);
+  const targetIdx  = IG_PRE_CALL.indexOf(target_stage as IgPreCallStage);
+  // currentIdx : on ne réécrit que les signaux strictement au-dessus du stage de départ
+  const currentIdx = current_stage && IG_PRE_CALL.includes(current_stage) ? IG_PRE_CALL.indexOf(current_stage as IgPreCallStage) : -1;
 
-  // Récupérer lead + prospect_link en parallèle (nécessaire pour les events et le snapshot)
+  // Récupérer lead + prospect_link en parallèle
   const [{ data: lead }, { data: pl }] = await Promise.all([
     supa.from('instagram_leads').select('id').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
     supa.from('prospect_links').select('id, short_url, calendly_link_sent_at').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
@@ -37,8 +39,8 @@ export async function POST(request: Request) {
 
   const ops: PromiseLike<any>[] = [];
 
-  // ── in_convo : hook_replied ───────────────────────────────────────────────
-  if (targetIdx >= IG_PRE_CALL.indexOf('in_convo')) {
+  // ── in_convo : hook_replied (seulement si on vient de lm_sent) ────────────
+  if (currentIdx < IG_PRE_CALL.indexOf('in_convo') && targetIdx >= IG_PRE_CALL.indexOf('in_convo')) {
     ops.push(
       supa.from('instagram_leads')
         .update({ hook_replied: true, hook_replied_at: now })
@@ -48,8 +50,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // ── calendly_sent : champs + event ────────────────────────────────────────
-  if (targetIdx >= IG_PRE_CALL.indexOf('calendly_sent')) {
+  // ── calendly_sent : champs + event (seulement si on n'a pas encore le lien) ─
+  if (currentIdx < IG_PRE_CALL.indexOf('calendly_sent') && targetIdx >= IG_PRE_CALL.indexOf('calendly_sent')) {
     ops.push(
       supa.from('prospect_links')
         .update({

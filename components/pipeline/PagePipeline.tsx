@@ -559,18 +559,20 @@ function getResetDescription(targetStage: string, currentStage: string, hasCall:
   return items;
 }
 
-// Cases à cocher pour confirmer les signaux selon le stage cible
-function getAdvanceConfirmations(targetStage: string): { id: string; label: string }[] {
-  const items: { id: string; label: string }[] = [];
+// Cases à cocher pour confirmer uniquement les signaux entre currentStage et targetStage
+function getAdvanceConfirmations(currentStage: string, targetStage: string): { id: string; label: string }[] {
   const stages = ['lm_sent', 'in_convo', 'calendly_sent', 'link_clicked'];
-  const targetIdx = stages.indexOf(targetStage);
-  if (targetIdx >= stages.indexOf('in_convo')) {
+  const currentIdx = stages.indexOf(currentStage);
+  const targetIdx  = stages.indexOf(targetStage);
+  const items: { id: string; label: string }[] = [];
+  // On ne demande que les signaux strictement au-dessus du stage de départ
+  if (currentIdx < stages.indexOf('in_convo') && targetIdx >= stages.indexOf('in_convo')) {
     items.push({ id: 'hook_replied', label: 'Le lead a bien répondu à mon message de bienvenue' });
   }
-  if (targetIdx >= stages.indexOf('calendly_sent')) {
+  if (currentIdx < stages.indexOf('calendly_sent') && targetIdx >= stages.indexOf('calendly_sent')) {
     items.push({ id: 'calendly_sent', label: "J'ai bien envoyé le lien Calendly à ce lead" });
   }
-  if (targetIdx >= stages.indexOf('link_clicked')) {
+  if (currentIdx < stages.indexOf('link_clicked') && targetIdx >= stages.indexOf('link_clicked')) {
     items.push({ id: 'link_clicked', label: 'Le lead a bien cliqué sur le lien Calendly' });
   }
   return items;
@@ -591,7 +593,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
   // closed manuel
   const [revenue, setRevenue] = useState('');
 
-  const advanceConfirmations = modalCase === 'forward_pre_call' ? getAdvanceConfirmations(targetStageKey) : [];
+  const advanceConfirmations = modalCase === 'forward_pre_call' ? getAdvanceConfirmations(currentStageKey, targetStageKey) : [];
   const allAdvanceChecked = advanceConfirmations.length > 0 && advanceConfirmations.every(c => advanceChecked.has(c.id));
 
   const callBookedValid = callDate && callTime && callName.trim();
@@ -1262,7 +1264,7 @@ export default function PagePipeline() {
       await fetch('/api/client/pipeline/advance', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ ig_username: cardKey, target_stage: targetStageKey }),
+        body: JSON.stringify({ ig_username: cardKey, target_stage: targetStageKey, current_stage: confirmModal.currentStageKey }),
       });
       setOverrides(prev => prev.filter(o => !(o.prospect_key === cardKey && o.platform === 'ig')));
       await refetch();
