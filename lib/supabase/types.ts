@@ -93,6 +93,15 @@ export interface Call {
   invitee_name: string | null;
   reminder_sent: boolean;
   created_at: string;
+  no_show?: boolean | null;
+  deal_closed?: boolean | null;
+  revenue?: number | null;
+  outcome?: string | null;
+  is_follow_up?: boolean | null;
+  ig_lead_id?: string | null;
+  rescheduled?: boolean | null;
+  rescheduled_at?: string | null;
+  lead_deleted?: boolean | null;
 }
 
 export interface Integration {
