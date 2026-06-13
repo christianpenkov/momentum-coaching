@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
+import RapportModal from '@/components/ui/RapportModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -194,17 +195,18 @@ interface CardData {
   extra?: string;
   noSource?: boolean;
   // Badges post-call
-  badge?: 'no_show' | 'rescheduled' | null;
+  badge?: 'no_show' | 'rescheduled' | 'not_qualified' | 'to_recontact' | null;
   lmClickedAt?: string | null;
-  // Pour afficher le bouton compte-rendu
+  // Pour afficher le bouton rapport
   callId?: string;
   callScheduledAt?: string;
   callStatus?: string;
+  callOutcome?: string | null;
   naturalKey: string; // stage naturel avant override — pour natural_at_override
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead,
+  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick,
 }: {
   card: CardData;
   stages: typeof IG_STAGES | typeof YT_STAGES;
@@ -214,6 +216,7 @@ function PipelineCard({
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -221,10 +224,11 @@ function PipelineCard({
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
 
-  // Bouton "Remplir compte-rendu" visible dès le début du call
+  // Bouton "Remplir le rapport d'appel" : visible dès le début du call, caché si rapport déjà rempli
   const now = Date.now();
-  const showCompteRendu = card.callId && card.callScheduledAt && card.callStatus === 'active'
-    && new Date(card.callScheduledAt).getTime() <= now;
+  const showRapport = card.callId && card.callScheduledAt && card.callStatus === 'active'
+    && new Date(card.callScheduledAt).getTime() <= now
+    && !card.callOutcome;
 
   return (
     <>
@@ -272,6 +276,16 @@ function PipelineCard({
                 Reporté
               </span>
             )}
+            {card.badge === 'not_qualified' && (
+              <span style={{ fontSize: 9, fontWeight: 700, background: '#f3f4f6', color: '#6b7280', border: '1px solid #d1d5db', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+                NQ
+              </span>
+            )}
+            {card.badge === 'to_recontact' && (
+              <span style={{ fontSize: 9, fontWeight: 700, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+                ↩ Recontacter
+              </span>
+            )}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 2, flexWrap: 'wrap' }}>
             {card.sub && (
@@ -308,24 +322,28 @@ function PipelineCard({
         </div>
       )}
 
-      {/* Bouton compte-rendu dès le début du call */}
-      {showCompteRendu && (
-        <a
-          href={`/client/calls?rapport=${card.callId}`}
+      {/* Bouton rapport — ouvre le modal directement dans le pipeline */}
+      {showRapport && (
+        <button
+          type="button"
           draggable={false}
           onMouseDown={e => e.stopPropagation()}
+          onClick={e => {
+            e.stopPropagation();
+            onRapportClick?.(card.callId!, card.name, card.callScheduledAt!);
+          }}
           style={{
-            display: 'block', textAlign: 'center', fontSize: 10, fontWeight: 600,
+            display: 'block', width: '100%', textAlign: 'center', fontSize: 10, fontWeight: 600,
             padding: '5px 8px', borderRadius: 6,
             background: '#EFF6FF', color: '#2563EB',
             border: '1px solid #BFDBFE',
-            textDecoration: 'none', transition: 'all .12s',
+            cursor: 'pointer', transition: 'all .12s',
           }}
           onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563EB'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
           onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#EFF6FF'; (e.currentTarget as HTMLElement).style.color = '#2563EB'; }}
         >
-          Remplir compte-rendu
-        </a>
+          Remplir le rapport d'appel
+        </button>
       )}
 
       {platform === 'yt' && card.noSource && (
@@ -434,7 +452,7 @@ function PipelineCard({
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead,
+  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick,
 }: {
   stage: typeof IG_STAGES[number] | typeof YT_STAGES[number];
   cards: CardData[];
@@ -449,6 +467,7 @@ function KanbanColumn({
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string) => void;
 }) {
   return (
     <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, transition: 'background .1s', alignSelf: 'stretch' }}>
@@ -503,6 +522,7 @@ function KanbanColumn({
             onConfirmLead={onConfirmLead}
             onDismissLead={onDismissLead}
             onDeleteLead={onDeleteLead}
+            onRapportClick={onRapportClick}
           />
         ))}
       </div>
@@ -861,6 +881,8 @@ export default function PagePipeline() {
   const [filterArchived, setFilterArchived] = useState(false);
   const [filterCanceled, setFilterCanceled] = useState(false);
   const [filterRescheduled, setFilterRescheduled] = useState(false);
+  const [filterNotQualified, setFilterNotQualified] = useState(false);
+  const [filterToRecontact, setFilterToRecontact] = useState(false);
 
   // Modale de confirmation drag-and-drop
   const [confirmModal, setConfirmModal] = useState<{
@@ -872,6 +894,13 @@ export default function PagePipeline() {
     currentStageKey: string;
     callId: string | null;
     naturalKey: string;
+  } | null>(null);
+
+  // Rapport modal ouvert directement depuis le pipeline
+  const [rapportModal, setRapportModal] = useState<{
+    callId: string;
+    inviteeName: string;
+    scheduledAt: string;
   } | null>(null);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
@@ -1005,6 +1034,12 @@ export default function PagePipeline() {
           // Reporté : reste en call_booked mais badge orange si après l'heure prévue
           natural = 'call_booked';
           if (new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
+        } else if (call.outcome === 'not_qualified') {
+          natural = 'showed_up';
+          badge = 'not_qualified';
+        } else if (call.outcome === 'to_recontact') {
+          natural = 'showed_up';
+          badge = 'to_recontact';
         } else {
           natural = 'call_booked';
           if (call.deal_closed) natural = 'closed';
@@ -1031,6 +1066,7 @@ export default function PagePipeline() {
         callId: call?.id ?? undefined,
         callScheduledAt: call?.scheduled_at ?? undefined,
         callStatus: call?.status ?? undefined,
+        callOutcome: call?.outcome ?? null,
         naturalKey: natural,
       });
     }
@@ -1082,6 +1118,8 @@ export default function PagePipeline() {
       let badge: CardData['badge'] = null;
       if (latestCall.no_show === true) badge = 'no_show';
       else if (latestCall.rescheduled && new Date(latestCall.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
+      else if (latestCall.outcome === 'not_qualified') badge = 'not_qualified';
+      else if (latestCall.outcome === 'to_recontact') badge = 'to_recontact';
 
       const noSource = !latestCall.source && !latestCall.utm_medium && !latestCall.utm_content;
 
@@ -1100,6 +1138,7 @@ export default function PagePipeline() {
         callId: latestCall.id,
         callScheduledAt: latestCall.scheduled_at,
         callStatus: latestCall.status,
+        callOutcome: latestCall.outcome ?? null,
         naturalKey: natural,
       };
 
@@ -1132,6 +1171,8 @@ export default function PagePipeline() {
       if (!call || call.status !== 'canceled') return false;
     }
     if (filterRescheduled && c.badge !== 'rescheduled') return false;
+    if (filterNotQualified && c.badge !== 'not_qualified') return false;
+    if (filterToRecontact && c.badge !== 'to_recontact') return false;
     return true;
   });
 
@@ -1321,7 +1362,7 @@ export default function PagePipeline() {
   };
 
   const totalProspects = cards.length;
-  const anyFilter = filterNoShow || filterArchived || filterCanceled || filterRescheduled;
+  const anyFilter = filterNoShow || filterArchived || filterCanceled || filterRescheduled || filterNotQualified || filterToRecontact;
 
   return (
     <div
@@ -1392,6 +1433,8 @@ export default function PagePipeline() {
             { key: 'archived', label: 'Archivés', value: filterArchived, set: setFilterArchived, color: '#6b7280', bg: '#f3f4f6' },
             { key: 'canceled', label: 'Annulés', value: filterCanceled, set: setFilterCanceled, color: '#7C3AED', bg: '#F5F3FF' },
             { key: 'rescheduled', label: 'Reportés', value: filterRescheduled, set: setFilterRescheduled, color: '#d97706', bg: '#fffbeb' },
+            { key: 'not_qualified', label: 'Pas qualifiés', value: filterNotQualified, set: setFilterNotQualified, color: '#6b7280', bg: '#f3f4f6' },
+            { key: 'to_recontact', label: 'À recontacter', value: filterToRecontact, set: setFilterToRecontact, color: '#c2410c', bg: '#fff7ed' },
           ].map(f => (
             <button
               key={f.key}
@@ -1409,7 +1452,7 @@ export default function PagePipeline() {
           ))}
           {anyFilter && (
             <button
-              onClick={() => { setFilterNoShow(false); setFilterArchived(false); setFilterCanceled(false); setFilterRescheduled(false); }}
+              onClick={() => { setFilterNoShow(false); setFilterArchived(false); setFilterCanceled(false); setFilterRescheduled(false); setFilterNotQualified(false); setFilterToRecontact(false); }}
               style={{ padding: '4px 10px', fontSize: 11, fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
             >
               Effacer filtres
@@ -1449,6 +1492,7 @@ export default function PagePipeline() {
                   onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
                   onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
                   onDeleteLead={handleDeleteLead}
+                  onRapportClick={(callId, inviteeName, scheduledAt) => setRapportModal({ callId, inviteeName, scheduledAt })}
                 />
               );
             })}
@@ -1491,6 +1535,16 @@ export default function PagePipeline() {
           callId={confirmModal.callId}
           onConfirm={handleConfirmMove}
           onCancel={() => setConfirmModal(null)}
+        />
+      )}
+
+      {/* Rapport modal ouvert directement depuis le pipeline */}
+      {rapportModal && (
+        <RapportModal
+          callId={rapportModal.callId}
+          inviteeName={rapportModal.inviteeName}
+          scheduledAt={rapportModal.scheduledAt}
+          onClose={() => { setRapportModal(null); refetch(); }}
         />
       )}
     </div>
