@@ -1445,7 +1445,7 @@ export default function PagePipeline() {
           <InlineLoader />
         </div>
       ) : (
-        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16 }}>
+        <div style={{ flex: totalProspects > 0 ? 1 : 0, overflowX: 'auto', overflowY: 'auto', paddingBottom: totalProspects > 0 ? 16 : 0 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
             {stages.map(stage => {
               const stageCards = cards.filter(c => c.stageIdx === stages.findIndex(s => s.key === stage.key));
