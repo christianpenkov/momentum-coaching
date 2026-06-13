@@ -1445,7 +1445,7 @@ export default function PagePipeline() {
           <InlineLoader />
         </div>
       ) : (
-        <div style={{ flex: totalProspects > 0 ? 1 : 0, overflowX: 'auto', overflowY: 'auto', paddingBottom: totalProspects > 0 ? 16 : 0 }}>
+        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16 }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
             {stages.map(stage => {
               const stageCards = cards.filter(c => c.stageIdx === stages.findIndex(s => s.key === stage.key));
@@ -1475,7 +1475,7 @@ export default function PagePipeline() {
 
       {/* Empty state */}
       {!loading && totalProspects === 0 && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, paddingBottom: 60 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 60, paddingBottom: 60 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>

@@ -2379,7 +2379,10 @@ export default function PageLiens() {
                       <div style={{ fontSize: 12, fontWeight: 500, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{post.caption}</div>
                       <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
                         <span style={{ fontSize: 10, fontWeight: 700, color: post.platform === 'IG' ? '#c2185b' : '#d32f2f', opacity: 0.8 }}>{post.platform}</span>
-                        <span style={{ width: 3, height: 3, borderRadius: '50%', background: hasDesc ? BLUE : FAINT, flexShrink: 0, opacity: hasDesc ? 1 : 0.4 }} title={hasDesc ? 'Lien description généré' : 'Pas de lien description'} />
+                        {hasDesc
+                          ? <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
+                          : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lien description" />
+                        }
                         {post.platform === 'IG' && (
                           hasLm
                             ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</span>
