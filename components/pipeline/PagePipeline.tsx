@@ -1003,10 +1003,13 @@ export default function PagePipeline() {
       const leadDetectedAt = lead?.detected_at ? new Date(lead.detected_at) : null;
       const calendlySentValid = prospect?.calendly_link_sent &&
         (!leadDetectedAt || !prospect.calendly_link_sent_at || new Date(prospect.calendly_link_sent_at) > leadDetectedAt);
+      // Comparer avec last_calendly_link_sent_at (dernier envoi) et non calendly_link_sent_at (premier)
+      // pour éviter qu'un clic antérieur au dernier envoi du lien soit comptabilisé
+      const linkSentRef = prospect?.last_calendly_link_sent_at ?? prospect?.calendly_link_sent_at;
       const linkClickedValid = prospect?.first_click_at &&
         prospect?.calendly_link_sent &&
-        prospect?.calendly_link_sent_at &&
-        new Date(prospect.first_click_at) > new Date(prospect.calendly_link_sent_at);
+        linkSentRef &&
+        new Date(prospect.first_click_at) > new Date(linkSentRef);
 
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
       if (lead?.hook_replied) { natural = 'in_convo'; }
