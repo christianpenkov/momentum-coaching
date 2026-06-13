@@ -3828,8 +3828,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
-  // Rechargé à chaque montage de l'onglet — source de vérité pour la stat Calendly DM
-  const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string }[]>([]);
+  // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
+  const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string; calendly_link_sent: boolean | null; calendly_link_sent_at: string | null; first_click_at: string | null }[]>([]);
   useEffect(() => {
     const url = profileId ? `/api/client/prospect-links?profileId=${profileId}` : '/api/client/prospect-links';
     fetch(url).then(r => r.ok ? r.json() : null).then(d => { if (d?.links) setProspectLinksDb(d.links); }).catch(() => {});
@@ -3966,10 +3966,12 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const lmEnvoyes = leadsInPeriod.filter(l => l.leadMagnetSent).length;
   const hookReplies = leadsInPeriod.filter(l => l.hookReplied).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
-  // Liens Calendly envoyés DM = prospect_links Supabase filtrés par période (source de vérité)
-  const lmCalendlyLinks = prospectLinksDb.length > 0
-    ? prospectLinksDb.filter(l => new Date(l.created_at).getTime() >= periodCutoff).length
-    : prospectLinks.length;
+  // Liens Calendly envoyés DM — source de vérité : DB uniquement
+  const calendlyLinksSent = prospectLinksDb.filter(l =>
+    l.calendly_link_sent && l.calendly_link_sent_at && new Date(l.calendly_link_sent_at).getTime() >= periodCutoff
+  );
+  const lmCalendlyLinks = calendlyLinksSent.length;
+  const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
   const callsFromLM = prospectLinks.filter((l: any) => l.callBooked).length;
   const tauxLMCalendly = lmEnvoyes > 0 ? Math.round((lmCalendlyLinks / lmEnvoyes) * 100) : 0;
   const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
@@ -4109,9 +4111,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const lmClics = shortio.links
             .filter((l: any) => lmTrackingUrls.has(l.shortUrl) || lmTrackingUrls.has(l.originalUrl))
             .reduce((s: number, l: any) => s + linkClics(l), 0);
-          const calendlyActivated = prospectLinks.filter((l: any) => linkClics(l) >= 1).length;
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
-          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivated / lmCalendlyLinks) * 100) : 0;
+          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivatedDb / lmCalendlyLinks) * 100) : 0;
           const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
           const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
 
