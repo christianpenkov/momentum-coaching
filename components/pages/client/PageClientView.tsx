@@ -60,7 +60,7 @@ export default function PageClientView() {
     await supabase.from('tasks').update({ done }).eq('id', taskId);
   }, [supabase]);
 
-  if (loading) return <div className="page-content"><InlineLoader /></div>;
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   if (!client) {
     return (

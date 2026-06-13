@@ -227,7 +227,7 @@ export default function PageClientCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-  if (loading) return <div className="page-content"><InlineLoader /></div>;
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
     <div className="page-content">

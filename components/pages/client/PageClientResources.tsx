@@ -64,7 +64,7 @@ export default function PageClientResources() {
   const unlocked = resources.filter(r => !r.locked && (r.week || 1) <= clientWeek);
   const locked = resources.filter(r => r.locked || (r.week || 1) > clientWeek);
 
-  if (loading) return <div className="page-content"><InlineLoader /></div>;
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
     <div className="page-content">
