@@ -5574,12 +5574,14 @@ async function fetchSupabaseStats(profileId?: string) {
     // Vue coach : calls Calendly de ses élèves (calendly_event_uuid non null)
     callsRes = await supabase.from('calls').select('*')
       .eq('coach_id', user.id)
+      .neq('ignored', true)
       .not('calendly_event_uuid', 'is', null)
       .order('scheduled_at', { ascending: false }).limit(500);
   } else {
     // Vue élève : ses calls leads Calendly (coach_id = son propre profile_id)
     callsRes = await supabase.from('calls').select('*')
       .eq('coach_id', user.id)
+      .neq('ignored', true)
       .not('calendly_event_uuid', 'is', null)
       .order('scheduled_at', { ascending: false }).limit(500);
   }
