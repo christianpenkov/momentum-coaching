@@ -98,8 +98,10 @@ export async function POST() {
     metadata: { ...meData?.resource, user_uri: userUri },
   }).eq('profile_id', calendlyProfileId).eq('provider', 'calendly');
 
+  // min_start_time = 30 jours avant aujourd'hui pour capturer tous les calls récents et futurs
+  const minStart = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const eventsRes = await fetch(
-    `https://api.calendly.com/scheduled_events?user=${encodeURIComponent(userUri)}&status=active&count=100`,
+    `https://api.calendly.com/scheduled_events?user=${encodeURIComponent(userUri)}&status=active&count=100&min_start_time=${encodeURIComponent(minStart)}&sort=start_time:desc`,
     { headers: { Authorization: `Bearer ${accessToken}` } }
   );
   const events: any[] = (await eventsRes.json())?.collection || [];
