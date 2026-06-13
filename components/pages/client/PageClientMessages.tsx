@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
+import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -778,7 +779,7 @@ export default function PageClientMessages() {
           WebkitOverflowScrolling: 'touch',
         } as React.CSSProperties}>
           {loading ? (
-            <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, paddingTop: 40 }}>Chargement…</div>
+            <InlineLoader />
           ) : messages.length === 0 ? (
             <div style={{ textAlign: 'center', paddingTop: 60 }}>
               <div style={{ fontSize: 32, marginBottom: 12 }}>

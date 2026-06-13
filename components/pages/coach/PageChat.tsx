@@ -1,5 +1,6 @@
 'use client';
 import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import Icon from '@/components/ui/Icon';
@@ -474,7 +475,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         {/* Messages */}
         <div ref={chatZoneRef} onScroll={handleChatScroll} className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
           {loading ? (
-            <div style={{ textAlign: 'center', color: 'var(--muted)', fontSize: 13, paddingTop: 40 }}>Chargement…</div>
+            <InlineLoader />
           ) : messages.length === 0 ? (
             <div style={{ textAlign: 'center', paddingTop: 60 }}>
               <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--faint)" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" style={{ margin: '0 auto 12px', display: 'block' }}><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>

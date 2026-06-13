@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
+import InlineLoader from '@/components/ui/InlineLoader';
 import AreaChart from '@/components/charts/AreaChart';
 import BarChart from '@/components/charts/BarChart';
 import Heatmap from '@/components/charts/Heatmap';
@@ -156,9 +157,7 @@ function Tabs({ tabs, active, onChange }: { tabs: string[]; active: number; onCh
   );
 }
 
-function Loading() {
-  return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 120, color: 'var(--muted)', fontSize: 13 }}>Chargement…</div>;
-}
+function Loading() { return <InlineLoader />; }
 
 function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
   return <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--faint)', fontSize: 13 }}>{msg}</div>;
