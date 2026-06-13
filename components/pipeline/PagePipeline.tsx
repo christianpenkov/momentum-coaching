@@ -58,6 +58,7 @@ interface Call {
   rescheduled_at: string | null;
   cancellation_reason: string | null;
   lead_deleted: boolean;
+  is_follow_up: boolean | null;
 }
 
 interface NonIgProspect {
