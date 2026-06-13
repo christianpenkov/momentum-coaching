@@ -1,6 +1,5 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
-import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import Icon from '@/components/ui/Icon';
