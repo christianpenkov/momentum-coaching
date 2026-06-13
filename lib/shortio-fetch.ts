@@ -177,9 +177,9 @@ export async function upsertShortioLinkSnapshot(
   // et est la seule source fiable pour écrire first_click_at sur prospect_links.
   if (row.human_clicks > 0) {
 
-    // Second check : lien LM personnalisé sur instagram_leads.tracking_link
+    // Check : lien LM personnalisé sur instagram_leads.tracking_link
     // On vérifie le total cumulé (pas juste le snapshot du jour) pour ne pas rater les clics passés
-    if (!pl) {
+    {
       const { data: cumulRow } = await serviceSupabase
         .from('shortio_link_daily_snapshots')
         .select('human_clicks')
