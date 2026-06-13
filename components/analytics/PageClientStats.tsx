@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
+import PageLoader from '@/components/ui/PageLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
@@ -5924,7 +5925,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
-      {loading ? <Loading /> : (
+      {loading ? <PageLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}

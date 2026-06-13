@@ -8,15 +8,15 @@ export default function PageLoader() {
           display: flex;
           align-items: center;
           justify-content: center;
-          background: var(--bg, #0a0a0a);
+          background: var(--bg, var(--surface, #ffffff));
           z-index: 9999;
         }
 
         .momentum-loader {
           --main-size: 4em;
-          --text-color: #ffffff;
-          --shine-color: #ffffff40;
-          --shadow-color: #aaaaaa;
+          --text-color: var(--accent, #0a0a0a);
+          --shine-color: color-mix(in srgb, var(--accent, #0a0a0a) 25%, transparent);
+          --shadow-color: var(--muted, #888888);
           display: flex;
           justify-content: center;
           align-items: center;
