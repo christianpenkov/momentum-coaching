@@ -639,7 +639,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
       <div style={{
         position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
         zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 12, padding: '24px 28px', minWidth: 340, maxWidth: 420,
+        borderRadius: 12, padding: '24px 28px', minWidth: 400, maxWidth: 480,
         boxShadow: '0 8px 32px rgba(0,0,0,.18)',
       }}>
         {modalCase === 'backward_pre_call' && (() => {
@@ -789,15 +789,15 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
               Lien Calendly non généré
             </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+            <div style={{ fontSize: 12, color: 'var(--ink)', marginBottom: 16, lineHeight: 1.6 }}>
               Pour déplacer <strong>@{cardName}</strong> vers <strong>{targetStageLabel}</strong>, tu dois d&apos;abord générer son lien Calendly personnalisé — c&apos;est ce lien qui permet de traquer le clic et le call booké.
             </div>
             <div style={{ fontSize: 12, color: 'var(--ink)', marginBottom: 20, padding: '10px 14px', background: 'var(--surface-alt, #f8f8f8)', borderRadius: 8, border: '1px solid var(--border)', lineHeight: 1.6 }}>
-              Rends-toi dans <strong>Gérer mes liens</strong> et clique sur le bouton&nbsp;
+              Rends-toi dans <strong>Gérer mes liens</strong> et clique sur le bouton{' '}
               <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600, color: '#2563EB' }}>
                 📅 Lien Calendly prospect DM
               </span>
-              &nbsp;pour ce prospect.
+              {' '}pour générer son lien personnalisé à lui envoyer.
             </div>
             <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
               <button onMouseDown={onCancel} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}>
