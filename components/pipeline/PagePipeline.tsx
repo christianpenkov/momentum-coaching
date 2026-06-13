@@ -206,6 +206,7 @@ interface CardData {
   callOutcome?: string | null;
   callIsFollowUp?: boolean;
   naturalKey: string; // stage naturel avant override — pour natural_at_override
+  hasProspectLink: boolean; // true si prospect_links.short_url est renseigné
 }
 
 function PipelineCard({
@@ -543,6 +544,7 @@ type ConfirmCase =
   | 'forward_to_call_booked'    // avancée manuelle vers call_booked
   | 'forward_to_showed_up'      // avancée manuelle vers showed_up
   | 'forward_to_closed'         // avancée manuelle vers closed
+  | 'no_prospect_link'          // lien Calendly prospect non généré — blocage
   | 'simple_move';              // tout autre déplacement
 
 interface ConfirmMoveModalProps {
@@ -782,7 +784,36 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
           </>
         )}
 
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+        {modalCase === 'no_prospect_link' && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+              Lien Calendly non généré
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+              Pour déplacer <strong>@{cardName}</strong> vers <strong>{targetStageLabel}</strong>, tu dois d&apos;abord générer son lien Calendly personnalisé — c&apos;est ce lien qui permet de traquer le clic et le call booké.
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--ink)', marginBottom: 20, padding: '10px 14px', background: 'var(--surface-alt, #f8f8f8)', borderRadius: 8, border: '1px solid var(--border)', lineHeight: 1.6 }}>
+              Rends-toi dans <strong>Gérer mes liens</strong> et clique sur le bouton&nbsp;
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600, color: '#2563EB' }}>
+                📅 Lien Calendly prospect DM
+              </span>
+              &nbsp;pour ce prospect.
+            </div>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button onMouseDown={onCancel} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}>
+                Fermer
+              </button>
+              <button
+                onMouseDown={() => { onCancel(); window.location.href = '/client/liens'; }}
+                style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer' }}
+              >
+                Aller dans Gérer mes liens →
+              </button>
+            </div>
+          </>
+        )}
+
+        {modalCase !== 'no_prospect_link' && <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
           <button
             onMouseDown={onCancel}
             style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
@@ -835,7 +866,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
           >
             {modalCase === 'backward_pre_call' ? 'Effacer et reculer' : 'Confirmer'}
           </button>
-        </div>
+        </div>}
       </div>
     </>,
     document.body
@@ -1049,6 +1080,7 @@ export default function PagePipeline() {
         callOutcome: call?.outcome ?? null,
         callIsFollowUp: call?.is_follow_up ?? false,
         naturalKey: natural,
+        hasProspectLink: !!(prospect?.short_url),
       });
     }
   }
@@ -1235,6 +1267,13 @@ export default function PagePipeline() {
     const isForwardToCallBooked = targetStageKey === 'call_booked' && !card.callId;
     const isForwardToShowedUp   = targetStageKey === 'showed_up';
     const isForwardToClosed     = targetStageKey === 'closed';
+
+    // Bloquer si le lead n'a pas de lien Calendly généré et qu'on tente de l'avancer vers calendly_sent / link_clicked / call_booked
+    const NEEDS_PROSPECT_LINK = new Set(['calendly_sent', 'link_clicked', 'call_booked']);
+    if (NEEDS_PROSPECT_LINK.has(targetStageKey) && !card.hasProspectLink && targetStageIdx > currentStageIdx) {
+      setConfirmModal({ case: 'no_prospect_link', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
+      return;
+    }
 
     if (isBackwardPreCall) {
       setConfirmModal({ case: 'backward_pre_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
