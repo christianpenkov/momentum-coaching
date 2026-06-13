@@ -1153,6 +1153,7 @@ export default function PagePipeline() {
         callStatus: latestCall.status,
         callOutcome: latestCall.outcome ?? null,
         naturalKey: natural,
+        hasProspectLink: false,
       };
 
       if (noSource) {
