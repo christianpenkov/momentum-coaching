@@ -114,7 +114,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     // Sync Calendly bloquant (max 10s) pour insérer les nouveaux calls Calendly avant de chercher
     await Promise.race([
       fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {}),
-      new Promise(r => setTimeout(r, 10000)),
+      new Promise(r => setTimeout(r, 3000)),
     ]);
     const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
     if (res.ok) {
@@ -161,7 +161,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     // Sync Calendly bloquant (max 10s) pour insérer les nouveaux calls Calendly avant de chercher
     await Promise.race([
       fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {}),
-      new Promise(r => setTimeout(r, 10000)),
+      new Promise(r => setTimeout(r, 3000)),
     ]);
     const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
     if (res.ok) {
