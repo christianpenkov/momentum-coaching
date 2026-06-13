@@ -514,6 +514,7 @@ function KanbanColumn({
 
 type ConfirmCase =
   | 'backward_pre_call'         // recul vers un stage pré-call (reset complet des signaux)
+  | 'forward_pre_call'          // avancée manuelle vers un stage pré-call (injection signaux)
   | 'backward_from_post_call'   // recul depuis call_booked / showed_up / closed
   | 'forward_to_call_booked'    // avancée manuelle vers call_booked
   | 'forward_to_showed_up'      // avancée manuelle vers showed_up
@@ -558,9 +559,38 @@ function getResetDescription(targetStage: string, currentStage: string, hasCall:
   return items;
 }
 
+// Cases à cocher pour confirmer les signaux selon le stage cible
+function getAdvanceConfirmations(targetStage: string): { id: string; label: string }[] {
+  const items: { id: string; label: string }[] = [];
+  const stages = ['lm_sent', 'in_convo', 'calendly_sent', 'link_clicked'];
+  const targetIdx = stages.indexOf(targetStage);
+  if (targetIdx >= stages.indexOf('in_convo')) {
+    items.push({ id: 'hook_replied', label: 'Le lead a bien répondu à mon message de bienvenue' });
+  }
+  if (targetIdx >= stages.indexOf('calendly_sent')) {
+    items.push({ id: 'calendly_sent', label: "J'ai bien envoyé le lien Calendly à ce lead" });
+  }
+  if (targetIdx >= stages.indexOf('link_clicked')) {
+    items.push({ id: 'link_clicked', label: 'Le lead a bien cliqué sur le lien Calendly' });
+  }
+  return items;
+}
+
 function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetStageLabel, currentStageKey, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
   const [reason, setReason] = useState('');
   const [irreversibleChecked, setIrreversibleChecked] = useState(false);
+  const [advanceChecked, setAdvanceChecked] = useState<Set<string>>(new Set());
+
+  const advanceConfirmations = modalCase === 'forward_pre_call' ? getAdvanceConfirmations(targetStageKey) : [];
+  const allAdvanceChecked = advanceConfirmations.length > 0 && advanceConfirmations.every(c => advanceChecked.has(c.id));
+
+  function toggleAdvance(id: string) {
+    setAdvanceChecked(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   const backwardReasons = [
     { value: 'canceled',    label: 'Call annulé' },
@@ -610,6 +640,30 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
             </>
           );
         })()}
+
+        {modalCase === 'forward_pre_call' && (
+          <>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>
+              Avancer @{cardName} vers &laquo;&nbsp;{targetStageLabel}&nbsp;&raquo;
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+              Pour que le pipeline reste cohérent, confirme ce qui s&apos;est passé avec ce lead :
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 20 }}>
+              {advanceConfirmations.map(c => (
+                <label key={c.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={advanceChecked.has(c.id)}
+                    onChange={() => toggleAdvance(c.id)}
+                    style={{ marginTop: 2, accentColor: '#2563EB', flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 12, color: 'var(--ink)', lineHeight: 1.4 }}>{c.label}</span>
+                </label>
+              ))}
+            </div>
+          </>
+        )}
 
         {modalCase === 'backward_from_post_call' && (
           <>
@@ -680,24 +734,29 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
             onMouseDown={() => {
               if (modalCase === 'backward_from_post_call' && !reason) return;
               if (modalCase === 'backward_pre_call' && !irreversibleChecked) return;
+              if (modalCase === 'forward_pre_call' && !allAdvanceChecked) return;
               onConfirm(reason || 'manual');
             }}
             disabled={
               (modalCase === 'backward_from_post_call' && !reason) ||
-              (modalCase === 'backward_pre_call' && !irreversibleChecked)
+              (modalCase === 'backward_pre_call' && !irreversibleChecked) ||
+              (modalCase === 'forward_pre_call' && !allAdvanceChecked)
             }
             style={{
               padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none',
               background:
                 (modalCase === 'backward_from_post_call' && !reason) ? 'var(--border)' :
                 (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--border)' :
+                (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'var(--border)' :
                 modalCase === 'backward_pre_call' ? '#DC2626' : '#2563EB',
               color:
                 (modalCase === 'backward_from_post_call' && !reason) ? 'var(--muted)' :
-                (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--muted)' : '#fff',
+                (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--muted)' :
+                (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'var(--muted)' : '#fff',
               cursor:
                 (modalCase === 'backward_from_post_call' && !reason) ? 'not-allowed' :
-                (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'not-allowed' : 'pointer',
+                (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'not-allowed' :
+                (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'not-allowed' : 'pointer',
             }}
           >
             {modalCase === 'backward_pre_call' ? 'Effacer et reculer' : 'Confirmer'}
@@ -1069,6 +1128,11 @@ export default function PagePipeline() {
       tab === 'ig' &&
       PRE_CALL_STAGES.has(targetStageKey as any) &&
       targetStageIdx < currentStageIdx;
+    const isForwardPreCall =
+      tab === 'ig' &&
+      PRE_CALL_STAGES.has(targetStageKey as any) &&
+      targetStageKey !== 'lm_sent' &&
+      targetStageIdx > currentStageIdx;
     const isBackwardFromPostCall =
       POST_CALL_STAGES.has(card.stageKey) && targetStageIdx < currentStageIdx;
     const isForwardToCallBooked = targetStageKey === 'call_booked' && !card.callId;
@@ -1077,6 +1141,10 @@ export default function PagePipeline() {
 
     if (isBackwardPreCall) {
       setConfirmModal({ case: 'backward_pre_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
+      return;
+    }
+    if (isForwardPreCall) {
+      setConfirmModal({ case: 'forward_pre_call', cardKey, cardName: card.name, targetStageKey, targetStageLabel, currentStageKey, callId: card.callId ?? null, naturalKey });
       return;
     }
     if (isBackwardFromPostCall) {
@@ -1106,13 +1174,23 @@ export default function PagePipeline() {
     setConfirmModal(null);
 
     if (modalCase === 'backward_pre_call') {
-      // Reset complet : supprime tous les signaux devant le targetStage
       await fetch('/api/client/pipeline/reset', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ig_username: cardKey, target_stage: targetStageKey }),
       });
-      // Supprimer l'override local pour que le natural prenne le dessus
+      setOverrides(prev => prev.filter(o => !(o.prospect_key === cardKey && o.platform === 'ig')));
+      await refetch();
+      return;
+    }
+
+    if (modalCase === 'forward_pre_call') {
+      // Injection des signaux réels correspondant au stage cible
+      await fetch('/api/client/pipeline/advance', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ig_username: cardKey, target_stage: targetStageKey }),
+      });
       setOverrides(prev => prev.filter(o => !(o.prospect_key === cardKey && o.platform === 'ig')));
       await refetch();
       return;
