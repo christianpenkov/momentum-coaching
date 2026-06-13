@@ -178,16 +178,16 @@ export async function upsertShortioLinkSnapshot(
   if (row.human_clicks > 0) {
     const { data: pl } = await serviceSupabase
       .from('prospect_links')
-      .select('id, ig_username, ig_lead_id, first_click_at, calendly_link_sent, calendly_link_sent_at')
+      .select('id, ig_username, ig_lead_id, first_click_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at')
       .eq('profile_id', profileId)
       .filter('short_url', 'like', `%/${row.path}`)
       .maybeSingle();
 
     if (pl && pl.calendly_link_sent && pl.calendly_link_sent_at) {
       // Ne comptabiliser un clic que si le snapshot date d'après l'envoi du lien
-      // Les clics cumulés historiques (path Short.io réutilisé) sont ignorés
+      // Utiliser last_calendly_link_sent_at (dernier envoi) pour éviter les clics d'un lead précédent
       const snapshotDate = new Date(row.date + 'T00:00:00Z');
-      const sentAt = new Date(pl.calendly_link_sent_at);
+      const sentAt = new Date(pl.last_calendly_link_sent_at ?? pl.calendly_link_sent_at);
       const clickIsAfterSend = snapshotDate >= new Date(sentAt.toISOString().slice(0, 10) + 'T00:00:00Z');
 
       if (clickIsAfterSend && !pl.first_click_at) {
@@ -318,15 +318,16 @@ export async function syncLmClickStream(
 
       const { data: pl } = await serviceSupabase
         .from('prospect_links')
-        .select('id, ig_username, ig_lead_id, calendly_link_sent, calendly_link_sent_at, first_click_at')
+        .select('id, ig_username, ig_lead_id, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at')
         .eq('profile_id', profileId)
         .filter('short_url', 'like', `%/${cleanPath}`)
         .maybeSingle();
 
       if (!pl) continue;
       if (!pl.calendly_link_sent || !pl.calendly_link_sent_at) continue;
-      // Le clic doit être postérieur à l'envoi du lien
-      if (new Date(clickedAt) <= new Date(pl.calendly_link_sent_at)) continue;
+      // Le clic doit être postérieur au dernier envoi du lien (pas au premier)
+      const sentRefAt = pl.last_calendly_link_sent_at ?? pl.calendly_link_sent_at;
+      if (new Date(clickedAt) <= new Date(sentRefAt)) continue;
 
       // Écrire first_click_at si pas encore renseigné
       if (!pl.first_click_at) {
