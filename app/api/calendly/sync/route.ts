@@ -261,6 +261,13 @@ export async function POST() {
     if (prospectLinkId)  baseUpsert.prospect_link_id = prospectLinkId;
     if (prospectId)      baseUpsert.prospect_id = prospectId;
 
+    // Si le call existe déjà et est ignoré (supprimé manuellement), on ne le réimporte pas
+    const { data: existingCall } = await serviceSupabase.from('calls')
+      .select('id, ignored')
+      .eq('calendly_event_uuid', eventUuid)
+      .maybeSingle();
+    if (existingCall?.ignored) { synced++; continue; }
+
     const { data: callRow } = await serviceSupabase.from('calls').upsert(
       baseUpsert,
       { onConflict: 'calendly_event_uuid' }

@@ -38,6 +38,7 @@ export async function GET(
     .neq('id', id)
     .eq('status', 'active')
     .is('outcome', null)
+    .neq('ignored', true)
     .gt('scheduled_at', windowStart)
     .order('scheduled_at', { ascending: true })
     .limit(1);

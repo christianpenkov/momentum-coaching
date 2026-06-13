@@ -89,7 +89,7 @@ export async function DELETE(
 
   await Promise.all([
     supa.from('prospect_events').delete().eq('call_id', callId),
-    supa.from('calls').delete().eq('id', callId),
+    supa.from('calls').update({ ignored: true, ig_lead_id: null }).eq('id', callId),
   ]);
 
   return NextResponse.json({ ok: true });

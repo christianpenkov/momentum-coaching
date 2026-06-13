@@ -113,7 +113,7 @@ export async function POST(request: Request) {
     if (leadIds.length > 0) {
       ops.push(
         supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
-        supa.from('calls').delete().eq('coach_id', user.id).in('ig_lead_id', leadIds).then()
+        supa.from('calls').update({ ignored: true, ig_lead_id: null }).eq('coach_id', user.id).in('ig_lead_id', leadIds).then()
       );
     }
   }

@@ -26,6 +26,7 @@ export async function GET() {
     .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up')
     .eq('coach_id', user.id)
     .not('calendly_event_uuid', 'is', null)
+    .neq('ignored', true)
     .order('scheduled_at', { ascending: false });
 
   if (calendlyConnectedAt) {
@@ -140,7 +141,7 @@ export async function DELETE(request: Request) {
   if (leadIds.length > 0) {
     deleteOps.push(
       supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
-      supa.from('calls').delete().eq('coach_id', user.id).in('ig_lead_id', leadIds).then(),
+      supa.from('calls').update({ ignored: true, ig_lead_id: null }).eq('coach_id', user.id).in('ig_lead_id', leadIds).then(),
     );
   }
 
