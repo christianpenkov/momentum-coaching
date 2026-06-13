@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
@@ -60,7 +60,7 @@ export default function PageClientView() {
     await supabase.from('tasks').update({ done }).eq('id', taskId);
   }, [supabase]);
 
-  if (loading) return <PageLoader />;
+  if (loading) return <div className="page-content"><InlineLoader /></div>;
 
   if (!client) {
     return (

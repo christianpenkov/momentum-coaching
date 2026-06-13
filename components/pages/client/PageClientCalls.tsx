@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -227,7 +227,7 @@ export default function PageClientCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-  if (loading) return <PageLoader />;
+  if (loading) return <div className="page-content"><InlineLoader /></div>;
 
   return (
     <div className="page-content">

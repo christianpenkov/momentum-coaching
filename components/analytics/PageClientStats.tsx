@@ -5924,7 +5924,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
-      {loading ? <PageLoader /> : (
+      {loading ? <InlineLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}

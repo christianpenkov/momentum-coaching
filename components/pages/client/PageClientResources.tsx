@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
@@ -64,7 +64,7 @@ export default function PageClientResources() {
   const unlocked = resources.filter(r => !r.locked && (r.week || 1) <= clientWeek);
   const locked = resources.filter(r => r.locked || (r.week || 1) > clientWeek);
 
-  if (loading) return <PageLoader />;
+  if (loading) return <div className="page-content"><InlineLoader /></div>;
 
   return (
     <div className="page-content">

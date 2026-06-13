@@ -1,5 +1,5 @@
 'use client';
-import PageLoader from '@/components/ui/PageLoader';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
@@ -152,7 +152,7 @@ export default function PageClientCalendar() {
   const selectedEvents = selectedDay ? (eventsByDate[selectedDay] || []) : [];
   const isMobile = useIsMobile();
 
-  if (loading) return <PageLoader />;
+  if (loading) return <div className="page-content"><InlineLoader /></div>;
 
   const nextCall = calls.find(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) >= new Date());
 
