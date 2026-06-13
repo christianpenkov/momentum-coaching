@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -226,16 +227,7 @@ export default function PageClientCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="page-header"><h1 className="page-title">Mes calls</h1></div>
-        <div style={{ color: 'var(--muted)', fontSize: 13, paddingTop: 40, textAlign: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   return (
     <div className="page-content">

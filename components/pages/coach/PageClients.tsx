@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
@@ -81,16 +82,7 @@ export default function PageClients() {
     red: clients.filter(c => c.status === 'red').length,
   };
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="page-header"><h1 className="page-title">Clients</h1></div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 13, paddingTop: 40, justifyContent: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   return (
     <div className="page-content">

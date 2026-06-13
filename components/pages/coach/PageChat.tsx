@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
 import Icon from '@/components/ui/Icon';
@@ -669,11 +670,7 @@ export default function PageChat() {
     };
   }, [userId, activeId, supabase]);
 
-  if (loading) return (
-    <div className="page-content">
-      <div style={{ color: 'var(--muted)', fontSize: 13, paddingTop: 40, textAlign: 'center' }}>Chargement…</div>
-    </div>
-  );
+  if (loading) return <PageLoader />;
 
   if (clients.length === 0) return (
     <div className="page-content">

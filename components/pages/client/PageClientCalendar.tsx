@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import { useState, useMemo, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
@@ -151,16 +152,7 @@ export default function PageClientCalendar() {
   const selectedEvents = selectedDay ? (eventsByDate[selectedDay] || []) : [];
   const isMobile = useIsMobile();
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="page-header"><h1 className="page-title">Calendrier</h1></div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 13, paddingTop: 40, justifyContent: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   const nextCall = calls.find(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) >= new Date());
 

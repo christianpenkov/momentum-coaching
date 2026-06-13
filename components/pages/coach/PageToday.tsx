@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
@@ -35,18 +36,7 @@ export default function PageToday() {
   const dayLabel = today.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
   const dayCapitalized = dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1);
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="page-header">
-          <h1 className="page-title">Dashboard</h1>
-        </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 13, paddingTop: 40, justifyContent: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   return (
     <div className="page-content">

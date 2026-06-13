@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -26,16 +27,7 @@ export default function PageAnalytics() {
   const { clients, loading } = useSupabaseClients();
   const [platform, setPlatform] = useState<Platform>('ig');
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="page-header"><h1 className="page-title">Analytics</h1></div>
-        <div style={{ color: 'var(--muted)', fontSize: 13, paddingTop: 40, textAlign: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   // ── KPIs agrégés ──────────────────────────────────────────────────────────
   const totalMRR = clients.reduce((s, c) => s + (c.latestMetrics?.stripe_mrr || 0), 0);

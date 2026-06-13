@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
@@ -63,16 +64,7 @@ export default function PageClientResources() {
   const unlocked = resources.filter(r => !r.locked && (r.week || 1) <= clientWeek);
   const locked = resources.filter(r => r.locked || (r.week || 1) > clientWeek);
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div className="page-header"><h1 className="page-title">Ressources</h1></div>
-        <div style={{ color: 'var(--muted)', fontSize: 13, paddingTop: 40, textAlign: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   return (
     <div className="page-content">

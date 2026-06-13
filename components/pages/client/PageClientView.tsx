@@ -1,4 +1,5 @@
 'use client';
+import PageLoader from '@/components/ui/PageLoader';
 
 import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
@@ -59,15 +60,7 @@ export default function PageClientView() {
     await supabase.from('tasks').update({ done }).eq('id', taskId);
   }, [supabase]);
 
-  if (loading) {
-    return (
-      <div className="page-content">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--muted)', fontSize: 13, paddingTop: 60, justifyContent: 'center' }}>
-          <Icon name="refresh-cw" size={16} /> Chargement de ton espace…
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <PageLoader />;
 
   if (!client) {
     return (
