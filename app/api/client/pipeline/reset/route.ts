@@ -39,7 +39,7 @@ function getResetFields(targetStage: IgPreCallStage): {
 
     // Events à supprimer
     deleteEventTypes: idx < IG_PRE_CALL.indexOf('in_convo')
-      ? ['lm_clicked', 'hook_replied', 'calendly_link_sent', 'link_clicked', 'call_booked']
+      ? ['hook_replied', 'calendly_link_sent', 'link_clicked', 'call_booked']
       : idx < IG_PRE_CALL.indexOf('calendly_sent')
       ? ['calendly_link_sent', 'link_clicked', 'call_booked']
       : idx < IG_PRE_CALL.indexOf('link_clicked')
@@ -112,7 +112,7 @@ export async function POST(request: Request) {
     const leadIds = (leads ?? []).map((l: any) => l.id);
     if (leadIds.length > 0) {
       ops.push(
-        supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
+        supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).neq('event_type', 'lm_clicked').then(),
         supa.from('calls').update({ ignored: true, ig_lead_id: null }).eq('coach_id', user.id).in('ig_lead_id', leadIds).then()
       );
     }
