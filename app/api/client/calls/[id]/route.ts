@@ -57,3 +57,40 @@ export async function PATCH(
 
   return NextResponse.json({ ok: true });
 }
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const { id: callId } = await params;
+  if (!callId) return NextResponse.json({ error: 'ID requis' }, { status: 400 });
+
+  const { data: callRow } = await supa.from('calls')
+    .select('id, coach_id, client_id')
+    .eq('id', callId)
+    .maybeSingle();
+
+  if (!callRow) return NextResponse.json({ error: 'Call introuvable' }, { status: 404 });
+
+  const { data: clientRow } = await supa.from('clients')
+    .select('id, coach_id')
+    .eq('profile_id', user.id)
+    .maybeSingle();
+
+  const isOwner =
+    callRow.coach_id === user.id ||
+    (clientRow && callRow.client_id === clientRow.id);
+
+  if (!isOwner) return NextResponse.json({ error: 'Non autorisé' }, { status: 403 });
+
+  await Promise.all([
+    supa.from('prospect_events').delete().eq('call_id', callId),
+    supa.from('calls').delete().eq('id', callId),
+  ]);
+
+  return NextResponse.json({ ok: true });
+}

@@ -231,7 +231,8 @@ function PipelineCard({
   const now = Date.now();
   const showRapport = card.callId && card.callScheduledAt && card.callStatus === 'active'
     && new Date(card.callScheduledAt).getTime() <= now
-    && !card.callOutcome;
+    && !card.callOutcome
+    && POST_CALL_STAGES.has(card.stageKey);
 
   return (
     <>
@@ -630,13 +631,6 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
     });
   }
 
-  const backwardReasons = [
-    { value: 'canceled',    label: 'Call annulé' },
-    { value: 'rescheduled', label: 'Call reporté (nouvelle date à fixer)' },
-    { value: 'error',       label: "Erreur d'attribution (jamais réservé)" },
-    { value: 'cold',        label: 'Lead refroidi / plus intéressé' },
-  ];
-
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={onCancel} />
@@ -706,21 +700,8 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
         {modalCase === 'backward_from_post_call' && (
           <>
             <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Déplacer @{cardName} en arrière</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>Quelle est la raison de ce déplacement ?</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
-              {backwardReasons.map(r => (
-                <label key={r.value} style={{ display: 'flex', alignItems: 'center', gap: 10, cursor: 'pointer', padding: '8px 12px', borderRadius: 8, border: `1px solid ${reason === r.value ? '#2563EB' : 'var(--border)'}`, background: reason === r.value ? '#EFF6FF' : 'transparent', transition: 'all .12s' }}>
-                  <input
-                    type="radio"
-                    name="reason"
-                    value={r.value}
-                    checked={reason === r.value}
-                    onChange={() => setReason(r.value)}
-                    style={{ accentColor: '#2563EB' }}
-                  />
-                  <span style={{ fontSize: 12, fontWeight: 500, color: reason === r.value ? '#2563EB' : 'var(--ink)' }}>{r.label}</span>
-                </label>
-              ))}
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+              Le call associé sera supprimé définitivement ainsi que son historique.
             </div>
           </>
         )}
@@ -810,7 +791,6 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
           </button>
           <button
             onMouseDown={() => {
-              if (modalCase === 'backward_from_post_call' && !reason) return;
               if (modalCase === 'backward_pre_call' && !irreversibleChecked) return;
               if (modalCase === 'forward_pre_call' && !allAdvanceChecked) return;
               if (modalCase === 'forward_to_call_booked' && !callBookedValid) return;
@@ -828,7 +808,6 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
               onConfirm(reason || 'manual', extraData);
             }}
             disabled={
-              (modalCase === 'backward_from_post_call' && !reason) ||
               (modalCase === 'backward_pre_call' && !irreversibleChecked) ||
               (modalCase === 'forward_pre_call' && !allAdvanceChecked) ||
               (modalCase === 'forward_to_call_booked' && !callBookedValid) ||
@@ -837,20 +816,17 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
             style={{
               padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none',
               background:
-                (modalCase === 'backward_from_post_call' && !reason) ? 'var(--border)' :
                 (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--border)' :
                 (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'var(--border)' :
                 (modalCase === 'forward_to_call_booked' && !callBookedValid) ? 'var(--border)' :
                 (modalCase === 'forward_to_closed' && !closedValid) ? 'var(--border)' :
                 modalCase === 'backward_pre_call' ? '#DC2626' : '#2563EB',
               color:
-                (modalCase === 'backward_from_post_call' && !reason) ? 'var(--muted)' :
                 (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'var(--muted)' :
                 (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'var(--muted)' :
                 (modalCase === 'forward_to_call_booked' && !callBookedValid) ? 'var(--muted)' :
                 (modalCase === 'forward_to_closed' && !closedValid) ? 'var(--muted)' : '#fff',
               cursor:
-                (modalCase === 'backward_from_post_call' && !reason) ? 'not-allowed' :
                 (modalCase === 'backward_pre_call' && !irreversibleChecked) ? 'not-allowed' :
                 (modalCase === 'forward_pre_call' && !allAdvanceChecked) ? 'not-allowed' :
                 (modalCase === 'forward_to_call_booked' && !callBookedValid) ? 'not-allowed' :
@@ -1319,15 +1295,7 @@ export default function PagePipeline() {
 
     if (modalCase === 'backward_from_post_call') {
       if (callId) {
-        if (reason === 'canceled') {
-          await patchCall(callId, { status: 'canceled', cancellation_reason: 'canceled' });
-        } else if (reason === 'rescheduled') {
-          await patchCall(callId, { rescheduled: true, rescheduled_at: new Date().toISOString(), cancellation_reason: 'rescheduled' });
-        } else if (reason === 'error') {
-          await patchCall(callId, { ig_lead_id: null, cancellation_reason: 'error' });
-        } else if (reason === 'cold') {
-          await patchCall(callId, { cancellation_reason: 'cold' });
-        }
+        await fetch(`/api/client/calls/${callId}`, { method: 'DELETE' });
       }
       let bestStage: string;
       if (tab === 'ig') {

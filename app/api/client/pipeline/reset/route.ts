@@ -111,13 +111,9 @@ export async function POST(request: Request) {
       .eq('ig_username', username);
     const leadIds = (leads ?? []).map((l: any) => l.id);
     if (leadIds.length > 0) {
-      // Détacher les calls : conserver l'historique mais briser le lien avec le lead
       ops.push(
-        supa.from('calls')
-          .update({ ig_lead_id: null, lead_deleted: true })
-          .eq('coach_id', user.id)
-          .in('ig_lead_id', leadIds)
-          .then()
+        supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
+        supa.from('calls').delete().eq('coach_id', user.id).in('ig_lead_id', leadIds).then()
       );
     }
   }

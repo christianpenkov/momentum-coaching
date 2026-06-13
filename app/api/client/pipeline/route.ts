@@ -140,8 +140,7 @@ export async function DELETE(request: Request) {
   if (leadIds.length > 0) {
     deleteOps.push(
       supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
-      supa.from('calls').update({ ig_lead_id: null, prospect_link_id: null, lead_deleted: true })
-        .eq('coach_id', user.id).in('ig_lead_id', leadIds).then(),
+      supa.from('calls').delete().eq('coach_id', user.id).in('ig_lead_id', leadIds).then(),
     );
   }
 
