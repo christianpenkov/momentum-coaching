@@ -111,11 +111,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   async function handleRescheduled() {
     setStep('rescheduled_check');
-    // Refresh Calendly silencieux pour détecter un éventuel nouveau call
-    try {
-      await fetch('/api/calendly/sync', { method: 'POST' });
-    } catch { /* non bloquant */ }
-    // Chercher un call futur lié (rescheduled=true, scheduled_at > now)
+    // Sync Calendly en arrière-plan (non bloquant), recherche immédiate
+    fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {});
     const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
     if (res.ok) {
       const data = await res.json();
@@ -158,9 +155,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   async function handleSecondCall() {
     setStep('second_call_check');
-    try {
-      await fetch('/api/calendly/sync', { method: 'POST' });
-    } catch { /* non bloquant */ }
+    // Sync Calendly en arrière-plan (non bloquant), recherche immédiate
+    fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {});
     const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
     if (res.ok) {
       const data = await res.json();
