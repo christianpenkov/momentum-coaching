@@ -8,8 +8,8 @@ const supa = createClient(
 );
 
 // GET /api/calls/[id]/next-rescheduled
-// Cherche un call futur lié au même lead (ig_lead_id ou coach_id+invitee)
-// Utilisé par RapportModal après un refresh Calendly silencieux.
+// Cherche le prochain call lié au même lead (ig_lead_id ou email).
+// Fenêtre : scheduled_at > now - 4h (pour attraper les calls du jour déjà passés).
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -28,42 +28,33 @@ export async function GET(
   if (!currentCall) return NextResponse.json({ call: null });
   if (currentCall.coach_id !== user.id) return NextResponse.json({ call: null });
 
-  const now = new Date().toISOString();
+  // Fenêtre élargie : on accepte les calls qui ont démarré il y a moins de 4h
+  const windowStart = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
 
-  let query = supa
+  const baseQuery = () => supa
     .from('calls')
     .select('id, scheduled_at, invitee_name')
     .eq('coach_id', user.id)
     .neq('id', id)
     .eq('status', 'active')
     .is('outcome', null)
-    .gt('scheduled_at', now)
+    .gt('scheduled_at', windowStart)
     .order('scheduled_at', { ascending: true })
     .limit(1);
 
-  // Priorité : même lead IG
+  // 1. Priorité : même ig_lead_id (direct)
   if (currentCall.ig_lead_id) {
-    const { data: byLead } = await query.eq('ig_lead_id', currentCall.ig_lead_id);
-    if (byLead && byLead.length > 0) {
-      return NextResponse.json({ call: { id: byLead[0].id, scheduledAt: byLead[0].scheduled_at, inviteeName: byLead[0].invitee_name } });
+    const { data } = await baseQuery().eq('ig_lead_id', currentCall.ig_lead_id);
+    if (data && data.length > 0) {
+      return NextResponse.json({ call: { id: data[0].id, scheduledAt: data[0].scheduled_at, inviteeName: data[0].invitee_name } });
     }
   }
 
-  // Fallback : même email ou nom si pas de lead IG
+  // 2. Même email → cherche aussi les calls dont ig_lead_id est lié à cet email
   if (currentCall.invitee_email) {
-    const { data: byEmail } = await supa
-      .from('calls')
-      .select('id, scheduled_at, invitee_name')
-      .eq('coach_id', user.id)
-      .neq('id', id)
-      .eq('status', 'active')
-      .is('outcome', null)
-      .gt('scheduled_at', now)
-      .eq('invitee_email', currentCall.invitee_email)
-      .order('scheduled_at', { ascending: true })
-      .limit(1);
-    if (byEmail && byEmail.length > 0) {
-      return NextResponse.json({ call: { id: byEmail[0].id, scheduledAt: byEmail[0].scheduled_at, inviteeName: byEmail[0].invitee_name } });
+    const { data } = await baseQuery().eq('invitee_email', currentCall.invitee_email);
+    if (data && data.length > 0) {
+      return NextResponse.json({ call: { id: data[0].id, scheduledAt: data[0].scheduled_at, inviteeName: data[0].invitee_name } });
     }
   }
 
