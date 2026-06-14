@@ -200,7 +200,7 @@ export async function POST(request: Request) {
         // Un override manuel bloquerait les signaux suivants (ex: link_clicked).
 
         // Événement prospect_events
-        await serviceSupabase.from('prospect_events').insert({
+        await serviceSupabase.from('prospect_events').upsert({
           profile_id:       pid,
           prospect_key:     matchedLink.ig_username,
           platform:         'ig',
@@ -208,7 +208,7 @@ export async function POST(request: Request) {
           occurred_at:      now,
           ig_lead_id:       igLeadId,
           prospect_link_id: matchedLink.id,
-        });
+        }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: false });
 
         console.log(`[IG Webhook] calendly_link_sent — prospect_link: ${matchedLink.id}, url: ${matchedLink.short_url}`);
         pushEvent({ type: 'calendly_link_sent', prospect_link_id: matchedLink.id, short_url: matchedLink.short_url });
