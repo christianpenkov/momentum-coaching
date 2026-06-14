@@ -3813,7 +3813,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3824,6 +3824,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   period: Period;
   profileId?: string;
   prospectLinksData?: any[];
+  clicksByPath?: Map<string, number>;
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
@@ -5136,11 +5137,13 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     const leadsCount = lmLeads.filter(l => l.leadMagnetSent).length;
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
 
-                    // Clics LM : liens Short.io dont le path commence par lm-{kwSlug}-
-                    const lmShortLinks = kwSlug ? allShortioLinks.filter((sl: any) =>
-                      (sl.path || '').startsWith(`lm-${kwSlug}-`)
-                    ) : [];
-                    const clicsLM = lmShortLinks.reduce((s: number, sl: any) => s + linkClics(sl), 0);
+                    // Clics LM : depuis DB par path (lm-{kwSlug}-*) — illimité, pas top-20 API
+                    let clicsLM = 0;
+                    if (kwSlug && clicksByPath) {
+                      for (const [path, clicks] of clicksByPath) {
+                        if (path.startsWith(`lm-${kwSlug}-`)) clicsLM += clicks;
+                      }
+                    }
 
                     // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
                     const supaProspects = (prospectLinksData ?? []).filter((pl: any) =>
@@ -5148,15 +5151,12 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     );
                     const liensCalendly = supaProspects.length;
 
-                    // Clics Calendly : short_url des prospect_links dans allShortioLinks
-                    const supaUrls = new Set(supaProspects.map((pl: any) => pl.short_url).filter(Boolean));
-                    const clicsCalendly = allShortioLinks
-                      .filter((sl: any) => supaUrls.has(sl.shortUrl))
-                      .reduce((s: number, sl: any) => s + linkClics(sl), 0);
+                    // Clics Calendly : humanClicks30d déjà enrichi sur chaque prospect_link depuis DB
+                    const clicsCalendly = supaProspects.reduce((s: number, pl: any) => s + (pl.humanClicks30d || 0), 0);
 
-                    const booked = supaProspects.filter((pl: any) => pl.callBooked).length;
-                    const honored = booked;
-                    const closed = supaProspects.filter((pl: any) => pl.dealClosed === true).length;
+                    const booked  = supaProspects.filter((pl: any) => pl.callBooked).length;
+                    const honored = supaProspects.filter((pl: any) => pl.callHonored).length;
+                    const closed  = supaProspects.filter((pl: any) => pl.dealClosed === true).length;
                     const revenue = supaProspects.reduce((s: number, pl: any) => s + (pl.revenue || 0), 0);
 
                     const hasActivity = leadsCount > 0;
@@ -5577,7 +5577,9 @@ async function fetchSupabaseStats(profileId?: string) {
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes] = await Promise.all([
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5595,6 +5597,11 @@ async function fetchSupabaseStats(profileId?: string) {
     supabase.from('prospect_links')
       .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, first_click_at, created_at, keyword_matched')
       .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
+    // Clics par lien depuis DB (illimité, pas limité au top 20 de l'API Short.io)
+    supabase.from('shortio_link_daily_snapshots')
+      .select('short_url, human_clicks, path')
+      .eq('profile_id', targetId)
+      .gte('date', since30d),
   ]);
 
   let callsRes: { data: any[] | null };
@@ -5646,27 +5653,49 @@ async function fetchSupabaseStats(profileId?: string) {
     if (l.id && l.media_id) leadIdToMediaId.set(l.id, l.media_id);
   }
 
+  // Clics par short_url et par path depuis la DB (30j) — illimité, pas limité au top 20 API
+  const clicksByUrl = new Map<string, number>();
+  const clicksByPath = new Map<string, number>();
+  for (const row of (shortioClicksRes.data ?? [])) {
+    if (row.short_url) {
+      const url = (row.short_url as string).toLowerCase();
+      clicksByUrl.set(url, (clicksByUrl.get(url) ?? 0) + (row.human_clicks ?? 0));
+    }
+    if (row.path) {
+      const p = (row.path as string).toLowerCase();
+      clicksByPath.set(p, (clicksByPath.get(p) ?? 0) + (row.human_clicks ?? 0));
+    }
+  }
+
   // Map ig_lead_id → {callBooked, dealClosed, revenue} pour la table Performance LM
-  const callByLeadId = new Map<string, { callBooked: boolean; dealClosed: boolean; revenue: number }>();
+  const now = new Date();
+  const callByLeadId = new Map<string, { callBooked: boolean; callHonored: boolean; dealClosed: boolean; revenue: number }>();
   for (const c of callsData) {
     if (c.ig_lead_id) {
       callByLeadId.set(c.ig_lead_id, {
-        callBooked: c.status === 'active',
-        dealClosed: !!c.deal_closed,
-        revenue: c.revenue || 0,
+        callBooked:  c.status === 'active',
+        callHonored: c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show,
+        dealClosed:  !!c.deal_closed,
+        revenue:     c.revenue || 0,
       });
     }
   }
 
-  // prospect_links enrichis avec callBooked/dealClosed/revenue via ig_lead_id
-  const prospectLinksData = (prospectLinksRes.data ?? []).map((pl: any) => ({
-    ...pl,
-    callBooked: pl.ig_lead_id ? (callByLeadId.get(pl.ig_lead_id)?.callBooked ?? false) : false,
-    dealClosed: pl.ig_lead_id ? (callByLeadId.get(pl.ig_lead_id)?.dealClosed ?? false) : false,
-    revenue:    pl.ig_lead_id ? (callByLeadId.get(pl.ig_lead_id)?.revenue ?? 0) : 0,
-  }));
+  // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/humanClicks30d via DB
+  const prospectLinksData = (prospectLinksRes.data ?? []).map((pl: any) => {
+    const callData = pl.ig_lead_id ? callByLeadId.get(pl.ig_lead_id) : undefined;
+    const urlKey = (pl.short_url || '').toLowerCase();
+    return {
+      ...pl,
+      callBooked:      callData?.callBooked  ?? false,
+      callHonored:     callData?.callHonored ?? false,
+      dealClosed:      callData?.dealClosed  ?? false,
+      revenue:         callData?.revenue     ?? 0,
+      humanClicks30d:  clicksByUrl.get(urlKey) ?? 0,
+    };
+  });
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath };
   } catch { return null; }
 }
 
@@ -5761,6 +5790,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
+  const clicksByPath: Map<string, number> = supaData?.clicksByPath ?? new Map();
 
   // Instagram — onglets 0, 1, 3
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
@@ -5961,7 +5991,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
