@@ -63,7 +63,7 @@ export async function fetchShortioLinks(creds: ShortioLinkCreds): Promise<Shorti
 
   while (true) {
     const url = new URL(`https://api.short.io/api/links`);
-    url.searchParams.set('domain_id', creds.domainId);
+    url.searchParams.set('domain_id', String(creds.domainId));
     url.searchParams.set('limit', String(limit));
     if (beforeId) url.searchParams.set('beforeId', beforeId);
 
