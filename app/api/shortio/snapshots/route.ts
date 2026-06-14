@@ -103,6 +103,12 @@ function mapPostgresToShortio(
     if (!linkType) {
       try { linkType = new URL(first.original_url).searchParams.get('utm_medium') || null; } catch {}
     }
+    // postPlatform depuis utm_source stocké en DB ('yt' → 'YT', 'ig' → 'IG')
+    const utmSourceVal = (() => {
+      try { return new URL(first.original_url).searchParams.get('utm_source') || null; } catch { return null; }
+    })();
+    const postPlatform = utmSourceVal === 'yt' ? 'YT' : utmSourceVal === 'ig' ? 'IG' : null;
+
     return {
       id: linkId,
       path: first.path,
@@ -111,6 +117,7 @@ function mapPostgresToShortio(
       title: meta?.title || first.path,
       createdAt: meta?.created_at || null,
       linkType,
+      postPlatform,
       clicks30d: linkTotal,
       humanClicks30d: linkHuman,
       clicksChange: null as number | null,

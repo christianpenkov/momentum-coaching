@@ -1109,7 +1109,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
   // Valeurs sur la période sélectionnée (7j ou 30j depuis chartData)
   const igDaysSlice = ig.chartData.slice(-period);
   const igReachP = igDaysSlice.reduce((s, d) => s + d.reach, 0);
-  const igFollowerDeltaP = igDaysSlice.reduce((s, d) => s + (d.followerCount ?? 0), 0);
+  const igFollowerDeltaP = (igDaysSlice[igDaysSlice.length - 1]?.followerCount ?? 0) - (igDaysSlice[0]?.followerCount ?? 0);
   const igEngagedP = period === 30 ? ig.accountsEngaged30d : Math.round(ig.accountsEngaged30d * period / 30);
   const igViewsP = period === 30 ? ig.views30d : Math.round(ig.views30d * period / 30);
 
