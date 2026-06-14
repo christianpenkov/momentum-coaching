@@ -43,7 +43,7 @@ export async function POST(request: Request) {
 
   const results = { total: integrations?.length ?? 0, refreshed: 0, failed: 0, emails_sent: 0 };
 
-  for (const integ of integrations ?? []) {
+  await Promise.all((integrations ?? []).map(async (integ) => {
     try {
       const creds = await getIgCreds(integ.profile_id);
       if (!creds) {
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
       await sendAdminAlert(integ.profile_id, `Exception: ${err?.message || 'inconnue'}`);
       results.emails_sent++;
     }
-  }
+  }));
 
   console.log('[cron-refresh-tokens] Résultat:', results);
   return NextResponse.json(results);
