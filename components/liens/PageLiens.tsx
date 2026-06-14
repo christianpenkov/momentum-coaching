@@ -213,7 +213,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
     try {
       const bioLabel = 'Prendre RDV';
       const bioPath = platform === 'instagram' ? 'bio-calendly-ig' : 'bio-calendly-yt';
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: bioLabel, utmSource: domain, utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: bioPath });
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: calendlyUrl.trim(), title: bioLabel, utmSource: platform === 'instagram' ? 'ig' : 'yt', utmMedium: 'bio', utmCampaign: `bio-${platform}`, path: bioPath });
       setResult(shortUrl);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -229,7 +229,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
       const { shortUrl } = await callShortio({
         profileId, domainId: domain, originalUrl: lm.url,
         title: lm.name,
-        utmSource: domain, utmMedium: 'bio',
+        utmSource: platform === 'ig' ? 'ig' : 'yt', utmMedium: 'bio',
         utmCampaign: `lm-bio-${platform}`,
         path: `${lmBioSlug}-${platform === 'ig' ? 'ig' : 'yt'}`,
       });
@@ -965,7 +965,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       // Path : {keyword}-{slug-caption} — lisible, sans "lm-" ni UTMs dans le nom
       const path = `${slugify(keyword)}-${slugify(post.caption.slice(0, 20))}`;
       const lmTitle = `${lmName} — ${post.caption.slice(0, 40)}`;
-      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: lmTitle, utmSource: domain, utmMedium: 'leadmagnet', utmCampaign: slugify(keyword), utmContent: post.id, path });
+      const { shortUrl } = await callShortio({ profileId, domainId: domain, originalUrl: lmUrl, title: lmTitle, utmSource: 'ig', utmMedium: 'leadmagnet', utmCampaign: slugify(keyword), utmContent: post.id, path });
       // Short.io OK — on peut créer le LM en DB maintenant
       if (lmMode === 'new') {
         const res = await fetch('/api/client/lead-magnets', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ name: lmName, url: lmUrl, keyword }) });
@@ -1461,7 +1461,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
         profileId, domainId: domain,
         originalUrl: calendlyUrl.trim(),
         title: `RDV avec @${username}`,
-        utmSource: domain, utmMedium: 'dm',
+        utmSource: 'ig', utmMedium: 'dm',
         utmCampaign: igUserId ? `lead-${igUserId}` : `prospect-${us}`,
         utmContent: us,
         utmTerm: username,

@@ -219,7 +219,7 @@ export async function POST() {
     }
 
     // Upsert prospect non-IG (YT / Autres)
-    const effectiveSource = source ?? inheritedSource ?? null;
+    const effectiveSource = igLeadId ? 'ig_dm' : (source ?? inheritedSource ?? null);
     const effectivePlatform: 'yt' | 'other' = effectiveSource?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
     let prospectId: string | null = null;
     if (!igLeadId) {

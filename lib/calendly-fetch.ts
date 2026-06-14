@@ -263,7 +263,7 @@ export async function syncCalendlyEleve(
         invitee_email: inviteeEmail,
         invitee_name: inviteeName,
         calendly_qa: questionsAndAnswers,
-        source: source ?? inheritedSource,
+        source: finalIgLeadId ? 'ig_dm' : (source ?? inheritedSource),
         status: isCanceled ? 'canceled' : 'active',
         ready: 'pending',
         reminder_sent: false,
