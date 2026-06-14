@@ -37,6 +37,7 @@ interface CalEvent {
 export default function PageClientCalendar() {
   const { data: client, loading } = useClientSelfData();
   const [calls, setCalls] = useState<Call[]>([]);
+  const [callsLoading, setCallsLoading] = useState(true);
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(toDateKey(new Date()));
   const [respondingId, setRespondingId] = useState<string | null>(null);
@@ -47,6 +48,7 @@ export default function PageClientCalendar() {
   useEffect(() => {
     if (!client) return;
     const load = async () => {
+      setCallsLoading(true);
       // Calls Calendly : coach_id = profileId de l'élève
       const { data: integ } = await supabase.from('integrations')
         .select('connected_at').eq('profile_id', client.profile_id).eq('provider', 'calendly').maybeSingle();
@@ -70,6 +72,7 @@ export default function PageClientCalendar() {
       const all = [...(calendlyCalls || []), ...(googleCalls || [])];
       const seen = new Set<string>();
       setCalls(all.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; }) as Call[]);
+      setCallsLoading(false);
     };
     load();
   }, [client?.id]);
@@ -152,7 +155,7 @@ export default function PageClientCalendar() {
   const selectedEvents = selectedDay ? (eventsByDate[selectedDay] || []) : [];
   const isMobile = useIsMobile();
 
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
+  if (loading || callsLoading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   const nextCall = calls.find(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) >= new Date());
 

@@ -86,7 +86,7 @@ interface CallRecord {
   invitee_name: string; invitee_email: string; duration: number;
   no_show?: boolean; deal_closed?: boolean; revenue?: number;
   rescheduled?: boolean; source?: string; notes?: string;
-  ig_lead_id?: string | null;
+  ig_lead_id?: string | null; outcome?: string | null;
 }
 interface StripeStats {
   mrr: number; monthlyRevenue: number; activeSubscriptions: number;
@@ -353,7 +353,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
   const cutoff = new Date(now.getTime() - period * 86400000);
   const callsInPeriod = calls.filter(c => new Date(c.scheduled_at) >= cutoff);
   const callsBookes = callsInPeriod.filter(c => c.status === 'active').length;
-  const callsHonores = callsInPeriod.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+  const callsHonores = callsInPeriod.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
   const noShows = callsInPeriod.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.no_show).length;
   const dealsCloses = callsInPeriod.filter(c => c.deal_closed).length;
   const revenueFromCalls = callsInPeriod.filter(c => c.deal_closed && c.revenue).reduce((s, c) => s + (c.revenue || 0), 0);
@@ -777,7 +777,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToM
   // ── Métriques business ─────────────────────────────────────────────────────
   const callsInPeriod = calls.filter(c => new Date(c.scheduled_at) >= cutoff);
   const callsBookes  = callsInPeriod.filter(c => c.status === 'active').length;
-  const callsHonores = callsInPeriod.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+  const callsHonores = callsInPeriod.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
   const noShows      = callsInPeriod.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.no_show).length;
   const dealsCloses  = callsInPeriod.filter(c => c.deal_closed).length;
   const totalRev     = callsInPeriod.reduce((s, c) => s + (c.revenue || 0), 0);
@@ -2028,7 +2028,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const calcCalls = (subset: CallRecord[]) => {
     const bookes = subset.filter(c => c.status === 'active').length;
-    const honores = subset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+    const honores = subset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
     const closes = subset.filter(c => c.deal_closed).length;
     const rev = subset.reduce((acc, c) => acc + (c.revenue || 0), 0);
     const noShows = subset.filter(c => c.no_show).length;
@@ -2090,7 +2090,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       const iso = d.toISOString().split('T')[0];
       const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
       const booked = cs.filter(c => c.status === 'active').length;
-      const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+      const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
       const closed = cs.filter(c => c.deal_closed).length;
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
       const noShows = cs.filter(c => c.no_show).length;
@@ -2161,7 +2161,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         }
         const heroCharts: { data: { date: string; v: number }[]; color: string; unit: string; fmtV: (v: number) => string }[] = [
           { color: 'var(--ink)', unit: 'calls', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.status === 'active').length) },
-          { color: AMBER, unit: 'honorés', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length) },
+          { color: AMBER, unit: 'honorés', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length) },
           { color: GREEN, unit: 'closés', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.deal_closed).length) },
           { color: GREEN, unit: '€', fmtV: (v) => `${v} €`, data: buildDay2(() => true, cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
           { color: GREEN, unit: '€/call', fmtV: (v) => `${v} €`, data: buildDay2(c => !!(c.deal_closed && c.revenue), cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
@@ -2248,7 +2248,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                         });
                         let v = 0;
                         if (key === 'booked') v = daySubset.filter(c => c.status === 'active').length;
-                        else if (key === 'honored') v = daySubset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+                        else if (key === 'honored') v = daySubset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
                         else if (key === 'closed') v = daySubset.filter(c => c.deal_closed).length;
                         else if (key === 'rev') v = daySubset.reduce((s, c) => s + (c.revenue || 0), 0);
                         return { date, v };
@@ -2429,7 +2429,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
           {[
             { label: 'Bookés', value: fmt(filteredCalls.filter(c => c.status === 'active').length), color: 'var(--ink)' },
-            { label: 'Honorés', value: fmt(filteredCalls.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length), color: GREEN },
+            { label: 'Honorés', value: fmt(filteredCalls.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length), color: GREEN },
             { label: 'No-show', value: fmt(filteredCalls.filter(c => c.no_show).length), color: RED },
             { label: 'Closés', value: fmt(filteredCalls.filter(c => c.deal_closed).length), color: 'var(--accent)' },
             { label: 'Revenue', value: fmtEur(filteredCalls.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
@@ -2530,7 +2530,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const callsYT = calls.filter(c => c.source?.startsWith('yt') || c.source?.startsWith('youtube'));
   const calcCalls = (subset: CallRecord[]) => ({
     bookes: subset.filter(c => c.status === 'active').length,
-    honores: subset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length,
+    honores: subset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length,
     closes: subset.filter(c => c.deal_closed).length,
     rev: subset.reduce((acc, c) => acc + (c.revenue || 0), 0),
     noShows: subset.filter(c => c.no_show).length,
@@ -2591,7 +2591,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
       const iso = d.toISOString().split('T')[0];
       const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
       const booked = cs.filter(c => c.status === 'active').length;
-      const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
+      const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
       const closed = cs.filter(c => c.deal_closed).length;
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
       const noShows = cs.filter(c => c.no_show).length;
@@ -2652,7 +2652,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
     // 0 — Calls bookés (tous)
     { color: 'var(--ink)', fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.status === 'active').length) },
     // 1 — Calls honorés
-    { color: AMBER, fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length) },
+    { color: AMBER, fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length) },
     // 2 — Deals closés
     { color: GREEN, fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.deal_closed).length) },
     // 3 — Revenue total
@@ -2845,7 +2845,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
         <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
           {[
             { label: 'Bookés', value: fmt(filteredCalls.filter(c => c.status === 'active').length), color: 'var(--ink)' },
-            { label: 'Honorés', value: fmt(filteredCalls.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length), color: GREEN },
+            { label: 'Honorés', value: fmt(filteredCalls.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length), color: GREEN },
             { label: 'No-show', value: fmt(filteredCalls.filter(c => c.no_show).length), color: RED },
             { label: 'Closés', value: fmt(filteredCalls.filter(c => c.deal_closed).length), color: 'var(--accent)' },
             { label: 'Revenue', value: fmtEur(filteredCalls.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
@@ -3122,7 +3122,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
           domainId: selectedDomain.hostname,
           originalUrl: selectedDest?.url ?? '',
           title: `${selectedDest?.label ?? ''} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
-          utmSource: selectedDomain.hostname,
+          utmSource: 'ig',
           utmMedium: 'dm',
           utmCampaign: `lead-${igId}`,
           utmContent: postId,
@@ -3910,7 +3910,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ profileId, domainId: selectedDomain.hostname, originalUrl: selectedDest.url,
           title: `${selectedDest.label} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
-          utmSource: selectedDomain.hostname, utmMedium: 'dm', utmCampaign: `lead-${igId}`, utmContent: postId, path: slug }),
+          utmSource: 'ig', utmMedium: 'dm', utmCampaign: `lead-${igId}`, utmContent: postId, path: slug }),
       });
       const data = await res.json();
       setCreatedLink(data.shortUrl || `${selectedDomain.hostname}/${slug}`);

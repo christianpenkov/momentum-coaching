@@ -94,6 +94,7 @@ export default function PageClientCalls() {
       .select('*')
       .eq('coach_id', user.id)
       .not('calendly_event_uuid', 'is', null)
+      .neq('ignored', true)
       .order('scheduled_at', { ascending: false });
 
     if (calendlyConnectedAt) {
