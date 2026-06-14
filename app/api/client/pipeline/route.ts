@@ -118,14 +118,15 @@ export async function DELETE(request: Request) {
   const { ig_username } = body;
   if (!ig_username) return NextResponse.json({ error: 'ig_username requis' }, { status: 400 });
 
-  // Récupère les ig_lead_ids à supprimer avant de faire les deletes
+  // Récupère les ig_lead_ids et ig_user_ids à supprimer avant de faire les deletes
   const { data: leadsToDelete } = await supa
     .from('instagram_leads')
-    .select('id')
+    .select('id, ig_user_id')
     .eq('profile_id', user.id)
     .eq('ig_username', ig_username);
 
   const leadIds = (leadsToDelete ?? []).map((l: any) => l.id);
+  const igUserIds = (leadsToDelete ?? []).map((l: any) => l.ig_user_id).filter(Boolean);
 
   const deleteOps = [
     supa.from('instagram_leads').delete().eq('profile_id', user.id).eq('ig_username', ig_username).then(),
@@ -142,6 +143,13 @@ export async function DELETE(request: Request) {
     deleteOps.push(
       supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
       supa.from('calls').update({ ignored: true, ig_lead_id: null }).eq('coach_id', user.id).in('ig_lead_id', leadIds).then(),
+    );
+  }
+
+  // Supprime l'historique LM pour éviter que les stats Performance LM restent gonflées
+  if (igUserIds.length > 0) {
+    deleteOps.push(
+      supa.from('instagram_lead_lm_history').delete().eq('profile_id', user.id).in('ig_user_id', igUserIds).then(),
     );
   }
 
