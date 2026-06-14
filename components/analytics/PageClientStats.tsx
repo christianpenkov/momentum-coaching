@@ -5170,32 +5170,32 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                         </td>
                         <td style={{ ...tdS, fontWeight: leadsCount > 0 ? 700 : 400, color: leadsCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? leadsCount : '—'}</td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: clicsLM > 0 ? 700 : 400, color: clicsLM > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? clicsLM : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && clicsLM > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? clicsLM : '—'}</div>
                           {hasActivity && leadsCount > 0 && <Sub pct={ratePct(clicsLM, leadsCount)} />}
                         </td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: reponses > 0 ? 700 : 400, color: reponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? reponses : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && reponses > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? reponses : '—'}</div>
                           {hasActivity && clicsLM > 0 && <Sub pct={ratePct(reponses, clicsLM)} />}
                         </td>
-                        <td style={{ ...tdS, fontWeight: liensCalendly > 0 ? 700 : 400, color: liensCalendly > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? liensCalendly : '—'}</td>
+                        <td style={{ ...tdS, fontWeight: hasActivity && liensCalendly > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? liensCalendly : '—'}</td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: clicsCalendly > 0 ? 700 : 400, color: clicsCalendly > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? clicsCalendly : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && clicsCalendly > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? clicsCalendly : '—'}</div>
                           {hasActivity && liensCalendly > 0 && <Sub pct={ratePct(clicsCalendly, liensCalendly)} />}
                         </td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: booked > 0 ? 700 : 400, color: booked > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? booked : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && booked > 0 ? 700 : 400, color: hasActivity && booked > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? booked : '—'}</div>
                           {hasActivity && clicsCalendly > 0 && <Sub pct={ratePct(booked, clicsCalendly)} />}
                         </td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: honored > 0 ? 700 : 400, color: honored > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? honored : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && honored > 0 ? 700 : 400, color: hasActivity && honored > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? honored : '—'}</div>
                           {hasActivity && booked > 0 && <Sub pct={ratePct(honored, booked)} isClose />}
                         </td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: closed > 0 ? 700 : 400, color: closed > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? closed : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && closed > 0 ? 700 : 400, color: hasActivity && closed > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? closed : '—'}</div>
                           {hasActivity && honored > 0 && <Sub pct={ratePct(closed, honored)} isClose />}
                         </td>
-                        <td style={{ ...tdS, fontWeight: 700, color: revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>
-                          {revenue > 0 ? fmtEur(revenue) : '—'}
+                        <td style={{ ...tdS, fontWeight: 700, color: hasActivity && revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>
+                          {hasActivity && revenue > 0 ? fmtEur(revenue) : '—'}
                         </td>
                       </tr>
                     );
