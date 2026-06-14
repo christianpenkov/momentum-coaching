@@ -2999,7 +2999,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
           domainId: selectedDomain.hostname,
           originalUrl: selectedDest.url,
           title: `${selectedDest.label} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
-          utmSource: selectedDomain.hostname,
+          utmSource: 'ig',
           utmMedium: 'dm',
           utmCampaign: `lead-${igId}`,
           utmContent: postId,
@@ -3876,7 +3876,7 @@ function TabShortioB({ shortio, ig, yt, profileId }: {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ profileId, domainId: selectedDomain.hostname, originalUrl: selectedDest.url,
           title: `${selectedDest.label} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
-          utmSource: selectedDomain.hostname, utmMedium: 'dm', utmCampaign: `lead-${igId}`, utmContent: postId, path: slug }),
+          utmSource: 'ig', utmMedium: 'dm', utmCampaign: `lead-${igId}`, utmContent: postId, path: slug }),
       });
       const data = await res.json();
       setCreatedLink(data.shortUrl || `${selectedDomain.hostname}/${slug}`);

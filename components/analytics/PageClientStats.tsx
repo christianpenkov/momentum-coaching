@@ -3813,7 +3813,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3825,6 +3825,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   profileId?: string;
   prospectLinksData?: any[];
   clicksByPath?: Map<string, number>;
+  altKwToLmId?: Map<string, string>;
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
@@ -4045,6 +4046,19 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     ...leads.filter(lead => lead.leadMagnetSent).map(lead => lead.postId + '|' + lead.postType),
   ]));
 
+  // Map keyword (lowercase) → nom du LM pour affichage dans Performance par contenu
+  const lmNameByKeyword = new Map<string, string>();
+  const lmById = new Map<string, string>(); // lm.id → lm.name
+  for (const lm of leadMagnets) {
+    if (lm.keyword) lmNameByKeyword.set(lm.keyword.toLowerCase(), lm.name);
+    lmById.set(lm.id, lm.name);
+  }
+  // Enrichir avec les keywords alternatifs (définis par contenu dans content_links)
+  for (const [altKw, lmId] of (altKwToLmId ?? new Map())) {
+    const lmName = lmById.get(lmId);
+    if (lmName && !lmNameByKeyword.has(altKw)) lmNameByKeyword.set(altKw, lmName);
+  }
+
   const consolidatedRows = allPostIds.map(key => {
     const [postId, platform] = key.split('|');
     const descLink = postLinks.find((l: any) => l.postId === postId);
@@ -4056,6 +4070,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo?.isShort ? 'Short' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
+    // Nom du LM associé aux leads de ce contenu (premier keyword trouvé)
+    const lmKeyword = postLeads[0]?.keyword || null;
+    const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;
 
     const clicsDesc = linkClics(descLink) || 0;
     const postLeadsInPeriod = postLeads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
@@ -4075,7 +4092,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const revenue = dmProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, vuesParCall };
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, vuesParCall, lmName };
   }).sort((a, b) => b.views - a.views || b.revenue - a.revenue);
 
   // ── Section 3 : pipeline prospects ──
@@ -4688,7 +4705,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                       </td>
                       <td style={{ padding: '8px 10px', maxWidth: 200 }}>
                         <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
-                        <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
+                        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
+                          {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px' }}>{row.lmName}</span>}
+                        </div>
                       </td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
@@ -5129,25 +5149,39 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     const kwSlug = kw.replace(/[^a-z0-9-]/g, '');
                     const periodStartDate = new Date(Date.now() - globalPeriod * 24 * 60 * 60 * 1000).toISOString();
 
-                    // Leads : depuis instagram_leads (source de vérité — si supprimé, disparaît)
+                    // Tous les mots-clés alternatifs pour ce LM (définis dans content_links par contenu)
+                    // Ex: LM Ubizen AI (keyword: LM) peut aussi être déclenché par BEAU via un contenu
+                    const altKws = new Set<string>([kw]);
+                    if (altKwToLmId) {
+                      for (const [altKw, lmId] of altKwToLmId) {
+                        if (lmId === lm.id) altKws.add(altKw);
+                      }
+                    }
+
+                    // Leads : depuis instagram_leads — match sur tous les keywords du LM
                     const lmLeads = (leads as any[]).filter(l =>
-                      l.keyword?.toLowerCase() === kw &&
+                      altKws.has((l.keyword || '').toLowerCase()) &&
                       (!l.commentedAt || l.commentedAt >= periodStartDate)
                     );
                     const leadsCount = lmLeads.filter(l => l.leadMagnetSent).length;
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
 
-                    // Clics LM : depuis DB par path (lm-{kwSlug}-*) — illimité, pas top-20 API
+                    // Clics LM : depuis DB par path (lm-{kwSlug}-*) pour tous les slugs alternatifs
                     let clicsLM = 0;
-                    if (kwSlug && clicksByPath) {
-                      for (const [path, clicks] of clicksByPath) {
-                        if (path.startsWith(`lm-${kwSlug}-`)) clicsLM += clicks;
+                    if (clicksByPath) {
+                      for (const altKw of altKws) {
+                        const altSlug = altKw.replace(/[^a-z0-9-]/g, '');
+                        if (!altSlug) continue;
+                        for (const [path, clicks] of clicksByPath) {
+                          if (path.startsWith(`lm-${altSlug}-`)) clicsLM += clicks;
+                        }
                       }
                     }
 
                     // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
+                    // Inclut les keywords alternatifs (ex: BEAU pour LM Ubizen AI)
                     const supaProspects = (prospectLinksData ?? []).filter((pl: any) =>
-                      (pl.keyword_matched || '').toLowerCase() === kw
+                      altKws.has((pl.keyword_matched || '').toLowerCase())
                     );
                     const liensCalendly = supaProspects.length;
 
@@ -5579,7 +5613,7 @@ async function fetchSupabaseStats(profileId?: string) {
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5602,6 +5636,12 @@ async function fetchSupabaseStats(profileId?: string) {
       .select('short_url, human_clicks, path')
       .eq('profile_id', targetId)
       .gte('date', since30d),
+    // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
+    supabase.from('content_links')
+      .select('lm_id, lm_keyword')
+      .eq('profile_id', targetId)
+      .not('lm_id', 'is', null)
+      .not('lm_keyword', 'is', null),
   ]);
 
   let callsRes: { data: any[] | null };
@@ -5695,7 +5735,16 @@ async function fetchSupabaseStats(profileId?: string) {
     };
   });
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath };
+  // Map keyword alternatif (lowercase) → lm_id pour les contenus avec un mot-clé custom
+  // Ex : content_links { lm_id: "uuid-ubizen", lm_keyword: "BEAU" } → altKwToLmId.get("beau") = "uuid-ubizen"
+  const altKwToLmId = new Map<string, string>();
+  for (const cl of (contentLinksRes.data ?? [])) {
+    if (cl.lm_id && cl.lm_keyword) {
+      altKwToLmId.set((cl.lm_keyword as string).toLowerCase(), cl.lm_id as string);
+    }
+  }
+
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, altKwToLmId };
   } catch { return null; }
 }
 
@@ -5791,6 +5840,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
   const clicksByPath: Map<string, number> = supaData?.clicksByPath ?? new Map();
+  const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
@@ -5991,7 +6041,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
