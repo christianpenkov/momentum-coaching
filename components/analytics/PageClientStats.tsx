@@ -5123,30 +5123,40 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>Aucun lead magnet configuré — ajoutez-en via les paramètres</td></tr>
                   )}
                   {leadMagnets.map((lm, i) => {
-                    // Stats LM depuis l'historique (1 ligne par interaction) — précis même si un prospect a commenté plusieurs LMs
+                    // Pivot unique : keyword_matched — même clé sur lmHistory, prospect_links, et shortio path
+                    const kw = (lm.keyword || '').toLowerCase();
+                    const kwSlug = kw.replace(/[^a-z0-9-]/g, '');
                     const periodStartDate = new Date(Date.now() - globalPeriod * 24 * 60 * 60 * 1000).toISOString();
-                    const histForLm = (lmHistory ?? []).filter(h => h.keyword_matched?.toLowerCase() === lm.keyword?.toLowerCase() && (!h.detected_at || h.detected_at >= periodStartDate));
-                    const lmLeads = (leads as any[]).filter(l => l.keyword?.toLowerCase() === lm.keyword?.toLowerCase());
+
+                    // Leads : depuis lmHistory (1 ligne par interaction, stable même après suppression)
+                    const histForLm = (lmHistory ?? []).filter(h =>
+                      h.keyword_matched?.toLowerCase() === kw &&
+                      (!h.detected_at || h.detected_at >= periodStartDate)
+                    );
                     const leadsCount = histForLm.filter(h => h.lead_magnet_sent).length;
-                    // Clics LM réels depuis Short.io : liens avec path lm-{keyword}-* (utm_medium=leadmagnet ou dm)
-                    const lmKeywordSlug = (lm.keyword || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
-                    const lmShortLinks = allShortioLinks.filter((sl: any) => {
-                      const path: string = sl.path || '';
-                      return path.startsWith(`lm-${lmKeywordSlug}-`) || path.startsWith(`lm-${lmKeywordSlug}`);
-                    });
-                    const clicsLM = lmShortLinks.reduce((s: number, sl: any) => s + linkClics(sl), 0);
+
+                    // Réponses : leads actifs avec hook_replied (depuis instagram_leads)
+                    const lmLeads = (leads as any[]).filter(l => l.keyword?.toLowerCase() === kw);
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
-                    // Liens Calendly envoyés depuis Supabase prospect_links — matchés par ig_username du lead
-                    const lmUsernames = new Set(lmLeads.map((ml: any) => (ml.igUsername || '').toLowerCase()));
+
+                    // Clics LM : liens Short.io dont le path commence par lm-{kwSlug}-
+                    const lmShortLinks = kwSlug ? allShortioLinks.filter((sl: any) =>
+                      (sl.path || '').startsWith(`lm-${kwSlug}-`)
+                    ) : [];
+                    const clicsLM = lmShortLinks.reduce((s: number, sl: any) => s + linkClics(sl), 0);
+
+                    // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
                     const supaProspects = (prospectLinksData ?? []).filter((pl: any) =>
-                      lmUsernames.has((pl.ig_username || '').toLowerCase())
+                      (pl.keyword_matched || '').toLowerCase() === kw
                     );
                     const liensCalendly = supaProspects.length;
-                    // Clics Calendly : chercher le short_url dans allShortioLinks
+
+                    // Clics Calendly : short_url des prospect_links dans allShortioLinks
                     const supaUrls = new Set(supaProspects.map((pl: any) => pl.short_url).filter(Boolean));
                     const clicsCalendly = allShortioLinks
                       .filter((sl: any) => supaUrls.has(sl.shortUrl))
                       .reduce((s: number, sl: any) => s + linkClics(sl), 0);
+
                     const booked = supaProspects.filter((pl: any) => pl.callBooked).length;
                     const honored = booked;
                     const closed = supaProspects.filter((pl: any) => pl.dealClosed === true).length;
@@ -5586,7 +5596,7 @@ async function fetchSupabaseStats(profileId?: string) {
       .eq('profile_id', targetId).limit(2000),
     // Liens Calendly envoyés par prospect — source de vérité pour la table Performance LM
     supabase.from('prospect_links')
-      .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, first_click_at, created_at')
+      .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, first_click_at, created_at, keyword_matched')
       .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
   ]);
 
