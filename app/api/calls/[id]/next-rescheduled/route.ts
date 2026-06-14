@@ -21,7 +21,7 @@ export async function GET(
 
   const { data: currentCall } = await supa
     .from('calls')
-    .select('id, ig_lead_id, coach_id, invitee_name, invitee_email, scheduled_at, rescheduled, rescheduled_at')
+    .select('id, ig_lead_id, coach_id, invitee_name, invitee_email, scheduled_at')
     .eq('id', id)
     .maybeSingle();
 
@@ -30,13 +30,6 @@ export async function GET(
 
   // Fenêtre élargie : on accepte les calls qui ont démarré il y a moins de 4h
   const windowStart = new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString();
-  const now = new Date().toISOString();
-
-  // Cas 0 : le call actuel lui-même a été reschedulé par Calendly en place
-  // (même id, scheduled_at mis à jour dans le futur par le cron Calendly)
-  if (currentCall.scheduled_at > now) {
-    return NextResponse.json({ call: { id: currentCall.id, scheduledAt: currentCall.scheduled_at, inviteeName: currentCall.invitee_name } });
-  }
 
   const baseQuery = () => supa
     .from('calls')
