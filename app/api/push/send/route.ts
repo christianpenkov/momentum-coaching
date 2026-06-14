@@ -11,23 +11,32 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
+  const authHeader = req.headers.get('authorization');
+  const cronSecret = process.env.CRON_SECRET;
+  if (!authHeader || authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   webpush.setVapidDetails(
     process.env.VAPID_SUBJECT!.trim(),
     process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY!.trim(),
     process.env.VAPID_PRIVATE_KEY!.trim()
   );
 
-  const { recipientUserId, title, body, url } = await req.json();
-  if (!recipientUserId) return NextResponse.json({ error: 'invalid' }, { status: 400 });
+  const body_json = await req.json();
+  // Accepte recipientUserId (legacy) ou profileId (Edge Function)
+  const { recipientUserId, profileId, title, body, url } = body_json;
+  const targetProfileId = profileId || recipientUserId;
+  if (!targetProfileId) return NextResponse.json({ error: 'invalid' }, { status: 400 });
 
   const { data: subs } = await supabase
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth')
-    .eq('profile_id', recipientUserId);
+    .eq('profile_id', targetProfileId);
 
   if (!subs || subs.length === 0) return NextResponse.json({ sent: 0 });
 
-  const payload = JSON.stringify({ title, body, url: url || '/' });
+  const payload = JSON.stringify({ title, body: body, url: url || '/' });
 
   const results = await Promise.allSettled(
     subs.map(sub =>
