@@ -268,6 +268,18 @@ export async function POST() {
       .maybeSingle();
     if (existingCall?.ignored) { synced++; continue; }
 
+    // Nouveau call pour un lead IG connu : canceller les anciens calls actifs sans outcome
+    // Évite l'accumulation de doublons quand le cron poll sans recevoir les webhooks d'annulation
+    if (!existingCall && igLeadId) {
+      await serviceSupabase.from('calls')
+        .update({ status: 'cancelled' })
+        .eq('coach_id', leadsProfileId)
+        .eq('ig_lead_id', igLeadId)
+        .eq('status', 'active')
+        .is('outcome', null)
+        .neq('calendly_event_uuid', eventUuid);
+    }
+
     const { data: callRow } = await serviceSupabase.from('calls').upsert(
       baseUpsert,
       { onConflict: 'calendly_event_uuid' }
