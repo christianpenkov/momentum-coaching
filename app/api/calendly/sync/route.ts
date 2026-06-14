@@ -268,15 +268,16 @@ export async function POST() {
       .maybeSingle();
     if (existingCall?.ignored) { synced++; continue; }
 
-    // Nouveau call pour un lead IG connu : canceller les anciens calls actifs sans outcome
+    // Nouveau call pour un lead IG connu : canceller les anciens calls actifs sans rapport terminal
     // Évite l'accumulation de doublons quand le cron poll sans recevoir les webhooks d'annulation
+    // On laisse intact les calls avec outcome terminal (no_show, closed, not_qualified, to_recontact, second_call)
     if (!existingCall && igLeadId) {
       await serviceSupabase.from('calls')
         .update({ status: 'cancelled' })
         .eq('coach_id', leadsProfileId)
         .eq('ig_lead_id', igLeadId)
         .eq('status', 'active')
-        .is('outcome', null)
+        .not('outcome', 'in', '("no_show","closed","not_qualified","to_recontact","second_call")')
         .neq('calendly_event_uuid', eventUuid);
     }
 
