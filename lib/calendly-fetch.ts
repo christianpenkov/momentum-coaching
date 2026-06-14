@@ -106,31 +106,31 @@ export async function syncCalendlyEleve(
 
   let synced = 0;
 
-  for (const event of allEvents) {
-    try {
-      const eventUuid = event.uri?.split('/').pop() || '';
-      if (!eventUuid) continue;
+  // Parallélise les appels invitees (1 par event) — critique pour 20 élèves × N events
+  const results = await Promise.allSettled(allEvents.map(async (event) => {
+    const eventUuid = event.uri?.split('/').pop() || '';
+    if (!eventUuid) return null;
 
-      const scheduledAt = event.start_time || null;
-      const endTime = event.end_time || null;
-      const isCanceled = event.status === 'canceled';
+    const scheduledAt = event.start_time || null;
+    const endTime = event.end_time || null;
+    const isCanceled = event.status === 'canceled';
 
-      let duration: string | null = null;
-      if (scheduledAt && endTime) {
-        const mins = Math.round(
-          (new Date(endTime).getTime() - new Date(scheduledAt).getTime()) / 60000
-        );
-        duration = `${mins} min`;
-      }
-
-      // Fetch invitees pour avoir email + tracking UTM
-      const inviteesRes = await fetch(
-        `https://api.calendly.com/scheduled_events/${eventUuid}/invitees?count=10`,
-        { headers: { Authorization: `Bearer ${accessToken}` } }
+    let duration: string | null = null;
+    if (scheduledAt && endTime) {
+      const mins = Math.round(
+        (new Date(endTime).getTime() - new Date(scheduledAt).getTime()) / 60000
       );
-      const inviteesData = await inviteesRes.json();
-      const invitees: any[] = inviteesData?.collection || [];
-      const invitee = invitees[0] || null;
+      duration = `${mins} min`;
+    }
+
+    // Fetch invitees pour avoir email + tracking UTM
+    const inviteesRes = await fetch(
+      `https://api.calendly.com/scheduled_events/${eventUuid}/invitees?count=10`,
+      { headers: { Authorization: `Bearer ${accessToken}` } }
+    );
+    const inviteesData = await inviteesRes.json();
+    const invitees: any[] = inviteesData?.collection || [];
+    const invitee = invitees[0] || null;
 
       const inviteeEmail = invitee?.email || null;
       const inviteeName = invitee?.name || null;
@@ -358,11 +358,14 @@ export async function syncCalendlyEleve(
         }
       }
 
-      synced++;
+      return true;
     } catch (e: any) {
       errors.push(`event_error: ${e?.message || 'unknown'}`);
+      return false;
     }
-  }
+  }));
+
+  synced = results.filter(r => r.status === 'fulfilled' && r.value === true).length;
 
   return { synced, errors };
 }
