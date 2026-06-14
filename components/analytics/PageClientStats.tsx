@@ -3023,6 +3023,7 @@ function TabRevenues({ stripe, period, onRefresh, refreshing }: { stripe: Stripe
 interface ShortDomain { id: string | number; hostname: string; }
 
 interface MockLead {
+  id?: string;
   igUserId: string;
   igUsername: string;
   igAvatar?: string;
@@ -3813,7 +3814,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3826,6 +3827,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   prospectLinksData?: any[];
   clicksByPath?: Map<string, number>;
   altKwToLmId?: Map<string, string>;
+  lmClickedByLeadId?: Map<string, string>;
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
@@ -4078,11 +4080,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const postLeadsInPeriod = postLeads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
     const lmDetectes = postLeadsInPeriod.length;
     const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
-    // Clics LM réels = clics sur les shortlinks de tracking envoyés à ces leads (filtrés par période)
-    const postLmUrls = new Set(postLeadsInPeriod.filter(l => l.trackingLink).map(l => l.trackingLink!));
-    const lmClics = shortio.links
-      .filter((l: any) => postLmUrls.has(l.shortUrl) || postLmUrls.has(l.originalUrl))
-      .reduce((s: number, l: any) => s + linkClics(l), 0);
+    // Clics LM réels : même logique que le pipeline — prospect_events.lm_clicked postérieur à detected_at
+    // (ignore les clics de test antérieurs à la création du lead)
+    const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
     // Réponses au message d'accroche = hook_replied dans instagram_leads
     const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
@@ -4141,14 +4141,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
         <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" />
         {(() => {
-          // Taux d'activation DM :
-          // LM% = clics reçus sur liens LM (tracking_link dans instagram_leads) / LM envoyés
-          // Calendly% = clics reçus sur liens Calendly prospect / liens Calendly générés
-          // Clics LM = clics sur les shortlinks envoyés en DM avec le LM (tracking_link des leads)
-          const lmTrackingUrls = new Set(leadsInPeriod.filter(l => l.trackingLink).map(l => l.trackingLink!));
-          const lmClics = shortio.links
-            .filter((l: any) => lmTrackingUrls.has(l.shortUrl) || lmTrackingUrls.has(l.originalUrl))
-            .reduce((s: number, l: any) => s + linkClics(l), 0);
+          // Clics LM réels : même logique que le pipeline — prospect_events.lm_clicked postérieur à detected_at
+          const lmClics = leadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
           const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivatedDb / lmCalendlyLinks) * 100) : 0;
           const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
@@ -5613,7 +5607,7 @@ async function fetchSupabaseStats(profileId?: string) {
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5642,6 +5636,12 @@ async function fetchSupabaseStats(profileId?: string) {
       .eq('profile_id', targetId)
       .not('lm_id', 'is', null)
       .not('lm_keyword', 'is', null),
+    // Clics LM réels (postérieurs à detected_at du lead) — même source que le pipeline
+    supabase.from('prospect_events')
+      .select('ig_lead_id, occurred_at')
+      .eq('profile_id', targetId)
+      .eq('event_type', 'lm_clicked')
+      .not('ig_lead_id', 'is', null),
   ]);
 
   let callsRes: { data: any[] | null };
@@ -5666,7 +5666,7 @@ async function fetchSupabaseStats(profileId?: string) {
   const igLeads: MockLead[] = (leadsRes.data ?? [])
     .filter((l: any) => { if (!l.ig_user_id || seen.has(l.ig_user_id)) return false; seen.add(l.ig_user_id); return true; })
     .map((l: any) => ({
-      igUserId: l.ig_user_id, igUsername: l.ig_username || 'Anonyme',
+      id: l.id, igUserId: l.ig_user_id, igUsername: l.ig_username || 'Anonyme',
       postId: l.media_id || '', postTitle: l.media_permalink || l.media_id || '',
       postType: 'IG' as const, commentedAt: l.detected_at,
       keyword: l.keyword_matched || '', leadMagnetSent: l.lead_magnet_sent || false,
@@ -5735,6 +5735,12 @@ async function fetchSupabaseStats(profileId?: string) {
     };
   });
 
+  // Map ig_lead_id → occurred_at pour les clics LM réels (postérieurs à detected_at, posés par poll-leads)
+  const lmClickedByLeadId = new Map<string, string>();
+  for (const ev of (lmClickedEventsRes.data ?? [])) {
+    if (ev.ig_lead_id) lmClickedByLeadId.set(ev.ig_lead_id, ev.occurred_at);
+  }
+
   // Map keyword alternatif (lowercase) → lm_id pour les contenus avec un mot-clé custom
   // Ex : content_links { lm_id: "uuid-ubizen", lm_keyword: "BEAU" } → altKwToLmId.get("beau") = "uuid-ubizen"
   const altKwToLmId = new Map<string, string>();
@@ -5744,7 +5750,7 @@ async function fetchSupabaseStats(profileId?: string) {
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, altKwToLmId };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId };
   } catch { return null; }
 }
 
@@ -5841,6 +5847,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
   const clicksByPath: Map<string, number> = supaData?.clicksByPath ?? new Map();
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
+  const lmClickedByLeadId: Map<string, string> = supaData?.lmClickedByLeadId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
@@ -6041,7 +6048,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
