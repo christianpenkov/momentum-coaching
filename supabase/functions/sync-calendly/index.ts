@@ -3,8 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
-const CALENDLY_CLIENT_ID = Deno.env.get('CALENDLY_CLIENT_ID')!;
-const CALENDLY_CLIENT_SECRET = Deno.env.get('CALENDLY_CLIENT_SECRET')!;
+const CALENDLY_CLIENT_ID = Deno.env.get('CALENDLY_CLIENT_ID') || '';
+const CALENDLY_CLIENT_SECRET = Deno.env.get('CALENDLY_CLIENT_SECRET') || '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -22,7 +22,8 @@ async function getCalendlyToken(profileId: string): Promise<string | null> {
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 60 * 1000;
 
   if (!expired) return integ.access_token;
-  if (!integ.refresh_token) return null;
+  // Pas de refresh possible sans credentials → retourner le token existant (peut être expiré côté Calendly)
+  if (!integ.refresh_token || !CALENDLY_CLIENT_ID || !CALENDLY_CLIENT_SECRET) return integ.access_token;
 
   const credentials = btoa(`${CALENDLY_CLIENT_ID}:${CALENDLY_CLIENT_SECRET}`);
   const res = await fetch('https://auth.calendly.com/oauth/token', {
