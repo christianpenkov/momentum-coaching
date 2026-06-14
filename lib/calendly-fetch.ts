@@ -111,6 +111,7 @@ export async function syncCalendlyEleve(
     const eventUuid = event.uri?.split('/').pop() || '';
     if (!eventUuid) return null;
 
+    try {
     const scheduledAt = event.start_time || null;
     const endTime = event.end_time || null;
     const isCanceled = event.status === 'canceled';
