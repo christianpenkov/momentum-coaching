@@ -45,6 +45,7 @@ interface Post {
   descDestType?: string;
   lmKeyword?: string;
   lmShortUrl?: string;
+  lmLmId?: string;
   dmOpenerMessage?: string;
   dmLmMessage?: string;
 }
@@ -1057,7 +1058,8 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
         <div style={{ flex: 1, minWidth: 0 }}>
           <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>Lead magnet associé</span>
-          <span style={{ fontSize: 11, color: MUTED, marginLeft: 8 }}>Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong></span>
+          {(() => { const lmName = (post.lmLmId ? leadMagnets.find(lm => lm.id === post.lmLmId)?.name : null) ?? leadMagnets.find(lm => lm.keyword === (keyword || post.lmKeyword))?.name; return lmName ? <span style={{ fontSize: 12, fontWeight: 700, color: INK, marginLeft: 6 }}>{lmName}</span> : null; })()}
+          <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong></span>
         </div>
         <div style={{ fontSize: 10, color: MUTED, textAlign: 'right', lineHeight: 1.4, flexShrink: 0, maxWidth: 200 }}>
           Actif — DM envoyé automatiquement à chaque commentaire
@@ -2068,6 +2070,7 @@ export default function PageLiens() {
         hasLeadMagnet: !!cl.lm_short_url,
         lmKeyword: cl.lm_keyword || undefined,
         lmShortUrl: cl.lm_short_url || undefined,
+        lmLmId: cl.lm_id || undefined,
         dmOpenerMessage: cl.dm_opener_message || undefined,
         dmLmMessage: cl.dm_lm_message || undefined,
       };
