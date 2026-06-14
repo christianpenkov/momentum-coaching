@@ -148,7 +148,7 @@ export async function POST() {
     if (eventIsCanceled && isRescheduled && newInviteeUrl) {
       // CAS A : ancien call — on stocke le lien vers le futur event
       await serviceSupabase.from('calls')
-        .update({ status: 'cancelled', next_rescheduled_uri: newInviteeUrl })
+        .update({ status: 'canceled', next_rescheduled_uri: newInviteeUrl })
         .eq('calendly_event_uuid', eventUuid);
     } else if (oldInviteeUrl) {
       // CAS B : nouvel event — on hérite depuis l'ancien call
@@ -166,7 +166,7 @@ export async function POST() {
           inheritedUtmContent = oldCall.utm_content ?? null;
           inheritedSource = oldCall.source ?? null;
           await serviceSupabase.from('calls')
-            .update({ status: 'cancelled' })
+            .update({ status: 'canceled' })
             .eq('id', oldCall.id);
         }
       }
@@ -273,7 +273,7 @@ export async function POST() {
     // On laisse intact les calls avec outcome terminal (no_show, closed, not_qualified, to_recontact, second_call)
     if (!existingCall && igLeadId) {
       await serviceSupabase.from('calls')
-        .update({ status: 'cancelled' })
+        .update({ status: 'canceled' })
         .eq('coach_id', leadsProfileId)
         .eq('ig_lead_id', igLeadId)
         .eq('status', 'active')

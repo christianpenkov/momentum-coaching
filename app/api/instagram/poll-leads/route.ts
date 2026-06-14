@@ -110,7 +110,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const now = new Date();
   const callsBooked   = calls.filter(c => c.status === 'active').length;
   const callsHonored  = calls.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && !c.no_show).length;
-  const callsCanceled = calls.filter(c => c.status === 'canceled').length;
+  const callsCanceled = calls.filter(c => c.status === 'canceled' || c.status === 'cancelled').length;
   const callsNoShow   = calls.filter(c => c.no_show).length;
   const dealsClosed   = calls.filter(c => c.deal_closed).length;
   const revenue       = calls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);

@@ -314,7 +314,7 @@ export async function deleteGoogleCall(params: {
 
   const { error } = await sb
     .from('calls')
-    .update({ status: 'cancelled' })
+    .update({ status: 'canceled' })
     .eq('id', params.callId)
     .eq('coach_id', params.coachId);
 

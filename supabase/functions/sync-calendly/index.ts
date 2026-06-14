@@ -147,7 +147,7 @@ async function syncCalendlyEleve(
 
     if (isCanceled && isRescheduled && newInviteeUrl) {
       await supabase.from('calls')
-        .update({ status: 'cancelled', next_rescheduled_uri: newInviteeUrl })
+        .update({ status: 'canceled', next_rescheduled_uri: newInviteeUrl })
         .eq('calendly_event_uuid', eventUuid);
     } else if (oldInviteeUrl) {
       const oldEventUuid = oldInviteeUrl.split('/').at(-3) || null;
@@ -162,7 +162,7 @@ async function syncCalendlyEleve(
           inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
           inheritedSource = oldCall.source ?? null;
           await supabase.from('calls')
-            .update({ status: 'cancelled' })
+            .update({ status: 'canceled' })
             .eq('id', oldCall.id);
         }
       }

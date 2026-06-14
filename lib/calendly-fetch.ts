@@ -166,7 +166,7 @@ export async function syncCalendlyEleve(
         // CAS A : cet event est l'ancien — on stocke new_invitee pour que le nouvel event
         // puisse hériter même si le cron l'attrape avant que old_invitee soit disponible
         await serviceSupabase.from('calls')
-          .update({ status: 'cancelled', next_rescheduled_uri: newInviteeUrl })
+          .update({ status: 'canceled', next_rescheduled_uri: newInviteeUrl })
           .eq('calendly_event_uuid', eventUuid);
       } else if (oldInviteeUrl) {
         // CAS B : cet event est le nouveau — on cherche l'ancien par old_invitee
@@ -182,7 +182,7 @@ export async function syncCalendlyEleve(
             inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
             inheritedSource = oldCall.source ?? null;
             await serviceSupabase.from('calls')
-              .update({ status: 'cancelled' })
+              .update({ status: 'canceled' })
               .eq('id', oldCall.id);
           }
         }

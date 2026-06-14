@@ -98,7 +98,7 @@ export async function POST(request: NextRequest) {
           inheritedUtmCampaign = oldCall.utm_campaign ?? null;
           inheritedUtmContent = oldCall.utm_content ?? null;
           inheritedCoachId = oldCall.coach_id ?? null;
-          await serviceSupabase.from('calls').update({ status: 'cancelled' }).eq('id', oldCall.id);
+          await serviceSupabase.from('calls').update({ status: 'canceled' }).eq('id', oldCall.id);
         }
       }
     }
