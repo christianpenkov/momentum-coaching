@@ -3928,12 +3928,29 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const igPosts = ig?.posts || [];
   const ytVideos = yt?.videos || [];
 
+  // Index prospect_links DB par short_url
+  const plDbByUrl2 = new Map<string, any>();
+  for (const pl of (prospectLinksData ?? [])) {
+    if (pl.short_url) plDbByUrl2.set(pl.short_url.toLowerCase(), pl);
+  }
+
   const allShortioLinks: any[] = (shortio.links ?? []).map((l: any) => {
-    if (l.linkType) return l; // déjà enrichi
-    try {
-      const u = new URL(l.originalUrl || '');
-      return { ...l, linkType: u.searchParams.get('utm_medium') || null };
-    } catch { return l; }
+    let linkType = l.linkType;
+    if (!linkType) {
+      try {
+        const u = new URL(l.originalUrl || '');
+        linkType = u.searchParams.get('utm_medium') || null;
+      } catch { /* ignore */ }
+    }
+    const plDb = plDbByUrl2.get((l.shortUrl || '').toLowerCase());
+    return {
+      ...l,
+      linkType,
+      callBooked:  plDb ? (plDb.callBooked  ?? false) : (l.callBooked  ?? false),
+      dealClosed:  plDb ? (plDb.dealClosed  ?? null)  : (l.dealClosed  ?? null),
+      revenue:     plDb ? (plDb.revenue     ?? 0)     : (l.revenue     ?? 0),
+      ig_username: plDb?.ig_username ?? l.ig_username ?? null,
+    };
   });
   const bioLinks      = allShortioLinks.filter((l: any) => l.linkType === 'bio');
   const postLinks     = allShortioLinks.filter((l: any) => l.linkType === 'post');
@@ -3967,9 +3984,12 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const hookReplies = leadsInPeriod.filter(l => l.hookReplied).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
   // Liens Calendly envoyés DM — source de vérité : DB uniquement
-  const calendlyLinksSent = prospectLinksDb.filter(l =>
-    l.calendly_link_sent && l.calendly_link_sent_at && new Date(l.calendly_link_sent_at).getTime() >= periodCutoff
-  );
+  // Fallback sur created_at si calendly_link_sent_at est null (anciens liens)
+  const calendlyLinksSent = prospectLinksDb.filter(l => {
+    if (!l.calendly_link_sent) return false;
+    const ts = l.calendly_link_sent_at ?? l.created_at;
+    return ts && new Date(ts).getTime() >= periodCutoff;
+  });
   const lmCalendlyLinks = calendlyLinksSent.length;
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
   const callsFromLM = prospectLinks.filter((l: any) => l.callBooked).length;
