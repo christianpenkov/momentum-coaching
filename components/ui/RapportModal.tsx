@@ -111,18 +111,21 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   async function handleRescheduled() {
     setStep('rescheduled_check');
-    // Sync Calendly bloquant (max 10s) pour insérer les nouveaux calls Calendly avant de chercher
     await Promise.race([
       fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {}),
-      new Promise(r => setTimeout(r, 3000)),
+      new Promise(r => setTimeout(r, 8000)),
     ]);
-    const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.call) {
-        setFoundCall(data.call);
-        setStep('rescheduled_found');
-        return;
+    // 2 tentatives : le nouveau call peut mettre quelques secondes à apparaître
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 2000));
+      const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.call) {
+          setFoundCall(data.call);
+          setStep('rescheduled_found');
+          return;
+        }
       }
     }
     setStep('rescheduled_how');
@@ -158,18 +161,20 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   async function handleSecondCall() {
     setStep('second_call_check');
-    // Sync Calendly bloquant (max 10s) pour insérer les nouveaux calls Calendly avant de chercher
     await Promise.race([
       fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {}),
-      new Promise(r => setTimeout(r, 3000)),
+      new Promise(r => setTimeout(r, 8000)),
     ]);
-    const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data.call) {
-        setFoundCall(data.call);
-        setStep('second_call_found');
-        return;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      if (attempt > 0) await new Promise(r => setTimeout(r, 2000));
+      const res = await fetch(`/api/calls/${callId}/next-rescheduled`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.call) {
+          setFoundCall(data.call);
+          setStep('second_call_found');
+          return;
+        }
       }
     }
     setStep('second_call_how');

@@ -229,8 +229,10 @@ function PipelineCard({
   const ac = avatarColor(card.name);
 
   // Bouton "Remplir le rapport d'appel" : visible dès le début du call, caché si rapport déjà rempli
+  // Accepte aussi status=cancelled sans outcome — fenêtre de transition Calendly entre reschedule et nouveau call
   const now = Date.now();
-  const showRapport = card.callId && card.callScheduledAt && card.callStatus === 'active'
+  const showRapport = card.callId && card.callScheduledAt
+    && (card.callStatus === 'active' || (card.callStatus === 'cancelled' && !card.callOutcome))
     && new Date(card.callScheduledAt).getTime() <= now
     && !card.callOutcome
     && POST_CALL_STAGES.has(card.stageKey);
