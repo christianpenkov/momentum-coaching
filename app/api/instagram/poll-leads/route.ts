@@ -210,7 +210,10 @@ export async function GET(request: Request) {
   let snapshots = 0;
   const allErrors: Record<string, string[]> = {};
 
-  for (const profile of profiles) {
+  // Traite les profils par batch de 3 — parallèle sans saturer les API externes ni Vercel
+  const BATCH_SIZE = 3;
+  for (let i = 0; i < profiles.length; i += BATCH_SIZE) {
+    await Promise.all(profiles.slice(i, i + BATCH_SIZE).map(async (profile) => {
     const profileErrors: string[] = [];
 
     // ── 1. Poll leads IG (si IG connecté) ──
@@ -247,6 +250,7 @@ export async function GET(request: Request) {
     }
 
     if (profileErrors.length) allErrors[profile.profile_id] = profileErrors;
+    }));
   }
 
   // ── 3. Notifications rapport post-call ────────────────────────────────────────
@@ -265,13 +269,15 @@ export async function GET(request: Request) {
       .not('duration', 'is', null)
       .lt('scheduled_at', now.toISOString());
 
-    for (const call of pendingCalls || []) {
+    const eligibleCalls = (pendingCalls || []).filter(call => {
       const match = (call.duration as string).match(/(\d+)/);
-      if (!match) continue;
+      if (!match) return false;
       const durationMs = parseInt(match[1]) * 60 * 1000;
       const triggerTime = new Date(call.scheduled_at).getTime() + durationMs + 15 * 60 * 1000;
-      if (now.getTime() < triggerTime) continue;
+      return now.getTime() >= triggerTime;
+    });
 
+    await Promise.all(eligibleCalls.map(async (call) => {
       try {
         await sendPushToProfile(
           call.coach_id,
@@ -284,7 +290,7 @@ export async function GET(request: Request) {
       } catch {
         // Non bloquant — on réessaie au prochain cron
       }
-    }
+    }));
   } catch {
     // Non bloquant
   }

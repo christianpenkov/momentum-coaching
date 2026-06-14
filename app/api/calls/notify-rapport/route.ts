@@ -61,22 +61,18 @@ export async function GET(request: Request) {
   let notified = 0;
   const errors: string[] = [];
 
-  for (const call of calls) {
+  // Filtre les calls éligibles avant de paralléliser
+  const eligibleCalls = calls.filter(call => {
+    const connectedAt = connectedAtByProfile.get(call.coach_id);
+    if (connectedAt && new Date(call.scheduled_at) < new Date(connectedAt)) return false;
+    const durationMin = parseDurationMinutes(call.duration);
+    if (durationMin === null) return false;
+    const triggerTime = new Date(call.scheduled_at).getTime() + durationMin * 60 * 1000;
+    return now >= triggerTime;
+  });
+
+  await Promise.all(eligibleCalls.map(async (call) => {
     try {
-      // Ignore les calls antérieurs à la connexion Calendly du profil
-      const connectedAt = connectedAtByProfile.get(call.coach_id);
-      if (connectedAt && new Date(call.scheduled_at) < new Date(connectedAt)) continue;
-
-      const durationMin = parseDurationMinutes(call.duration);
-      if (durationMin === null) continue;
-
-      const scheduledAt = new Date(call.scheduled_at).getTime();
-      const endTime = scheduledAt + durationMin * 60 * 1000;
-      const triggerTime = endTime; // à la fin exacte du call
-
-      if (now < triggerTime) continue; // Pas encore l'heure
-
-      // Envoie la push à l'élève (coach_id = profileId de l'élève pour les calls Calendly)
       const delivered = await sendPushToProfile(
         call.coach_id,
         'Rapport de call',
@@ -84,8 +80,6 @@ export async function GET(request: Request) {
         `/client/calls?rapport=${call.id}`
       );
 
-      // Ne marque comme envoyé que si au moins une livraison a été acceptée (201)
-      // Si aucune sub active, on ne marque pas — le cron retentera au prochain cycle
       if (delivered) {
         const { error: updateError } = await serviceSupabase
           .from('calls')
@@ -103,7 +97,7 @@ export async function GET(request: Request) {
     } catch (e: any) {
       errors.push(`call_${call.id}: ${e?.message || 'unknown'}`);
     }
-  }
+  }));
 
   return NextResponse.json({ ok: true, notified, errors });
 }
