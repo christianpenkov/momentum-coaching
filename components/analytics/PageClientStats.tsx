@@ -5160,17 +5160,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     const leadsCount = lmLeads.filter(l => l.leadMagnetSent).length;
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
 
-                    // Clics LM : depuis DB par path (lm-{kwSlug}-*) pour tous les slugs alternatifs
-                    let clicsLM = 0;
-                    if (clicksByPath) {
-                      for (const altKw of altKws) {
-                        const altSlug = altKw.replace(/[^a-z0-9-]/g, '');
-                        if (!altSlug) continue;
-                        for (const [path, clicks] of clicksByPath) {
-                          if (path.startsWith(`lm-${altSlug}-`)) clicsLM += clicks;
-                        }
-                      }
-                    }
+                    // Clics LM : même logique que le pipeline — prospect_events.lm_clicked par lead
+                    // (un lead = 0 ou 1 clic, ignore les clics de test antérieurs à la création du lead)
+                    const clicsLM = lmLeads.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
 
                     // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
                     // Inclut les keywords alternatifs (ex: BEAU pour LM Ubizen AI)
