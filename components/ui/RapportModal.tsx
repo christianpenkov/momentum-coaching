@@ -112,7 +112,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   async function handleRescheduled() {
     setStep('rescheduled_check');
     await Promise.race([
-      fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {}),
+      fetch('/api/calendly/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {}),
       new Promise(r => setTimeout(r, 8000)),
     ]);
     // 2 tentatives : le nouveau call peut mettre quelques secondes à apparaître
@@ -162,7 +162,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   async function handleSecondCall() {
     setStep('second_call_check');
     await Promise.race([
-      fetch('/api/calendly/sync', { method: 'POST' }).catch(() => {}),
+      fetch('/api/calendly/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) }).catch(() => {}),
       new Promise(r => setTimeout(r, 8000)),
     ]);
     for (let attempt = 0; attempt < 2; attempt++) {
