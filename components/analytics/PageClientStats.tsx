@@ -5128,15 +5128,12 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     const kwSlug = kw.replace(/[^a-z0-9-]/g, '');
                     const periodStartDate = new Date(Date.now() - globalPeriod * 24 * 60 * 60 * 1000).toISOString();
 
-                    // Leads : depuis lmHistory (1 ligne par interaction, stable même après suppression)
-                    const histForLm = (lmHistory ?? []).filter(h =>
-                      h.keyword_matched?.toLowerCase() === kw &&
-                      (!h.detected_at || h.detected_at >= periodStartDate)
+                    // Leads : depuis instagram_leads (source de vérité — si supprimé, disparaît)
+                    const lmLeads = (leads as any[]).filter(l =>
+                      l.keyword?.toLowerCase() === kw &&
+                      (!l.commentedAt || l.commentedAt >= periodStartDate)
                     );
-                    const leadsCount = histForLm.filter(h => h.lead_magnet_sent).length;
-
-                    // Réponses : leads actifs avec hook_replied (depuis instagram_leads)
-                    const lmLeads = (leads as any[]).filter(l => l.keyword?.toLowerCase() === kw);
+                    const leadsCount = lmLeads.filter(l => l.leadMagnetSent).length;
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
 
                     // Clics LM : liens Short.io dont le path commence par lm-{kwSlug}-
