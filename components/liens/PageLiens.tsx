@@ -1465,7 +1465,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
         utmCampaign: igUserId ? `lead-${igUserId}` : `prospect-${us}`,
         utmContent: us,
         utmTerm: username,
-        path: us,
+        path: `prendre-rdv-${us}`,
       });
       setResult(shortUrl);
       // Sauvegarde en DB
