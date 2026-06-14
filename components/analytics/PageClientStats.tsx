@@ -3814,7 +3814,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3828,6 +3828,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   clicksByPath?: Map<string, number>;
   altKwToLmId?: Map<string, string>;
   lmClickedByLeadId?: Map<string, string>;
+  linkClickedByLeadId?: Map<string, string>;
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
@@ -4143,8 +4144,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
         {(() => {
           // Clics LM réels : même logique que le pipeline — prospect_events.lm_clicked postérieur à detected_at
           const lmClics = leadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
+          const calendlyClics = leadsInPeriod.filter((l: MockLead) => l.id && linkClickedByLeadId?.has(l.id)).length;
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
-          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivatedDb / lmCalendlyLinks) * 100) : 0;
+          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyClics / lmCalendlyLinks) * 100) : 0;
           const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
           const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
 
@@ -4382,7 +4384,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             { label: 'Bio YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: bioYT?.humanClicks30d ?? null, booked: bioYTBooked, honored: bioYTHonored, closed: bioYTClosed, revenue: bioYTRevenue, isContentType: true },
             { label: 'Lien contenu IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: igContentClics, booked: igContentBooked, honored: igContentHonored, closed: igContentClosed, revenue: igContentRevenue, isContentType: true },
             { label: 'Lien contenu YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: ytContentClics, booked: ytContentBooked, honored: ytContentHonored, closed: ytContentClosed, revenue: ytContentRevenue, isContentType: true },
-            { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: calendlyActivatedDb, booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
+            { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length, booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
             { label: 'Cold DM', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (sortant <ArrowOut />)</span>, badge: 'DM', badgeColor: BLUE, liens: coldDMLinks.length, liensLabel: 'liens envoyés', clics: coldDMLinks.length > 0 ? coldClics : null, booked: coldBooked, honored: coldHonored, closed: coldClosed, revenue: coldRevenue, isContentType: false },
             { label: 'DM organique', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (entrant <ArrowIn />)</span>, badge: 'DM', badgeColor: '#10B981', liens: organicDMLinks.length, liensLabel: 'conversations', clics: organicDMLinks.length > 0 ? organicClics : null, booked: organicBooked, honored: organicHonored, closed: organicClosed, revenue: organicRevenue, isContentType: false },
           ];
@@ -5171,8 +5173,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     );
                     const liensCalendly = supaProspects.length;
 
-                    // Clics Calendly : humanClicks30d déjà enrichi sur chaque prospect_link depuis DB
-                    const clicsCalendly = supaProspects.reduce((s: number, pl: any) => s + (pl.humanClicks30d || 0), 0);
+                    // Clics Calendly : même logique que le pipeline — prospect_events.link_clicked par lead
+                    const clicsCalendly = supaProspects.filter((pl: any) => pl.ig_lead_id && linkClickedByLeadId?.has(pl.ig_lead_id)).length;
 
                     const booked  = supaProspects.filter((pl: any) => pl.callBooked).length;
                     const honored = supaProspects.filter((pl: any) => pl.callHonored).length;
@@ -5599,7 +5601,7 @@ async function fetchSupabaseStats(profileId?: string) {
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5633,6 +5635,12 @@ async function fetchSupabaseStats(profileId?: string) {
       .select('ig_lead_id, occurred_at')
       .eq('profile_id', targetId)
       .eq('event_type', 'lm_clicked')
+      .not('ig_lead_id', 'is', null),
+    // Clics Calendly réels — même source que le pipeline (link_clicked)
+    supabase.from('prospect_events')
+      .select('ig_lead_id, occurred_at')
+      .eq('profile_id', targetId)
+      .eq('event_type', 'link_clicked')
       .not('ig_lead_id', 'is', null),
   ]);
 
@@ -5733,6 +5741,12 @@ async function fetchSupabaseStats(profileId?: string) {
     if (ev.ig_lead_id) lmClickedByLeadId.set(ev.ig_lead_id, ev.occurred_at);
   }
 
+  // Map ig_lead_id → occurred_at pour les clics Calendly réels — même source que le pipeline
+  const linkClickedByLeadId = new Map<string, string>();
+  for (const ev of (linkClickedEventsRes.data ?? [])) {
+    if (ev.ig_lead_id) linkClickedByLeadId.set(ev.ig_lead_id, ev.occurred_at);
+  }
+
   // Map keyword alternatif (lowercase) → lm_id pour les contenus avec un mot-clé custom
   // Ex : content_links { lm_id: "uuid-ubizen", lm_keyword: "BEAU" } → altKwToLmId.get("beau") = "uuid-ubizen"
   const altKwToLmId = new Map<string, string>();
@@ -5742,7 +5756,7 @@ async function fetchSupabaseStats(profileId?: string) {
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId };
   } catch { return null; }
 }
 
@@ -5840,6 +5854,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const clicksByPath: Map<string, number> = supaData?.clicksByPath ?? new Map();
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
   const lmClickedByLeadId: Map<string, string> = supaData?.lmClickedByLeadId ?? new Map();
+  const linkClickedByLeadId: Map<string, string> = supaData?.linkClickedByLeadId ?? new Map();
 
   // Instagram — onglets 0, 1, 3
   const { data: igRaw, isLoading: igLoading, refetch: refetchIg } = useQuery<IGStats | null>({
@@ -6040,7 +6055,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
