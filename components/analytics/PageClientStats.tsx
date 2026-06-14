@@ -5190,16 +5190,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                         </td>
                         <td style={{ ...tdS, fontWeight: leadsCount > 0 ? 700 : 400, color: leadsCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? leadsCount : '—'}</td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && clicsLM > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? clicsLM : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && clicsLM > 0 ? 700 : 400, color: hasActivity && clicsLM > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? clicsLM : '—'}</div>
                           {hasActivity && leadsCount > 0 && <Sub pct={ratePct(clicsLM, leadsCount)} />}
                         </td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && reponses > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? reponses : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && reponses > 0 ? 700 : 400, color: hasActivity && reponses > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? reponses : '—'}</div>
                           {hasActivity && clicsLM > 0 && <Sub pct={ratePct(reponses, clicsLM)} />}
                         </td>
-                        <td style={{ ...tdS, fontWeight: hasActivity && liensCalendly > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? liensCalendly : '—'}</td>
+                        <td style={{ ...tdS, fontWeight: hasActivity && liensCalendly > 0 ? 700 : 400, color: hasActivity && liensCalendly > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? liensCalendly : '—'}</td>
                         <td style={tdS}>
-                          <div style={{ fontWeight: hasActivity && clicsCalendly > 0 ? 700 : 400, color: 'var(--faint)' }}>{hasActivity ? clicsCalendly : '—'}</div>
+                          <div style={{ fontWeight: hasActivity && clicsCalendly > 0 ? 700 : 400, color: hasActivity && clicsCalendly > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? clicsCalendly : '—'}</div>
                           {hasActivity && liensCalendly > 0 && <Sub pct={ratePct(clicsCalendly, liensCalendly)} />}
                         </td>
                         <td style={tdS}>
