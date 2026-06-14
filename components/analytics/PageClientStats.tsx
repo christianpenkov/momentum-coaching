@@ -1109,7 +1109,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
   // Valeurs sur la période sélectionnée (7j ou 30j depuis chartData)
   const igDaysSlice = ig.chartData.slice(-period);
   const igReachP = igDaysSlice.reduce((s, d) => s + d.reach, 0);
-  const igFollowerDeltaP = igDaysSlice.reduce((s, d) => s + (d.followerCount ?? 0), 0);
+  const igFollowerDeltaP = (igDaysSlice[igDaysSlice.length - 1]?.followerCount ?? 0) - (igDaysSlice[0]?.followerCount ?? 0);
   const igEngagedP = period === 30 ? ig.accountsEngaged30d : Math.round(ig.accountsEngaged30d * period / 30);
   const igViewsP = period === 30 ? ig.views30d : Math.round(ig.views30d * period / 30);
 
@@ -2043,7 +2043,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const igReachD  = noData ? 0 : (ig ? ig.chartData.slice(-period).reduce((s, d) => s + d.reach, 0) : 0);
   const igLeadsD  = noData ? 0 : (msgs?.leadCount || 0);
-  const igBioD    = noData ? 0 : (ig?.profileLinksTaps30d || 0);
+  const igBioD    = noData ? 0 : (period === 30 ? (ig?.profileLinksTaps30d || 0) : Math.round((ig?.profileLinksTaps30d || 0) * period / 30));
   const igBookes  = noData ? 0 : igCallsLive.bookes;
   const igHonores = noData ? 0 : igCallsLive.honores;
   const igCloses  = noData ? 0 : igCallsLive.closes;
@@ -2544,14 +2544,14 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const igRev     = igCallsLive.rev;
   const igReachD  = ig?.reach30d || 0;
   const igLeadsD  = msgs?.leadCount || 0;
-  const igBioD    = ig?.profileLinksTaps30d || 0;
+  const igBioD    = period === 30 ? (ig?.profileLinksTaps30d || 0) : Math.round((ig?.profileLinksTaps30d || 0) * period / 30);
 
   const ytBookes  = ytCallsLive.bookes;
   const ytHonores = ytCallsLive.honores;
   const ytCloses  = ytCallsLive.closes;
   const ytRev     = ytCallsLive.rev;
   const ytViewsD  = yt?.views30d || 0;
-  const ytClicsD  = 0;
+  const ytClicsD  = shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
 
   const totalBookes  = igBookes + ytBookes;
   const totalHonores = igHonores + ytHonores;
@@ -5104,7 +5104,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                   )}
                   {leadMagnets.map((lm, i) => {
                     // Stats LM depuis l'historique (1 ligne par interaction) — précis même si un prospect a commenté plusieurs LMs
-                    const histForLm = (lmHistory ?? []).filter(h => h.keyword_matched?.toLowerCase() === lm.keyword?.toLowerCase());
+                    const periodStartDate = new Date(Date.now() - globalPeriod * 24 * 60 * 60 * 1000).toISOString();
+                    const histForLm = (lmHistory ?? []).filter(h => h.keyword_matched?.toLowerCase() === lm.keyword?.toLowerCase() && (!h.detected_at || h.detected_at >= periodStartDate));
                     const lmLeads = (leads as any[]).filter(l => l.keyword?.toLowerCase() === lm.keyword?.toLowerCase());
                     const leadsCount = histForLm.filter(h => h.lead_magnet_sent).length;
                     // Clics LM réels depuis Short.io : liens avec path lm-{keyword}-* (utm_medium=leadmagnet ou dm)

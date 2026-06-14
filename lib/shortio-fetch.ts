@@ -55,16 +55,28 @@ export async function getShortioLinkCreds(profileId: string): Promise<ShortioLin
   return { apiKey: integ.api_key, domain, domainId };
 }
 
-// ── Liste des liens du domaine ────────────────────────────────────────────────
+// ── Liste des liens du domaine (pagination cursor-based via beforeId) ─────────
 export async function fetchShortioLinks(creds: ShortioLinkCreds): Promise<ShortioLinkRow[]> {
-  const res = await fetch(
-    `https://api.short.io/api/links?domain_id=${creds.domainId}&limit=150`,
-    { headers: { authorization: creds.apiKey, accept: 'application/json' } }
-  );
-  if (!res.ok) throw new Error(`Short.io links ${res.status}`);
-  const data = await res.json();
-  const links: any[] = data?.links || [];
-  return links.map((l: any) => ({
+  const allLinks: any[] = [];
+  let beforeId: string | null = null;
+  const limit = 150;
+
+  while (true) {
+    const url = new URL(`https://api.short.io/api/links`);
+    url.searchParams.set('domain_id', creds.domainId);
+    url.searchParams.set('limit', String(limit));
+    if (beforeId) url.searchParams.set('beforeId', beforeId);
+
+    const res = await fetch(url.toString(), { headers: { authorization: creds.apiKey, accept: 'application/json' } });
+    if (!res.ok) throw new Error(`Short.io links ${res.status}`);
+    const data = await res.json();
+    const page: any[] = data?.links || [];
+    allLinks.push(...page);
+    if (page.length < limit) break;
+    beforeId = String(page[page.length - 1].id);
+  }
+
+  return allLinks.map((l: any) => ({
     id:          String(l.id),
     path:        l.path || '',
     shortUrl:    l.secureShortURL || l.shortURL || `https://${creds.domain}/${l.path}`,
@@ -256,10 +268,11 @@ export async function syncLmClickStream(
       if (!igLead) continue;
       if (new Date(clickedAt) < new Date(igLead.detected_at)) continue;
 
-      // index partiel → select + insert conditionnel
+      // Upsert avec occurred_at réel — le click stream doit toujours primer sur le timestamp
+      // artificiel midi UTC que le snapshot daily peut avoir écrit en premier
       const { data: existing } = await serviceSupabase
         .from('prospect_events')
-        .select('id')
+        .select('id, occurred_at')
         .eq('ig_lead_id', igLead.id)
         .eq('event_type', 'lm_clicked')
         .maybeSingle();
@@ -274,6 +287,11 @@ export async function syncLmClickStream(
           ig_lead_id:   igLead.id,
         });
         if (evtErr) errors.push(`lm_clicked_${cleanPath}: ${evtErr.message}`);
+      } else if (existing.occurred_at?.includes('T12:00:00')) {
+        // Remplacer le timestamp artificiel midi UTC par la vraie heure du clic
+        await serviceSupabase.from('prospect_events')
+          .update({ occurred_at: clickedAt })
+          .eq('id', existing.id);
       }
     }
 

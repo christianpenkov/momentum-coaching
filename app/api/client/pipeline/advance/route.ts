@@ -34,7 +34,7 @@ export async function POST(request: Request) {
   // Récupérer lead + prospect_link en parallèle
   const [{ data: lead }, { data: pl }] = await Promise.all([
     supa.from('instagram_leads').select('id').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
-    supa.from('prospect_links').select('id, short_url, calendly_link_sent_at').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
+    supa.from('prospect_links').select('id, short_url, calendly_link_sent_at, first_click_at').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
   ]);
 
   const ops: PromiseLike<any>[] = [];
@@ -74,20 +74,22 @@ export async function POST(request: Request) {
           occurred_at: now,
           ig_lead_id: lead?.id ?? null,
           prospect_link_id: pl.id,
-        }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: true }).then()
+        }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: false }).then()
       );
     }
   }
 
   // ── link_clicked : first_click_at + event + snapshot Short.io ────────────
   if (target_stage === 'link_clicked' && pl) {
-    ops.push(
-      supa.from('prospect_links')
-        .update({ first_click_at: now })
-        .eq('profile_id', user.id)
-        .eq('ig_username', username)
-        .then()
-    );
+    if (!pl.first_click_at) {
+      ops.push(
+        supa.from('prospect_links')
+          .update({ first_click_at: now })
+          .eq('profile_id', user.id)
+          .eq('ig_username', username)
+          .then()
+      );
+    }
 
     ops.push(
       supa.from('prospect_events').upsert({

@@ -70,7 +70,7 @@ export default function PageClientDetail({ id }: Props) {
   const leads30 = recent4Metrics.reduce((sum, m) => sum + (m.iclosed_deals || 0), 0);
   const calls30 = calls.filter(c =>
     c.client_id === id &&
-    c.status !== 'cancelled' && c.status !== 'declined' &&
+    !['cancelled', 'canceled', 'declined'].includes(c.status ?? '') &&
     c.scheduled_at != null &&
     new Date(c.scheduled_at) >= cutoff30
   ).length;

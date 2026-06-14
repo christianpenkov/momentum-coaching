@@ -232,7 +232,7 @@ function PipelineCard({
   // Accepte aussi status=cancelled sans outcome — fenêtre de transition Calendly entre reschedule et nouveau call
   const now = Date.now();
   const showRapport = card.callId && card.callScheduledAt
-    && (card.callStatus === 'active' || (card.callStatus === 'cancelled' && !card.callOutcome))
+    && (card.callStatus === 'active' || (['cancelled', 'canceled'].includes(card.callStatus ?? '') && !card.callOutcome))
     && new Date(card.callScheduledAt).getTime() <= now
     && !card.callOutcome
     && POST_CALL_STAGES.has(card.stageKey);
@@ -1039,7 +1039,7 @@ export default function PagePipeline() {
       let badge: CardData['badge'] = null;
 
       if (call) {
-        if (call.status === 'canceled') {
+        if (['canceled', 'cancelled'].includes(call.status ?? '')) {
           // Call annulé → meilleure étape connue (events chargés = pas de flash)
           natural = getBestKnownStage(prospect, lead, events);
         } else if (call.no_show === true) {
@@ -1187,7 +1187,7 @@ export default function PagePipeline() {
     if (filterArchived && c.stageKey !== 'dismissed') return false;
     if (filterCanceled) {
       const call = data?.calls.find(ca => ca.id === c.callId);
-      if (!call || call.status !== 'canceled') return false;
+      if (!call || !['canceled', 'cancelled'].includes(call.status ?? '')) return false;
     }
     if (filterRescheduled && c.badge !== 'rescheduled') return false;
     if (filterNotQualified && c.badge !== 'not_qualified') return false;

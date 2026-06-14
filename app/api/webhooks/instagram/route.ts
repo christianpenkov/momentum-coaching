@@ -280,6 +280,10 @@ export async function POST(request: Request) {
         : new Date().toISOString();
 
       if (!commentId || !commentText) continue;
+      if (!commenterUsername) {
+        console.warn('[IG Webhook] Commentaire sans username (compte supprimé/privé), ignoré:', commentId);
+        continue;
+      }
 
       pushEvent({ type: 'comment_received', commentId, commentText, commenterUsername, mediaId, timestamp });
 

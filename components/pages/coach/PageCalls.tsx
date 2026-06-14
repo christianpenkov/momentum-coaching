@@ -119,10 +119,10 @@ export default function PageCalls() {
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const upcoming = calls
-    .filter(c => !['cancelled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
+    .filter(c => !['cancelled', 'canceled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   const history = calls
-    .filter(c => !['cancelled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
+    .filter(c => !['cancelled', 'canceled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
   const pending = calls.filter(c => c.status === 'pending_acceptance');
 
