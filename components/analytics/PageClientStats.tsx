@@ -2060,21 +2060,31 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
   const periodCutoffFunnel = Date.now() - period * 24 * 60 * 60 * 1000;
-  const igDMClics = noData ? 0 : (() => {
+  const igProspectClics = noData ? 0 : (() => {
     if (!prospectLinksData || !linkClickedByLeadId) return 0;
     const isLMPl = (pl: any) => {
       const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
       return !!lead?.leadMagnetSent;
     };
-    return (prospectLinksData as any[]).filter((pl: any) => {
+    // DM clics (non-LM)
+    const dmClics = (prospectLinksData as any[]).filter((pl: any) => {
       if (!pl.calendly_link_sent) return false;
       const ts = pl.calendly_link_sent_at ?? pl.created_at;
       if (!ts || new Date(ts).getTime() < periodCutoffFunnel) return false;
       if (isLMPl(pl)) return false;
       return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
     }).length;
+    // LM clics
+    const lmClics = (prospectLinksData as any[]).filter((pl: any) => {
+      if (!pl.calendly_link_sent) return false;
+      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+      if (!ts || new Date(ts).getTime() < periodCutoffFunnel) return false;
+      if (!isLMPl(pl)) return false;
+      return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
+    }).length;
+    return dmClics + lmClics;
   })();
-  const igTotalClicsD = igBioD + igPostClics + igDMClics;
+  const igTotalClicsD = igBioD + igPostClics + igProspectClics;
 
   const dash = '—';
   const igFunnelSteps = [
