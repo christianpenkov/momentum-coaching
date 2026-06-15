@@ -173,12 +173,26 @@ export async function POST() {
         }
       }
     }
-    const utmSource = tracking?.utm_source || null;
+    const rawUtmSource = tracking?.utm_source || null;
     const utmMedium = tracking?.utm_medium || null;
     const utmCampaign = tracking?.utm_campaign || null;
     const utmContent = tracking?.utm_content || null;
     const shortLinkPath = utmContent || null;
     const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
+    // Normaliser utm_source : le domaine Short.io peut être n'importe quel alias.
+    // On dérive ig/yt depuis utm_medium (description/bio → vérifier le medium) ou depuis le domaine connu.
+    const normalizeUtmSource = (src: string | null, medium: string | null): string | null => {
+      if (!src) return null;
+      const s = src.toLowerCase();
+      if (s === 'ig' || s === 'instagram') return 'ig';
+      if (s === 'yt' || s === 'youtube') return 'yt';
+      // Domaine Short.io IG-like → ig
+      if (s.includes('ubizenai') || s.includes('instagram')) return 'ig';
+      // Domaine Short.io YT-like → yt (ajouter d'autres si besoin)
+      if (s.includes('youtube') || s.includes('youtu.be')) return 'yt';
+      return src; // conserver tel quel si non reconnu
+    };
+    const utmSource = normalizeUtmSource(rawUtmSource, utmMedium);
     const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
     // Résoudre ig_lead_id via UTM

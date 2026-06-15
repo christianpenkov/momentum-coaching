@@ -131,6 +131,15 @@ const fmtEur = (n: number) => `${fmt(n)} €`;
 const fmtPct = (n: number) => `${fmt(n, 1)} %`;
 const fmtMs = (ms: number) => `${(ms / 1000).toFixed(1)}s`;
 
+const isIGCall = (c: { source?: string | null }) => {
+  const s = (c.source || '').toLowerCase();
+  return s.startsWith('ig') || s.startsWith('instagram') || s.startsWith('ubizenai');
+};
+const isYTCall = (c: { source?: string | null }) => {
+  const s = (c.source || '').toLowerCase();
+  return s.startsWith('yt') || s.startsWith('youtube');
+};
+
 function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0; }
 
 // Format axe X : "13 févr." — pas d'année, espacé uniformément
@@ -384,8 +393,8 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
   // Calls par plateforme (seule granularité dispo — source UTM = plateforme, pas post individuel)
   // Attribution manuelle cohérente avec les MOCK_CALLS (9 IG + 5 YT, revenue total ~7 800€)
   // Chaque post reçoit une fraction réaliste des calls selon son reach relatif
-  const igCallsAll  = calls.filter(c => c.source?.startsWith('ig'));
-  const ytCallsAll  = calls.filter(c => c.source?.startsWith('yt'));
+  const igCallsAll  = calls.filter(isIGCall);
+  const ytCallsAll  = calls.filter(isYTCall);
 
   // Totaux par plateforme pour la répartition proportionnelle
   const igPosts = ig?.posts || [];
@@ -776,7 +785,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToMediaId, prospectLinksData, linkClickedByLeadId }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string> }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number> }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const now = new Date();
@@ -812,7 +821,11 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToM
   const shortioCalendlyLinks = (shortio?.links || []).filter((l: any) =>
     (l.linkType === 'bio' || (l.linkType === 'description' && (l.originalUrl || '').toLowerCase().includes('calendly')))
   );
-  const shortioCalendlyClics = shortioCalendlyLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+  const shortioCalendlyClics = shortioCalendlyLinks.reduce((s: number, l: any) => {
+    const urlKey = (l.shortUrl || '').toLowerCase();
+    const dbClics = clicksByUrl?.get(urlKey);
+    return s + (dbClics !== undefined ? dbClics : (l.humanClicks30d || 0));
+  }, 0);
   const prospectCalendlyClics = prospectLinksData && linkClickedByLeadId
     ? (prospectLinksData as any[]).filter((pl: any) => {
         if (!pl.calendly_link_sent) return false;
@@ -835,8 +848,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToM
   if (closingRate > 0 && closingRate < 20) signalData.push({ type: 'amber', text: `Taux de closing à ${fmt(closingRate, 1)} % — sous le seuil cible de 25 %` });
 
   // ── Top contenus ──────────────────────────────────────────────────────────
-  const igCallsAll = calls.filter(c => c.source?.startsWith('ig'));
-  const ytCallsAll = calls.filter(c => c.source?.startsWith('yt'));
+  const igCallsAll = calls.filter(isIGCall);
+  const ytCallsAll = calls.filter(isYTCall);
   const igPosts = ig?.posts || [];
   const ytVideos = yt?.videos || [];
   const ytTotalViews = ytVideos.reduce((s, v) => s + v.views30d, 0);
@@ -2055,8 +2068,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const mrr = stripe?.mrr || 0;
 
   // ── Calls par plateforme (données réelles uniquement) ──
-  const callsIG = calls.filter(c => c.source?.startsWith('ig') || c.source?.startsWith('instagram'));
-  const callsYT = calls.filter(c => c.source?.startsWith('yt') || c.source?.startsWith('youtube'));
+  const callsIG = calls.filter(isIGCall);
+  const callsYT = calls.filter(isYTCall);
 
   const calcCalls = (subset: CallRecord[]) => {
     const bookes = subset.filter(c => c.status === 'active').length;
@@ -2224,8 +2237,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
           { color: GREEN, unit: '€', fmtV: (v) => `${v} €`, data: buildDay2(() => true, cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
           { color: GREEN, unit: '€/call', fmtV: (v) => `${v} €`, data: buildDay2(c => !!(c.deal_closed && c.revenue), cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
           { color: RED, unit: 'no-shows', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.no_show).length) },
-          { color: IG_COLOR, unit: 'calls IG', fmtV: String, data: buildDay2(c => !!(c.source?.startsWith('ig') || c.source?.startsWith('instagram')), cs => cs.filter(c => c.status === 'active').length) },
-          { color: YT_COLOR, unit: 'calls YT', fmtV: String, data: buildDay2(c => !!(c.source?.startsWith('yt') || c.source?.startsWith('youtube')), cs => cs.filter(c => c.status === 'active').length) },
+          { color: IG_COLOR, unit: 'calls IG', fmtV: String, data: buildDay2(isIGCall, cs => cs.filter(c => c.status === 'active').length) },
+          { color: YT_COLOR, unit: 'calls YT', fmtV: String, data: buildDay2(isYTCall, cs => cs.filter(c => c.status === 'active').length) },
         ];
 
         const heroItems = [
@@ -2521,9 +2534,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                 const srcParts = (c.source || '').split('_');
                 const srcPlatform = srcParts[0];
                 const srcMedium = srcParts.slice(1).join('_');
-                const platformColor = srcPlatform.startsWith('ig') || srcPlatform.startsWith('instagram') ? IG_COLOR
-                  : srcPlatform.startsWith('yt') || srcPlatform.startsWith('youtube') ? YT_COLOR
-                  : 'var(--muted)';
+                const platformColor = isIGCall(c) ? IG_COLOR : isYTCall(c) ? YT_COLOR : 'var(--muted)';
                 return (
                   <tr key={i} style={{ borderTop: '1px solid var(--border-soft)' }}>
                     <td style={{ padding: '12px 14px' }}>
@@ -2584,8 +2595,8 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
 
   const now = new Date();
 
-  const callsIG = calls.filter(c => c.source?.startsWith('ig') || c.source?.startsWith('instagram'));
-  const callsYT = calls.filter(c => c.source?.startsWith('yt') || c.source?.startsWith('youtube'));
+  const callsIG = calls.filter(isIGCall);
+  const callsYT = calls.filter(isYTCall);
   const calcCalls = (subset: CallRecord[]) => ({
     bookes: subset.filter(c => c.status === 'active').length,
     honores: subset.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length,
@@ -2693,8 +2704,8 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const n = period;
   const cutoffHero = new Date(now.getTime() - n * 86400000);
   const callsInPeriodHero = calls.filter(c => new Date(c.scheduled_at) >= cutoffHero);
-  const callsIGHero = callsInPeriodHero.filter(c => c.source?.startsWith('ig') || c.source?.startsWith('instagram'));
-  const callsYTHero = callsInPeriodHero.filter(c => c.source?.startsWith('yt') || c.source?.startsWith('youtube'));
+  const callsIGHero = callsInPeriodHero.filter(isIGCall);
+  const callsYTHero = callsInPeriodHero.filter(isYTCall);
 
   function buildDayChart(filterFn: (c: CallRecord) => boolean, valFn: (dayCs: CallRecord[]) => number): { date: string; v: number }[] {
     return Array.from({ length: n }, (_, i) => {
@@ -2720,9 +2731,9 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
     // 5 — No-show
     { color: RED, fmtV: String, data: buildDayChart(() => true, cs => cs.filter(c => c.no_show).length) },
     // 6 — Calls IG
-    { color: IG_COLOR, fmtV: String, data: buildDayChart(c => !!(c.source?.startsWith('ig') || c.source?.startsWith('instagram')), cs => cs.filter(c => c.status === 'active').length) },
+    { color: IG_COLOR, fmtV: String, data: buildDayChart(isIGCall, cs => cs.filter(c => c.status === 'active').length) },
     // 7 — Calls YT
-    { color: YT_COLOR, fmtV: String, data: buildDayChart(c => !!(c.source?.startsWith('yt') || c.source?.startsWith('youtube')), cs => cs.filter(c => c.status === 'active').length) },
+    { color: YT_COLOR, fmtV: String, data: buildDayChart(isYTCall, cs => cs.filter(c => c.status === 'active').length) },
   ];
 
   const heroItems = [
@@ -2933,7 +2944,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
                 const srcParts = (c.source || '').split('_');
                 const srcPlatform = srcParts[0];
                 const srcMedium = srcParts.slice(1).join('_');
-                const platformColor = srcPlatform.startsWith('ig') || srcPlatform.startsWith('instagram') ? IG_COLOR : srcPlatform.startsWith('yt') || srcPlatform.startsWith('youtube') ? YT_COLOR : 'var(--muted)';
+                const platformColor = isIGCall(c) ? IG_COLOR : isYTCall(c) ? YT_COLOR : 'var(--muted)';
                 return (
                   <tr key={i} style={{ borderTop: '1px solid var(--border-soft)' }}>
                     <td style={{ padding: '12px 14px' }}>
@@ -5856,7 +5867,7 @@ async function fetchSupabaseStats(profileId?: string) {
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId };
   } catch { return null; }
 }
 
@@ -5952,6 +5963,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
   const clicksByPath: Map<string, number> = supaData?.clicksByPath ?? new Map();
+  const clicksByUrl: Map<string, number> = supaData?.clicksByUrl ?? new Map();
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
   const lmClickedByLeadId: Map<string, string> = supaData?.lmClickedByLeadId ?? new Map();
   const linkClickedByLeadId: Map<string, string> = supaData?.linkClickedByLeadId ?? new Map();
@@ -6151,7 +6163,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
+          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}

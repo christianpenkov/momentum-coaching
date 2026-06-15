@@ -1,0 +1,8 @@
+public\favicon-momentum.png
+public\file.svg
+public\globe.svg
+public\logo-momentum-apple.png
+public\logo-momentum.png
+public\next.svg
+public\vercel.svg
+public\window.svg
