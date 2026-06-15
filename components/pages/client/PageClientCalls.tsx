@@ -66,7 +66,6 @@ export default function PageClientCalls() {
   // Carrousel rapports en attente
   const [rapportIdx, setRapportIdx] = useState(0);
   // Carrousel historique
-  const [historyIdx, setHistoryIdx] = useState(0);
 
   // Modal rapport
   const [rapportModal, setRapportModal] = useState<RapportModal | null>(null);
@@ -465,30 +464,19 @@ export default function PageClientCalls() {
         </div>
       )}
 
-      {/* Historique — carrousel, flèches latérales */}
+      {/* Historique — liste verticale */}
       {history.length > 0 && (
         <div>
           <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
             Historique des calls
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => setHistoryIdx(i => Math.max(0, i - 1))}
-              disabled={historyIdx === 0 || history.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: historyIdx === 0 ? 'default' : 'pointer', opacity: historyIdx === 0 || history.length <= 1 ? 0.2 : 1 }}
-            >‹</button>
-            {(() => {
-              const call = history[historyIdx];
-              if (!call) return null;
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {history.map((call) => {
               const rapportPending = call.calendly_event_uuid && call.no_show === null && call.status === 'active';
               return (
-                <div className="card" style={{ flex: 1, padding: '18px 20px' }}>
+                <div key={call.id} className="card" style={{ padding: '18px 20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>
-                        CALL{history.length > 1 && <span style={{ fontWeight: 400, marginLeft: 8 }}>{historyIdx + 1} / {history.length}</span>}
-                      </div>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
                         {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
                       </div>
@@ -532,13 +520,7 @@ export default function PageClientCalls() {
                   )}
                 </div>
               );
-            })()}
-            <button
-              type="button"
-              onClick={() => setHistoryIdx(i => Math.min(history.length - 1, i + 1))}
-              disabled={historyIdx === history.length - 1 || history.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: historyIdx === history.length - 1 ? 'default' : 'pointer', opacity: historyIdx === history.length - 1 || history.length <= 1 ? 0.2 : 1 }}
-            >›</button>
+            })}
           </div>
         </div>
       )}
