@@ -58,7 +58,7 @@ Deno.serve(async (req: Request) => {
 
   const eligibleCalls = calls.filter((call: any) => {
     const connectedAt = connectedAtByProfile.get(call.coach_id);
-    if (connectedAt && new Date(call.scheduled_at) < new Date(connectedAt)) return false;
+    if (connectedAt && new Date(call.scheduled_at) < new Date(new Date(connectedAt).getTime() - 24 * 3600_000)) return false;
     const durationMin = parseDurationMinutes(call.duration);
     if (durationMin === null) return false;
     const triggerTime = new Date(call.scheduled_at).getTime() + durationMin * 60 * 1000;

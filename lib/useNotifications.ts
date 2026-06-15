@@ -46,7 +46,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .lt('scheduled_at', now);
 
     if (calendlyConnectedAt) {
-      callsQuery = callsQuery.gte('scheduled_at', calendlyConnectedAt);
+      const cutoff = new Date(new Date(calendlyConnectedAt).getTime() - 24 * 3600_000).toISOString();
+      callsQuery = callsQuery.gte('scheduled_at', cutoff);
     }
 
     const { data: calls } = await callsQuery;
