@@ -4132,8 +4132,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
     // Calls bookés/closés/revenue depuis la table calls (source de vérité) via ig_lead_id → media_id
+    // Exclure les leads LM (leadMagnetSent = true) pour éviter double-comptage avec la ligne Lead magnet
+    const lmLeadIds = new Set(leads.filter((l: MockLead) => l.leadMagnetSent).map((l: MockLead) => l.id).filter(Boolean));
     const postCalls = (calls && leadIdToMediaId)
-      ? calls.filter(c => c.ig_lead_id && leadIdToMediaId.get(c.ig_lead_id) === postId)
+      ? calls.filter(c => c.ig_lead_id && leadIdToMediaId.get(c.ig_lead_id) === postId && !lmLeadIds.has(c.ig_lead_id))
       : [];
     const callsBooked = postCalls.filter(c => c.status === 'active').length;
     const callsHonored = postCalls.filter(c => c.status === 'active' && !c.no_show).length;
