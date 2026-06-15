@@ -111,13 +111,20 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
     .eq('profile_id', profileId)
     .gte('date', since30d);
 
+  // ID YouTube = exactement 11 chars dans [A-Za-z0-9_-]
+  const isYtVideoId = (s: string) => /^[A-Za-z0-9_-]{11}$/.test(s);
+
   const dbByLinkId = new Map<string, { linkType: string | null; postPlatform: string | null }>();
   for (const row of dbRows ?? []) {
     if (!dbByLinkId.has(row.link_id)) {
       let postPlatform: string | null = null;
       try {
-        const utmSource = new URL(row.original_url).searchParams.get('utm_source') || '';
+        const u = new URL(row.original_url);
+        const utmSource = u.searchParams.get('utm_source') || '';
+        const utmMedium = u.searchParams.get('utm_medium') || '';
+        const utmContent = u.searchParams.get('utm_content') || '';
         if (utmSource === 'yt') postPlatform = 'YT';
+        else if (utmMedium === 'description' && isYtVideoId(utmContent)) postPlatform = 'YT';
         else if (utmSource === 'ig' || utmSource.includes('ubizenai')) postPlatform = 'IG';
       } catch {}
       dbByLinkId.set(row.link_id, { linkType: row.link_type ?? null, postPlatform });

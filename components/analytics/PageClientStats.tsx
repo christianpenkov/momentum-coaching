@@ -87,6 +87,7 @@ interface CallRecord {
   no_show?: boolean; deal_closed?: boolean; revenue?: number;
   rescheduled?: boolean; source?: string; notes?: string;
   ig_lead_id?: string | null; outcome?: string | null;
+  utm_content?: string | null;
 }
 interface StripeStats {
   mrr: number; monthlyRevenue: number; activeSubscriptions: number;
@@ -3883,7 +3884,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, clicksByUrl, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3895,6 +3896,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   profileId?: string;
   prospectLinksData?: any[];
   clicksByPath?: Map<string, number>;
+  clicksByUrl?: Map<string, number>;
   altKwToLmId?: Map<string, string>;
   lmClickedByLeadId?: Map<string, string>;
   linkClickedByLeadId?: Map<string, string>;
@@ -4041,7 +4043,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   // Si sPeriod === 30 → utilise humanClicks30d (valeur agrégée déjà fournie par l'API).
   const linkClics = (l: any): number => {
     if (!l) return 0;
-    if (sPeriod === 30) return l.humanClicks30d || 0;
+    if (sPeriod === 30) {
+      const urlKey = (l.shortUrl || '').toLowerCase();
+      const dbClics = clicksByUrl?.get(urlKey);
+      return dbClics !== undefined ? dbClics : (l.humanClicks30d || 0);
+    }
     const pts: { clicks: number }[] = l.chartData || [];
     return pts.slice(-sPeriod).reduce((s, p) => s + (p.clicks || 0), 0);
   };
@@ -4166,11 +4172,15 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
     const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
-    // Calls bookés/closés/revenue depuis la table calls (source de vérité) via ig_lead_id → media_id
-    // Exclure les leads LM (leadMagnetSent = true) pour éviter double-comptage avec la ligne Lead magnet
+    // Calls bookés/closés/revenue depuis la table calls (source de vérité)
+    // Deux cas : (1) via ig_lead_id → media_id pour les leads IG avec DM
+    //            (2) via utm_content = postId pour les calls sans ig_lead_id (ex: description YT anonyme)
     const lmLeadIds = new Set(leads.filter((l: MockLead) => l.leadMagnetSent).map((l: MockLead) => l.id).filter(Boolean));
     const postCalls = (calls && leadIdToMediaId)
-      ? calls.filter(c => c.ig_lead_id && leadIdToMediaId.get(c.ig_lead_id) === postId && !lmLeadIds.has(c.ig_lead_id))
+      ? calls.filter(c => {
+          if (c.ig_lead_id) return leadIdToMediaId.get(c.ig_lead_id) === postId && !lmLeadIds.has(c.ig_lead_id);
+          return c.utm_content === postId;
+        })
       : [];
     const callsBooked = postCalls.filter(c => c.status === 'active').length;
     const callsHonored = postCalls.filter(c => c.status === 'active' && !c.no_show).length;
@@ -6167,7 +6177,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={calls} leadIdToMediaId={leadIdToMediaId} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={calls} leadIdToMediaId={leadIdToMediaId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
