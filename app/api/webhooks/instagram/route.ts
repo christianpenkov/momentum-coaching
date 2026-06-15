@@ -15,6 +15,37 @@ function sanitizeInstagramUsername(raw: string): string {
   return raw.toLowerCase().trim().replace(/^@/, '').replace(/\s+/g, '').replace(/[^a-z0-9._]/g, '');
 }
 
+async function fetchAndStoreAvatar(igUserId: string, accessToken: string): Promise<string | null> {
+  try {
+    const profileRes = await fetch(
+      `https://graph.instagram.com/v22.0/${igUserId}?fields=profile_pic&access_token=${accessToken}`
+    );
+    if (!profileRes.ok) return null;
+    const profileData = await profileRes.json();
+    const profilePicUrl: string | undefined = profileData?.profile_pic;
+    if (!profilePicUrl) return null;
+
+    const imgRes = await fetch(profilePicUrl);
+    if (!imgRes.ok) return null;
+    const blob = await imgRes.blob();
+    const arrayBuffer = await blob.arrayBuffer();
+
+    const { error: uploadError } = await serviceSupabase.storage
+      .from('instagram-avatars')
+      .upload(`${igUserId}.jpg`, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
+
+    if (uploadError) return null;
+
+    const { data: { publicUrl } } = serviceSupabase.storage
+      .from('instagram-avatars')
+      .getPublicUrl(`${igUserId}.jpg`);
+
+    return publicUrl;
+  } catch {
+    return null;
+  }
+}
+
 async function attemptShortioCreate(apiKey: string, payload: object): Promise<Response> {
   const opts: RequestInit = {
     method: 'POST',
@@ -479,6 +510,26 @@ export async function POST(request: Request) {
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
         .select('id')
         .maybeSingle();
+
+      // Fetch et stocke l'avatar de façon permanente (fire-and-forget)
+      if (upsertedLead?.id && commenterId) {
+        const igInteg = await serviceSupabase
+          .from('integrations')
+          .select('access_token')
+          .eq('profile_id', profile_id)
+          .eq('provider', 'instagram')
+          .maybeSingle();
+        if (igInteg.data?.access_token) {
+          fetchAndStoreAvatar(commenterId, igInteg.data.access_token).then(avatarUrl => {
+            if (avatarUrl) {
+              serviceSupabase.from('instagram_leads')
+                .update({ avatar_url: avatarUrl })
+                .eq('id', upsertedLead.id)
+                .then();
+            }
+          });
+        }
+      }
 
       // Enregistre l'événement lm_sent dans prospect_events (index partiel = idempotent)
       if (upsertedLead?.id && commenterUsername) {

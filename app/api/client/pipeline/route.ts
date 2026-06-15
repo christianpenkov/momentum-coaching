@@ -36,7 +36,7 @@ export async function GET() {
 
   const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes] = await Promise.all([
     supa.from('instagram_leads')
-      .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source')
+      .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source, avatar_url')
       .eq('profile_id', user.id)
       .eq('lead_magnet_sent', true)
       .order('detected_at', { ascending: false }),

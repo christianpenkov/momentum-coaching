@@ -20,6 +20,7 @@ interface IgLead {
   detected_at: string;
   media_id: string | null;
   source: string | null;
+  avatar_url: string | null;
 }
 
 interface ProspectLink {
@@ -207,6 +208,7 @@ interface CardData {
   callIsFollowUp?: boolean;
   naturalKey: string; // stage naturel avant override — pour natural_at_override
   hasProspectLink: boolean; // true si prospect_links.short_url est renseigné
+  avatarUrl: string | null;
 }
 
 function PipelineCard({
@@ -263,13 +265,24 @@ function PipelineCard({
     >
       {/* Row 1 : avatar + nom + badges */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{
-          width: 26, height: 26, borderRadius: 7, background: ac, flexShrink: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '.03em',
-        }}>
-          {avatarInitials(card.name)}
-        </div>
+        {card.avatarUrl ? (
+          <img
+            src={card.avatarUrl}
+            alt={card.name}
+            width={26}
+            height={26}
+            style={{ borderRadius: 7, flexShrink: 0, objectFit: 'cover', display: 'block' }}
+            onError={e => { e.currentTarget.style.display = 'none'; }}
+          />
+        ) : (
+          <div style={{
+            width: 26, height: 26, borderRadius: 7, background: ac, flexShrink: 0,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            fontSize: 10, fontWeight: 700, color: '#fff', letterSpacing: '.03em',
+          }}>
+            {avatarInitials(card.name)}
+          </div>
+        )}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 }}>
             @{card.name}
@@ -1086,6 +1099,7 @@ export default function PagePipeline() {
         callIsFollowUp: call?.is_follow_up ?? false,
         naturalKey: natural,
         hasProspectLink: !!(prospect?.short_url),
+        avatarUrl: lead?.avatar_url ?? null,
       });
     }
   }
@@ -1159,6 +1173,7 @@ export default function PagePipeline() {
         callOutcome: latestCall.outcome ?? null,
         naturalKey: natural,
         hasProspectLink: false,
+        avatarUrl: null,
       };
 
       if (noSource) {
