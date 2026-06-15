@@ -68,16 +68,18 @@ export async function POST() {
 
   const isCoach = profile?.role === 'coach';
 
-  // calendlyProfileId = là où est stocké le token Calendly (coach)
-  // leadsProfileId = là où sont stockés les leads IG et prospect_links (client)
+  // calendlyProfileId = là où est stocké le token Calendly
+  // Pour un élève : son propre profil (il est l'hôte de ses calls leads)
+  // Pour un coach : son propre profil
+  // leadsProfileId = là où sont stockés les leads IG et prospect_links
   let calendlyProfileId = user.id;
   let leadsProfileId = user.id;
   if (!isCoach) {
     const { data: clientRow } = await serviceSupabase
       .from('clients').select('coach_id').eq('profile_id', user.id).single();
     if (!clientRow?.coach_id) return NextResponse.json({ error: 'Coach introuvable' }, { status: 404 });
-    calendlyProfileId = clientRow.coach_id;
     // leadsProfileId reste user.id — les leads IG sont sous le client
+    // calendlyProfileId reste user.id — l'élève héberge son propre Calendly leads
   }
 
   const accessToken = await getFreshToken(calendlyProfileId);
