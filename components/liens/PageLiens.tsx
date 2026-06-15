@@ -482,7 +482,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     setError(null);
     if (!canGenerate) { setError('Short.io non connecté — configure ta clé dans Réglages.'); return; }
 
-    const utms = { source: domain, medium: 'description', campaign: destType, content: post.id };
+    const utms = { source: post.platform === 'YT' ? 'yt' : 'ig', medium: 'description', campaign: destType, content: post.id };
     const postSlug = slugify(post.caption.slice(0, 20));
     const suffix = post.id.slice(-4);
 
