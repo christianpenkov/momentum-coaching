@@ -448,8 +448,16 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
   const sortedContent = [...allContent].sort((a, b) => {
     if (contentSort === 'views') return b.totalViews - a.totalViews;
     if (contentSort === 'watchTime') return b.watchTime - a.watchTime;
-    if (contentSort === 'calls') return b.callsBooked - a.callsBooked;
-    return b.revenueTotal - a.revenueTotal;
+    if (contentSort === 'calls') {
+      if (b.closedCount !== a.closedCount) return b.closedCount - a.closedCount;
+      const aHonored = a.callsBooked - a.noShowCount;
+      const bHonored = b.callsBooked - b.noShowCount;
+      if (bHonored !== aHonored) return bHonored - aHonored;
+      return b.callsBooked - a.callsBooked;
+    }
+    if (b.revenueTotal !== a.revenueTotal) return b.revenueTotal - a.revenueTotal;
+    if (b.closedCount !== a.closedCount) return b.closedCount - a.closedCount;
+    return b.callsBooked - a.callsBooked;
   });
   const visibleContent = showAllContent ? sortedContent : sortedContent.slice(0, 5);
 
@@ -879,8 +887,16 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToM
   const sortedContent = [...allContent].sort((a, b) => {
     if (contentSort === 'views') return b.totalViews - a.totalViews;
     if (contentSort === 'watchTime') return b.watchTime - a.watchTime;
-    if (contentSort === 'calls') return b.callsBooked - a.callsBooked;
-    return b.revenueTotal - a.revenueTotal;
+    if (contentSort === 'calls') {
+      if (b.closedCount !== a.closedCount) return b.closedCount - a.closedCount;
+      const aHonored = a.callsBooked - a.noShowCount;
+      const bHonored = b.callsBooked - b.noShowCount;
+      if (bHonored !== aHonored) return bHonored - aHonored;
+      return b.callsBooked - a.callsBooked;
+    }
+    if (b.revenueTotal !== a.revenueTotal) return b.revenueTotal - a.revenueTotal;
+    if (b.closedCount !== a.closedCount) return b.closedCount - a.closedCount;
+    return b.callsBooked - a.callsBooked;
   });
   const visibleContent = showAllContent ? sortedContent : sortedContent.slice(0, 5);
 
