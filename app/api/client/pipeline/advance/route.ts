@@ -91,6 +91,7 @@ export async function POST(request: Request) {
       );
     }
 
+    // ignoreDuplicates: false pour mettre à jour ig_lead_id si l'event existait déjà sans lui
     ops.push(
       supa.from('prospect_events').upsert({
         profile_id: user.id,
@@ -100,12 +101,9 @@ export async function POST(request: Request) {
         occurred_at: now,
         ig_lead_id: lead?.id ?? null,
         prospect_link_id: pl.id,
-      }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: true }).then()
+      }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: false }).then()
     );
 
-    // Écrire une ligne dans shortio_link_daily_snapshots pour que les stats
-    // de clics soient identiques à un vrai clic Short.io détecté par le cron.
-    // On récupère le link_id et le path depuis un snapshot existant pour ce short_url.
     if (pl.short_url) {
       const { data: existingSnapshot } = await supa
         .from('shortio_link_daily_snapshots')
@@ -117,21 +115,28 @@ export async function POST(request: Request) {
         .maybeSingle();
 
       if (existingSnapshot?.link_id) {
-        // Upsert sur (profile_id, link_id, date) — contrainte d'unicité existante
+        // RPC avec GREATEST pour ne jamais écraser un human_clicks plus élevé
         ops.push(
-          supa.from('shortio_link_daily_snapshots').upsert({
-            profile_id: user.id,
-            link_id: existingSnapshot.link_id,
-            path: existingSnapshot.path,
-            short_url: pl.short_url,
-            original_url: existingSnapshot.original_url ?? null,
-            date: today,
-            human_clicks: 1,
-            total_clicks: 1,
-            backfill_source: 'manual',
-            link_type: existingSnapshot.link_type ?? 'dm',
-            updated_at: now,
-          }, { onConflict: 'profile_id,link_id,date', ignoreDuplicates: false }).then()
+          supa.rpc('upsert_shortio_link_snapshot', {
+            p_profile_id:     user.id,
+            p_link_id:        existingSnapshot.link_id,
+            p_path:           existingSnapshot.path,
+            p_short_url:      pl.short_url,
+            p_original_url:   existingSnapshot.original_url ?? null,
+            p_date:           today,
+            p_human_clicks:   1,
+            p_total_clicks:   1,
+            p_backfill_source: 'manual',
+            p_link_type:      existingSnapshot.link_type ?? 'dm',
+            p_top_countries:  null,
+            p_top_referrers:  null,
+            p_top_browsers:   null,
+            p_top_os:         null,
+            p_top_social:     null,
+            p_top_cities:     null,
+            p_utm_sources:    null,
+            p_utm_mediums:    null,
+          }).then()
         );
       }
     }
