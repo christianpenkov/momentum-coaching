@@ -4324,8 +4324,15 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const bioYTRevenue = bioYTProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
 
           const isLMProspect = (l: any) => {
-            const lead = leads.find(ml => ml.igUserId === l.igUserId);
-            return !!lead?.leadMagnetSent;
+            if (l.ig_lead_id) {
+              const lead = leads.find((ml: any) => ml.id === l.ig_lead_id);
+              return !!lead?.leadMagnetSent;
+            }
+            if (l.ig_username) {
+              const lead = leads.find((ml: any) => ml.igUsername === l.ig_username);
+              return !!lead?.leadMagnetSent;
+            }
+            return false;
           };
           const dmDirectLinks = prospectLinks.filter((l: any) => !isLMProspect(l));
           const lmProspectLinks = prospectLinks.filter((l: any) => isLMProspect(l));
