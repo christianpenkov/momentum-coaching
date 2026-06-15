@@ -2056,9 +2056,9 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytCloses  = noData ? 0 : ytCallsLive.closes;
   const ytRev     = noData ? 0 : ytCallsLive.rev;
   const ytNoShows = noData ? 0 : ytCallsLive.noShows;
-  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
 
-  const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
   const igDMClics   = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
   const igTotalClicsD = igBioD + igPostClics + igDMClics;
 
@@ -2552,7 +2552,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const ytCloses  = ytCallsLive.closes;
   const ytRev     = ytCallsLive.rev;
   const ytViewsD  = yt?.views30d || 0;
-  const ytClicsD  = shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
+  const ytClicsD  = shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
 
   const totalBookes  = igBookes + ytBookes;
   const totalHonores = igHonores + ytHonores;

@@ -25,7 +25,7 @@ async function getCreds(profileId: string): Promise<{ apiKey: string; domain: st
 }
 
 // Fetch complet Short.io — appelé seulement si cache expiré
-async function fetchFromShortio(creds: { apiKey: string; domain: string; domainId: string | number }) {
+async function fetchFromShortio(creds: { apiKey: string; domain: string; domainId: string | number }, profileId: string) {
   const { apiKey, domain, domainId } = creds;
   const headers = { authorization: apiKey, accept: 'application/json' };
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
@@ -103,6 +103,32 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
 
   linksWithStats.sort((a, b) => b.clicks30d - a.clicks30d);
 
+  // Enrichissement link_type + postPlatform depuis DB
+  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data: dbRows } = await serviceSupabase
+    .from('shortio_link_daily_snapshots')
+    .select('link_id, link_type, original_url')
+    .eq('profile_id', profileId)
+    .gte('date', since30d);
+
+  const dbByLinkId = new Map<string, { linkType: string | null; postPlatform: string | null }>();
+  for (const row of dbRows ?? []) {
+    if (!dbByLinkId.has(row.link_id)) {
+      let postPlatform: string | null = null;
+      try {
+        const utmSource = new URL(row.original_url).searchParams.get('utm_source') || '';
+        if (utmSource === 'yt') postPlatform = 'YT';
+        else if (utmSource === 'ig' || utmSource.includes('ubizenai')) postPlatform = 'IG';
+      } catch {}
+      dbByLinkId.set(row.link_id, { linkType: row.link_type ?? null, postPlatform });
+    }
+  }
+
+  const enrichedLinks = linksWithStats.map((l: any) => {
+    const meta = dbByLinkId.get(l.id) ?? { linkType: null, postPlatform: null };
+    return { ...l, linkType: meta.linkType, postPlatform: meta.postPlatform };
+  });
+
   return {
     domain, totalLinks,
     clicks30d: Number(domainStats.clicks ?? 0),
@@ -111,7 +137,7 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
     clicksPerLink30d: parseFloat(domainStats.clicksPerLink ?? '0') || 0,
     chartData: domainChartData,
     topCountries, topReferrers, topBrowsers, topOs, topSocial, topCities,
-    links: linksWithStats,
+    links: enrichedLinks,
   };
 }
 
@@ -166,7 +192,7 @@ export async function GET(request: Request) {
   // déclencher le refresh en arrière-plan (fire-and-forget)
   if (cached && cacheIsStale) {
     // Fire-and-forget : pas de await → la réponse part immédiatement
-    fetchFromShortio(creds)
+    fetchFromShortio(creds, targetProfileId)
       .then(fresh => saveCache(targetProfileId, fresh))
       .catch(() => {}); // silencieux si Short.io est down
 
@@ -175,7 +201,7 @@ export async function GET(request: Request) {
 
   // Aucun cache → premier chargement, on attend le fetch complet
   try {
-    const payload = await fetchFromShortio(creds);
+    const payload = await fetchFromShortio(creds, targetProfileId);
     // Sauvegarde en background après la réponse
     saveCache(targetProfileId, payload).catch(() => {});
     return NextResponse.json(payload);
