@@ -4352,10 +4352,18 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const organicRevenue = organicDMLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
           const organicClics = organicDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
-          const lmBooked = lmProspectLinks.filter((l: any) => l.callBooked).length;
+          // LM : depuis prospectLinksData (Supabase), même logique que Performance LM
+          const lmProspectLinksDb = (prospectLinksData ?? []).filter((pl: any) => {
+            const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
+            if (!lead?.leadMagnetSent) return false;
+            if (!pl.calendly_link_sent) return false;
+            const ts = pl.calendly_link_sent_at ?? pl.created_at;
+            return ts && new Date(ts).getTime() >= periodCutoffBreakdown;
+          });
+          const lmBooked = lmProspectLinksDb.filter((l: any) => l.callBooked).length;
           const lmHonored = lmBooked;
-          const lmClosed = lmProspectLinks.filter((l: any) => l.dealClosed === true).length;
-          const lmRevenue = lmProspectLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          const lmClosed = lmProspectLinksDb.filter((l: any) => l.dealClosed === true).length;
+          const lmRevenue = lmProspectLinksDb.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
 
           const igContentClics = igContentLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
           const igContentBooked = igRows.reduce((s, r) => s + r.callsBooked, 0);
@@ -4393,7 +4401,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             { label: 'Bio YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: bioYT?.humanClicks30d ?? null, booked: bioYTBooked, honored: bioYTHonored, closed: bioYTClosed, revenue: bioYTRevenue, isContentType: true },
             { label: 'Lien contenu IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: igContentClics, booked: igContentBooked, honored: igContentHonored, closed: igContentClosed, revenue: igContentRevenue, isContentType: true },
             { label: 'Lien contenu YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: ytContentClics, booked: ytContentBooked, honored: ytContentHonored, closed: ytContentClosed, revenue: ytContentRevenue, isContentType: true },
-            { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length, booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
+            { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinksDb.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length, booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
             { label: 'Cold DM', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (sortant <ArrowOut />)</span>, badge: 'DM', badgeColor: BLUE, liens: coldDMLinks.length, liensLabel: 'liens envoyés', clics: coldDMLinks.length > 0 ? coldClics : null, booked: coldBooked, honored: coldHonored, closed: coldClosed, revenue: coldRevenue, isContentType: false },
             { label: 'DM organique', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (entrant <ArrowIn />)</span>, badge: 'DM', badgeColor: '#10B981', liens: organicDMLinks.length, liensLabel: 'conversations', clics: organicDMLinks.length > 0 ? organicClics : null, booked: organicBooked, honored: organicHonored, closed: organicClosed, revenue: organicRevenue, isContentType: false },
           ];
