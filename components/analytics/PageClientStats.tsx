@@ -5918,11 +5918,11 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   });
   const msgs: IGMessages | null = msgsRaw ?? null;
 
-  // Short.io — onglet 4 uniquement (le plus lent — cache SWR 15min)
+  // Short.io — onglets 0 (Vue générale) et 4 (Business micro) — cache 15min
   const { data: shortioRaw, isLoading: shortioLoading } = useQuery<ShortioStats | null>({
     queryKey: ['stats-shortio', profileId],
     queryFn: () => fetchApi(`/api/shortio/stats${q}`),
-    enabled: tab === 4,
+    enabled: tab === 0 || tab === 4,
     staleTime: 15 * 60 * 1000,
   });
   const shortio: ShortioStats | null = shortioRaw ?? null;
