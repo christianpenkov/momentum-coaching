@@ -776,7 +776,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToMediaId }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; leadIdToMediaId: Map<string, string> }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToMediaId, prospectLinksData, linkClickedByLeadId }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string> }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const now = new Date();
@@ -805,7 +805,23 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, leadIdToM
   const ytViews = period === 7
     ? (yt?.chartData.slice(-7).reduce((s, d) => s + d.views, 0) || 0)
     : (yt?.views30d || 0);
-  const shortioClicks = shortio?.chartData.slice(-period).reduce((s, d) => s + d.clicks, 0) || 0;
+  // Clics vers Calendly uniquement (pour KPI "Clics lien" Vue générale)
+  // Bio IG/YT + description→Calendly : humanClicks30d des liens concernés
+  // DM + LM prospects : 1 clic par lead via linkClickedByLeadId (même logique que Funnel)
+  const periodCutoffOv = Date.now() - period * 86400000;
+  const shortioCalendlyLinks = (shortio?.links || []).filter((l: any) =>
+    (l.linkType === 'bio' || (l.linkType === 'description' && (l.originalUrl || '').toLowerCase().includes('calendly')))
+  );
+  const shortioCalendlyClics = shortioCalendlyLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+  const prospectCalendlyClics = prospectLinksData && linkClickedByLeadId
+    ? (prospectLinksData as any[]).filter((pl: any) => {
+        if (!pl.calendly_link_sent) return false;
+        const ts = pl.calendly_link_sent_at ?? pl.created_at;
+        if (!ts || new Date(ts).getTime() < periodCutoffOv) return false;
+        return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
+      }).length
+    : 0;
+  const shortioClicks = shortioCalendlyClics + prospectCalendlyClics;
 
   // ── Prochain call ─────────────────────────────────────────────────────────
   const nextCall = calls.filter(c => new Date(c.scheduled_at) > now).sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0];
@@ -4029,7 +4045,18 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const leadsInPeriod = leads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
 
   // ── Section 0 : KPIs ──
-  const totalClics = domainClicsPeriod;
+  // Clics totaux : liens non-DM (bio, description, leadmagnet) = humanClicks30d
+  //                liens DM/LM prospects = 1 par lead via linkClickedByLeadId
+  const nonProspectClics = (shortio.links ?? [])
+    .filter((l: any) => l.linkType !== 'dm' && l.linkType !== 'prospect')
+    .reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+  const prospectClicsDedup = (prospectLinksData ?? []).filter((pl: any) =>
+    pl.ig_lead_id && linkClickedByLeadId?.has(pl.ig_lead_id)
+  ).length;
+  const lmClicsDedup = (prospectLinksData ?? []).filter((pl: any) =>
+    pl.ig_lead_id && lmClickedByLeadId?.has(pl.ig_lead_id)
+  ).length;
+  const totalClics = nonProspectClics + prospectClicsDedup + lmClicsDedup;
   const dmLinks = prospectLinks.length;
   const dmClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
   const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
@@ -6128,7 +6155,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} />}
+          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
