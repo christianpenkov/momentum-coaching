@@ -27,6 +27,9 @@ export async function POST(request: Request) {
   const username = ig_username.toLowerCase();
   const now = new Date().toISOString();
   const today = now.slice(0, 10);
+  // Pour link_clicked manuel : last_calendly_link_sent_at = 1 minute avant now
+  // pour garantir que first_click_at (= now) > last_calendly_link_sent_at
+  const oneMinuteBefore = new Date(Date.now() - 60_000).toISOString();
   const targetIdx  = IG_PRE_CALL.indexOf(target_stage as IgPreCallStage);
   // currentIdx : on ne réécrit que les signaux strictement au-dessus du stage de départ
   const currentIdx = current_stage && IG_PRE_CALL.includes(current_stage) ? IG_PRE_CALL.indexOf(current_stage as IgPreCallStage) : -1;
@@ -81,15 +84,15 @@ export async function POST(request: Request) {
 
   // ── link_clicked : first_click_at + event + snapshot Short.io ────────────
   if (target_stage === 'link_clicked' && pl) {
-    if (!pl.first_click_at) {
-      ops.push(
-        supa.from('prospect_links')
-          .update({ first_click_at: now })
-          .eq('profile_id', user.id)
-          .eq('ig_username', username)
-          .then()
-      );
-    }
+    // Toujours réécrire first_click_at = now et last_calendly_link_sent_at = 1 min avant
+    // pour garantir que resolveStage() détecte link_clicked via first_click_at > linkSentRef
+    ops.push(
+      supa.from('prospect_links')
+        .update({ first_click_at: now, last_calendly_link_sent_at: oneMinuteBefore })
+        .eq('profile_id', user.id)
+        .eq('ig_username', username)
+        .then()
+    );
 
     // ignoreDuplicates: false pour mettre à jour ig_lead_id si l'event existait déjà sans lui
     ops.push(
