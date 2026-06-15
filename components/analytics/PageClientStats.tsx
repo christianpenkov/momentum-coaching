@@ -4045,18 +4045,14 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const leadsInPeriod = leads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
 
   // ── Section 0 : KPIs ──
-  // Clics totaux : liens non-DM (bio, description, leadmagnet) = humanClicks30d
-  //                liens DM/LM prospects = 1 par lead via linkClickedByLeadId
-  const nonProspectClics = (shortio.links ?? [])
-    .filter((l: any) => l.linkType !== 'dm' && l.linkType !== 'prospect')
-    .reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+  // Clics totaux : DM Calendly dédupliqués (1/lead) + LM dédupliqués (1/lead)
   const prospectClicsDedup = (prospectLinksData ?? []).filter((pl: any) =>
     pl.ig_lead_id && linkClickedByLeadId?.has(pl.ig_lead_id)
   ).length;
   const lmClicsDedup = (prospectLinksData ?? []).filter((pl: any) =>
     pl.ig_lead_id && lmClickedByLeadId?.has(pl.ig_lead_id)
   ).length;
-  const totalClics = nonProspectClics + prospectClicsDedup + lmClicsDedup;
+  const totalClics = prospectClicsDedup + lmClicsDedup;
   const dmLinks = prospectLinks.length;
   const dmClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
   const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
