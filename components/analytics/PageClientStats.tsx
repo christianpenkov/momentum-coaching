@@ -2072,9 +2072,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytCloses  = noData ? 0 : ytCallsLive.closes;
   const ytRev     = noData ? 0 : ytCallsLive.rev;
   const ytNoShows = noData ? 0 : ytCallsLive.noShows;
-  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
+  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'YT' && isCalendlyUrl(l)).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
 
-  const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'IG' && isCalendlyUrl(l)).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
   const periodCutoffFunnel = Date.now() - period * 24 * 60 * 60 * 1000;
   const igProspectClics = noData ? 0 : (() => {
     if (!prospectLinksData || !linkClickedByLeadId) return 0;
