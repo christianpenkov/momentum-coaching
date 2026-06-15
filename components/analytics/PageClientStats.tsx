@@ -5168,8 +5168,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
 
                     // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
                     // Inclut les keywords alternatifs (ex: BEAU pour LM Ubizen AI)
+                    // Même logique que Business Micro : calendly_link_sent + filtre période
                     const supaProspects = (prospectLinksData ?? []).filter((pl: any) =>
-                      altKws.has((pl.keyword_matched || '').toLowerCase())
+                      altKws.has((pl.keyword_matched || '').toLowerCase()) &&
+                      pl.calendly_link_sent === true &&
+                      (() => { const ts = pl.calendly_link_sent_at ?? pl.created_at; return ts && new Date(ts).toISOString() >= periodStartDate; })()
                     );
                     const liensCalendly = supaProspects.length;
 
@@ -5617,7 +5620,7 @@ async function fetchSupabaseStats(profileId?: string) {
       .eq('profile_id', targetId).limit(2000),
     // Liens Calendly envoyés par prospect — source de vérité pour la table Performance LM
     supabase.from('prospect_links')
-      .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, first_click_at, created_at, keyword_matched')
+      .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched')
       .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
     // Clics par lien depuis DB (illimité, pas limité au top 20 de l'API Short.io)
     supabase.from('shortio_link_daily_snapshots')
