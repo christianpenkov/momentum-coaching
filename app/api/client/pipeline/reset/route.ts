@@ -66,6 +66,13 @@ export async function POST(request: Request) {
   const username = ig_username.toLowerCase();
   const { prospectLinkFields, deleteEventTypes, deleteCalls, deleteHookReplied } = getResetFields(target_stage as IgPreCallStage);
 
+  // Lire prospect_link pour récupérer calendly_link_sent_at (timestamp d'envoi original)
+  const { data: pl } = await supa.from('prospect_links')
+    .select('calendly_link_sent_at')
+    .eq('profile_id', user.id)
+    .eq('ig_username', username)
+    .maybeSingle();
+
   const ops: PromiseLike<any>[] = [];
 
   // 1. Reset hook_replied sur instagram_leads si nécessaire
@@ -81,9 +88,16 @@ export async function POST(request: Request) {
 
   // 2. Reset champs prospect_links si nécessaire
   if (Object.keys(prospectLinkFields).length > 0) {
+    // Pour reset vers calendly_sent : remettre last_calendly_link_sent_at à sa valeur
+    // originale (calendly_link_sent_at) pour que le prochain advance first_click_at=now
+    // soit toujours postérieur, sans dépendre d'un délai arbitraire
+    const finalFields = target_stage === 'calendly_sent' && pl?.calendly_link_sent_at
+      ? { ...prospectLinkFields, last_calendly_link_sent_at: pl.calendly_link_sent_at }
+      : prospectLinkFields;
+
     ops.push(
       supa.from('prospect_links')
-        .update(prospectLinkFields)
+        .update(finalFields)
         .eq('profile_id', user.id)
         .eq('ig_username', username)
         .then()
