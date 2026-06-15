@@ -50,16 +50,22 @@ export async function GET(request: Request) {
     }
   }
 
-  // Test 2 : si on a un commenter_id, essaie de récupérer son profil directement
+  // Test 2a : profile_pic via graph.facebook.com (IGSID)
   if (commenterId) {
-    // Tentative GET /{commenter_id}?fields=name,username,profile_pic
-    // Note : accès limité selon les permissions de l'app
     const profileRes = await fetch(
-      `https://graph.instagram.com/v22.0/${commenterId}?fields=id,name,username,profile_picture_url,biography&access_token=${token}`
+      `https://graph.facebook.com/${commenterId}?fields=profile_pic,username&access_token=${token}`
     );
     const profileData = await profileRes.json();
-    results.commenter_profile_direct = profileData;
-    results.note_profile = "Accès direct au profil du commenter — souvent bloqué si pas de permissions avancées (instagram_manage_messages requis).";
+    results.commenter_profile_facebook = profileData;
+  }
+
+  // Test 2b : profile_picture_url via graph.instagram.com (ancien test)
+  if (commenterId) {
+    const profileRes = await fetch(
+      `https://graph.instagram.com/v22.0/${commenterId}?fields=id,name,username,profile_picture_url&access_token=${token}`
+    );
+    const profileData = await profileRes.json();
+    results.commenter_profile_instagram = profileData;
   }
 
   // Test 3 : via les conversations — si une conv existe avec ce user
