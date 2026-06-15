@@ -98,7 +98,10 @@ export default function PageClientCalls() {
       .order('scheduled_at', { ascending: false });
 
     if (calendlyConnectedAt) {
-      calendlyQuery = calendlyQuery.gte('scheduled_at', calendlyConnectedAt);
+      // Marge de 24h avant connected_at pour éviter d'exclure des calls
+      // bookés légèrement avant la (re)connexion Calendly
+      const cutoff = new Date(new Date(calendlyConnectedAt).getTime() - 24 * 3600_000).toISOString();
+      calendlyQuery = calendlyQuery.gte('scheduled_at', cutoff);
     }
 
     const { data: calendlyCalls } = await calendlyQuery;

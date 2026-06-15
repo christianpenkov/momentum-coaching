@@ -60,7 +60,10 @@ export default function PageClientCalendar() {
         .neq('status', 'cancelled')
         .neq('status', 'canceled')
         .order('scheduled_at', { ascending: true });
-      if (connectedAt) calendlyQuery = calendlyQuery.gte('scheduled_at', connectedAt);
+      if (connectedAt) {
+        const cutoff = new Date(new Date(connectedAt).getTime() - 24 * 3600_000).toISOString();
+        calendlyQuery = calendlyQuery.gte('scheduled_at', cutoff);
+      }
       const { data: calendlyCalls } = await calendlyQuery;
 
       // Calls Google Calendar : client_id = client.id
