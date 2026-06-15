@@ -2011,7 +2011,7 @@ function delta(current: number, previous: number): { value: number; label: strin
   };
 }
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[] }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string> }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   const [expandedHero, setExpandedHero] = useState<number | null>(null);
@@ -2059,7 +2059,21 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
 
   const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
-  const igDMClics   = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const periodCutoffFunnel = Date.now() - period * 24 * 60 * 60 * 1000;
+  const igDMClics = noData ? 0 : (() => {
+    if (!prospectLinksData || !linkClickedByLeadId) return 0;
+    const isLMPl = (pl: any) => {
+      const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
+      return !!lead?.leadMagnetSent;
+    };
+    return (prospectLinksData as any[]).filter((pl: any) => {
+      if (!pl.calendly_link_sent) return false;
+      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+      if (!ts || new Date(ts).getTime() < periodCutoffFunnel) return false;
+      if (isLMPl(pl)) return false;
+      return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
+    }).length;
+  })();
   const igTotalClicsD = igBioD + igPostClics + igDMClics;
 
   const dash = '—';
@@ -6082,7 +6096,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} />}
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
           {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
