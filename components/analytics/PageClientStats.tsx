@@ -4353,8 +4353,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
         {(() => {
           const bioIG = bioLinks.find((l: any) => l.bioType === 'instagram');
           const bioYT = bioLinks.find((l: any) => l.bioType === 'youtube');
-          const igContentLinks = postLinks.filter((l: any) => l.postPlatform === 'IG');
-          const ytContentLinks = postLinks.filter((l: any) => l.postPlatform === 'YT');
+          const isCalendlyLink = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
+          const igContentLinks = postLinks.filter((l: any) => l.postPlatform === 'IG' && isCalendlyLink(l));
+          const ytContentLinks = postLinks.filter((l: any) => l.postPlatform === 'YT' && isCalendlyLink(l));
           const igRows = consolidatedRows.filter(r => r.platform === 'IG');
           const ytRows = consolidatedRows.filter(r => r.platform === 'YT');
 
