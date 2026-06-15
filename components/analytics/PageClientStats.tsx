@@ -2059,12 +2059,13 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
 
   const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'post' && l.postPlatform === 'IG').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
-  const igTotalClicsD = igBioD + igPostClics;
+  const igDMClics   = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const igTotalClicsD = igBioD + igPostClics + igDMClics;
 
   const dash = '—';
   const igFunnelSteps = [
     { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: noData ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD },
-    { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + LM', rawValue: igTotalClicsD, rate: noData ? 0 : (igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0) },
+    { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: noData ? 0 : (igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0) },
     { label: 'Calls bookés', value: noData ? dash : fmt(igBookes), rawValue: igBookes, rate: noData ? 0 : (igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0) },
     { label: 'Calls honorés', value: noData ? dash : fmt(igHonores), rawValue: igHonores, rate: noData ? 0 : (igBookes > 0 ? (igHonores / igBookes) * 100 : 0) },
     { label: 'Deals closés', value: noData ? dash : fmt(igCloses), rawValue: igCloses, rate: noData ? 0 : (igHonores > 0 ? (igCloses / igHonores) * 100 : 0) },
@@ -2073,7 +2074,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const ytFunnelSteps = [
     { label: period === 7 ? 'Vues 7j' : 'Vues 30j', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
-    { label: 'Clics description → Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Short.io', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
+    { label: 'Clics description → Calendly', value: noData ? dash : fmt(ytClicsD), rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
     { label: 'Calls bookés', value: noData ? dash : fmt(ytBookes), rawValue: ytBookes, rate: noData ? 0 : (ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0) },
     { label: 'Calls honorés', value: noData ? dash : fmt(ytHonores), rawValue: ytHonores, rate: noData ? 0 : (ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0) },
     { label: 'Deals closés', value: noData ? dash : fmt(ytCloses), rawValue: ytCloses, rate: noData ? 0 : (ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0) },
@@ -2565,7 +2566,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const igFunnelSteps = [
     { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD), rawValue: igReachD },
     { label: 'Leads commentaires', value: fmt(igLeadsD), sub: 'mots-clés détectés', rawValue: igLeadsD, rate: igReachD > 0 ? (igLeadsD / igReachD) * 100 : 0 },
-    { label: 'Clics bio → Calendly', value: fmt(igBioD), sub: 'Short.io', rawValue: igBioD, rate: igReachD > 0 ? (igBioD / igReachD) * 100 : 0 },
+    { label: 'Clics bio → Calendly', value: fmt(igBioD), rawValue: igBioD, rate: igReachD > 0 ? (igBioD / igReachD) * 100 : 0 },
     { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igBioD > 0 ? (igBookes / igBioD) * 100 : 0 },
     { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igHonores > 0 ? (igCloses / igHonores) * 100 : 0 },
@@ -2573,7 +2574,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   ];
   const ytFunnelSteps = [
     { label: period === 7 ? 'Vues 7j' : 'Vues 30j', value: ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD), rawValue: ytViewsD },
-    { label: 'Clics description → Calendly', value: fmt(ytClicsD), sub: 'Short.io', rawValue: ytClicsD, rate: ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0 },
+    { label: 'Clics description → Calendly', value: fmt(ytClicsD), rawValue: ytClicsD, rate: ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0 },
     { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0 },
     { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
     { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0 },
