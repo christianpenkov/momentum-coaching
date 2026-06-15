@@ -30,10 +30,15 @@ async function safeJson(res: Response): Promise<any> {
 
 // Deno-native gunzip (remplace Node zlib.gunzipSync)
 async function gunzip(buf: ArrayBuffer): Promise<string> {
+  const bytes = new Uint8Array(buf);
+  // Vérifier le magic number gzip (0x1f 0x8b) avant de tenter la décompression
+  if (bytes.length < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) {
+    return new TextDecoder().decode(buf);
+  }
   try {
     const ds = new DecompressionStream('gzip');
     const writer = ds.writable.getWriter();
-    writer.write(new Uint8Array(buf));
+    writer.write(bytes);
     writer.close();
     const chunks: Uint8Array[] = [];
     const reader = ds.readable.getReader();

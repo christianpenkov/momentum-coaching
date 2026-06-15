@@ -34,7 +34,12 @@ function getResetFields(targetStage: IgPreCallStage): {
           first_click_at: null,
         }
       : idx < IG_PRE_CALL.indexOf('link_clicked')
-      ? { first_click_at: null }
+      ? {
+          first_click_at: null,
+          // Avancer last_calendly_link_sent_at à maintenant pour que syncLmClickStream
+          // considère l'ancien clic Short.io comme "avant l'envoi" et ne le recrée pas
+          last_calendly_link_sent_at: new Date().toISOString(),
+        }
       : {},
 
     // Events à supprimer
