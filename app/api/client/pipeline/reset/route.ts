@@ -14,7 +14,7 @@ type IgPreCallStage = typeof IG_PRE_CALL[number];
 // Ce qui doit être effacé selon le stage cible
 // Tout ce qui est "devant" le stage cible est supprimé
 function getResetFields(targetStage: IgPreCallStage): {
-  prospectLinkFields: Record<string, null | boolean>;
+  prospectLinkFields: Record<string, null | boolean | string>;
   deleteEventTypes: string[];
   deleteCalls: boolean;
   deleteHookReplied: boolean;
