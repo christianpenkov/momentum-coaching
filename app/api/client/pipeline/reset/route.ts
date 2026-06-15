@@ -34,12 +34,7 @@ function getResetFields(targetStage: IgPreCallStage): {
           first_click_at: null,
         }
       : idx < IG_PRE_CALL.indexOf('link_clicked')
-      ? {
-          first_click_at: null,
-          // Avancer last_calendly_link_sent_at à maintenant pour que syncLmClickStream
-          // considère l'ancien clic Short.io comme "avant l'envoi" et ne le recrée pas
-          last_calendly_link_sent_at: new Date().toISOString(),
-        }
+      ? { first_click_at: null }
       : {},
 
     // Events à supprimer
@@ -48,7 +43,7 @@ function getResetFields(targetStage: IgPreCallStage): {
       : idx < IG_PRE_CALL.indexOf('calendly_sent')
       ? ['calendly_link_sent', 'link_clicked', 'call_booked']
       : idx < IG_PRE_CALL.indexOf('link_clicked')
-      ? ['link_clicked', 'call_booked']
+      ? ['call_booked']
       : ['call_booked'],
 
     // Supprimer les calls si on va avant call_booked (toujours vrai pour pré-call)

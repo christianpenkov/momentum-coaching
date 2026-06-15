@@ -81,17 +81,16 @@ export async function POST(request: Request) {
 
   // ── link_clicked : first_click_at + event + snapshot Short.io ────────────
   if (target_stage === 'link_clicked' && pl) {
-    // Réécrire first_click_at = now
-    // Remettre last_calendly_link_sent_at = calendly_link_sent_at (timestamp d'envoi original)
-    // pour garantir first_click_at > last_calendly_link_sent_at sans dépendre d'un délai arbitraire
-    const sentRef = pl.calendly_link_sent_at ?? pl.last_calendly_link_sent_at;
-    ops.push(
-      supa.from('prospect_links')
-        .update({ first_click_at: now, last_calendly_link_sent_at: sentRef })
-        .eq('profile_id', user.id)
-        .eq('ig_username', username)
-        .then()
-    );
+    // Même comportement que le cron : écrire first_click_at seulement si absent
+    if (!pl.first_click_at) {
+      ops.push(
+        supa.from('prospect_links')
+          .update({ first_click_at: now })
+          .eq('profile_id', user.id)
+          .eq('ig_username', username)
+          .then()
+      );
+    }
 
     // ignoreDuplicates: false pour mettre à jour ig_lead_id si l'event existait déjà sans lui
     ops.push(
