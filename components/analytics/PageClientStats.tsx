@@ -3954,8 +3954,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
       callBooked:  plDb ? (plDb.callBooked  ?? false) : (l.callBooked  ?? false),
       dealClosed:  plDb ? (plDb.dealClosed  ?? null)  : (l.dealClosed  ?? null),
       revenue:     plDb ? (plDb.revenue     ?? 0)     : (l.revenue     ?? 0),
-      ig_username: plDb?.ig_username ?? l.ig_username ?? null,
-      ig_lead_id:  plDb?.ig_lead_id  ?? l.ig_lead_id  ?? null,
+      ig_username:           plDb?.ig_username           ?? l.ig_username           ?? null,
+      ig_lead_id:            plDb?.ig_lead_id             ?? l.ig_lead_id             ?? null,
+      calendly_link_sent:    plDb?.calendly_link_sent     ?? l.calendly_link_sent     ?? null,
+      calendly_link_sent_at: plDb?.calendly_link_sent_at  ?? l.calendly_link_sent_at  ?? null,
     };
   });
   const bioLinks      = allShortioLinks.filter((l: any) => l.linkType === 'bio');
@@ -4329,20 +4331,26 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const lmProspectLinks = prospectLinks.filter((l: any) => isLMProspect(l));
 
           // Cold DM = coach a initié (dmType === 'cold') ou non détecté (null) parmi les DM directs
-          const coldDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'cold' || l.dmType == null);
-          const organicDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'organic');
+          const periodCutoffBreakdown = Date.now() - sPeriod * 24 * 60 * 60 * 1000;
+          const dmLinkSentInPeriod = (l: any) => {
+            if (!l.calendly_link_sent) return false;
+            const ts = l.calendly_link_sent_at ?? l.created_at;
+            return ts && new Date(ts).getTime() >= periodCutoffBreakdown;
+          };
+          const coldDMLinks = dmDirectLinks.filter((l: any) => (l.dmType === 'cold' || l.dmType == null) && dmLinkSentInPeriod(l));
+          const organicDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'organic' && dmLinkSentInPeriod(l));
 
           const coldBooked = coldDMLinks.filter((l: any) => l.callBooked).length;
           const coldHonored = coldBooked;
           const coldClosed = coldDMLinks.filter((l: any) => l.dealClosed === true).length;
           const coldRevenue = coldDMLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
-          const coldClics = coldDMLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const coldClics = coldDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           const organicBooked = organicDMLinks.filter((l: any) => l.callBooked).length;
           const organicHonored = organicBooked;
           const organicClosed = organicDMLinks.filter((l: any) => l.dealClosed === true).length;
           const organicRevenue = organicDMLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
-          const organicClics = organicDMLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const organicClics = organicDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           const lmBooked = lmProspectLinks.filter((l: any) => l.callBooked).length;
           const lmHonored = lmBooked;
