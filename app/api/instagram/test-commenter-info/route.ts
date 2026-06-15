@@ -50,22 +50,22 @@ export async function GET(request: Request) {
     }
   }
 
-  // Test 2a : profile_pic via graph.facebook.com (IGSID)
+  // Test 2a : profile_pic via graph.instagram.com
   if (commenterId) {
     const profileRes = await fetch(
-      `https://graph.facebook.com/${commenterId}?fields=profile_pic,username&access_token=${token}`
+      `https://graph.instagram.com/v22.0/${commenterId}?fields=id,username,profile_pic,name&access_token=${token}`
     );
     const profileData = await profileRes.json();
-    results.commenter_profile_facebook = profileData;
+    results.commenter_profile_pic = profileData;
   }
 
-  // Test 2b : profile_picture_url via graph.instagram.com (ancien test)
+  // Test 2b : via les messages — récupère les infos du profil depuis l'endpoint messaging
   if (commenterId) {
     const profileRes = await fetch(
-      `https://graph.instagram.com/v22.0/${commenterId}?fields=id,name,username,profile_picture_url&access_token=${token}`
+      `https://graph.instagram.com/v22.0/me/messages?user_id=${commenterId}&fields=sender&access_token=${token}`
     );
     const profileData = await profileRes.json();
-    results.commenter_profile_instagram = profileData;
+    results.commenter_messaging = profileData;
   }
 
   // Test 3 : via les conversations — si une conv existe avec ce user
