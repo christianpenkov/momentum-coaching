@@ -27,9 +27,6 @@ export async function POST(request: Request) {
   const username = ig_username.toLowerCase();
   const now = new Date().toISOString();
   const today = now.slice(0, 10);
-  // Pour link_clicked manuel : last_calendly_link_sent_at = 1 minute avant now
-  // pour garantir que first_click_at (= now) > last_calendly_link_sent_at
-  const oneMinuteBefore = new Date(Date.now() - 60_000).toISOString();
   const targetIdx  = IG_PRE_CALL.indexOf(target_stage as IgPreCallStage);
   // currentIdx : on ne réécrit que les signaux strictement au-dessus du stage de départ
   const currentIdx = current_stage && IG_PRE_CALL.includes(current_stage) ? IG_PRE_CALL.indexOf(current_stage as IgPreCallStage) : -1;
@@ -37,7 +34,7 @@ export async function POST(request: Request) {
   // Récupérer lead + prospect_link en parallèle
   const [{ data: lead }, { data: pl }] = await Promise.all([
     supa.from('instagram_leads').select('id').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
-    supa.from('prospect_links').select('id, short_url, calendly_link_sent_at, first_click_at').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
+    supa.from('prospect_links').select('id, short_url, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
   ]);
 
   const ops: PromiseLike<any>[] = [];
@@ -84,11 +81,13 @@ export async function POST(request: Request) {
 
   // ── link_clicked : first_click_at + event + snapshot Short.io ────────────
   if (target_stage === 'link_clicked' && pl) {
-    // Toujours réécrire first_click_at = now et last_calendly_link_sent_at = 1 min avant
-    // pour garantir que resolveStage() détecte link_clicked via first_click_at > linkSentRef
+    // Réécrire first_click_at = now
+    // Remettre last_calendly_link_sent_at = calendly_link_sent_at (timestamp d'envoi original)
+    // pour garantir first_click_at > last_calendly_link_sent_at sans dépendre d'un délai arbitraire
+    const sentRef = pl.calendly_link_sent_at ?? pl.last_calendly_link_sent_at;
     ops.push(
       supa.from('prospect_links')
-        .update({ first_click_at: now, last_calendly_link_sent_at: oneMinuteBefore })
+        .update({ first_click_at: now, last_calendly_link_sent_at: sentRef })
         .eq('profile_id', user.id)
         .eq('ig_username', username)
         .then()
