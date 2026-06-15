@@ -30,7 +30,8 @@ export async function GET() {
     .order('scheduled_at', { ascending: false });
 
   if (calendlyConnectedAt) {
-    callsQuery = callsQuery.gte('scheduled_at', calendlyConnectedAt);
+    const cutoff = new Date(new Date(calendlyConnectedAt).getTime() - 24 * 3600_000).toISOString();
+    callsQuery = callsQuery.gte('scheduled_at', cutoff);
   }
 
   const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes] = await Promise.all([
