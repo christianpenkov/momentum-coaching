@@ -158,28 +158,26 @@ export async function upsertShortioLinkSnapshot(
   row: ShortioLinkSnapshot,
   source: 'cron' | 'refresh_partial',
 ): Promise<string | null> {
-  const { error } = await serviceSupabase
-    .from('shortio_link_daily_snapshots')
-    .upsert({
-      profile_id:    profileId,
-      link_id:       row.link_id,
-      path:          row.path,
-      short_url:     row.short_url,
-      original_url:  row.original_url,
-      date:          row.date,
-      human_clicks:  row.human_clicks,
-      total_clicks:  row.total_clicks,
-      link_type:     row.link_type,
-      top_countries: row.top_countries,
-      top_referrers: row.top_referrers,
-      top_browsers:  row.top_browsers,
-      top_os:        row.top_os,
-      top_social:    row.top_social,
-      top_cities:    row.top_cities,
-      utm_sources:   row.utm_sources,
-      utm_mediums:   row.utm_mediums,
-      backfill_source: source,
-    }, { onConflict: 'profile_id,link_id,date', ignoreDuplicates: false });
+  const { error } = await serviceSupabase.rpc('upsert_shortio_link_snapshot', {
+    p_profile_id:    profileId,
+    p_link_id:       row.link_id,
+    p_path:          row.path,
+    p_short_url:     row.short_url,
+    p_original_url:  row.original_url ?? null,
+    p_date:          row.date,
+    p_human_clicks:  row.human_clicks,
+    p_total_clicks:  row.total_clicks,
+    p_link_type:     row.link_type ?? null,
+    p_top_countries: row.top_countries ?? null,
+    p_top_referrers: row.top_referrers ?? null,
+    p_top_browsers:  row.top_browsers ?? null,
+    p_top_os:        row.top_os ?? null,
+    p_top_social:    row.top_social ?? null,
+    p_top_cities:    row.top_cities ?? null,
+    p_utm_sources:   row.utm_sources ?? null,
+    p_utm_mediums:   row.utm_mediums ?? null,
+    p_backfill_source: source,
+  });
 
   if (error) return error.message;
 
