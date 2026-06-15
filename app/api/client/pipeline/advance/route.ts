@@ -66,15 +66,22 @@ export async function POST(request: Request) {
 
     if (pl) {
       ops.push(
-        supa.from('prospect_events').upsert({
-          profile_id: user.id,
-          prospect_key: username,
-          platform: 'ig',
-          event_type: 'calendly_link_sent',
-          occurred_at: now,
-          ig_lead_id: lead?.id ?? null,
-          prospect_link_id: pl.id,
-        }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: false }).then()
+        supa.from('prospect_events')
+          .delete()
+          .eq('prospect_link_id', pl.id)
+          .eq('event_type', 'calendly_link_sent')
+          .then()
+          .then(() =>
+            supa.from('prospect_events').insert({
+              profile_id: user.id,
+              prospect_key: username,
+              platform: 'ig',
+              event_type: 'calendly_link_sent',
+              occurred_at: now,
+              ig_lead_id: lead?.id ?? null,
+              prospect_link_id: pl.id,
+            }).then()
+          )
       );
     }
   }
@@ -89,17 +96,24 @@ export async function POST(request: Request) {
         .then()
     );
 
-    // ignoreDuplicates: false pour mettre à jour ig_lead_id si l'event existait déjà sans lui
+    // delete+insert car onConflict ne fonctionne pas avec les index partiels Supabase JS
     ops.push(
-      supa.from('prospect_events').upsert({
-        profile_id: user.id,
-        prospect_key: username,
-        platform: 'ig',
-        event_type: 'link_clicked',
-        occurred_at: now,
-        ig_lead_id: lead?.id ?? null,
-        prospect_link_id: pl.id,
-      }, { onConflict: 'prospect_link_id,event_type', ignoreDuplicates: false }).then()
+      supa.from('prospect_events')
+        .delete()
+        .eq('prospect_link_id', pl.id)
+        .eq('event_type', 'link_clicked')
+        .then()
+        .then(() =>
+          supa.from('prospect_events').insert({
+            profile_id: user.id,
+            prospect_key: username,
+            platform: 'ig',
+            event_type: 'link_clicked',
+            occurred_at: now,
+            ig_lead_id: lead?.id ?? null,
+            prospect_link_id: pl.id,
+          }).then()
+        )
     );
 
     if (pl.short_url) {
