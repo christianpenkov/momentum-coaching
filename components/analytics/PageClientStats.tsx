@@ -3955,6 +3955,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
       dealClosed:  plDb ? (plDb.dealClosed  ?? null)  : (l.dealClosed  ?? null),
       revenue:     plDb ? (plDb.revenue     ?? 0)     : (l.revenue     ?? 0),
       ig_username: plDb?.ig_username ?? l.ig_username ?? null,
+      ig_lead_id:  plDb?.ig_lead_id  ?? l.ig_lead_id  ?? null,
     };
   });
   const bioLinks      = allShortioLinks.filter((l: any) => l.linkType === 'bio');
