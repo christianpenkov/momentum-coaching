@@ -5930,7 +5930,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const { data: shortioRaw, isLoading: shortioLoading } = useQuery<ShortioStats | null>({
     queryKey: ['stats-shortio', profileId],
     queryFn: () => fetchApi(`/api/shortio/stats${q}`),
-    enabled: tab === 0 || tab === 4,
+    enabled: tab === 0 || tab === 3 || tab === 4,
     staleTime: 15 * 60 * 1000,
   });
   const shortio: ShortioStats | null = shortioRaw ?? null;
@@ -5996,7 +5996,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     if (!supaData) return true;
     if (tab === 1 && igLoading) return true;
     if (tab === 2 && ytLoading) return true;
-    if (tab === 4 && shortioLoading) return true;
+    if ((tab === 3 || tab === 4) && shortioLoading) return true;
     return false;
   })();
 
