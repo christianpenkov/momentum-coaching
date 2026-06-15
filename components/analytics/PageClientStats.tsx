@@ -3855,7 +3855,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3870,6 +3870,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   altKwToLmId?: Map<string, string>;
   lmClickedByLeadId?: Map<string, string>;
   linkClickedByLeadId?: Map<string, string>;
+  calls?: CallRecord[];
+  leadIdToMediaId?: Map<string, string>;
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
@@ -4126,16 +4128,17 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const postLeadsInPeriod = postLeads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
     const lmDetectes = postLeadsInPeriod.length;
     const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
-    // Clics LM réels : même logique que le pipeline — prospect_events.lm_clicked postérieur à detected_at
-    // (ignore les clics de test antérieurs à la création du lead)
     const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
-    // Réponses au message d'accroche = hook_replied dans instagram_leads
     const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
-    const callsBooked = dmProspects.filter((l: any) => l.callBooked).length;
-    const callsHonored = dmProspects.filter((l: any) => l.callBooked && l.honored !== false).length;
-    const closed = dmProspects.filter((l: any) => l.dealClosed === true).length;
-    const revenue = dmProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+    // Calls bookés/closés/revenue depuis la table calls (source de vérité) via ig_lead_id → media_id
+    const postCalls = (calls && leadIdToMediaId)
+      ? calls.filter(c => c.ig_lead_id && leadIdToMediaId.get(c.ig_lead_id) === postId)
+      : [];
+    const callsBooked = postCalls.filter(c => c.status === 'active').length;
+    const callsHonored = postCalls.filter(c => c.status === 'active' && !c.no_show).length;
+    const closed = postCalls.filter(c => c.deal_closed).length;
+    const revenue = postCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
     return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, vuesParCall, lmName };
@@ -6125,7 +6128,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={ig} period={period} />}
           {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} />}
+          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={calls} leadIdToMediaId={leadIdToMediaId} />}
           {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
