@@ -3982,12 +3982,12 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
 
   const allShortioLinks: any[] = (shortio.links ?? []).map((l: any) => {
     let linkType = l.linkType;
-    if (!linkType) {
-      try {
-        const u = new URL(l.originalUrl || '');
-        linkType = u.searchParams.get('utm_medium') || null;
-      } catch { /* ignore */ }
-    }
+    let utmContent: string | null = null;
+    try {
+      const u = new URL(l.originalUrl || '');
+      if (!linkType) linkType = u.searchParams.get('utm_medium') || null;
+      utmContent = u.searchParams.get('utm_content') || null;
+    } catch { /* ignore */ }
     const plDb = plDbByUrl2.get((l.shortUrl || '').toLowerCase());
     return {
       ...l,
@@ -3999,10 +3999,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
       ig_lead_id:            plDb?.ig_lead_id             ?? l.ig_lead_id             ?? null,
       calendly_link_sent:    plDb?.calendly_link_sent     ?? l.calendly_link_sent     ?? null,
       calendly_link_sent_at: plDb?.calendly_link_sent_at  ?? l.calendly_link_sent_at  ?? null,
+      postId:                plDb?.post_id               ?? l.postId                 ?? utmContent ?? null,
     };
   });
   const bioLinks      = allShortioLinks.filter((l: any) => l.linkType === 'bio');
-  const postLinks     = allShortioLinks.filter((l: any) => l.linkType === 'post');
+  const postLinks     = allShortioLinks.filter((l: any) => l.linkType === 'post' || l.linkType === 'description');
   const prospectLinks = allShortioLinks.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect');
 
   // Helper : clics sur un lien Short.io pour la période courante.
@@ -5789,7 +5790,7 @@ async function fetchSupabaseStats(profileId?: string) {
     }
   }
 
-  // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/humanClicks30d via DB
+  // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/humanClicks30d/post_id via DB
   const prospectLinksData = (prospectLinksRes.data ?? []).map((pl: any) => {
     const callData = pl.ig_lead_id ? callByLeadId.get(pl.ig_lead_id) : undefined;
     const urlKey = (pl.short_url || '').toLowerCase();
@@ -5800,6 +5801,7 @@ async function fetchSupabaseStats(profileId?: string) {
       dealClosed:      callData?.dealClosed  ?? false,
       revenue:         callData?.revenue     ?? 0,
       humanClicks30d:  clicksByUrl.get(urlKey) ?? 0,
+      post_id:         pl.ig_lead_id ? (leadIdToMediaId.get(pl.ig_lead_id) ?? null) : null,
     };
   });
 
