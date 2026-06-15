@@ -88,13 +88,15 @@ export async function POST(request: Request) {
 
   // ── link_clicked : first_click_at + event + snapshot Short.io ────────────
   if (target_stage === 'link_clicked' && pl) {
-    ops.push(
-      supa.from('prospect_links')
-        .update({ first_click_at: now })
-        .eq('profile_id', user.id)
-        .eq('ig_username', username)
-        .then()
-    );
+    if (!pl.first_click_at) {
+      ops.push(
+        supa.from('prospect_links')
+          .update({ first_click_at: now })
+          .eq('profile_id', user.id)
+          .eq('ig_username', username)
+          .then()
+      );
+    }
 
     // delete+insert car onConflict ne fonctionne pas avec les index partiels Supabase JS
     ops.push(
