@@ -120,23 +120,19 @@ export async function DELETE(request: Request) {
 
   // ── Suppression YT / Autre (prospect_id = UUID) ──────────────────────────────
   if (prospect_id && platform !== 'ig') {
-    const deleteOps: Promise<any>[] = [
-      // Ignore tous les calls liés à ce prospect (source de vérité pour les stats)
+    const deleteOps = [
       supa.from('calls').update({ ignored: true, lead_deleted: true })
         .eq('coach_id', user.id)
-        .eq('prospect_id', prospect_id).then(),
-      // Supprime l'override pipeline (dismissed, stage forcé...)
+        .eq('prospect_id', prospect_id),
       supa.from('pipeline_overrides').delete()
         .eq('profile_id', user.id)
-        .eq('prospect_key', prospect_id).then(),
-      // Supprime les events prospect liés (call_booked, etc.)
+        .eq('prospect_key', prospect_id),
       supa.from('prospect_events').delete()
         .eq('profile_id', user.id)
-        .eq('prospect_key', prospect_id).then(),
-      // Supprime la fiche prospect elle-même
+        .eq('prospect_key', prospect_id),
       supa.from('prospects').delete()
         .eq('profile_id', user.id)
-        .eq('id', prospect_id).then(),
+        .eq('id', prospect_id),
     ];
     await Promise.all(deleteOps);
     return NextResponse.json({ ok: true });
