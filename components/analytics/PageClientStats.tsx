@@ -3296,9 +3296,9 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
     const postLeads: MockLead[] = [];
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
-    const title = igPost?.caption || ytVideo?.title || descLink?.title || postId;
+    const title = igPost?.caption || ytVideo?.title || descLink?.title || '(sans titre)';
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
-    const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo?.isShort ? 'Short' : 'Vidéo');
+    const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
 
     const clicsDesc = descLink?.humanClicks30d || 0;
     const clicsDM = dmLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
@@ -4242,9 +4242,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const postLeads = leads.filter(lead => lead.postId === postId);
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
-    const title = igPost?.caption || ytVideo?.title || descLink?.title || postId;
+    const title = igPost?.caption || ytVideo?.title || descLink?.title || '(sans titre)';
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
-    const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo?.isShort ? 'Short' : 'Vidéo');
+    const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
     // Nom du LM associé aux leads de ce contenu (premier keyword trouvé)
     const lmKeyword = postLeads[0]?.keyword || null;
