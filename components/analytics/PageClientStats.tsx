@@ -4125,15 +4125,17 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     if (_pIdx === 0) return s + (l.humanClicks30d || 0);
     return s;
   }, 0);
-  const prospectClicsDedup = (prospectLinksData ?? []).filter((pl: any) =>
-    pl.ig_lead_id && linkClickedByLeadId?.has(pl.ig_lead_id) &&
-    inPeriodWindow(pl.calendly_link_sent_at ?? pl.created_at)
-  ).length;
-  const lmClicsDedup = (prospectLinksData ?? []).filter((pl: any) =>
-    pl.ig_lead_id && lmClickedByLeadId?.has(pl.ig_lead_id) &&
-    inPeriodWindow(pl.calendly_link_sent_at ?? pl.created_at)
-  ).length;
-  const totalClics = shortioCalendlyClics + prospectClicsDedup + lmClicsDedup;
+  // Même filtre exact que Vue générale : calendly_link_sent=true + linkClickedByLeadId + fenêtre période
+  const prospectClicsDedup = (prospectLinksData ?? []).filter((pl: any) => {
+    if (!pl.calendly_link_sent) return false;
+    const ts = pl.calendly_link_sent_at ?? pl.created_at;
+    if (!ts) return false;
+    const t = new Date(ts).getTime();
+    if (t < periodCutoff) return false;
+    if (_pIdx > 0 && t > periodEndMs) return false;
+    return pl.ig_lead_id && linkClickedByLeadId?.has(pl.ig_lead_id);
+  }).length;
+  const totalClics = shortioCalendlyClics + prospectClicsDedup;
   const dmLinks = prospectLinks.length;
   const dmClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
   const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
