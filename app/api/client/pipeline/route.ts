@@ -126,21 +126,16 @@ export async function DELETE(request: Request) {
       .select('invitee_email').eq('id', call_id).maybeSingle();
     const email = callToDelete?.invitee_email ?? null;
 
-    const ops: Promise<any>[] = [
+    const ops = [
       supa.from('calls').update({ ignored: true, lead_deleted: true })
         .eq('coach_id', user.id).eq('id', call_id),
       supa.from('pipeline_overrides').delete()
         .eq('profile_id', user.id).eq('prospect_key', call_id),
       supa.from('prospect_events').delete()
         .eq('profile_id', user.id).eq('prospect_key', call_id),
+      ...(email ? [supa.from('calls').update({ ignored: true, lead_deleted: true })
+        .eq('coach_id', user.id).eq('invitee_email', email)] : []),
     ];
-    // Bloque aussi tous les autres calls du même email (passés ou futurs)
-    if (email) {
-      ops.push(
-        supa.from('calls').update({ ignored: true, lead_deleted: true })
-          .eq('coach_id', user.id).eq('invitee_email', email)
-      );
-    }
     await Promise.all(ops);
     return NextResponse.json({ ok: true });
   }
@@ -152,31 +147,20 @@ export async function DELETE(request: Request) {
       .select('email').eq('id', prospect_id).maybeSingle();
     const email = prospectRow?.email ?? null;
 
-    const ops: Promise<any>[] = [
+    const ops = [
       supa.from('calls').update({ ignored: true, lead_deleted: true })
         .eq('coach_id', user.id).eq('prospect_id', prospect_id),
       supa.from('pipeline_overrides').delete()
         .eq('profile_id', user.id).eq('prospect_key', prospect_id),
       supa.from('prospect_events').delete()
         .eq('profile_id', user.id).eq('prospect_key', prospect_id),
-      // Marque le prospect deleted=false mais on le garde en DB comme pare-feu email
-      // On ne supprime plus : on laisse la ligne pour que upsertProspect puisse vérifier
       supa.from('prospects').update({ deleted: true } as any)
         .eq('profile_id', user.id).eq('id', prospect_id),
+      ...(call_id ? [supa.from('calls').update({ ignored: true, lead_deleted: true })
+        .eq('coach_id', user.id).eq('id', call_id)] : []),
+      ...(email ? [supa.from('calls').update({ ignored: true, lead_deleted: true })
+        .eq('coach_id', user.id).eq('invitee_email', email)] : []),
     ];
-    if (call_id) {
-      ops.push(
-        supa.from('calls').update({ ignored: true, lead_deleted: true })
-          .eq('coach_id', user.id).eq('id', call_id)
-      );
-    }
-    // Bloque tous les appels du même email (passés ou futurs rebookings)
-    if (email) {
-      ops.push(
-        supa.from('calls').update({ ignored: true, lead_deleted: true })
-          .eq('coach_id', user.id).eq('invitee_email', email)
-      );
-    }
     await Promise.all(ops);
     return NextResponse.json({ ok: true });
   }
