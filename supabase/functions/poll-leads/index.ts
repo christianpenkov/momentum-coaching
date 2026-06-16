@@ -523,6 +523,196 @@ async function syncLmClickStream(profileId: string, creds: { apiKey: string; dom
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Posts IG individuels — snapshot quotidien
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function snapshotIgPosts(profileId: string, token: string, igAccountId: string, yesterday: string): Promise<string[]> {
+  const errors: string[] = [];
+  try {
+    // Guard : si des snapshots existent déjà pour hier, on ne refetch pas
+    const { count } = await supa.from('analytics_ig_posts_history')
+      .select('*', { count: 'exact', head: true })
+      .eq('profile_id', profileId)
+      .eq('snapshot_date', yesterday);
+    if (count && count > 0) return [];
+
+    const mediaRes = await fetch(
+      `https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,video_duration&limit=15&access_token=${token}`
+    );
+    if (!mediaRes.ok) return [`ig_posts_media: HTTP ${mediaRes.status}`];
+    const mediaData = await safeJson(mediaRes);
+    const posts: any[] = mediaData.data || [];
+
+    const snapshotAt = new Date().toISOString();
+
+    await Promise.allSettled(posts.map(async (post: any) => {
+      try {
+        const isReel = post.media_product_type === 'REELS' || post.media_type === 'VIDEO';
+        const baseMetrics = 'reach,saved,shares,total_interactions,views,follows,profile_visits';
+        const reelMetrics = isReel ? ',ig_reels_avg_watch_time,ig_reels_video_view_total_time' : '';
+        const insightsRes = await fetch(
+          `https://graph.instagram.com/v22.0/${post.id}/insights?metric=${baseMetrics}${reelMetrics}&access_token=${token}`
+        );
+        const insightsData = insightsRes.ok ? await safeJson(insightsRes) : { data: [] };
+        const m: Record<string, number> = {};
+        for (const metric of insightsData?.data || []) {
+          m[metric.name] = metric.values?.[0]?.value ?? metric.total_value?.value ?? 0;
+        }
+
+        const row: Record<string, any> = {
+          profile_id: profileId,
+          post_id: post.id,
+          post_type: post.media_product_type || post.media_type || 'IMAGE',
+          caption: (post.caption || '').slice(0, 500),
+          permalink: post.permalink || null,
+          thumbnail: post.thumbnail_url || post.media_url || null,
+          published_at: post.timestamp ? new Date(post.timestamp).toISOString() : null,
+          reach: m['reach'] ?? null,
+          views: m['views'] ?? null,
+          likes: post.like_count ?? null,
+          comments: post.comments_count ?? null,
+          saves: m['saved'] ?? null,
+          shares: m['shares'] ?? null,
+          follows: m['follows'] ?? null,
+          profile_visits: m['profile_visits'] ?? null,
+          total_interactions: m['total_interactions'] ?? null,
+          snapshot_date: yesterday,
+          snapshot_at: snapshotAt,
+        };
+        if (isReel) {
+          row.avg_watch_time_ms = m['ig_reels_avg_watch_time'] ?? null;
+          row.total_watch_time_ms = m['ig_reels_video_view_total_time'] ?? null;
+          row.video_duration_sec = post.video_duration ? Math.round(post.video_duration) : null;
+        }
+
+        const { error } = await supa.from('analytics_ig_posts_history').upsert(row, { onConflict: 'profile_id,post_id,snapshot_date', ignoreDuplicates: false });
+        if (error) errors.push(`ig_post_upsert_${post.id}: ${error.message}`);
+      } catch (e: any) { errors.push(`ig_post_${post.id}: ${e?.message || 'unknown'}`); }
+    }));
+  } catch (e: any) { errors.push(`ig_posts_snapshot: ${e?.message || 'unknown'}`); }
+  return errors;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vidéos YT individuelles — snapshot quotidien
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function snapshotYtVideos(profileId: string, accessToken: string, yesterday: string): Promise<string[]> {
+  const errors: string[] = [];
+  try {
+    // Guard : si des snapshots existent déjà pour hier, on ne refetch pas
+    const { count } = await supa.from('analytics_yt_videos_history')
+      .select('*', { count: 'exact', head: true })
+      .eq('profile_id', profileId)
+      .eq('snapshot_date', yesterday);
+    if (count && count > 0) return [];
+
+    const auth = { Authorization: `Bearer ${accessToken}` };
+
+    // Récupère uploads playlist id
+    const channelRes = await fetch('https://www.googleapis.com/youtube/v3/channels?part=contentDetails,snippet,statistics&mine=true', { headers: auth });
+    if (!channelRes.ok) return [`yt_videos_channel: HTTP ${channelRes.status}`];
+    const channelData = await safeJson(channelRes);
+    const uploadsPlaylistId = channelData?.items?.[0]?.contentDetails?.relatedPlaylists?.uploads;
+    if (!uploadsPlaylistId) return ['yt_videos_no_uploads_playlist'];
+
+    // Récupère les 30 dernières vidéos
+    const playlistRes = await fetch(
+      `https://www.googleapis.com/youtube/v3/playlistItems?playlistId=${uploadsPlaylistId}&maxResults=30&part=snippet&fields=items(snippet(resourceId,title,publishedAt,thumbnails))`,
+      { headers: auth }
+    );
+    if (!playlistRes.ok) return [`yt_videos_playlist: HTTP ${playlistRes.status}`];
+    const playlistData = await safeJson(playlistRes);
+    const items: any[] = playlistData.items || [];
+    if (!items.length) return [];
+
+    const videoIds = items.map((i: any) => i.snippet?.resourceId?.videoId).filter(Boolean);
+
+    // Détails vidéo (durée, statistiques lifetime)
+    const BATCH = 10;
+    const videoDetailsMap: Record<string, any> = {};
+    for (let i = 0; i < videoIds.length; i += BATCH) {
+      const batch = videoIds.slice(i, i + BATCH);
+      const detailsRes = await fetch(
+        `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${batch.join(',')}&fields=items(id,snippet(title,publishedAt,thumbnails),statistics,contentDetails(duration))`,
+        { headers: auth }
+      );
+      if (detailsRes.ok) {
+        const detailsData = await safeJson(detailsRes);
+        for (const v of detailsData.items || []) videoDetailsMap[v.id] = v;
+      }
+    }
+
+    // Analytics vidéo par batch de 10 (30 jours glissants)
+    const startDate = isoDate(30);
+    const analyticsMap: Record<string, any> = {};
+    for (let i = 0; i < videoIds.length; i += BATCH) {
+      const batch = videoIds.slice(i, i + BATCH);
+      const analyticsRes = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&dimensions=video&filters=video==${batch.join(',')}&metrics=views,estimatedMinutesWatched,likes,comments,shares,averageViewPercentage,subscribersGained&startDate=${startDate}&endDate=${yesterday}`,
+        { headers: auth }
+      );
+      if (analyticsRes.ok) {
+        const analyticsData = await safeJson(analyticsRes);
+        for (const row of analyticsData.rows || []) {
+          analyticsMap[row[0]] = { views: row[1], watchMin: row[2], likes: row[3], comments: row[4], shares: row[5], avgViewPct: row[6], subsGained: row[7] };
+        }
+      }
+    }
+
+    // CTR depuis youtube_video_ctr
+    const { data: ctrRows } = await supa.from('youtube_video_ctr')
+      .select('video_id, impressions, clicks')
+      .eq('profile_id', profileId)
+      .in('video_id', videoIds);
+    const ctrMap: Record<string, number | null> = {};
+    for (const r of ctrRows || []) {
+      ctrMap[r.video_id] = r.impressions > 0 ? r.clicks / r.impressions : null;
+    }
+
+    const snapshotAt = new Date().toISOString();
+
+    // Upsert chaque vidéo
+    for (const videoId of videoIds) {
+      try {
+        const detail = videoDetailsMap[videoId];
+        const analytics = analyticsMap[videoId] || {};
+        const isShort = detail?.contentDetails?.duration
+          ? /^PT(?:\d+S|[0-5]?\dS|[0-5]?\d[Ss])$/.test(detail.contentDetails.duration) ||
+            /^PT0?[0-5]?\d[Ss]$/.test(detail.contentDetails.duration)
+          : false;
+
+        const row: Record<string, any> = {
+          profile_id: profileId,
+          video_id: videoId,
+          title: detail?.snippet?.title || null,
+          thumbnail: detail?.snippet?.thumbnails?.medium?.url || detail?.snippet?.thumbnails?.default?.url || null,
+          published_at: detail?.snippet?.publishedAt ? new Date(detail.snippet.publishedAt).toISOString() : null,
+          duration_sec: null,
+          is_short: isShort,
+          views: parseInt(detail?.statistics?.viewCount || '0') || null,
+          views_period: analytics.views ?? null,
+          watch_time_min: analytics.watchMin ?? null,
+          likes: parseInt(detail?.statistics?.likeCount || '0') || null,
+          comments: parseInt(detail?.statistics?.commentCount || '0') || null,
+          shares: analytics.shares ?? null,
+          avg_view_pct: analytics.avgViewPct ?? null,
+          subs_gained: analytics.subsGained ?? null,
+          ctr: ctrMap[videoId] ?? null,
+          url: `https://youtube.com/watch?v=${videoId}`,
+          snapshot_date: yesterday,
+          snapshot_at: snapshotAt,
+        };
+
+        const { error } = await supa.from('analytics_yt_videos_history').upsert(row, { onConflict: 'profile_id,video_id,snapshot_date', ignoreDuplicates: false });
+        if (error) errors.push(`yt_video_upsert_${videoId}: ${error.message}`);
+      } catch (e: any) { errors.push(`yt_video_${videoId}: ${e?.message || 'unknown'}`); }
+    }
+  } catch (e: any) { errors.push(`yt_videos_snapshot: ${e?.message || 'unknown'}`); }
+  return errors;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Snapshot complet d'un profil
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -530,14 +720,20 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const errors: string[] = [];
   const yesterday = isoDate(1);
 
-  // IG J-1
+  // IG J-1 + posts individuels (en parallèle)
   const igCreds = await getIgCreds(profileId);
   if (igCreds) {
-    try {
-      const metrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
-      const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-      if (error) errors.push(`ig_upsert: ${error.message}`);
-    } catch (e: any) { errors.push(`ig_fetch: ${e?.message || 'unknown'}`); }
+    const [igMetricsResult, igPostsResult] = await Promise.allSettled([
+      (async () => {
+        const metrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
+        const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+        if (error) throw new Error(error.message);
+      })(),
+      snapshotIgPosts(profileId, igCreds.token, igCreds.igAccountId, yesterday),
+    ]);
+    if (igMetricsResult.status === 'rejected') errors.push(`ig_fetch: ${igMetricsResult.reason?.message || 'unknown'}`);
+    if (igPostsResult.status === 'fulfilled') errors.push(...igPostsResult.value);
+    else errors.push(`ig_posts: ${igPostsResult.reason?.message || 'unknown'}`);
   }
 
   // Short.io J-1 + click stream
@@ -552,21 +748,25 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     } catch (e: any) { errors.push(`shortio_snapshot: ${e?.message || 'unknown'}`); }
   }
 
-  // YouTube J-1, J-2, J-3 + CTR
+  // YouTube J-1, J-2, J-3 + CTR + vidéos individuelles (en parallèle)
   const ytToken = await getYtToken(profileId);
   if (ytToken) {
-    try {
-      const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
-      for (const row of ytRows) {
-        const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-        if (error) errors.push(`yt_upsert_${row.date}: ${error.message}`);
-      }
-    } catch (e: any) { errors.push(`yt_fetch: ${e?.message || 'unknown'}`); }
-
-    try {
-      const { errors: ctrErrors } = await syncYtCtr(profileId, ytToken);
-      if (ctrErrors.length) errors.push(...ctrErrors.map(e => `yt_ctr: ${e}`));
-    } catch (e: any) { errors.push(`yt_ctr: ${e?.message || 'unknown'}`); }
+    const [ytMetricsResult, ytCtrResult, ytVideosResult] = await Promise.allSettled([
+      (async () => {
+        const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
+        for (const row of ytRows) {
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          if (error) throw new Error(`yt_upsert_${row.date}: ${error.message}`);
+        }
+      })(),
+      syncYtCtr(profileId, ytToken),
+      snapshotYtVideos(profileId, ytToken, yesterday),
+    ]);
+    if (ytMetricsResult.status === 'rejected') errors.push(`yt_fetch: ${ytMetricsResult.reason?.message || 'unknown'}`);
+    if (ytCtrResult.status === 'fulfilled') { if (ytCtrResult.value.errors.length) errors.push(...ytCtrResult.value.errors.map(e => `yt_ctr: ${e}`)); }
+    else errors.push(`yt_ctr: ${ytCtrResult.reason?.message || 'unknown'}`);
+    if (ytVideosResult.status === 'fulfilled') errors.push(...ytVideosResult.value);
+    else errors.push(`yt_videos: ${ytVideosResult.reason?.message || 'unknown'}`);
   }
 
   // Calls stats J-1

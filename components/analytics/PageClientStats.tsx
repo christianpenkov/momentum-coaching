@@ -5628,18 +5628,64 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const startDateStr = periodStart.toISOString().split('T')[0];
   const endDateStr   = periodEnd.toISOString().split('T')[0];
 
-  // Lire toutes les lignes de la fenêtre (une ligne = un jour)
-  const { data: rows } = await supabase
-    .from('analytics_daily_snapshots')
-    .select('*')
-    .eq('profile_id', targetId)
-    .gte('date', startDateStr)
-    .lte('date', endDateStr)
-    .order('date', { ascending: true });
+  // Toutes les requêtes en parallèle pour ne pas dépasser 2s
+  const [
+    snapsRes,
+    igPostsRes,
+    ytVideosRes,
+    callsRes,
+    stripeRes,
+    shortioResult,
+  ] = await Promise.allSettled([
+    supabase
+      .from('analytics_daily_snapshots')
+      .select('*')
+      .eq('profile_id', targetId)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('date', { ascending: true }),
+    supabase
+      .from('analytics_ig_posts_history')
+      .select('*')
+      .eq('profile_id', targetId)
+      .gte('snapshot_date', startDateStr)
+      .lte('snapshot_date', endDateStr)
+      .order('snapshot_date', { ascending: false }),
+    supabase
+      .from('analytics_yt_videos_history')
+      .select('*')
+      .eq('profile_id', targetId)
+      .gte('snapshot_date', startDateStr)
+      .lte('snapshot_date', endDateStr)
+      .order('snapshot_date', { ascending: false }),
+    supabase.from('calls').select('*')
+      .eq('coach_id', targetId)
+      .gte('scheduled_at', periodStart.toISOString())
+      .lte('scheduled_at', periodEnd.toISOString())
+      .not('calendly_event_uuid', 'is', null)
+      .order('scheduled_at', { ascending: false }),
+    supabase
+      .from('stripe_payments')
+      .select('*')
+      .eq('profile_id', targetId)
+      .gte('date', periodStart.toISOString())
+      .lte('date', periodEnd.toISOString())
+      .order('date', { ascending: false }),
+    fetch(`/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDateStr}&endDate=${endDateStr}`)
+      .then(r => r.ok ? r.json() : null)
+      .catch(() => null),
+  ]);
 
-  const snaps = rows ?? [];
+  const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
+  const igPostsRows = igPostsRes.status === 'fulfilled' ? (igPostsRes.value.data ?? []) : [];
+  const ytVideosRows = ytVideosRes.status === 'fulfilled' ? (ytVideosRes.value.data ?? []) : [];
+  const stripeRows = stripeRes.status === 'fulfilled' ? (stripeRes.value.data ?? []) : [];
+  const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
 
-  // Agréger les métriques IG sur la période
+  // Dernier snapshot connu pour les valeurs cumulatives (followers, abonnés, etc.)
+  const lastSnap = snaps[snaps.length - 1] ?? null;
+
+  // ── IG ──────────────────────────────────────────────────────────────────────
   const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
   const igViewsTotal  = snaps.reduce((s, r) => s + (r.ig_views ?? 0), 0);
   const igEngTotal    = snaps.reduce((s, r) => s + (r.ig_accounts_engaged ?? 0), 0);
@@ -5647,8 +5693,34 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const igTapsTotal   = snaps.reduce((s, r) => s + (r.ig_profile_taps ?? 0), 0);
   const igWCTotal     = snaps.reduce((s, r) => s + (r.ig_website_clicks ?? 0), 0);
   const igFUTotal     = snaps.reduce((s, r) => s + (r.ig_follows_unfollows ?? 0), 0);
-  // Dernier snapshot connu pour les valeurs cumulatives (followers, etc.)
-  const lastSnap = snaps[snaps.length - 1] ?? null;
+  const igLeadTotal   = snaps.reduce((s, r) => s + (r.ig_lead_count ?? 0), 0);
+
+  // Posts IG : dédupliquer par post_id (garder le snapshot le plus récent de la période)
+  const latestIgPost = new Map<string, any>();
+  for (const row of igPostsRows) {
+    if (!latestIgPost.has(row.post_id)) latestIgPost.set(row.post_id, row);
+  }
+  const igPosts = [...latestIgPost.values()].map((row: any) => ({
+    id: row.post_id,
+    caption: row.caption ?? '',
+    type: row.post_type ?? 'IMAGE',
+    thumbnail: row.thumbnail ?? null,
+    timestamp: row.published_at ?? row.snapshot_date,
+    permalink: row.permalink ?? null,
+    likes: row.likes ?? null,
+    comments: row.comments ?? null,
+    reach: row.reach ?? null,
+    saved: row.saves ?? null,
+    shares: row.shares ?? null,
+    views: row.views ?? null,
+    totalInteractions: row.total_interactions ?? null,
+    follows: row.follows ?? null,
+    profileVisits: row.profile_visits ?? null,
+    videoDuration: row.video_duration_sec ?? null,
+    avgWatchTimeMs: row.avg_watch_time_ms ?? null,
+    totalWatchTimeMs: row.total_watch_time_ms ?? null,
+    skipRate: row.skip_rate ?? null,
+  }));
 
   const igHist = snaps.length > 0 ? {
     reach30d:             igReachTotal,
@@ -5661,78 +5733,129 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     websiteClicks30d:     igWCTotal,
     followsUnfollows30d:  igFUTotal,
     chartData: snaps.map(r => ({
-      date:   r.date,
-      reach:  r.ig_reach  ?? 0,
-      views:  r.ig_views  ?? 0,
+      date:              r.date,
+      reach:             r.ig_reach ?? 0,
+      views:             r.ig_views ?? 0,
+      followerCount:     r.ig_followers ?? null,
+      accountsEngaged:   r.ig_accounts_engaged ?? 0,
+      totalInteractions: r.ig_total_interactions ?? 0,
+      websiteClicks:     r.ig_website_clicks ?? 0,
     })),
-    posts: [],
+    posts: igPosts,
     demographics: lastSnap?.ig_demographics ?? {},
+    onlineFollowers: null,
     username: null,
     name: null,
     profilePicture: null,
-    mediaCount: 0,
-    views7d: 0,
-    reach7d: 0,
-    accountsEngaged7d: 0,
+    mediaCount: igPosts.length,
+    biography: '',
+    viewsFollowerBreakdown: null,
   } as any as IGStats : null;
 
-  // Agréger les métriques YT sur la période
-  const ytViewsTotal  = snaps.reduce((s, r) => s + (r.yt_views ?? 0), 0);
-  const ytWatchTotal  = snaps.reduce((s, r) => s + (r.yt_watch_time_min ?? 0), 0);
-  const ytSubsGTotal  = snaps.reduce((s, r) => s + (r.yt_subs_gained ?? 0), 0);
-  const ytSubsLTotal  = snaps.reduce((s, r) => s + (r.yt_subs_lost ?? 0), 0);
+  // ── YT ──────────────────────────────────────────────────────────────────────
+  const ytViewsTotal   = snaps.reduce((s, r) => s + (r.yt_views ?? 0), 0);
+  const ytWatchTotal   = snaps.reduce((s, r) => s + (r.yt_watch_time_min ?? 0), 0);
+  const ytSubsGTotal   = snaps.reduce((s, r) => s + (r.yt_subs_gained ?? 0), 0);
+  const ytSubsLTotal   = snaps.reduce((s, r) => s + (r.yt_subs_lost ?? 0), 0);
   const ytNetSubsTotal = snaps.reduce((s, r) => s + (r.yt_net_subs ?? 0), 0);
+  const ytLikesTotal   = snaps.reduce((s, r) => s + (r.yt_likes ?? 0), 0);
+  const ytCommentsTotal= snaps.reduce((s, r) => s + (r.yt_comments ?? 0), 0);
+  const ytSharesTotal  = snaps.reduce((s, r) => s + (r.yt_shares ?? 0), 0);
+
+  // Vidéos YT : dédupliquer par video_id (garder le snapshot le plus récent)
+  const latestYtVideo = new Map<string, any>();
+  for (const row of ytVideosRows) {
+    if (!latestYtVideo.has(row.video_id)) latestYtVideo.set(row.video_id, row);
+  }
+  const ytVideos = [...latestYtVideo.values()].map((row: any) => ({
+    id: row.video_id,
+    title: row.title ?? '',
+    thumbnail: row.thumbnail ?? null,
+    publishedAt: row.published_at ?? row.snapshot_date,
+    duration: '',
+    isShort: row.is_short ?? false,
+    views: row.views ?? 0,
+    likes: row.likes ?? 0,
+    comments: row.comments ?? 0,
+    views30d: row.views_period ?? 0,
+    watchTime30d: row.watch_time_min ?? 0,
+    avgViewPct: row.avg_view_pct ?? 0,
+    likes30d: row.likes ?? 0,
+    comments30d: row.comments ?? 0,
+    shares30d: row.shares ?? 0,
+    subsGained30d: row.subs_gained ?? 0,
+    subsGainedTotal: row.subs_gained ?? 0,
+    subsLostTotal: 0,
+    ctr: row.ctr ?? null,
+    url: row.url ?? `https://youtube.com/watch?v=${row.video_id}`,
+  }));
 
   const ytHist = snaps.length > 0 ? {
-    views30d:          ytViewsTotal,
-    watchTime30d:      ytWatchTotal,
-    subsGained30d:     ytSubsGTotal,
-    subsLost30d:       ytSubsLTotal,
-    netSubs30d:        ytNetSubsTotal,
-    subscribers:       lastSnap?.yt_subscribers ?? 0,
-    likes30d:          lastSnap?.yt_likes ?? 0,
-    comments30d:       lastSnap?.yt_comments ?? 0,
-    shares30d:         lastSnap?.yt_shares ?? 0,
+    views30d:           ytViewsTotal,
+    watchTime30d:       ytWatchTotal,
+    subsGained30d:      ytSubsGTotal,
+    subsLost30d:        ytSubsLTotal,
+    netSubs30d:         ytNetSubsTotal,
+    subscribers:        lastSnap?.yt_subscribers ?? 0,
+    likes30d:           ytLikesTotal,
+    comments30d:        ytCommentsTotal,
+    shares30d:          ytSharesTotal,
     avgViewDurationSec: lastSnap?.yt_avg_view_duration_sec ?? 0,
     chartData: snaps.map(r => ({
-      date:      r.date,
-      views:     r.yt_views ?? 0,
-      watchTime: r.yt_watch_time_min ?? 0,
+      date:       r.date,
+      views:      r.yt_views ?? 0,
+      watchTime:  r.yt_watch_time_min ?? 0,
+      subsGained: r.yt_subs_gained ?? 0,
+      subsLost:   r.yt_subs_lost ?? 0,
+      netSubs:    r.yt_net_subs ?? 0,
     })),
-    videos: [],
+    videos: ytVideos,
     trafficSources: lastSnap?.yt_traffic_sources ?? [],
-    devices:        lastSnap?.yt_devices ?? [],
-    demographics:   lastSnap?.yt_demographics ?? {},
+    devices:         lastSnap?.yt_devices ?? [],
+    demographics:    lastSnap?.yt_demographics ?? [],
+    searchKeywords:  [],
+    channelName: null,
+    channelThumbnail: null,
     totalViews: 0,
-    views7d: 0,
-    subsGained7d: 0,
-    subsLost7d: 0,
-    netSubs7d: 0,
+    videoCount: ytVideos.length,
   } as any as YTStats : null;
 
-  // Shortio via route dédiée
-  let shortioHist: ShortioStats | null = null;
-  try {
-    const shortioRes = await fetch(
-      `/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDateStr}&endDate=${endDateStr}`
-    );
-    if (shortioRes.ok) {
-      const shortioData = await shortioRes.json();
-      shortioHist = shortioData?.humanClicks30d != null ? (shortioData as ShortioStats) : null;
-    }
-  } catch {
-    // Dégradé silencieux
-  }
+  // ── Shortio ─────────────────────────────────────────────────────────────────
+  const shortioHist: ShortioStats | null = shortioData?.humanClicks30d != null
+    ? (shortioData as ShortioStats)
+    : null;
 
-  // Calls pour la période historique depuis la DB
-  const callsRes = await supabase.from('calls').select('*')
-    .eq('coach_id', targetId)
-    .gte('scheduled_at', periodStart.toISOString())
-    .lte('scheduled_at', periodEnd.toISOString())
-    .not('calendly_event_uuid', 'is', null)
-    .order('scheduled_at', { ascending: false });
+  // ── Stripe ──────────────────────────────────────────────────────────────────
+  const stripeHist = snaps.length > 0 ? {
+    mrr:                 lastSnap?.mrr ?? 0,
+    monthlyRevenue:      stripeRows.reduce((s: number, r: any) => s + (r.amount ?? 0), 0),
+    activeSubscriptions: lastSnap?.stripe_active_subs ?? 0,
+    availableBalance:    0,
+    recentPayments:      stripeRows.map((r: any) => ({
+      id: r.payment_id, amount: r.amount, currency: r.currency ?? 'eur',
+      description: r.description ?? null, date: r.date, status: r.status,
+    })),
+  } : null;
 
-  return { igHist, ytHist, shortioHist, callsHist: callsRes.data ?? [], snapshotDate: endDateStr };
+  // ── Messages IG (scalaires depuis snapshots) ─────────────────────────────────
+  const msgsHist = snaps.length > 0 ? {
+    totalThreads30d: igLeadTotal,
+    responseRate:    lastSnap?.ig_response_rate ?? 0,
+    repliedThreads:  Math.round((lastSnap?.ig_response_rate ?? 0) * igLeadTotal / 100),
+    leadCount:       igLeadTotal,
+    keywordCounts:   {},
+    threads:         [],
+  } : null;
+
+  return {
+    igHist,
+    ytHist,
+    shortioHist,
+    callsHist: callsRes.status === 'fulfilled' ? (callsRes.value.data ?? []) : [],
+    stripeHist,
+    msgsHist,
+    snapshotDate: endDateStr,
+  };
 }
 
 async function fetchSupabaseStats(profileId?: string) {
@@ -6052,11 +6175,11 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   });
   const shortio: ShortioStats | null = shortioRaw ?? null;
 
-  // Snapshot historique — chargé uniquement sur l'onglet Funnel quand periodIndex > 0
+  // Snapshot historique — chargé dès que periodIndex > 0, quel que soit l'onglet actif
   const { data: snapData } = useQuery({
     queryKey: ['stats-snapshot', profileId, periodIndex, period],
     queryFn: () => fetchSnapshot(profileId, periodIndex, period),
-    enabled: tab === 3 && periodIndex > 0,
+    enabled: periodIndex > 0,
     staleTime: 30 * 60 * 1000,
   });
 
@@ -6105,11 +6228,18 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     await Promise.all([refetchSupa(), refetchIg(), refetchShortio()]);
   }
 
-  // Données effectives pour TabFunnel : historiques si periodIndex > 0, live sinon
-  const funnelIg     = (periodIndex > 0 ? (snapData?.igHist ?? null)      : ig)      as IGStats | null;
-  const funnelYt     = (periodIndex > 0 ? (snapData?.ytHist ?? null)      : yt)      as YTStats | null;
-  const funnelShortio = (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio) as ShortioStats | null;
-  const funnelCalls  = periodIndex > 0 ? (snapData?.callsHist ?? [])     : calls;
+  // Données effectives : historiques si periodIndex > 0, live sinon (tous onglets)
+  const igEff      = (periodIndex > 0 ? (snapData?.igHist      ?? null) : ig)      as IGStats | null;
+  const ytEff      = (periodIndex > 0 ? (snapData?.ytHist      ?? null) : yt)      as YTStats | null;
+  const shortioEff = (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio) as ShortioStats | null;
+  const stripeEff  = (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe)  as StripeStats | null;
+  const msgsEff    = (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs)    as IGMessages | null;
+  const callsEff   = periodIndex > 0 ? (snapData?.callsHist ?? []) : calls;
+  // Alias pour compat. TabFunnel (déjà existant)
+  const funnelIg      = igEff;
+  const funnelYt      = ytEff;
+  const funnelShortio = shortioEff;
+  const funnelCalls   = callsEff;
 
   // Loading : vrai seulement si les données du tab actuel manquent encore
   const loading = (() => {
@@ -6185,12 +6315,12 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={ig} yt={yt} stripe={stripe} msgs={msgs} calls={calls} shortio={shortio} period={period} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
-          {tab === 1 && <TabInstagram ig={ig} period={period} />}
-          {tab === 2 && <TabYouTube yt={yt} period={period} profileId={profileId} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} />}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
-          {tab === 4 && <TabShortioB shortio={shortio} ig={ig} yt={yt} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={calls} leadIdToMediaId={leadIdToMediaId} />}
-          {tab === 5 && <TabRevenues stripe={stripe} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
     </div>
