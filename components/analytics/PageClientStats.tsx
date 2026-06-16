@@ -2611,6 +2611,16 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
 // ─── TAB 5 : Revenus ──────────────────────────────────────────────────────────
 
+// ─── Helpers validation post IDs (partagés par TabFunnelDetail + TabShortioB) ─
+const isValidIgPostId = (id: any) => id && typeof id === 'string' && /^\d{10,}$/.test(id);
+const isValidYtVideoId = (id: any) => id && typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id);
+const isValidPostId = (id: any, platform?: string) => {
+  if (!id || typeof id !== 'string' || id === 'null' || id === 'undefined') return false;
+  if (platform === 'YT') return isValidYtVideoId(id);
+  if (platform === 'IG') return isValidIgPostId(id);
+  return isValidIgPostId(id) || isValidYtVideoId(id);
+};
+
 // ─── TAB "Funnel (détail)" — contrôles inline par section ───────────────────
 
 function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFromProp }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; leads?: MockLead[] }) {
@@ -4199,17 +4209,6 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   });
 
   // ── Section 2 : tableau consolidé par contenu — tous les posts, pas seulement ceux avec business ──
-  // Guard strict : un postId valide est un ID numérique IG (tout chiffres) ou alphanumérique YT (lettres+chiffres, pas de tiret)
-  // Exclut les usernames (ex: "incogniton-734"), null, undefined, "null"
-  const isValidIgPostId = (id: any) => id && typeof id === 'string' && /^\d{10,}$/.test(id);
-  const isValidYtVideoId = (id: any) => id && typeof id === 'string' && /^[A-Za-z0-9_-]{11}$/.test(id);
-  const isValidPostId = (id: any, platform?: string) => {
-    if (!id || typeof id !== 'string' || id === 'null' || id === 'undefined') return false;
-    if (platform === 'YT') return isValidYtVideoId(id);
-    if (platform === 'IG') return isValidIgPostId(id);
-    // Sans platform : accepter si ressemble à un ID IG ou YT
-    return isValidIgPostId(id) || isValidYtVideoId(id);
-  };
   const allPostIds = Array.from(new Set([
     ...igPosts.map(p => p.id + '|IG'),
     ...ytVideos.map(v => v.id + '|YT'),
