@@ -5616,38 +5616,53 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  // Date du snapshot : J - (periodIndex * period)
-  const snapshotDate = new Date();
-  snapshotDate.setDate(snapshotDate.getDate() - periodIndex * period);
-  const dateStr = snapshotDate.toISOString().split('T')[0];
+  // Fenêtre temporelle : [periodEnd - period, periodEnd]
+  const periodEnd = new Date();
+  periodEnd.setDate(periodEnd.getDate() - periodIndex * period);
+  const periodStart = new Date(periodEnd.getTime() - period * 86400000);
 
-  const { data: snap } = await supabase
+  const startDateStr = periodStart.toISOString().split('T')[0];
+  const endDateStr   = periodEnd.toISOString().split('T')[0];
+
+  // Lire toutes les lignes de la fenêtre (une ligne = un jour)
+  const { data: rows } = await supabase
     .from('analytics_daily_snapshots')
     .select('*')
     .eq('profile_id', targetId)
-    .lte('date', dateStr)
-    .order('date', { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .gte('date', startDateStr)
+    .lte('date', endDateStr)
+    .order('date', { ascending: true });
 
-  if (!snap) return null;
+  const snaps = rows ?? [];
 
-  // Reconstruire ig depuis le snapshot
-  const igChartData: any[] = snap.ig_chart_data ?? [];
-  const igSlice = igChartData.slice(-period);
-  const igHist = igChartData.length > 0 ? {
-    reach30d: igSlice.reduce((s: number, d: any) => s + (d.reach ?? 0), 0),
-    views30d: igSlice.reduce((s: number, d: any) => s + (d.views ?? 0), 0),
-    followers: snap.ig_followers ?? 0,
-    following: snap.ig_following ?? 0,
-    accountsEngaged30d: snap.ig_accounts_engaged ?? 0,
-    totalInteractions30d: snap.ig_total_interactions ?? 0,
-    profileLinksTaps30d: snap.ig_profile_taps ?? 0,
-    websiteClicks30d: snap.ig_website_clicks ?? 0,
-    followsUnfollows30d: snap.ig_follows_unfollows ?? 0,
-    chartData: igChartData,
+  // Agréger les métriques IG sur la période
+  const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
+  const igViewsTotal  = snaps.reduce((s, r) => s + (r.ig_views ?? 0), 0);
+  const igEngTotal    = snaps.reduce((s, r) => s + (r.ig_accounts_engaged ?? 0), 0);
+  const igInterTotal  = snaps.reduce((s, r) => s + (r.ig_total_interactions ?? 0), 0);
+  const igTapsTotal   = snaps.reduce((s, r) => s + (r.ig_profile_taps ?? 0), 0);
+  const igWCTotal     = snaps.reduce((s, r) => s + (r.ig_website_clicks ?? 0), 0);
+  const igFUTotal     = snaps.reduce((s, r) => s + (r.ig_follows_unfollows ?? 0), 0);
+  // Dernier snapshot connu pour les valeurs cumulatives (followers, etc.)
+  const lastSnap = snaps[snaps.length - 1] ?? null;
+
+  const igHist = snaps.length > 0 ? {
+    reach30d:             igReachTotal,
+    views30d:             igViewsTotal,
+    followers:            lastSnap?.ig_followers ?? 0,
+    following:            lastSnap?.ig_following ?? 0,
+    accountsEngaged30d:   igEngTotal,
+    totalInteractions30d: igInterTotal,
+    profileLinksTaps30d:  igTapsTotal,
+    websiteClicks30d:     igWCTotal,
+    followsUnfollows30d:  igFUTotal,
+    chartData: snaps.map(r => ({
+      date:   r.date,
+      reach:  r.ig_reach  ?? 0,
+      views:  r.ig_views  ?? 0,
+    })),
     posts: [],
-    demographics: snap.ig_demographics ?? {},
+    demographics: lastSnap?.ig_demographics ?? {},
     username: null,
     name: null,
     profilePicture: null,
@@ -5657,25 +5672,33 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     accountsEngaged7d: 0,
   } as any as IGStats : null;
 
-  // Reconstruire yt depuis le snapshot
-  const ytChartData: any[] = snap.yt_chart_data ?? [];
-  const ytSlice = ytChartData.slice(-period);
-  const ytHist = ytChartData.length > 0 ? {
-    views30d: ytSlice.reduce((s: number, d: any) => s + (d.views ?? 0), 0),
-    watchTime30d: ytSlice.reduce((s: number, d: any) => s + (d.watchTime ?? 0), 0),
-    subsGained30d: ytSlice.reduce((s: number, d: any) => s + (d.subsGained ?? 0), 0),
-    subsLost30d: ytSlice.reduce((s: number, d: any) => s + (d.subsLost ?? 0), 0),
-    netSubs30d: ytSlice.reduce((s: number, d: any) => s + (d.netSubs ?? 0), 0),
-    subscribers: snap.yt_subscribers ?? 0,
-    likes30d: snap.yt_likes ?? 0,
-    comments30d: snap.yt_comments ?? 0,
-    shares30d: snap.yt_shares ?? 0,
-    avgViewDurationSec: snap.yt_avg_view_duration_sec ?? 0,
-    chartData: ytChartData,
+  // Agréger les métriques YT sur la période
+  const ytViewsTotal  = snaps.reduce((s, r) => s + (r.yt_views ?? 0), 0);
+  const ytWatchTotal  = snaps.reduce((s, r) => s + (r.yt_watch_time_min ?? 0), 0);
+  const ytSubsGTotal  = snaps.reduce((s, r) => s + (r.yt_subs_gained ?? 0), 0);
+  const ytSubsLTotal  = snaps.reduce((s, r) => s + (r.yt_subs_lost ?? 0), 0);
+  const ytNetSubsTotal = snaps.reduce((s, r) => s + (r.yt_net_subs ?? 0), 0);
+
+  const ytHist = snaps.length > 0 ? {
+    views30d:          ytViewsTotal,
+    watchTime30d:      ytWatchTotal,
+    subsGained30d:     ytSubsGTotal,
+    subsLost30d:       ytSubsLTotal,
+    netSubs30d:        ytNetSubsTotal,
+    subscribers:       lastSnap?.yt_subscribers ?? 0,
+    likes30d:          lastSnap?.yt_likes ?? 0,
+    comments30d:       lastSnap?.yt_comments ?? 0,
+    shares30d:         lastSnap?.yt_shares ?? 0,
+    avgViewDurationSec: lastSnap?.yt_avg_view_duration_sec ?? 0,
+    chartData: snaps.map(r => ({
+      date:      r.date,
+      views:     r.yt_views ?? 0,
+      watchTime: r.yt_watch_time_min ?? 0,
+    })),
     videos: [],
-    trafficSources: snap.yt_traffic_sources ?? [],
-    devices: snap.yt_devices ?? [],
-    demographics: snap.yt_demographics ?? {},
+    trafficSources: lastSnap?.yt_traffic_sources ?? [],
+    devices:        lastSnap?.yt_devices ?? [],
+    demographics:   lastSnap?.yt_demographics ?? {},
     totalViews: 0,
     views7d: 0,
     subsGained7d: 0,
@@ -5683,45 +5706,29 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     netSubs7d: 0,
   } as any as YTStats : null;
 
-  // Reconstruire shortio depuis shortio_link_daily_snapshots (via route dédiée)
-  const startDate = new Date(snapshotDate.getTime() - period * 86400000).toISOString().split('T')[0];
-  const endDate = dateStr;
+  // Shortio via route dédiée
   let shortioHist: ShortioStats | null = null;
   try {
     const shortioRes = await fetch(
-      `/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDate}&endDate=${endDate}`
+      `/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDateStr}&endDate=${endDateStr}`
     );
     if (shortioRes.ok) {
       const shortioData = await shortioRes.json();
       shortioHist = shortioData?.humanClicks30d != null ? (shortioData as ShortioStats) : null;
     }
   } catch {
-    // Dégradé silencieux : shortioHist reste null (comportement identique à avant)
+    // Dégradé silencieux
   }
 
   // Calls pour la période historique depuis la DB
-  const periodStart = new Date(snapshotDate.getTime() - period * 86400000).toISOString();
-  const periodEnd = snapshotDate.toISOString();
+  const callsRes = await supabase.from('calls').select('*')
+    .eq('coach_id', user.id)
+    .gte('scheduled_at', periodStart.toISOString())
+    .lte('scheduled_at', periodEnd.toISOString())
+    .not('calendly_event_uuid', 'is', null)
+    .order('scheduled_at', { ascending: false });
 
-  let callsRes: { data: any[] | null } = { data: [] };
-  if (profileId) {
-    callsRes = await supabase.from('calls').select('*')
-      .eq('coach_id', user.id)
-      .gte('scheduled_at', periodStart)
-      .lte('scheduled_at', periodEnd)
-      .not('calendly_event_uuid', 'is', null)
-      .order('scheduled_at', { ascending: false });
-  } else {
-    // Vue élève : calls leads Calendly (coach_id = son propre profile_id)
-    callsRes = await supabase.from('calls').select('*')
-      .eq('coach_id', user.id)
-      .gte('scheduled_at', periodStart)
-      .lte('scheduled_at', periodEnd)
-      .not('calendly_event_uuid', 'is', null)
-      .order('scheduled_at', { ascending: false });
-  }
-
-  return { igHist, ytHist, shortioHist, callsHist: callsRes.data ?? [], snapshotDate: dateStr };
+  return { igHist, ytHist, shortioHist, callsHist: callsRes.data ?? [], snapshotDate: endDateStr };
 }
 
 async function fetchSupabaseStats(profileId?: string) {
