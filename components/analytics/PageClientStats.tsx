@@ -4209,11 +4209,17 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   });
 
   // ── Section 2 : tableau consolidé par contenu — tous les posts, pas seulement ceux avec business ──
+  const knownIgIds = new Set(igPosts.map(p => p.id));
+  const knownYtIds = new Set(ytVideos.map(v => v.id));
   const allPostIds = Array.from(new Set([
     ...igPosts.map(p => p.id + '|IG'),
     ...ytVideos.map(v => v.id + '|YT'),
     ...postLinks
-      .filter((l: any) => l.postPlatform && isValidPostId(l.postId, l.postPlatform))
+      .filter((l: any) => {
+        if (!l.postPlatform || !isValidPostId(l.postId, l.postPlatform)) return false;
+        // Exclure les liens d'anciens comptes : le post doit être connu dans le compte actif
+        return l.postPlatform === 'IG' ? knownIgIds.has(l.postId) : knownYtIds.has(l.postId);
+      })
       .map((l: any) => l.postId + '|' + l.postPlatform),
     ...prospectLinks
       .filter((l: any) => isValidPostId(l.postId) && !['bio-ig', 'bio-yt'].includes(l.postId))
