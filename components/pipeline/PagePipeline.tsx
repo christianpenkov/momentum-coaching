@@ -285,7 +285,7 @@ function PipelineCard({
         )}
         <div style={{ minWidth: 0, flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 5 }}>
-            @{card.name}
+            {platform === 'ig' ? `@${card.name}` : card.name}
             {card.badge === 'no_show' && (
               <span style={{ fontSize: 9, fontWeight: 700, background: '#fef2f2', color: '#dc2626', border: '1px solid #fca5a5', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
                 No-show
@@ -417,7 +417,7 @@ function PipelineCard({
             onMouseEnter={e => { e.currentTarget.style.background = '#fef2f2'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
           >
-            Supprimer @{card.name}
+            Supprimer {platform === 'ig' ? `@${card.name}` : card.name}
           </button>
         </div>
       </>,
@@ -433,7 +433,7 @@ function PipelineCard({
           zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
           borderRadius: 12, padding: '24px 28px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
         }}>
-          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Supprimer @{card.name} ?</div>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Supprimer {platform === 'ig' ? `@${card.name}` : card.name} ?</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
             Cette action supprime définitivement le lead et son historique.
           </div>
