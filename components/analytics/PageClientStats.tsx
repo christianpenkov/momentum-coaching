@@ -786,7 +786,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number> }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, igLive, ytLive }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; igLive?: IGStats | null; ytLive?: YTStats | null }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const now = new Date();
@@ -864,8 +864,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   // ── Top contenus ──────────────────────────────────────────────────────────
   const igCallsAll = calls.filter(isIGCall);
   const ytCallsAll = calls.filter(isYTCall);
-  const igPosts = ig?.posts || [];
-  const ytVideos = yt?.videos || [];
+  const igPosts = (ig?.posts?.length ? ig.posts : igLive?.posts) || [];
+  const ytVideos = (yt?.videos?.length ? yt.videos : ytLive?.videos) || [];
   const ytTotalViews = ytVideos.reduce((s, v) => s + v.views30d, 0);
   const ytTotalCallsBooked = ytCallsAll.filter(c => c.status === 'active').length;
   const ytTotalNoShow = ytCallsAll.filter(c => c.no_show).length;
@@ -4134,9 +4134,13 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   });
   const lmCalendlyLinks = calendlyLinksSent.length;
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
-  // calls filtrés par période (callsEff est déjà filtré par la DB en S-1+)
-  const callsBooked = (calls ?? []).filter(c => c.status === 'active').length;
-  const callsFromLM = (calls ?? []).filter(c => c.status === 'active' && c.ig_lead_id).length;
+  // calls filtrés par la fenêtre de période (en S-0, callsEff n'a pas de borne haute)
+  const callsInWindow = (calls ?? []).filter(c => {
+    const t = new Date(c.scheduled_at).getTime();
+    return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+  });
+  const callsBooked = callsInWindow.filter(c => c.status === 'active').length;
+  const callsFromLM = callsInWindow.filter(c => c.status === 'active' && c.ig_lead_id).length;
   const tauxLMCalendly = lmEnvoyes > 0 ? Math.round((lmCalendlyLinks / lmEnvoyes) * 100) : 0;
   const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
   const callsTotal = callsBooked;
@@ -5725,6 +5729,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .gte('scheduled_at', periodStart.toISOString())
       .lte('scheduled_at', periodEnd.toISOString())
       .not('calendly_event_uuid', 'is', null)
+      .neq('ignored', true)
       .order('scheduled_at', { ascending: false }),
     supabase
       .from('stripe_payments')
@@ -6377,7 +6382,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} igLive={ig} ytLive={yt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
