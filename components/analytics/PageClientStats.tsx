@@ -3281,8 +3281,12 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
 
   // Tableau consolidé par vidéo — toutes les vidéos avec au moins une activité business
   const allPostIds = Array.from(new Set([
-    ...postLinks.map((l: any) => l.postId + '|' + l.postPlatform),
-    ...prospectLinks.map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
+    ...postLinks
+      .filter((l: any) => l.postPlatform && isValidPostId(l.postId, l.postPlatform))
+      .map((l: any) => l.postId + '|' + l.postPlatform),
+    ...prospectLinks
+      .filter((l: any) => isValidPostId(l.postId, l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG')))
+      .map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
   ]));
 
   const consolidatedRows = allPostIds.map(key => {
