@@ -3929,7 +3929,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const [showCreate, setShowCreate] = useState(false);
   // Tableau contenu : tri
   type SortKey = 'clicsDesc' | 'lmDetectes' | 'lmClics' | 'lmReponses' | 'dmCount' | 'callsBooked' | 'callsHonored' | 'closed' | 'revenue' | 'vuesParCall' | 'views';
-  const [sortKey, setSortKey] = useState<SortKey>('revenue');
+  const [sortKey, setSortKey] = useState<SortKey>('callsBooked');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   // Tableau breakdown par source : tri
   type BdSortKey = 'default' | 'clics' | 'booked' | 'honored' | 'closed' | 'revenue';
@@ -4185,21 +4185,26 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
-    // Deux cas : (1) via ig_lead_id → media_id pour les leads IG avec DM
-    //            (2) via utm_content = postId pour les calls sans ig_lead_id (ex: description YT anonyme)
+    // postCalls = tous les calls rattachés à ce contenu (DM + description)
+    // postCallsDesc = uniquement via lien description (utm_medium = 'description') — pour breakdown par source
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => {
           if (c.ig_lead_id) return leadIdToMediaId.get(c.ig_lead_id) === postId;
           return c.utm_content === postId;
         })
       : [];
+    const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
     const callsBooked = postCalls.filter(c => c.status === 'active').length;
     const callsHonored = postCalls.filter(c => c.status === 'active' && !c.no_show).length;
     const closed = postCalls.filter(c => c.deal_closed).length;
     const revenue = postCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+    const callsBookedDesc = postCallsDesc.filter(c => c.status === 'active').length;
+    const callsHonoredDesc = postCallsDesc.filter(c => c.status === 'active' && !c.no_show).length;
+    const closedDesc = postCallsDesc.filter(c => c.deal_closed).length;
+    const revenueDesc = postCallsDesc.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, vuesParCall, lmName };
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, vuesParCall, lmName };
   }).sort((a, b) => b.views - a.views || b.revenue - a.revenue);
 
   // ── Section 3 : pipeline prospects ──
@@ -4477,16 +4482,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const lmRevenue = lmProspectLinksDb.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
 
           const igContentClics = igContentLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
-          const igContentBooked = igRows.reduce((s, r) => s + r.callsBooked, 0);
-          const igContentHonored = igRows.reduce((s, r) => s + r.callsHonored, 0);
-          const igContentClosed = igRows.reduce((s, r) => s + r.closed, 0);
-          const igContentRevenue = igRows.reduce((s, r) => s + r.revenue, 0);
+          const igContentBooked = igRows.reduce((s, r) => s + (r.callsBookedDesc ?? 0), 0);
+          const igContentHonored = igRows.reduce((s, r) => s + (r.callsHonoredDesc ?? 0), 0);
+          const igContentClosed = igRows.reduce((s, r) => s + (r.closedDesc ?? 0), 0);
+          const igContentRevenue = igRows.reduce((s, r) => s + (r.revenueDesc ?? 0), 0);
 
           const ytContentClics = ytContentLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
-          const ytContentBooked = ytRows.reduce((s, r) => s + r.callsBooked, 0);
-          const ytContentHonored = ytRows.reduce((s, r) => s + r.callsHonored, 0);
-          const ytContentClosed = ytRows.reduce((s, r) => s + r.closed, 0);
-          const ytContentRevenue = ytRows.reduce((s, r) => s + r.revenue, 0);
+          const ytContentBooked = ytRows.reduce((s, r) => s + (r.callsBookedDesc ?? 0), 0);
+          const ytContentHonored = ytRows.reduce((s, r) => s + (r.callsHonoredDesc ?? 0), 0);
+          const ytContentClosed = ytRows.reduce((s, r) => s + (r.closedDesc ?? 0), 0);
+          const ytContentRevenue = ytRows.reduce((s, r) => s + (r.revenueDesc ?? 0), 0);
 
           type SourceRow = {
             label: string; labelSuffix?: React.ReactNode; badge: string; badgeColor: string;
@@ -6172,21 +6177,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           >
             {refreshing ? 'Rafraîchissement…' : '↻ Rafraîchir'}
           </button>
-          {tab !== 3 && (
-            <div style={{ display: 'flex', gap: 3, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 3, alignItems: 'center' }}>
-              {([7, 30] as Period[]).map(p => (
-                <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(0); }} style={{
-                  padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
-                  background: period === p ? 'var(--ink)' : 'transparent',
-                  color: period === p ? 'var(--surface)' : 'var(--muted)',
-                  transition: 'all .15s', height: '100%',
-                }}>{p}j</button>
-              ))}
-            </div>
-          )}
-          {tab === 3 && (
-            <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
-          )}
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
         </div>
       </div>
 
