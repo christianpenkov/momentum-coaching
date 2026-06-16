@@ -3306,7 +3306,7 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
     const postLeads: MockLead[] = [];
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
-    const title = igPost?.caption || ytVideo?.title || descLink?.title || '(sans titre)';
+    const title = igPost?.caption || ytVideo?.title || '(sans titre)';
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
 
@@ -4245,7 +4245,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const postLeads = leads.filter(lead => lead.postId === postId);
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
-    const title = igPost?.caption || ytVideo?.title || descLink?.title || '(sans titre)';
+    const title = igPost?.caption || ytVideo?.title || '(sans titre)';
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
