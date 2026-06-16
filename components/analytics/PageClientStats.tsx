@@ -4218,7 +4218,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     ...prospectLinks
       .filter((l: any) => isValidPostId(l.postId) && !['bio-ig', 'bio-yt'].includes(l.postId))
       .map((l: any) => l.postId + '|' + (l.postPlatform || (isValidYtVideoId(l.postId) ? 'YT' : 'IG'))),
-    ...leads.filter(lead => lead.leadMagnetSent && isValidPostId(lead.postId, lead.postType)).map(lead => lead.postId + '|' + lead.postType),
+    ...leads.filter(lead => {
+      if (!lead.leadMagnetSent || !isValidPostId(lead.postId, lead.postType)) return false;
+      const t = new Date(lead.commentedAt).getTime();
+      return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+    }).map(lead => lead.postId + '|' + lead.postType),
   ]));
 
   // Map keyword (lowercase) → nom du LM pour affichage dans Performance par contenu
@@ -5608,11 +5612,14 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
 }
 
 // ── Pill période flottante (onglet Funnel & Calls) ────────────────────────────
-function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex }: {
+function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedAt }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
+  connectedAt?: string | null;
 }) {
-  const maxIndex = 12;
+  const maxIndex = connectedAt
+    ? Math.max(0, Math.floor((Date.now() - new Date(connectedAt).getTime()) / (period * 86400000)))
+    : 12;
   return (
     <div
       style={{
@@ -6259,7 +6266,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const shortio: ShortioStats | null = shortioRaw ?? null;
 
   // Snapshot historique — chargé dès que periodIndex > 0, quel que soit l'onglet actif
-  const { data: snapData } = useQuery({
+  const { data: snapData, isLoading: snapLoading } = useQuery({
     queryKey: ['stats-snapshot', profileId, periodIndex, period],
     queryFn: () => fetchSnapshot(profileId, periodIndex, period),
     enabled: periodIndex > 0,
@@ -6327,6 +6334,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   // Loading : vrai seulement si les données du tab actuel manquent encore
   const loading = (() => {
     if (!supaData) return true;
+    if (periodIndex > 0 && snapLoading) return true;
     if (tab === 1 && igLoading) return true;
     if (tab === 2 && ytLoading) return true;
     if ((tab === 3 || tab === 4) && shortioLoading) return true;
@@ -6390,7 +6398,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           >
             {refreshing ? 'Rafraîchissement…' : '↻ Rafraîchir'}
           </button>
-          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} />
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} connectedAt={[integStatus?.ig?.connectedAt, integStatus?.yt?.connectedAt].filter(Boolean).sort()[0] ?? null} />
         </div>
       </div>
 
