@@ -116,14 +116,37 @@ export async function DELETE(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { ig_username, prospect_id, platform } = body;
+  const { ig_username, prospect_id, call_id, platform } = body;
 
-  // ── Suppression YT / Autre (prospect_id = UUID) ──────────────────────────────
+  // ── Suppression YT / Autre — cas fallback : card.key = call.id (pas de prospect) ──
+  if (call_id && !prospect_id && platform !== 'ig') {
+    await Promise.all([
+      supa.from('calls').update({ ignored: true, lead_deleted: true })
+        .eq('coach_id', user.id)
+        .eq('id', call_id),
+      supa.from('pipeline_overrides').delete()
+        .eq('profile_id', user.id)
+        .eq('prospect_key', call_id),
+      supa.from('prospect_events').delete()
+        .eq('profile_id', user.id)
+        .eq('prospect_key', call_id),
+    ]);
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── Suppression YT / Autre — cas normal : card.key = prospect_id ─────────────
   if (prospect_id && platform !== 'ig') {
-    const deleteOps = [
+    await Promise.all([
+      // Ignore tous les calls de ce prospect (via prospect_id sur le call)
       supa.from('calls').update({ ignored: true, lead_deleted: true })
         .eq('coach_id', user.id)
         .eq('prospect_id', prospect_id),
+      // Si call_id est aussi fourni, ignore aussi ce call-là (doublon sûr)
+      ...(call_id ? [
+        supa.from('calls').update({ ignored: true, lead_deleted: true })
+          .eq('coach_id', user.id)
+          .eq('id', call_id),
+      ] : []),
       supa.from('pipeline_overrides').delete()
         .eq('profile_id', user.id)
         .eq('prospect_key', prospect_id),
@@ -133,8 +156,7 @@ export async function DELETE(request: Request) {
       supa.from('prospects').delete()
         .eq('profile_id', user.id)
         .eq('id', prospect_id),
-    ];
-    await Promise.all(deleteOps);
+    ]);
     return NextResponse.json({ ok: true });
   }
 

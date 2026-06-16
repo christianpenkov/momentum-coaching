@@ -221,7 +221,7 @@ function PipelineCard({
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
-  onDeleteLead?: (key: string) => void;
+  onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
@@ -454,7 +454,7 @@ function PipelineCard({
               Annuler
             </button>
             <button
-              onMouseDown={() => { if (!deleteConfirmed) return; setConfirmDelete(false); setDeleteConfirmed(false); onDeleteLead?.(card.key); }}
+              onMouseDown={() => { if (!deleteConfirmed) return; setConfirmDelete(false); setDeleteConfirmed(false); onDeleteLead?.(card.key, card.callId); }}
               style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: deleteConfirmed ? 'pointer' : 'not-allowed', opacity: deleteConfirmed ? 1 : 0.4 }}
             >
               Supprimer
@@ -486,7 +486,7 @@ function KanbanColumn({
   platform: 'ig' | 'yt' | 'other';
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
-  onDeleteLead?: (key: string) => void;
+  onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
 }) {
   return (
@@ -1214,11 +1214,19 @@ export default function PagePipeline() {
 
   // ── Suppression lead ────────────────────────────────────────────────────────
 
-  const handleDeleteLead = useCallback(async (cardKey: string) => {
+  const handleDeleteLead = useCallback(async (cardKey: string, callId?: string | null) => {
     const isUUID = /^[0-9a-f-]{36}$/.test(cardKey);
-    const body = isUUID
-      ? { prospect_id: cardKey, platform: tab }
-      : { ig_username: cardKey, platform: tab };
+    let body: Record<string, any>;
+    if (!isUUID) {
+      // IG : cardKey = ig_username
+      body = { ig_username: cardKey, platform: tab };
+    } else if (cardKey === callId) {
+      // YT/Autre fallback : pas de prospect, cardKey IS le call.id
+      body = { call_id: cardKey, platform: tab };
+    } else {
+      // YT/Autre normal : cardKey = prospect_id, callId = call.id
+      body = { prospect_id: cardKey, call_id: callId ?? null, platform: tab };
+    }
     await fetch('/api/client/pipeline', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
