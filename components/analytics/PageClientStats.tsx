@@ -6021,7 +6021,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const msgs: IGMessages | null = msgsRaw ?? null;
 
   // Short.io — onglets 0 (Vue générale) et 4 (Business micro) — cache 15min
-  const { data: shortioRaw, isLoading: shortioLoading } = useQuery<ShortioStats | null>({
+  const { data: shortioRaw, isLoading: shortioLoading, refetch: refetchShortio } = useQuery<ShortioStats | null>({
     queryKey: ['stats-shortio', profileId],
     queryFn: () => fetchApi(`/api/shortio/stats${q}`),
     enabled: tab === 0 || tab === 3 || tab === 4,
@@ -6067,16 +6067,19 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     if (inCooldown || refreshing) return;
     setRefreshing(true);
     const body = profileId ? JSON.stringify({ profile_id: profileId }) : JSON.stringify({});
+    // Refresh snapshots DB (instagram, youtube, shortio, calendly)
     await Promise.allSettled([
       fetch('/api/instagram/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/youtube/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/shortio/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/calendly/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
+      // Force le re-fetch du cache shortio_stats_cache en bypassant le SWR
+      fetch(`/api/shortio/stats${q}${q ? '&' : '?'}force=1`),
     ]);
     startCooldown();
     setRefreshing(false);
     refetchIntegStatus();
-    await Promise.all([refetchSupa(), refetchIg()]);
+    await Promise.all([refetchSupa(), refetchIg(), refetchShortio()]);
   }
 
   // Données effectives pour TabFunnel : historiques si periodIndex > 0, live sinon

@@ -177,6 +177,8 @@ export async function GET(request: Request) {
   const creds = await getCreds(targetProfileId);
   if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
+  const forceRefresh = searchParams.get('force') === '1';
+
   // ── Stale-While-Revalidate ────────────────────────────────────────────────
   const { data: cached } = await serviceSupabase
     .from('shortio_stats_cache')
@@ -190,6 +192,17 @@ export async function GET(request: Request) {
 
   const cacheIsStale = cacheAge > CACHE_TTL_MS;
 
+  // force=1 → bypass total du cache, fetch complet immédiat
+  if (forceRefresh) {
+    try {
+      const payload = await fetchFromShortio(creds, targetProfileId);
+      saveCache(targetProfileId, payload).catch(() => {});
+      return NextResponse.json(payload);
+    } catch (err: any) {
+      return NextResponse.json({ error: err.message || 'Erreur Short.io' }, { status: 400 });
+    }
+  }
+
   // Cache frais → réponse immédiate, aucun appel Short.io
   if (cached && !cacheIsStale) {
     return NextResponse.json(cached.payload);
@@ -198,10 +211,9 @@ export async function GET(request: Request) {
   // Cache expiré mais existant → SWR : répondre immédiatement avec stale data,
   // déclencher le refresh en arrière-plan (fire-and-forget)
   if (cached && cacheIsStale) {
-    // Fire-and-forget : pas de await → la réponse part immédiatement
     fetchFromShortio(creds, targetProfileId)
       .then(fresh => saveCache(targetProfileId, fresh))
-      .catch(() => {}); // silencieux si Short.io est down
+      .catch(() => {});
 
     return NextResponse.json({ ...cached.payload, _stale: true });
   }
@@ -209,7 +221,6 @@ export async function GET(request: Request) {
   // Aucun cache → premier chargement, on attend le fetch complet
   try {
     const payload = await fetchFromShortio(creds, targetProfileId);
-    // Sauvegarde en background après la réponse
     saveCache(targetProfileId, payload).catch(() => {});
     return NextResponse.json(payload);
   } catch (err: any) {

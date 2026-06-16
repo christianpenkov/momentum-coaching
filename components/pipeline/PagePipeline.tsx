@@ -1215,13 +1215,17 @@ export default function PagePipeline() {
   // ── Suppression lead ────────────────────────────────────────────────────────
 
   const handleDeleteLead = useCallback(async (cardKey: string) => {
+    const isUUID = /^[0-9a-f-]{36}$/.test(cardKey);
+    const body = isUUID
+      ? { prospect_id: cardKey, platform: tab }
+      : { ig_username: cardKey, platform: tab };
     await fetch('/api/client/pipeline', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ig_username: cardKey }),
+      body: JSON.stringify(body),
     });
     await refetch();
-  }, [refetch]);
+  }, [refetch, tab]);
 
   // ── Drag & drop + modale de confirmation ────────────────────────────────────
 

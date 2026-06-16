@@ -116,8 +116,34 @@ export async function DELETE(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { ig_username } = body;
-  if (!ig_username) return NextResponse.json({ error: 'ig_username requis' }, { status: 400 });
+  const { ig_username, prospect_id, platform } = body;
+
+  // ── Suppression YT / Autre (prospect_id = UUID) ──────────────────────────────
+  if (prospect_id && platform !== 'ig') {
+    const deleteOps: Promise<any>[] = [
+      // Ignore tous les calls liés à ce prospect (source de vérité pour les stats)
+      supa.from('calls').update({ ignored: true, lead_deleted: true })
+        .eq('coach_id', user.id)
+        .eq('prospect_id', prospect_id).then(),
+      // Supprime l'override pipeline (dismissed, stage forcé...)
+      supa.from('pipeline_overrides').delete()
+        .eq('profile_id', user.id)
+        .eq('prospect_key', prospect_id).then(),
+      // Supprime les events prospect liés (call_booked, etc.)
+      supa.from('prospect_events').delete()
+        .eq('profile_id', user.id)
+        .eq('prospect_key', prospect_id).then(),
+      // Supprime la fiche prospect elle-même
+      supa.from('prospects').delete()
+        .eq('profile_id', user.id)
+        .eq('id', prospect_id).then(),
+    ];
+    await Promise.all(deleteOps);
+    return NextResponse.json({ ok: true });
+  }
+
+  // ── Suppression IG (ig_username) ─────────────────────────────────────────────
+  if (!ig_username) return NextResponse.json({ error: 'ig_username ou prospect_id requis' }, { status: 400 });
 
   // Récupère les ig_lead_ids et ig_user_ids à supprimer avant de faire les deletes
   const { data: leadsToDelete } = await supa
@@ -133,13 +159,9 @@ export async function DELETE(request: Request) {
     supa.from('instagram_leads').delete().eq('profile_id', user.id).eq('ig_username', ig_username).then(),
     supa.from('prospect_links').delete().eq('profile_id', user.id).eq('ig_username', ig_username).then(),
     supa.from('pipeline_overrides').delete().eq('profile_id', user.id).eq('prospect_key', ig_username).then(),
-    // Nettoie les events liés au(x) lead(s) supprimé(s) pour éviter pollution du pipeline
-    // si le même username recommente plus tard (nouveau lead, histoire repart de zéro)
     supa.from('prospect_events').delete().eq('profile_id', user.id).eq('prospect_key', ig_username.toLowerCase()).then(),
   ];
 
-  // Si des ig_lead_ids existent, nettoie aussi par FK directe (redondant mais exhaustif)
-  // + détache les calls liés pour éviter qu'un futur lead du même username les récupère
   if (leadIds.length > 0) {
     deleteOps.push(
       supa.from('prospect_events').delete().eq('profile_id', user.id).in('ig_lead_id', leadIds).then(),
@@ -147,7 +169,6 @@ export async function DELETE(request: Request) {
     );
   }
 
-  // Supprime l'historique LM pour éviter que les stats Performance LM restent gonflées
   if (igUserIds.length > 0) {
     deleteOps.push(
       supa.from('instagram_lead_lm_history').delete().eq('profile_id', user.id).in('ig_user_id', igUserIds).then(),
