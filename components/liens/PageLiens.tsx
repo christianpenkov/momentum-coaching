@@ -2355,7 +2355,7 @@ export default function PageLiens() {
             {/* Liste contenus */}
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {postsLoading ? (
-                <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>Chargement...</div>
+                <div style={{ padding: '20px 16px', textAlign: 'center' }}><Spinner /></div>
               ) : filteredPosts.length === 0 ? (
                 <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
                   {search ? 'Aucun résultat.' : 'Aucun contenu trouvé.'}
