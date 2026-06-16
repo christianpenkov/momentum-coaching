@@ -1202,7 +1202,12 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     'Reach': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
-    'Abonnés nets': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
+    'Abonnés nets': { data: igDays.map((d, i, arr) => {
+      // Delta jour J vs J-1 — peut être négatif (désabonnement net)
+      const prev = arr[i - 1]?.followerCount ?? d.followerCount ?? 0;
+      const curr = d.followerCount ?? prev;
+      return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
+    }), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
