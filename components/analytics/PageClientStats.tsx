@@ -2068,9 +2068,17 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const now = new Date();
   const mrr = stripe?.mrr || 0;
 
+  // ── Fenêtre temporelle de la période sélectionnée ──
+  const periodEnd   = new Date(now.getTime() - periodIndex * period * 86400000);
+  const periodStart = new Date(periodEnd.getTime() - period * 86400000);
+  const callsInWindow = calls.filter(c => {
+    const t = new Date(c.scheduled_at).getTime();
+    return t >= periodStart.getTime() && t <= periodEnd.getTime();
+  });
+
   // ── Calls par plateforme (données réelles uniquement) ──
-  const callsIG = calls.filter(isIGCall);
-  const callsYT = calls.filter(isYTCall);
+  const callsIG = callsInWindow.filter(isIGCall);
+  const callsYT = callsInWindow.filter(isYTCall);
 
   const calcCalls = (subset: CallRecord[]) => {
     const bookes = subset.filter(c => c.status === 'active').length;
@@ -2204,7 +2212,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   ];
 
   // ── Calls filtrés pour la table (toujours live) ──
-  const filteredCalls = callsFilter === 'ig' ? callsIG : callsFilter === 'yt' ? callsYT : calls;
+  const filteredCalls = callsFilter === 'ig' ? callsIG : callsFilter === 'yt' ? callsYT : callsInWindow;
 
   const totalBookes  = igBookes + ytBookes;
   const totalHonores = igHonores + ytHonores;
