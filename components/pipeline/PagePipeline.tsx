@@ -130,6 +130,13 @@ const PRE_CALL_STAGES  = new Set(['lm_sent', 'in_convo', 'calendly_sent', 'link_
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const d = Math.floor(diff / 86400000);
+  if (d < 0) {
+    const future = Math.abs(d);
+    if (future === 1) return 'Demain';
+    if (future < 7) return `Dans ${future}j`;
+    if (future < 30) return `Dans ${Math.floor(future / 7)}sem`;
+    return `Dans ${Math.floor(future / 30)}mois`;
+  }
   if (d === 0) return "Aujourd'hui";
   if (d === 1) return 'Hier';
   if (d < 7) return `${d}j`;

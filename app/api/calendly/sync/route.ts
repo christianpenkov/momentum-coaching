@@ -238,16 +238,31 @@ export async function POST() {
     const effectiveSource = igLeadId ? 'ig_dm' : (source ?? inheritedSource ?? null);
     const effectivePlatform: 'yt' | 'other' = effectiveSource?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
     let prospectId: string | null = null;
+    let prospectDeleted = false;
     if (!igLeadId) {
-      prospectId = await upsertProspect({
-        profileId: leadsProfileId,
-        platform: effectivePlatform,
-        email: inviteeEmail,
-        name: inviteeName,
-        source: effectiveSource,
-      });
-      if (!prospectId) {
-        console.warn('[calendly/sync] prospect non résolu — email et nom manquants, eventUuid:', eventUuid);
+      // Vérifie si ce prospect a déjà été supprimé manuellement (même email = même personne)
+      if (inviteeEmail) {
+        const { data: deletedCall } = await serviceSupabase.from('calls')
+          .select('id')
+          .eq('coach_id', leadsProfileId)
+          .eq('invitee_email', inviteeEmail)
+          .eq('lead_deleted', true)
+          .limit(1)
+          .maybeSingle();
+        if (deletedCall) prospectDeleted = true;
+      }
+
+      if (!prospectDeleted) {
+        prospectId = await upsertProspect({
+          profileId: leadsProfileId,
+          platform: effectivePlatform,
+          email: inviteeEmail,
+          name: inviteeName,
+          source: effectiveSource,
+        });
+        if (!prospectId) {
+          console.warn('[calendly/sync] prospect non résolu — email et nom manquants, eventUuid:', eventUuid);
+        }
       }
     }
 
@@ -283,6 +298,16 @@ export async function POST() {
       .eq('calendly_event_uuid', eventUuid)
       .maybeSingle();
     if (existingCall?.ignored) { synced++; continue; }
+
+    // Prospect supprimé manuellement → nouveau call fantôme : ignoré, ne compte nulle part
+    if (prospectDeleted) {
+      await serviceSupabase.from('calls').upsert(
+        { ...baseUpsert, ignored: true, lead_deleted: true, prospect_id: null },
+        { onConflict: 'calendly_event_uuid' }
+      );
+      synced++;
+      continue;
+    }
 
     // Nouveau call pour un lead IG connu : canceller les anciens calls actifs sans rapport terminal
     // Évite l'accumulation de doublons quand le cron poll sans recevoir les webhooks d'annulation

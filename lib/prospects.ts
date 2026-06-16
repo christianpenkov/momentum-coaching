@@ -27,6 +27,17 @@ export async function upsertProspect({
   if (!email && !name) return null;
 
   if (email) {
+    // Vérifie si le prospect existe déjà et est supprimé manuellement
+    const { data: existing } = await serviceSupabase
+      .from('prospects')
+      .select('id, deleted')
+      .eq('profile_id', profileId)
+      .eq('email', email)
+      .maybeSingle();
+
+    // Prospect supprimé → ne pas réactiver, retourner null pour que le call soit fantôme
+    if (existing && (existing as any).deleted) return null;
+
     const { data } = await serviceSupabase
       .from('prospects')
       .upsert({
