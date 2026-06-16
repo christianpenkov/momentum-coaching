@@ -4187,10 +4187,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
     // Deux cas : (1) via ig_lead_id → media_id pour les leads IG avec DM
     //            (2) via utm_content = postId pour les calls sans ig_lead_id (ex: description YT anonyme)
-    const lmLeadIds = new Set(leads.filter((l: MockLead) => l.leadMagnetSent).map((l: MockLead) => l.id).filter(Boolean));
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => {
-          if (c.ig_lead_id) return leadIdToMediaId.get(c.ig_lead_id) === postId && !lmLeadIds.has(c.ig_lead_id);
+          if (c.ig_lead_id) return leadIdToMediaId.get(c.ig_lead_id) === postId;
           return c.utm_content === postId;
         })
       : [];
@@ -5722,7 +5721,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
 
   // Calls pour la période historique depuis la DB
   const callsRes = await supabase.from('calls').select('*')
-    .eq('coach_id', user.id)
+    .eq('coach_id', targetId)
     .gte('scheduled_at', periodStart.toISOString())
     .lte('scheduled_at', periodEnd.toISOString())
     .not('calendly_event_uuid', 'is', null)
