@@ -3896,7 +3896,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, profileId, prospectLinksData, clicksByPath, clicksByUrl, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3905,6 +3905,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   lmHistory?: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[];
   destinations: DestinationLink[];
   period: Period;
+  periodIndex?: number;
   profileId?: string;
   prospectLinksData?: any[];
   clicksByPath?: Map<string, number>;
@@ -3916,6 +3917,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   leadIdToMediaId?: Map<string, string>;
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
+  // Fenêtre temporelle correcte selon la période sélectionnée
+  const _pIdx = periodIndex ?? 0;
+  const periodEnd = new Date(Date.now() - _pIdx * sPeriod * 24 * 60 * 60 * 1000);
+  const periodStart = new Date(periodEnd.getTime() - sPeriod * 24 * 60 * 60 * 1000);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
@@ -4069,9 +4074,13 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     ? (shortio.humanClicks30d ?? 0)
     : (shortio.chartData ?? []).slice(-sPeriod).reduce((s: number, d: any) => s + (d.clicks || 0), 0);
 
-  // Filtre leads par période
-  const periodCutoff = Date.now() - sPeriod * 24 * 60 * 60 * 1000;
-  const leadsInPeriod = leads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
+  // Filtre leads par période (fenêtre [periodStart, periodEnd])
+  const periodCutoff = periodStart.getTime();
+  const periodEndMs = periodEnd.getTime();
+  const leadsInPeriod = leads.filter(l => {
+    const t = new Date(l.commentedAt).getTime();
+    return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+  });
 
   // ── Section 0 : KPIs ──
   // Clics totaux : DM Calendly dédupliqués (1/lead) + LM dédupliqués (1/lead)
@@ -4139,14 +4148,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   });
 
   // ── Section 2 : tableau consolidé par contenu — tous les posts, pas seulement ceux avec business ──
+  // Guard : exclure les postId null/vides qui créent des lignes fantômes avec username comme titre
+  const isValidPostId = (id: any) => id && typeof id === 'string' && id !== 'null' && id !== 'undefined';
   const allPostIds = Array.from(new Set([
     ...igPosts.map(p => p.id + '|IG'),
     ...ytVideos.map(v => v.id + '|YT'),
-    ...postLinks.map((l: any) => l.postId + '|' + l.postPlatform),
+    ...postLinks.filter((l: any) => isValidPostId(l.postId)).map((l: any) => l.postId + '|' + l.postPlatform),
     ...prospectLinks
-      .filter((l: any) => l.postId && !['bio-ig', 'bio-yt'].includes(l.postId))
+      .filter((l: any) => isValidPostId(l.postId) && !['bio-ig', 'bio-yt'].includes(l.postId))
       .map((l: any) => l.postId + '|' + (l.postPlatform || (l.postId?.startsWith('v') ? 'YT' : 'IG'))),
-    ...leads.filter(lead => lead.leadMagnetSent).map(lead => lead.postId + '|' + lead.postType),
+    ...leads.filter(lead => lead.leadMagnetSent && isValidPostId(lead.postId)).map(lead => lead.postId + '|' + lead.postType),
   ]));
 
   // Map keyword (lowercase) → nom du LM pour affichage dans Performance par contenu
@@ -4178,7 +4189,10 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;
 
     const clicsDesc = linkClics(descLink) || 0;
-    const postLeadsInPeriod = postLeads.filter(l => new Date(l.commentedAt).getTime() >= periodCutoff);
+    const postLeadsInPeriod = postLeads.filter(l => {
+      const t = new Date(l.commentedAt).getTime();
+      return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+    });
     const lmDetectes = postLeadsInPeriod.length;
     const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
     const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
@@ -4447,11 +4461,12 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const lmProspectLinks = prospectLinks.filter((l: any) => isLMProspect(l));
 
           // Cold DM = coach a initié (dmType === 'cold') ou non détecté (null) parmi les DM directs
-          const periodCutoffBreakdown = Date.now() - sPeriod * 24 * 60 * 60 * 1000;
           const dmLinkSentInPeriod = (l: any) => {
             if (!l.calendly_link_sent) return false;
             const ts = l.calendly_link_sent_at ?? l.created_at;
-            return ts && new Date(ts).getTime() >= periodCutoffBreakdown;
+            if (!ts) return false;
+            const t = new Date(ts).getTime();
+            return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
           };
           const coldDMLinks = dmDirectLinks.filter((l: any) => (l.dmType === 'cold' || l.dmType == null) && dmLinkSentInPeriod(l));
           const organicDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'organic' && dmLinkSentInPeriod(l));
@@ -4474,7 +4489,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             if (!lead?.leadMagnetSent) return false;
             if (!pl.calendly_link_sent) return false;
             const ts = pl.calendly_link_sent_at ?? pl.created_at;
-            return ts && new Date(ts).getTime() >= periodCutoffBreakdown;
+            if (!ts) return false;
+            const t = new Date(ts).getTime();
+            return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
           });
           const lmBooked = lmProspectLinksDb.filter((l: any) => l.callBooked).length;
           const lmHonored = lmBooked;
@@ -5276,7 +5293,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     // Pivot unique : keyword_matched — même clé sur lmHistory, prospect_links, et shortio path
                     const kw = (lm.keyword || '').toLowerCase();
                     const kwSlug = kw.replace(/[^a-z0-9-]/g, '');
-                    const periodStartDate = new Date(Date.now() - globalPeriod * 24 * 60 * 60 * 1000).toISOString();
+                    const periodStartDate = periodStart.toISOString();
+                    const periodEndDate = _pIdx === 0 ? null : periodEnd.toISOString();
 
                     // Tous les mots-clés alternatifs pour ce LM (définis dans content_links par contenu)
                     // Ex: LM Ubizen AI (keyword: LM) peut aussi être déclenché par BEAU via un contenu
@@ -5290,7 +5308,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     // Leads : depuis instagram_leads — match sur tous les keywords du LM
                     const lmLeads = (leads as any[]).filter(l =>
                       altKws.has((l.keyword || '').toLowerCase()) &&
-                      (!l.commentedAt || l.commentedAt >= periodStartDate)
+                      (!l.commentedAt || (l.commentedAt >= periodStartDate && (!periodEndDate || l.commentedAt <= periodEndDate)))
                     );
                     const leadsCount = lmLeads.filter(l => l.leadMagnetSent).length;
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
@@ -5301,12 +5319,15 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
 
                     // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
                     // Inclut les keywords alternatifs (ex: BEAU pour LM Ubizen AI)
-                    // Même logique que Business Micro : calendly_link_sent + filtre période
-                    const supaProspects = (prospectLinksData ?? []).filter((pl: any) =>
-                      altKws.has((pl.keyword_matched || '').toLowerCase()) &&
-                      pl.calendly_link_sent === true &&
-                      (() => { const ts = pl.calendly_link_sent_at ?? pl.created_at; return ts && new Date(ts).toISOString() >= periodStartDate; })()
-                    );
+                    // Même logique que Business Micro : calendly_link_sent + filtre période [periodStart, periodEnd]
+                    const supaProspects = (prospectLinksData ?? []).filter((pl: any) => {
+                      if (!altKws.has((pl.keyword_matched || '').toLowerCase())) return false;
+                      if (!pl.calendly_link_sent) return false;
+                      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+                      if (!ts) return false;
+                      const iso = new Date(ts).toISOString();
+                      return iso >= periodStartDate && (!periodEndDate || iso <= periodEndDate);
+                    });
                     const liensCalendly = supaProspects.length;
 
                     // Clics Calendly : même logique que le pipeline — prospect_events.link_clicked par lead
@@ -6319,7 +6340,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={igEff} period={period} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
