@@ -2404,7 +2404,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: row.color }} />
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{row.platform}</div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)' }}>
                 {row.metrics.map((m, mi) => {
                   const d = m.delta;
                   const isGood = d ? (m.lowerIsBetter ? d.value < 0 : d.value > 0) : false;
@@ -2419,7 +2419,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   return (
                     <div key={mi}
                       onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: effData }); onModalChange?.(true); }}
-                      style={{ padding: '16px 20px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
+                      style={{ padding: '14px 14px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
                     >
@@ -2838,7 +2838,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: row.color }} />
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{row.platform}</div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)' }}>
                 {row.metrics.map((m, mi) => {
                   const d = m.delta;
                   const isGood = d ? (m.lowerIsBetter ? d.value < 0 : d.value > 0) : false;
@@ -2851,7 +2851,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
                   return (
                     <div key={mi}
                       onClick={() => setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: effData2 })}
-                      style={{ padding: '12px 16px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
+                      style={{ padding: '12px 12px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}>
                       <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)', marginBottom: 4 }}>{m.label}</div>
