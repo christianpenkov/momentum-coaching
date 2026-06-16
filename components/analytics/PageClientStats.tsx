@@ -87,7 +87,7 @@ interface CallRecord {
   no_show?: boolean; deal_closed?: boolean; revenue?: number;
   rescheduled?: boolean; source?: string; notes?: string;
   ig_lead_id?: string | null; outcome?: string | null;
-  utm_content?: string | null;
+  utm_content?: string | null; utm_medium?: string | null;
 }
 interface StripeStats {
   mrr: number; monthlyRevenue: number; activeSubscriptions: number;
