@@ -5733,6 +5733,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     callsRes,
     stripeRes,
     shortioResult,
+    shortioClicksRes,
   ] = await Promise.allSettled([
     supabase
       .from('analytics_daily_snapshots')
@@ -5772,6 +5773,11 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     fetch(`/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDateStr}&endDate=${endDateStr}`)
       .then(r => r.ok ? r.json() : null)
       .catch(() => null),
+    supabase.from('shortio_link_daily_snapshots')
+      .select('short_url, human_clicks, path')
+      .eq('profile_id', targetId)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr),
   ]);
 
   const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
@@ -5779,6 +5785,21 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const ytVideosRows = ytVideosRes.status === 'fulfilled' ? (ytVideosRes.value.data ?? []) : [];
   const stripeRows = stripeRes.status === 'fulfilled' ? (stripeRes.value.data ?? []) : [];
   const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
+  const shortioClickRows = shortioClicksRes.status === 'fulfilled' ? (shortioClicksRes.value.data ?? []) : [];
+
+  // clicksByUrl / clicksByPath filtrés sur la fenêtre exacte de la période
+  const snapClicksByUrl = new Map<string, number>();
+  const snapClicksByPath = new Map<string, number>();
+  for (const row of shortioClickRows) {
+    if (row.short_url) {
+      const u = (row.short_url as string).toLowerCase();
+      snapClicksByUrl.set(u, (snapClicksByUrl.get(u) ?? 0) + (row.human_clicks ?? 0));
+    }
+    if (row.path) {
+      const p = (row.path as string).toLowerCase();
+      snapClicksByPath.set(p, (snapClicksByPath.get(p) ?? 0) + (row.human_clicks ?? 0));
+    }
+  }
 
   // Dernier snapshot connu pour les valeurs cumulatives (followers, abonnés, etc.)
   const lastSnap = snaps[snaps.length - 1] ?? null;
@@ -5953,17 +5974,19 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     stripeHist,
     msgsHist,
     snapshotDate: endDateStr,
+    clicksByUrl: snapClicksByUrl,
+    clicksByPath: snapClicksByPath,
   };
 }
 
-async function fetchSupabaseStats(profileId?: string) {
+async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   try {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const since30d = new Date(Date.now() - period * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
     supabase.from('instagram_leads')
@@ -6204,8 +6227,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
   // Données Supabase — toujours chargées (rapides, multi-onglets)
   const { data: supaData, refetch: refetchSupa } = useQuery({
-    queryKey: ['stats-supa', profileId],
-    queryFn: () => fetchSupabaseStats(profileId),
+    queryKey: ['stats-supa', profileId, period],
+    queryFn: () => fetchSupabaseStats(profileId, period),
     staleTime: 5 * 60 * 1000,
   });
 
@@ -6216,8 +6239,6 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
-  const clicksByPath: Map<string, number> = supaData?.clicksByPath ?? new Map();
-  const clicksByUrl: Map<string, number> = supaData?.clicksByUrl ?? new Map();
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
   const lmClickedByLeadId: Map<string, string> = supaData?.lmClickedByLeadId ?? new Map();
   const linkClickedByLeadId: Map<string, string> = supaData?.linkClickedByLeadId ?? new Map();
@@ -6280,6 +6301,11 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
     enabled: periodIndex > 0,
     staleTime: 30 * 60 * 1000,
   });
+
+  // En S-1+ : clics filtrés sur la fenêtre exacte de la période (depuis fetchSnapshot)
+  // En S-0 : clics filtrés sur le period actif (7j ou 30j) depuis supaData
+  const clicksByPath: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByPath : null) ?? supaData?.clicksByPath ?? new Map();
+  const clicksByUrl: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByUrl : null) ?? supaData?.clicksByUrl ?? new Map();
 
   // État intégrations — backfill + fraîcheur
   const { data: integStatus, refetch: refetchIntegStatus } = useQuery({
