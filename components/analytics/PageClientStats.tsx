@@ -4157,7 +4157,9 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const calendlyLinksSent = prospectLinksDb.filter(l => {
     if (!l.calendly_link_sent) return false;
     const ts = l.calendly_link_sent_at ?? l.created_at;
-    return ts && new Date(ts).getTime() >= periodCutoff;
+    if (!ts) return false;
+    const t = new Date(ts).getTime();
+    return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
   });
   const lmCalendlyLinks = calendlyLinksSent.length;
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
