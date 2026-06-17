@@ -421,24 +421,12 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`] }; }
   if (!links.length) return { errors: [] };
 
-  const d = new Date(); d.setDate(d.getDate() - 1);
-  const date = d.toISOString().split('T')[0];
+  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
+  const dateYesterday = yesterday.toISOString().split('T')[0];
+  const dateToday = new Date().toISOString().split('T')[0];
 
-  // Snapshot agrégat domaine J-1
-  const domainRes = await fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=yesterday`, { headers: { authorization: creds.apiKey, accept: 'application/json' } });
-  if (domainRes.ok) {
-    const domainStats = await safeJson(domainRes);
-    await supa.from('analytics_daily_snapshots').upsert({
-      profile_id: profileId, date,
-      shortio_clicks: Number(domainStats.clicks ?? 0) || null,
-      shortio_human_clicks: Number(domainStats.humanClicks ?? 0) || null,
-      shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
-      shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
-    }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-  }
-
-  // Snapshot par lien en parallèle
-  const settled = await Promise.allSettled(links.map(async (l: any) => {
+  // Helper : snapshot un lien pour une période donnée
+  const snapshotLink = async (l: any, period: string, date: string) => {
     const linkId = String(l.id);
     const path = l.path || '';
     const shortUrl = l.secureShortURL || l.shortURL || `https://${creds.domain}/${path}`;
@@ -446,7 +434,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     let link_type: string | null = null;
     try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch {}
 
-    const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=yesterday`, { headers: { authorization: creds.apiKey, accept: 'application/json' } });
+    const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=${period}`, { headers: { authorization: creds.apiKey, accept: 'application/json' } });
     const stats = statsRes.ok ? await safeJson(statsRes) : {};
 
     await supa.from('shortio_link_daily_snapshots').upsert({
@@ -464,7 +452,35 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       utm_mediums: (stats.utm_medium || []).filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 8).map((u: any) => ({ label: u.utm_medium, value: Number(u.score) })),
       backfill_source: 'cron',
     }, { onConflict: 'profile_id,link_id,date', ignoreDuplicates: false });
-  }));
+  };
+
+  // Snapshot agrégat domaine J-1 + J-0 en parallèle
+  await Promise.allSettled([
+    fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=yesterday`, { headers: { authorization: creds.apiKey, accept: 'application/json' } })
+      .then(r => r.ok ? safeJson(r) : null)
+      .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
+        profile_id: profileId, date: dateYesterday,
+        shortio_clicks: Number(domainStats.clicks ?? 0) || null,
+        shortio_human_clicks: Number(domainStats.humanClicks ?? 0) || null,
+        shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
+        shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
+      }, { onConflict: 'profile_id,date', ignoreDuplicates: false })),
+    fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=today`, { headers: { authorization: creds.apiKey, accept: 'application/json' } })
+      .then(r => r.ok ? safeJson(r) : null)
+      .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
+        profile_id: profileId, date: dateToday,
+        shortio_clicks: Number(domainStats.clicks ?? 0) || null,
+        shortio_human_clicks: Number(domainStats.humanClicks ?? 0) || null,
+        shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
+        shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
+      }, { onConflict: 'profile_id,date', ignoreDuplicates: false })),
+  ]);
+
+  // Snapshot par lien : J-1 + J-0 en parallèle
+  const settled = await Promise.allSettled(links.flatMap((l: any) => [
+    snapshotLink(l, 'yesterday', dateYesterday),
+    snapshotLink(l, 'today', dateToday),
+  ]));
 
   for (const s of settled) if (s.status === 'rejected') errors.push(String(s.reason?.message || 'link_snapshot_failed'));
   return { errors };
@@ -483,6 +499,31 @@ async function syncLmClickStream(profileId: string, creds: { apiKey: string; dom
     const data = await safeJson(res);
     const rawClicks: { path: string; dt: string; human: boolean }[] = data?.clicks ?? data ?? [];
     const humanClicks = rawClicks.filter(c => c.human === true && c.path);
+
+    // Mise à jour du compteur human_clicks dans shortio_link_daily_snapshots pour aujourd'hui
+    // On agrège par path (un clic = +1) et on upsert via increment SQL
+    const today = new Date().toISOString().split('T')[0];
+    const clickCountByPath = new Map<string, number>();
+    for (const click of humanClicks) {
+      const clickDate = click.dt ? click.dt.split('T')[0] : today;
+      if (clickDate === today) {
+        const p = click.path.replace(/^\//, '');
+        clickCountByPath.set(p, (clickCountByPath.get(p) ?? 0) + 1);
+      }
+    }
+    // Pour chaque path cliqué aujourd'hui, upsert le snapshot du jour avec le bon compteur
+    await Promise.allSettled([...clickCountByPath.entries()].map(async ([path, count]) => {
+      const { data: existing } = await supa.from('shortio_link_daily_snapshots')
+        .select('link_id, short_url, original_url, link_type, human_clicks')
+        .eq('profile_id', profileId).eq('path', path).eq('date', today)
+        .maybeSingle();
+      if (existing) {
+        await supa.from('shortio_link_daily_snapshots')
+          .update({ human_clicks: Math.max(existing.human_clicks ?? 0, count), updated_at: new Date().toISOString() })
+          .eq('profile_id', profileId).eq('path', path).eq('date', today);
+      }
+      // Si pas de ligne today, elle sera créée par snapshotShortioLinks (period=today) au prochain cron
+    }));
 
     // LM clicks
     for (const click of humanClicks.filter(c => c.path.replace(/^\//, '').startsWith('lm-'))) {
@@ -545,18 +586,29 @@ async function snapshotIgPosts(profileId: string, token: string, igAccountId: st
 
     const snapshotAt = new Date().toISOString();
 
+    // Helper : fetch insights isolés par groupe pour éviter qu'une métrique refusée invalide tout le call
+    const safeInsights = async (postId: string, metrics: string): Promise<Record<string, number>> => {
+      try {
+        const r = await fetch(`https://graph.instagram.com/v22.0/${postId}/insights?metric=${metrics}&access_token=${token}`);
+        const d = r.ok ? await safeJson(r) : {};
+        if (d?.error || !d?.data) return {};
+        const out: Record<string, number> = {};
+        for (const m of d.data) out[m.name] = m.values?.[0]?.value ?? m.total_value?.value ?? 0;
+        return out;
+      } catch { return {}; }
+    };
+
     await Promise.allSettled(posts.map(async (post: any) => {
       try {
         const isReel = post.media_product_type === 'REELS' || post.media_type === 'VIDEO';
-        const baseMetrics = 'reach,saved,shares,total_interactions,views,follows,profile_visits';
-        const reelMetrics = isReel ? ',ig_reels_avg_watch_time,ig_reels_video_view_total_time' : '';
-        const insightsRes = await fetch(
-          `https://graph.instagram.com/v22.0/${post.id}/insights?metric=${baseMetrics}${reelMetrics}&access_token=${token}`
-        );
-        const insightsData = insightsRes.ok ? await safeJson(insightsRes) : { data: [] };
+
+        // 3 calls isolés comme l'API live — si un groupe échoue, les autres passent
         const m: Record<string, number> = {};
-        for (const metric of insightsData?.data || []) {
-          m[metric.name] = metric.values?.[0]?.value ?? metric.total_value?.value ?? 0;
+        Object.assign(m, await safeInsights(post.id, 'reach,saved,shares,total_interactions,views'));
+        if (isReel) {
+          Object.assign(m, await safeInsights(post.id, 'ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate'));
+        } else {
+          Object.assign(m, await safeInsights(post.id, 'follows,profile_visits'));
         }
 
         const row: Record<string, any> = {
