@@ -870,6 +870,10 @@ Deno.serve(async (req: Request) => {
   const { data: integrations } = await supa.from('integrations').select('profile_id, provider, last_ig_poll').in('provider', ['instagram', 'youtube', 'shortio']);
   if (!integrations?.length) return new Response(JSON.stringify({ polled: 0, snapshots: 0 }), { headers: { 'Content-Type': 'application/json' } });
 
+  // Répondre immédiatement 202 pour éviter le timeout 30s de cron-job.org
+  // Le traitement continue via EdgeRuntime.waitUntil (jusqu'à 150s)
+  const runMain = async () => {
+
   const profileMap = new Map<string, { profile_id: string; last_ig_poll: string | null; hasIg: boolean }>();
   for (const row of integrations) {
     if (!profileMap.has(row.profile_id)) profileMap.set(row.profile_id, { profile_id: row.profile_id, last_ig_poll: row.last_ig_poll, hasIg: false });
@@ -945,5 +949,11 @@ Deno.serve(async (req: Request) => {
     }));
   } catch { /* non bloquant */ }
 
-  return new Response(JSON.stringify({ polled, leadsFound, snapshots, rapportNotified, errors: allErrors }), { headers: { 'Content-Type': 'application/json' } });
+  };
+
+  // Lancer le traitement en arrière-plan — la réponse 202 est envoyée immédiatement
+  // pour éviter le timeout 30s de cron-job.org. Le Edge Runtime continue jusqu'à 150s.
+  (globalThis as any).EdgeRuntime?.waitUntil(runMain());
+
+  return new Response(JSON.stringify({ status: 'accepted' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
 });
