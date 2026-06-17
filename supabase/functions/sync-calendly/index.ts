@@ -236,7 +236,11 @@ async function syncCalendlyEleve(
       invitee_email: inviteeEmail,
       invitee_name: inviteeName,
       calendly_qa: questionsAndAnswers,
-      source: finalIgLeadId ? 'ig_dm' : (source ?? inheritedSource),
+      // Si le call vient d'un lien description ou bio IG, garder la source UTM (ig_description / ig_bio)
+      // Écraser en ig_dm seulement si c'est un vrai DM (pas de medium description/bio)
+      source: finalIgLeadId && utmMedium !== 'description' && utmMedium !== 'bio'
+        ? 'ig_dm'
+        : (source ?? inheritedSource),
       status: isCanceled ? 'canceled' : 'active',
       ready: 'pending',
       reminder_sent: false,

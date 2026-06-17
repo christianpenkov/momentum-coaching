@@ -1111,6 +1111,58 @@ export default function PagePipeline() {
     }
   }
 
+  // ── Calls IG description / bio (sans ig_lead_id) ────────────────────────────
+  // Ces calls viennent d'un clic sur un lien Short.io en description de post IG ou en bio IG.
+  // Ils n'ont pas de lead DM mais apparaissent dans l'onglet IG directement en call_booked.
+  if (data) {
+    const igLinkCalls = data.calls.filter(c => {
+      if (c.ig_lead_id) return false;
+      if (c.lead_deleted) return false;
+      const src = c.source?.toLowerCase() ?? '';
+      return src === 'ig_description' || src === 'ig_bio';
+    });
+
+    for (const call of igLinkCalls) {
+      const cardKey = `ig_link_${call.id}`;
+      let natural: IgStageKey = 'call_booked';
+      if (call.deal_closed) natural = 'closed';
+      else if (call.outcome === 'showed_up' || call.outcome === 'second_call') natural = 'showed_up';
+      else if (call.no_show) natural = 'call_booked';
+      else if (['canceled', 'cancelled'].includes(call.status ?? '')) natural = 'call_booked';
+
+      let badge: CardData['badge'] = null;
+      if (call.no_show === true) badge = 'no_show';
+      else if (call.rescheduled && new Date(call.scheduled_at).getTime() < Date.now()) badge = 'rescheduled';
+      else if (call.outcome === 'not_qualified') badge = 'not_qualified';
+      else if (call.outcome === 'to_recontact') badge = 'to_recontact';
+
+      const override = effectiveOverrides.find(o => o.prospect_key === cardKey && o.platform === 'ig');
+      const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
+      const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
+
+      const srcLabel = call.source === 'ig_description' ? 'Lien description' : 'Lien bio';
+
+      igCards.push({
+        key: cardKey,
+        name: call.invitee_name || 'Prospect',
+        sub: srcLabel,
+        date: timeAgo(call.scheduled_at),
+        stageKey,
+        stageIdx: stageIdx >= 0 ? stageIdx : 0,
+        badge,
+        lmClickedAt: null,
+        callId: call.id,
+        callScheduledAt: call.scheduled_at,
+        callStatus: call.status,
+        callOutcome: call.outcome ?? null,
+        callIsFollowUp: call.is_follow_up ?? false,
+        naturalKey: natural,
+        hasProspectLink: false,
+        avatarUrl: null,
+      });
+    }
+  }
+
   // ── Build YT / Autres cards ──────────────────────────────────────────────────
   // On groupe les calls par prospect_id (fiche persistante) ou par call.id (fallback ancien call)
   // pour que les rebooks d'un même lead ne créent pas deux cartes distinctes.
