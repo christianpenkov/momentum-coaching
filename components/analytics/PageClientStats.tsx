@@ -872,35 +872,20 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   const ytTotalClosed = ytCallsAll.filter(c => c.deal_closed).length;
   const ytTotalRev = ytCallsAll.reduce((s, c) => s + (c.revenue || 0), 0);
 
-  // Attribution réelle calls IG → post via ig_lead_id → media_id
-  // Fallback proportionnel pour les calls IG sans ig_lead_id (anciens calls)
-  const igCallsWithLead = igCallsAll.filter(c => c.ig_lead_id && leadIdToMediaId.has(c.ig_lead_id));
-  const igCallsWithoutLead = igCallsAll.filter(c => !c.ig_lead_id || !leadIdToMediaId.has(c.ig_lead_id));
-  const igTotalReach = igPosts.reduce((s, p) => s + (p.reach || 0), 0);
-  const igFallbackCallsBooked = igCallsWithoutLead.filter(c => c.status === 'active').length;
-  const igFallbackNoShow = igCallsWithoutLead.filter(c => c.no_show).length;
-  const igFallbackClosed = igCallsWithoutLead.filter(c => c.deal_closed).length;
-  const igFallbackRev = igCallsWithoutLead.reduce((s, c) => s + (c.revenue || 0), 0);
-
+  // Attribution calls IG → post : même logique que Business micro
+  // 1. ig_lead_id → media_id via leadIdToMediaId
+  // 2. sans ig_lead_id → utm_content === postId (calls depuis lien description/bio)
   type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; revenueTotal: number; revenuePerCall: number };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
-      // Calls réels attribuables à ce post via ig_lead_id
-      const realCalls = igCallsWithLead.filter(c => leadIdToMediaId.get(c.ig_lead_id!) === p.id);
-      const realBooked = realCalls.filter(c => c.status === 'active').length;
-      const realNoShow = realCalls.filter(c => c.no_show).length;
-      const realClosed = realCalls.filter(c => c.deal_closed).length;
-      const realRev = realCalls.reduce((s, c) => s + (c.revenue || 0), 0);
-      // Fallback proportionnel pour calls sans attribution directe
-      const share = igTotalReach > 0 ? (p.reach || 0) / igTotalReach : 0;
-      const fallbackBooked = Math.round(igFallbackCallsBooked * share);
-      const fallbackNoShow = Math.round(igFallbackNoShow * share);
-      const fallbackClosed = Math.round(igFallbackClosed * share);
-      const fallbackRev = Math.round(igFallbackRev * share);
-      const callsBooked = realBooked + fallbackBooked;
-      const noShowCount = Math.min(callsBooked, realNoShow + fallbackNoShow);
-      const closedCount = Math.min(callsBooked - noShowCount, realClosed + fallbackClosed);
-      const revTotal = realRev + fallbackRev;
+      const postCalls = igCallsAll.filter(c => {
+        if (c.ig_lead_id) return leadIdToMediaId.get(c.ig_lead_id) === p.id;
+        return c.utm_content === p.id;
+      });
+      const callsBooked = postCalls.filter(c => c.status === 'active').length;
+      const noShowCount = postCalls.filter(c => c.no_show).length;
+      const closedCount = postCalls.filter(c => c.deal_closed).length;
+      const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
       const honored = callsBooked - noShowCount;
       const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
