@@ -4743,18 +4743,24 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                             : <span style={{ color: 'var(--faint)' }}>—</span>}
                         </TD>
                         <TD right>
-                          {row.honored > 0
-                            ? <><span style={{ fontWeight: 700 }}>{row.honored}</span>{honTaux && <RateBadge pct={honTaux.pct} color={honTaux.color} />}</>
+                          {row.booked > 0
+                            ? row.honored > 0
+                              ? <><span style={{ fontWeight: 700 }}>{row.honored}</span>{honTaux && <RateBadge pct={honTaux.pct} color={honTaux.color} />}</>
+                              : <span style={{ fontWeight: 700, color: 'var(--muted)' }}>0</span>
                             : <span style={{ color: 'var(--faint)' }}>—</span>}
                         </TD>
                         <TD right>
-                          {row.closed > 0
-                            ? <><span style={{ fontWeight: 700 }}>{row.closed}</span>{clsTaux && <RateBadge pct={clsTaux.pct} color={clsTaux.color} />}</>
+                          {row.booked > 0
+                            ? row.closed > 0
+                              ? <><span style={{ fontWeight: 700 }}>{row.closed}</span>{clsTaux && <RateBadge pct={clsTaux.pct} color={clsTaux.color} />}</>
+                              : <span style={{ fontWeight: 700, color: 'var(--muted)' }}>0</span>
                             : <span style={{ color: 'var(--faint)' }}>—</span>}
                         </TD>
                         <TD right>
-                          {row.revenue > 0
-                            ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(row.revenue)}</span>
+                          {row.booked > 0
+                            ? row.revenue > 0
+                              ? <span style={{ fontWeight: 800, color: GREEN }}>{fmtEur(row.revenue)}</span>
+                              : <span style={{ fontWeight: 700, color: 'var(--muted)' }}>0 €</span>
                             : <span style={{ color: 'var(--faint)' }}>—</span>}
                         </TD>
                         <TD right>
