@@ -2114,7 +2114,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytRev     = noData ? 0 : ytCallsLive.rev;
   const ytNoShows = noData ? 0 : ytCallsLive.noShows;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
-  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'YT' && isCalendlyUrl(l)).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => (l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT' && isCalendlyUrl(l))).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
 
   const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'IG' && isCalendlyUrl(l)).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
   const periodCutoffFunnel = Date.now() - period * 24 * 60 * 60 * 1000;
@@ -2644,7 +2644,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const ytCloses  = ytCallsLive.closes;
   const ytRev     = ytCallsLive.rev;
   const ytViewsD  = yt?.views30d || 0;
-  const ytClicsD  = shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'YT').reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
+  const ytClicsD  = shortio ? shortio.links.filter((l: any) => (l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT')).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
 
   const totalBookes  = igBookes + ytBookes;
   const totalHonores = igHonores + ytHonores;
@@ -4492,17 +4492,18 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const igRows = consolidatedRows.filter(r => r.platform === 'IG');
           const ytRows = consolidatedRows.filter(r => r.platform === 'YT');
 
-          // Prospects qui viennent directement des bios (pas d'un post spécifique)
-          const bioIGProspects = prospectLinks.filter((l: any) => l.postId === 'bio-ig');
-          const bioYTProspects = prospectLinks.filter((l: any) => l.postId === 'bio-yt');
-          const bioIGBooked = bioIGProspects.filter((l: any) => l.callBooked).length;
-          const bioIGHonored = bioIGBooked;
-          const bioIGClosed = bioIGProspects.filter((l: any) => l.dealClosed === true).length;
-          const bioIGRevenue = bioIGProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
-          const bioYTBooked = bioYTProspects.filter((l: any) => l.callBooked).length;
-          const bioYTHonored = bioYTBooked;
-          const bioYTClosed = bioYTProspects.filter((l: any) => l.dealClosed === true).length;
-          const bioYTRevenue = bioYTProspects.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          // Calls depuis lien bio — source de vérité : table calls filtrée par source
+          // Les calls bio n'ont pas de ig_lead_id, ils sont trackés via utm_medium=bio
+          const bioIGCalls = (calls ?? []).filter(c => c.source === 'ig_bio');
+          const bioYTCalls = (calls ?? []).filter(c => c.source === 'yt_bio');
+          const bioIGBooked = bioIGCalls.filter(c => c.status === 'active').length;
+          const bioIGHonored = bioIGCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const bioIGClosed = bioIGCalls.filter(c => c.deal_closed === true).length;
+          const bioIGRevenue = bioIGCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const bioYTBooked = bioYTCalls.filter(c => c.status === 'active').length;
+          const bioYTHonored = bioYTCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const bioYTClosed = bioYTCalls.filter(c => c.deal_closed === true).length;
+          const bioYTRevenue = bioYTCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
           const isLMProspect = (l: any) => {
             if (l.ig_lead_id) {
