@@ -2103,7 +2103,6 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const igReachD  = noData ? 0 : (ig ? ig.chartData.slice(-period).reduce((s, d) => s + d.reach, 0) : 0);
   const igLeadsD  = noData ? 0 : (msgs?.leadCount || 0);
-  const igBioD    = noData ? 0 : (period === 30 ? (ig?.profileLinksTaps30d || 0) : Math.round((ig?.profileLinksTaps30d || 0) * period / 30));
   const igBookes  = noData ? 0 : igCallsLive.bookes;
   const igHonores = noData ? 0 : igCallsLive.honores;
   const igCloses  = noData ? 0 : igCallsLive.closes;
@@ -2132,6 +2131,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     || (!l.linkCategory && ((l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT' && isCalendlyUrl(l))))
   ).reduce((s: number, l: any) => s + resolveClics(l), 0) : 0);
 
+  const igBioClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) =>
+    l.linkCategory === 'calendly_bio_ig'
+    || (!l.linkCategory && l.linkType === 'bio' && l.bioType === 'instagram' && isCalendlyUrl(l))
+  ).reduce((s: number, l: any) => s + resolveClics(l), 0) : 0);
   const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) =>
     l.linkCategory === 'calendly_desc_ig'
     || (!l.linkCategory && l.linkType === 'description' && l.postPlatform === 'IG' && isCalendlyUrl(l))
@@ -2161,7 +2164,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     }).length;
     return dmClics + lmClics;
   })();
-  const igTotalClicsD = igBioD + igPostClics + igProspectClics;
+  const igTotalClicsD = igBioClics + igPostClics + igProspectClics;
 
   const dash = '—';
   const igFunnelSteps = [
