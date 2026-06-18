@@ -107,14 +107,14 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const { data: dbRows } = await serviceSupabase
     .from('shortio_link_daily_snapshots')
-    .select('link_id, link_type, original_url')
+    .select('link_id, link_type, link_category, original_url')
     .eq('profile_id', profileId)
     .gte('date', since30d);
 
   // ID YouTube = exactement 11 chars dans [A-Za-z0-9_-]
   const isYtVideoId = (s: string) => /^[A-Za-z0-9_-]{11}$/.test(s);
 
-  const dbByLinkId = new Map<string, { linkType: string | null; postPlatform: string | null }>();
+  const dbByLinkId = new Map<string, { linkType: string | null; linkCategory: string | null; postPlatform: string | null }>();
   for (const row of dbRows ?? []) {
     if (!dbByLinkId.has(row.link_id)) {
       let postPlatform: string | null = null;
@@ -127,13 +127,13 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
         else if (utmMedium === 'description' && isYtVideoId(utmContent)) postPlatform = 'YT';
         else if (utmSource === 'ig' || utmSource.includes('ubizenai')) postPlatform = 'IG';
       } catch {}
-      dbByLinkId.set(row.link_id, { linkType: row.link_type ?? null, postPlatform });
+      dbByLinkId.set(row.link_id, { linkType: row.link_type ?? null, linkCategory: (row as any).link_category ?? null, postPlatform });
     }
   }
 
   const enrichedLinks = linksWithStats.map((l: any) => {
-    const meta = dbByLinkId.get(l.id) ?? { linkType: null, postPlatform: null };
-    return { ...l, linkType: meta.linkType, postPlatform: meta.postPlatform };
+    const meta = dbByLinkId.get(l.id) ?? { linkType: null, linkCategory: null, postPlatform: null };
+    return { ...l, linkType: meta.linkType, linkCategory: meta.linkCategory, postPlatform: meta.postPlatform };
   });
 
   return {

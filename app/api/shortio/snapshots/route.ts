@@ -18,6 +18,7 @@ interface SnapshotRow {
   human_clicks: number;
   total_clicks: number;
   link_type: string | null;
+  link_category: string | null;
   top_countries: (TopEntry & { code?: string })[] | null;
   top_referrers: TopEntry[] | null;
   top_browsers: TopEntry[] | null;
@@ -109,6 +110,9 @@ function mapPostgresToShortio(
     })();
     const postPlatform = utmSourceVal === 'yt' ? 'YT' : utmSourceVal === 'ig' ? 'IG' : null;
 
+    // link_category : valeur non-ambiguë issue du cron (prend la première non-null)
+    const linkCategory = sorted.find(r => r.link_category)?.link_category ?? null;
+
     return {
       id: linkId,
       path: first.path,
@@ -117,6 +121,7 @@ function mapPostgresToShortio(
       title: meta?.title || first.path,
       createdAt: meta?.created_at || null,
       linkType,
+      linkCategory,
       postPlatform,
       clicks30d: linkTotal,
       humanClicks30d: linkHuman,
@@ -187,7 +192,7 @@ export async function GET(request: Request) {
     const [snapshotsRes, integRes, metaRes] = await Promise.all([
       serviceSupabase
         .from('shortio_link_daily_snapshots')
-        .select('link_id,path,short_url,original_url,date,human_clicks,total_clicks,link_type,top_countries,top_referrers,top_browsers,top_os,top_social,top_cities,utm_sources,utm_mediums')
+        .select('link_id,path,short_url,original_url,date,human_clicks,total_clicks,link_type,link_category,top_countries,top_referrers,top_browsers,top_os,top_social,top_cities,utm_sources,utm_mediums')
         .eq('profile_id', targetProfileId)
         .gte('date', startDate)
         .lte('date', endDate),

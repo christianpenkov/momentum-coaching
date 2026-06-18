@@ -2114,9 +2114,17 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytRev     = noData ? 0 : ytCallsLive.rev;
   const ytNoShows = noData ? 0 : ytCallsLive.noShows;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
-  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) => (l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT' && isCalendlyUrl(l))).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  // link_category est la source de vérité non-ambiguë pour IG vs YT bio/description
+  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) =>
+    l.linkCategory === 'calendly_bio_yt' || l.linkCategory === 'calendly_desc_yt'
+    // fallback sans link_category : ancien comportement
+    || (!l.linkCategory && ((l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT' && isCalendlyUrl(l))))
+  ).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
 
-  const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) => l.linkType === 'description' && l.postPlatform === 'IG' && isCalendlyUrl(l)).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) =>
+    l.linkCategory === 'calendly_desc_ig'
+    || (!l.linkCategory && l.linkType === 'description' && l.postPlatform === 'IG' && isCalendlyUrl(l))
+  ).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
   const periodCutoffFunnel = Date.now() - period * 24 * 60 * 60 * 1000;
   const igProspectClics = noData ? 0 : (() => {
     if (!prospectLinksData || !linkClickedByLeadId) return 0;
@@ -2644,7 +2652,10 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   const ytCloses  = ytCallsLive.closes;
   const ytRev     = ytCallsLive.rev;
   const ytViewsD  = yt?.views30d || 0;
-  const ytClicsD  = shortio ? shortio.links.filter((l: any) => (l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT')).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
+  const ytClicsD  = shortio ? shortio.links.filter((l: any) =>
+    l.linkCategory === 'calendly_bio_yt' || l.linkCategory === 'calendly_desc_yt'
+    || (!l.linkCategory && ((l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT')))
+  ).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0;
 
   const totalBookes  = igBookes + ytBookes;
   const totalHonores = igHonores + ytHonores;
@@ -3251,11 +3262,15 @@ function TabShortio({ shortio, ig, yt, profileId, period }: {
   if (!shortio) return <Empty msg="Connecte ton compte Short.io pour voir les stats." />;
 
   const enrichedShortioLinks = shortio.links.map((l: any) => {
-    if (l.linkType) return l;
-    try {
-      const u = new URL(l.originalUrl || '');
-      return { ...l, linkType: u.searchParams.get('utm_medium') || null };
-    } catch { return l; }
+    let linkType = l.linkType;
+    if (!linkType) {
+      try { linkType = new URL(l.originalUrl || '').searchParams.get('utm_medium') || null; } catch {}
+    }
+    const lc: string | null = l.linkCategory ?? null;
+    const bioType: string | null = lc === 'calendly_bio_ig' || lc === 'lm_bio_ig' ? 'instagram'
+      : lc === 'calendly_bio_yt' || lc === 'lm_bio_yt' ? 'youtube'
+      : null;
+    return { ...l, linkType, linkCategory: lc, bioType };
   });
   const bioLinks      = enrichedShortioLinks.filter((l: any) => l.linkType === 'bio');
   const postLinks     = enrichedShortioLinks.filter((l: any) => l.linkType === 'post');
@@ -4058,9 +4073,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
       utmContent = u.searchParams.get('utm_content') || null;
     } catch { /* ignore */ }
     const plDb = plDbByUrl2.get((l.shortUrl || '').toLowerCase());
+    // bioType dérivé depuis linkCategory (source de vérité non-ambiguë)
+    const lc: string | null = l.linkCategory ?? null;
+    const bioType: string | null = lc === 'calendly_bio_ig' || lc === 'lm_bio_ig' ? 'instagram'
+      : lc === 'calendly_bio_yt' || lc === 'lm_bio_yt' ? 'youtube'
+      : null;
     return {
       ...l,
       linkType,
+      linkCategory: lc,
+      bioType,
       callBooked:  plDb ? (plDb.callBooked  ?? false) : (l.callBooked  ?? false),
       dealClosed:  plDb ? (plDb.dealClosed  ?? null)  : (l.dealClosed  ?? null),
       revenue:     plDb ? (plDb.revenue     ?? 0)     : (l.revenue     ?? 0),
