@@ -6022,6 +6022,9 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const targetId = profileId || user.id;
 
   const since30d = new Date(Date.now() - period * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // Les snapshots Short.io sont toujours lus sur 30j fixes — clicksByUrl et calendlyStaticClicsFromDb
+  // sont la source de vérité pour la carte "30j" indépendamment du period sélectionné
+  const sinceShortio30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
   const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
     supabase.from('instagram_leads')
@@ -6041,11 +6044,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     supabase.from('prospect_links')
       .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched')
       .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
-    // Clics par lien depuis DB (illimité, pas limité au top 20 de l'API Short.io)
+    // Clics par lien depuis DB — toujours 30j fixes pour clicksByUrl et calendlyStaticClicsFromDb
     supabase.from('shortio_link_daily_snapshots')
       .select('short_url, human_clicks, path, link_category')
       .eq('profile_id', targetId)
-      .gte('date', since30d),
+      .gte('date', sinceShortio30d),
     // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
     supabase.from('content_links')
       .select('lm_id, lm_keyword')
