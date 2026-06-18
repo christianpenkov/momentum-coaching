@@ -5809,7 +5809,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .then(r => r.ok ? r.json() : null)
       .catch(() => null),
     supabase.from('shortio_link_daily_snapshots')
-      .select('short_url, human_clicks, path')
+      .select('short_url, human_clicks, path, link_category')
       .eq('profile_id', targetId)
       .gte('date', startDateStr)
       .lte('date', endDateStr),
@@ -5822,9 +5822,11 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
   const shortioClickRows = shortioClicksRes.status === 'fulfilled' ? (shortioClicksRes.value.data ?? []) : [];
 
-  // clicksByUrl / clicksByPath filtrés sur la fenêtre exacte de la période
+  // clicksByUrl / clicksByPath + businessClicsFromDb filtrés sur la fenêtre exacte de la période
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
+  const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto']);
+  let snapBusinessClicsFromDb = 0;
   for (const row of shortioClickRows) {
     if (row.short_url) {
       const u = (row.short_url as string).toLowerCase();
@@ -5833,6 +5835,9 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     if (row.path) {
       const p = (row.path as string).toLowerCase();
       snapClicksByPath.set(p, (snapClicksByPath.get(p) ?? 0) + (row.human_clicks ?? 0));
+    }
+    if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) {
+      snapBusinessClicsFromDb += (row.human_clicks ?? 0);
     }
   }
 
@@ -6011,6 +6016,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     snapshotDate: endDateStr,
     clicksByUrl: snapClicksByUrl,
     clicksByPath: snapClicksByPath,
+    businessClicsFromDb: snapBusinessClicsFromDb,
   };
 }
 
@@ -6353,7 +6359,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   // En S-0 : clics filtrés sur le period actif (7j ou 30j) depuis supaData
   const clicksByPath: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByPath : null) ?? supaData?.clicksByPath ?? new Map();
   const clicksByUrl: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByUrl : null) ?? supaData?.clicksByUrl ?? new Map();
-  const businessClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.businessClicsFromDb : undefined;
+  const businessClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.businessClicsFromDb : snapData?.businessClicsFromDb;
   // Clics Calendly statiques (bio + desc) depuis DB — pour Vue générale uniquement
   const calendlyStaticClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.calendlyStaticClicsFromDb : undefined;
 
