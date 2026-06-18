@@ -2063,7 +2063,7 @@ function delta(current: number, previous: number): { value: number; label: strin
   };
 }
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string> }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number> }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   const [expandedHero, setExpandedHero] = useState<number | null>(null);
@@ -2117,17 +2117,25 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytRev     = noData ? 0 : ytCallsLive.rev;
   const ytNoShows = noData ? 0 : ytCallsLive.noShows;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
+  // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, fallback humanClicks30d en S-0/30j uniquement
+  const resolveClics = (l: any): number => {
+    const urlKey = (l.shortUrl || '').toLowerCase();
+    const dbClics = clicksByUrl?.get(urlKey);
+    if (dbClics !== undefined) return dbClics;
+    // humanClicks30d est all-time 30j — ne l'utiliser qu'en S-0 période 30j
+    if (periodIndex === 0 && period === 30) return l.humanClicks30d || 0;
+    return 0;
+  };
   // link_category est la source de vérité non-ambiguë pour IG vs YT bio/description
-  const ytClicsD  = noData ? 0 : (shortio ? shortio.links.filter((l: any) =>
+  const ytClicsD = noData ? 0 : (shortio ? shortio.links.filter((l: any) =>
     l.linkCategory === 'calendly_bio_yt' || l.linkCategory === 'calendly_desc_yt'
-    // fallback sans link_category : ancien comportement
     || (!l.linkCategory && ((l.linkType === 'bio' && l.bioType === 'youtube') || (l.linkType === 'description' && l.postPlatform === 'YT' && isCalendlyUrl(l))))
-  ).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  ).reduce((s: number, l: any) => s + resolveClics(l), 0) : 0);
 
   const igPostClics = noData ? 0 : (shortio ? shortio.links.filter((l: any) =>
     l.linkCategory === 'calendly_desc_ig'
     || (!l.linkCategory && l.linkType === 'description' && l.postPlatform === 'IG' && isCalendlyUrl(l))
-  ).reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0) : 0);
+  ).reduce((s: number, l: any) => s + resolveClics(l), 0) : 0);
   const periodCutoffFunnel = Date.now() - period * 24 * 60 * 60 * 1000;
   const igProspectClics = noData ? 0 : (() => {
     if (!prospectLinksData || !linkClickedByLeadId) return 0;
@@ -6482,7 +6490,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
