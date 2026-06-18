@@ -786,7 +786,7 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, igLive, ytLive }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; igLive?: IGStats | null; ytLive?: YTStats | null }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, businessClicsFromDb, igLive, ytLive }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; businessClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const now = new Date();
@@ -823,31 +823,36 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   const ytViews = period === 7
     ? (yt?.chartData.slice(-7).reduce((s, d) => s + d.views, 0) || 0)
     : (yt?.views30d || 0);
-  // Clics vers Calendly uniquement (pour KPI "Clics lien" Vue générale)
-  // Bio IG/YT + description→Calendly : DB (clicksByUrl) prioritaire, fallback humanClicks30d SEULEMENT en S-0
-  // DM + LM prospects : 1 clic par lead via linkClickedByLeadId + filtre [periodStart, periodEnd]
+  // Clics lien — même définition que Business micro (businessClicsFromDb en S-0)
+  // S-0 : source de vérité DB filtrée par link_category (bio + desc + lm_dm_auto)
+  // S-1+ : filtrer shortio.links par link_category ou fallback linkType/originalUrl
+  const CALENDLY_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','calendly_desc_ig','calendly_desc_yt']);
+  const BUSINESS_CATS_OV = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto']);
   const shortioCalendlyLinks = (shortio?.links || []).filter((l: any) =>
-    (l.linkType === 'bio' || (l.linkType === 'description' && (l.originalUrl || '').toLowerCase().includes('calendly')))
+    l.linkCategory ? BUSINESS_CATS_OV.has(l.linkCategory)
+    : (l.linkType === 'bio' || (l.linkType === 'description' && (l.originalUrl || '').toLowerCase().includes('calendly')))
   );
-  const shortioCalendlyClics = shortioCalendlyLinks.reduce((s: number, l: any) => {
-    const urlKey = (l.shortUrl || '').toLowerCase();
-    const dbClics = clicksByUrl?.get(urlKey);
-    // En S-1+ : utiliser uniquement la DB — humanClicks30d est toujours all-time
-    if (dbClics !== undefined) return s + dbClics;
-    if (_ovPIdx === 0) return s + (l.humanClicks30d || 0);
-    return s; // pas de données DB pour cette période historique
-  }, 0);
-  const prospectCalendlyClics = prospectLinksData && linkClickedByLeadId
-    ? (prospectLinksData as any[]).filter((pl: any) => {
-        if (!pl.calendly_link_sent) return false;
-        const ts = pl.calendly_link_sent_at ?? pl.created_at;
-        if (!ts) return false;
-        const t = new Date(ts).getTime();
-        if (t < ovPeriodStart.getTime()) return false;
-        if (_ovPIdx > 0 && t > ovPeriodEnd.getTime()) return false;
-        return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
-      }).length
-    : 0;
+  const shortioCalendlyClics = (_ovPIdx === 0 && businessClicsFromDb !== undefined)
+    ? businessClicsFromDb
+    : shortioCalendlyLinks.reduce((s: number, l: any) => {
+        const urlKey = (l.shortUrl || '').toLowerCase();
+        const dbClics = clicksByUrl?.get(urlKey);
+        if (dbClics !== undefined) return s + dbClics;
+        if (_ovPIdx === 0) return s + (l.humanClicks30d || 0);
+        return s;
+      }, 0);
+  const prospectCalendlyClics = (_ovPIdx === 0 && businessClicsFromDb !== undefined) ? 0
+    : (prospectLinksData && linkClickedByLeadId
+      ? (prospectLinksData as any[]).filter((pl: any) => {
+          if (!pl.calendly_link_sent) return false;
+          const ts = pl.calendly_link_sent_at ?? pl.created_at;
+          if (!ts) return false;
+          const t = new Date(ts).getTime();
+          if (t < ovPeriodStart.getTime()) return false;
+          if (_ovPIdx > 0 && t > ovPeriodEnd.getTime()) return false;
+          return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
+        }).length
+      : 0);
   const shortioClicks = shortioCalendlyClics + prospectCalendlyClics;
 
   // ── Prochain call ─────────────────────────────────────────────────────────
@@ -6171,7 +6176,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId };
   } catch { return null; }
 }
 
@@ -6333,6 +6338,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   // En S-0 : clics filtrés sur le period actif (7j ou 30j) depuis supaData
   const clicksByPath: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByPath : null) ?? supaData?.clicksByPath ?? new Map();
   const clicksByUrl: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByUrl : null) ?? supaData?.clicksByUrl ?? new Map();
+  const businessClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.businessClicsFromDb : undefined;
 
   // État intégrations — backfill + fraîcheur
   const { data: integStatus, refetch: refetchIntegStatus } = useQuery({
@@ -6467,7 +6473,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} igLive={ig} ytLive={yt} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} businessClicsFromDb={businessClicsFromDb} igLive={ig} ytLive={yt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
