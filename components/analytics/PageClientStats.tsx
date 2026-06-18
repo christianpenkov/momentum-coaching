@@ -979,8 +979,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
         {[
           { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
-          { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
+          { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
           { label: 'Revenue', value: fmtEur(mrr || totalRev), sub: `${period}j`, color: GREEN },
         ].map((item, i) => (
@@ -3928,7 +3928,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId, igLive, ytLive }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId, igLive, ytLive }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3942,6 +3942,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   prospectLinksData?: any[];
   clicksByPath?: Map<string, number>;
   clicksByUrl?: Map<string, number>;
+  businessClicsFromDb?: number;
   altKwToLmId?: Map<string, string>;
   lmClickedByLeadId?: Map<string, string>;
   linkClickedByLeadId?: Map<string, string>;
@@ -4133,16 +4134,21 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   };
   // Clics totaux : bio + description (Calendly ET LM) + leadmagnet — sans les liens DM individuels
   // Les DM sont comptés séparément via prospectClicsDedup (filtre leads actifs uniquement)
-  const shortioBusinessLinks = (shortio?.links || []).filter((l: any) =>
-    l.linkType === 'bio' || l.linkType === 'description' || l.linkType === 'post' || l.linkType === 'leadmagnet'
-  );
-  const shortioBusinessClics = shortioBusinessLinks.reduce((s: number, l: any) => {
-    const urlKey = (l.shortUrl || '').toLowerCase();
-    const dbClics = clicksByUrl?.get(urlKey);
-    if (dbClics !== undefined) return s + dbClics;
-    if (_pIdx === 0) return s + (l.humanClicks30d || 0);
-    return s;
-  }, 0);
+  // En S-0 : source de vérité = businessClicsFromDb (DB, illimitée, toutes catégories business)
+  // En S-1+ : fallback sur shortio.links × clicksByUrl (DB par URL)
+  const shortioBusinessClics = (() => {
+    if (_pIdx === 0 && businessClicsFromDb !== undefined) return businessClicsFromDb;
+    // S-1+ ou pas de valeur DB : itérer sur les liens API avec clics DB par URL
+    const links = (shortio?.links || []).filter((l: any) =>
+      l.linkType === 'bio' || l.linkType === 'description' || l.linkType === 'post' || l.linkType === 'leadmagnet'
+    );
+    return links.reduce((s: number, l: any) => {
+      const urlKey = (l.shortUrl || '').toLowerCase();
+      const dbClics = clicksByUrl?.get(urlKey);
+      if (dbClics !== undefined) return s + dbClics;
+      return s;
+    }, 0);
+  })();
   // Clics liens Calendly envoyés en DM (prospect_links) : dédupliqués 1 par lead actif qui a cliqué
   const prospectClicsDedup = (prospectLinksData ?? []).filter((pl: any) => {
     if (!pl.calendly_link_sent) return false;
@@ -6023,7 +6029,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
     // Clics par lien depuis DB (illimité, pas limité au top 20 de l'API Short.io)
     supabase.from('shortio_link_daily_snapshots')
-      .select('short_url, human_clicks, path')
+      .select('short_url, human_clicks, path, link_category')
       .eq('profile_id', targetId)
       .gte('date', since30d),
     // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
@@ -6098,6 +6104,9 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   // Clics par short_url et par path depuis la DB (30j) — illimité, pas limité au top 20 API
   const clicksByUrl = new Map<string, number>();
   const clicksByPath = new Map<string, number>();
+  // Clics totaux business (bio + description + leadmagnet) depuis la DB par link_category
+  const BUSINESS_CATEGORIES = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto']);
+  let businessClicsFromDb = 0;
   for (const row of (shortioClicksRes.data ?? [])) {
     if (row.short_url) {
       const url = (row.short_url as string).toLowerCase();
@@ -6106,6 +6115,9 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     if (row.path) {
       const p = (row.path as string).toLowerCase();
       clicksByPath.set(p, (clicksByPath.get(p) ?? 0) + (row.human_clicks ?? 0));
+    }
+    if (row.link_category && BUSINESS_CATEGORIES.has(row.link_category)) {
+      businessClicsFromDb += (row.human_clicks ?? 0);
     }
   }
 
@@ -6459,7 +6471,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={igEff} period={period} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
