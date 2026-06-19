@@ -3967,10 +3967,15 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   shortioChartHistory?: { date: string; clicks: number }[];
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
-  // Fenêtre temporelle correcte selon la période sélectionnée
   const _pIdx = periodIndex ?? 0;
-  const periodEnd = new Date(Date.now() - _pIdx * sPeriod * 24 * 60 * 60 * 1000);
-  const periodStart = new Date(periodEnd.getTime() - sPeriod * 24 * 60 * 60 * 1000);
+  // Calcul en dates calendaires (minuit) pour éviter les décalages d'heure
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const periodEndDate = new Date(todayStr);
+  periodEndDate.setDate(periodEndDate.getDate() - _pIdx * sPeriod);
+  const periodStartDate = new Date(periodEndDate);
+  periodStartDate.setDate(periodStartDate.getDate() - sPeriod);
+  const periodEnd = periodEndDate;
+  const periodStart = periodStartDate;
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
@@ -5799,10 +5804,12 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  // Fenêtre temporelle : [periodEnd - period, periodEnd]
-  const periodEnd = new Date();
+  // Fenêtre temporelle en dates calendaires (minuit) pour éviter les décalages d'heure
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const periodEnd = new Date(todayStr);
   periodEnd.setDate(periodEnd.getDate() - periodIndex * period);
-  const periodStart = new Date(periodEnd.getTime() - period * 86400000);
+  const periodStart = new Date(todayStr);
+  periodStart.setDate(periodStart.getDate() - periodIndex * period - period);
 
   const startDateStr = periodStart.toISOString().split('T')[0];
   const endDateStr   = periodEnd.toISOString().split('T')[0];
