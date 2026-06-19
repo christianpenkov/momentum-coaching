@@ -3942,7 +3942,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId, igLive, ytLive }: {
+function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId, igLive, ytLive, shortioChartHistory }: {
   shortio: ShortioStats | null;
   ig: IGStats | null;
   yt: YTStats | null;
@@ -3964,6 +3964,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   leadIdToMediaId?: Map<string, string>;
   igLive?: IGStats | null;
   ytLive?: YTStats | null;
+  shortioChartHistory?: { date: string; clicks: number }[];
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   // Fenêtre temporelle correcte selon la période sélectionnée
@@ -4456,9 +4457,17 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             </button>
           ))}
         </div>
-        {_pIdx > 0 ? (
+        {_pIdx > 0 && chartFilter === 'all' ? (
+          shortioChartHistory && shortioChartHistory.length > 0 ? (
+            <AreaChart data={shortioChartHistory} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+          ) : (
+            <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
+              Historique graphique non disponible
+            </div>
+          )
+        ) : _pIdx > 0 ? (
           <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
-            Historique graphique non disponible pour les périodes passées
+            Historique graphique non disponible pour ce filtre
           </div>
         ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
           <ResponsiveContainer width="100%" height={160}>
@@ -6047,7 +6056,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
 
   const since30d = new Date(Date.now() - period * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes, shortioChartHistoryRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -6088,6 +6097,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .eq('profile_id', targetId)
       .eq('event_type', 'link_clicked')
       .not('ig_lead_id', 'is', null),
+    // Graphique historique clics Short.io — tous les snapshots disponibles (sans filtre de période)
+    supabase.from('shortio_link_daily_snapshots')
+      .select('date, human_clicks, link_category')
+      .eq('profile_id', targetId)
+      .order('date', { ascending: true }),
   ]);
 
   let callsRes: { data: any[] | null };
@@ -6215,7 +6229,18 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, calendlyStaticClicsFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId };
+  // Graphique historique : agrégation par date de tous les snapshots disponibles
+  const CHART_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
+  const chartByDate = new Map<string, number>();
+  for (const row of (shortioChartHistoryRes.data ?? [])) {
+    if (!row.date || !row.link_category || !CHART_BUSINESS_CATS.has(row.link_category)) continue;
+    chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + (row.human_clicks ?? 0));
+  }
+  const shortioChartHistory: { date: string; clicks: number }[] = Array.from(chartByDate.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, clicks]) => ({ date, clicks }));
+
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, calendlyStaticClicsFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory };
   } catch { return null; }
 }
 
@@ -6518,7 +6543,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={igEff} period={period} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={supaData?.shortioChartHistory} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
