@@ -4147,34 +4147,32 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     const t = new Date(ts).getTime();
     return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
   };
-  // Clics totaux : bio + description (Calendly ET LM) + leadmagnet — sans les liens DM individuels
-  // Les DM sont comptés séparément via prospectClicsDedup (filtre leads actifs uniquement)
-  // En S-0 : source de vérité = businessClicsFromDb (DB, illimitée, toutes catégories business)
-  // En S-1+ : fallback sur shortio.links × clicksByUrl (DB par URL)
-  const shortioBusinessClics = (() => {
+  // Clics totaux : toutes catégories business connues (bio + desc + lm_dm_auto + calendly_dm_prospect)
+  // En S-0 : businessClicsFromDb couvre déjà toutes les BUSINESS_CATEGORIES
+  // En S-1+ : sommer tous les clics de clicksByUrl (snapshots DB filtrés sur la fenêtre)
+  const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
+  const totalClics = (() => {
     if (_pIdx === 0 && businessClicsFromDb !== undefined) return businessClicsFromDb;
-    // S-1+ ou pas de valeur DB : itérer sur les liens API avec clics DB par URL
-    const links = (shortio?.links || []).filter((l: any) =>
-      l.linkType === 'bio' || l.linkType === 'description' || l.linkType === 'post' || l.linkType === 'leadmagnet'
-    );
-    return links.reduce((s: number, l: any) => {
-      const urlKey = (l.shortUrl || '').toLowerCase();
-      const dbClics = clicksByUrl?.get(urlKey);
-      if (dbClics !== undefined) return s + dbClics;
-      return s;
-    }, 0);
+    // S-1+ : sommer depuis clicksByUrl tous les liens dont la link_category est business
+    if (clicksByUrl && clicksByUrl.size > 0) {
+      // On a besoin de la link_category par url — on la lit depuis shortio.links enrichis
+      const catByUrl = new Map<string, string | null>();
+      for (const l of (shortio?.links || [])) {
+        if (l.shortUrl) catByUrl.set(l.shortUrl.toLowerCase(), l.linkCategory ?? null);
+      }
+      // Aussi depuis allShortioLinks qui est enrichi depuis DB
+      for (const l of allShortioLinks) {
+        if (l.shortUrl && !catByUrl.has(l.shortUrl.toLowerCase())) catByUrl.set(l.shortUrl.toLowerCase(), l.linkCategory ?? null);
+      }
+      let total = 0;
+      for (const [url, clics] of clicksByUrl) {
+        const cat = catByUrl.get(url);
+        if (cat && TOTAL_CLICS_CATS.has(cat)) total += clics;
+      }
+      return total;
+    }
+    return 0;
   })();
-  // Clics liens Calendly envoyés en DM (prospect_links) : dédupliqués 1 par lead actif qui a cliqué
-  const prospectClicsDedup = (prospectLinksData ?? []).filter((pl: any) => {
-    if (!pl.calendly_link_sent) return false;
-    const ts = pl.calendly_link_sent_at ?? pl.created_at;
-    if (!ts) return false;
-    const t = new Date(ts).getTime();
-    if (t < periodCutoff) return false;
-    if (_pIdx > 0 && t > periodEndMs) return false;
-    return pl.ig_lead_id && linkClickedByLeadId?.has(pl.ig_lead_id);
-  }).length;
-  const totalClics = shortioBusinessClics + prospectClicsDedup;
   const dmLinks = prospectLinks.length;
   const dmClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
   const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
@@ -4765,14 +4763,14 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                               {row.clics !== null ? (
                                 <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                                   <span style={{ fontWeight: 600, color: 'var(--muted)' }}>{fmt(row.clics)}</span>
-                                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>clics</span>
+                                  <span style={{ fontSize: 10, color: 'var(--muted)' }}>leads uniques</span>
                                   {row.liens > 0 && (() => {
                                     const pct = Math.round((row.clics / row.liens) * 100);
                                     const color = pct >= 50 ? GREEN : pct >= 25 ? AMBER : RED;
                                     return <span style={{ fontSize: 10, fontWeight: 700, color, background: color + '18', borderRadius: 4, padding: '1px 5px' }}>{pct}%</span>;
                                   })()}
                                 </div>
-                              ) : <span style={{ fontSize: 10, color: 'var(--faint)' }}>— clics</span>}
+                              ) : <span style={{ fontSize: 10, color: 'var(--faint)' }}>— leads uniques</span>}
                             </div>
                           ) : row.clics !== null ? (
                             // Bio / contenu : juste les clics
@@ -5383,6 +5381,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                 <thead>
                   <tr>
                     <th style={{ ...thS, textAlign: 'left', width: 140 }}>Lead magnet</th>
+                    <th style={thS}>Clics desc.</th>
                     <th style={thS}>Leads générés</th>
                     <th style={thS}>Clics LM DM</th>
                     <th style={thS}>Réponses DM</th>
@@ -5396,7 +5395,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                 </thead>
                 <tbody>
                   {leadMagnets.length === 0 && (
-                    <tr><td colSpan={10} style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>Aucun lead magnet configuré — ajoutez-en via les paramètres</td></tr>
+                    <tr><td colSpan={11} style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>Aucun lead magnet configuré — ajoutez-en via les paramètres</td></tr>
                   )}
                   {leadMagnets.map((lm, i) => {
                     // Pivot unique : keyword_matched — même clé sur lmHistory, prospect_links, et shortio path
@@ -5425,6 +5424,19 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                     // Clics LM : même logique que le pipeline — prospect_events.lm_clicked par lead
                     // (un lead = 0 ou 1 clic, ignore les clics de test antérieurs à la création du lead)
                     const clicsLM = lmLeads.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
+
+                    // Clics description (lm_desc_ig + lm_desc_yt) — clics bruts Short.io depuis clicksByUrl
+                    const clicsDesc = (() => {
+                      if (!lm.url) return 0;
+                      let total = 0;
+                      for (const l of allShortioLinks) {
+                        if ((l.linkCategory === 'lm_desc_ig' || l.linkCategory === 'lm_desc_yt') &&
+                            (l.originalUrl || '').includes(lm.url.split('?')[0])) {
+                          total += linkClics(l);
+                        }
+                      }
+                      return total;
+                    })();
 
                     // Liens Calendly + tout le reste : pivot direct sur keyword_matched dans prospect_links
                     // Inclut les keywords alternatifs (ex: BEAU pour LM Ubizen AI)
@@ -5456,6 +5468,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
                           <div style={{ fontSize: 10, color: 'var(--faint)', fontWeight: 400, marginTop: 2 }}>mot-clé : {lm.keyword}</div>
                           {!hasActivity && <div style={{ fontSize: 10, color: 'var(--faint)', fontWeight: 400 }}>Aucune activité</div>}
                         </td>
+                        <td style={{ ...tdS, fontWeight: clicsDesc > 0 ? 700 : 400, color: clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{clicsDesc > 0 ? clicsDesc : '—'}</td>
                         <td style={{ ...tdS, fontWeight: leadsCount > 0 ? 700 : 400, color: leadsCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? leadsCount : '—'}</td>
                         <td style={tdS}>
                           <div style={{ fontWeight: hasActivity && clicsLM > 0 ? 700 : 400, color: hasActivity && clicsLM > 0 ? 'var(--ink)' : 'var(--faint)' }}>{hasActivity ? clicsLM : '—'}</div>
