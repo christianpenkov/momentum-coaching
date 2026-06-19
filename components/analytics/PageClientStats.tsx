@@ -4553,9 +4553,18 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
               <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
-        ) : (
-          <AreaChart data={chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
-        )}
+        ) : (() => {
+          const startStr = localDateStr(periodStart);
+          const endStr   = localDateStr(periodEnd);
+          const filtered = (shortioChartHistory ?? []).filter(d => d.date >= startStr && d.date <= endStr);
+          return filtered.length > 0 ? (
+            <AreaChart data={filtered} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+          ) : (
+            <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
+              Aucune donnée pour cette période
+            </div>
+          );
+        })()}
 
         {/* ── Tableau breakdown par source ── */}
         {(() => {
