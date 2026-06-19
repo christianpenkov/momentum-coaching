@@ -4544,9 +4544,18 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
               <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
-        ) : (
-          <AreaChart data={chartData} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
-        )}
+        ) : (() => {
+          const startStr = periodStart.toISOString().slice(0, 10);
+          const endStr   = periodEnd.toISOString().slice(0, 10);
+          const filtered = (shortioChartHistory ?? []).filter(d => d.date >= startStr && d.date <= endStr);
+          return filtered.length > 0 ? (
+            <AreaChart data={filtered} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+          ) : (
+            <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
+              Aucune donnée pour cette période
+            </div>
+          );
+        })()}
 
         {/* ── Tableau breakdown par source ── */}
         {(() => {
@@ -5847,7 +5856,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .then(r => r.ok ? r.json() : null)
       .catch(() => null),
     supabase.from('shortio_link_daily_snapshots')
-      .select('short_url, human_clicks, path, link_category')
+      .select('date, short_url, human_clicks, path, link_category')
       .eq('profile_id', targetId)
       .gte('date', startDateStr)
       .lte('date', endDateStr),
@@ -5863,8 +5872,9 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // clicksByUrl / clicksByPath + businessClicsFromDb filtrés sur la fenêtre exacte de la période
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
-  const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto']);
+  const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   let snapBusinessClicsFromDb = 0;
+  const snapChartByDate = new Map<string, number>();
   for (const row of shortioClickRows) {
     if (row.short_url) {
       const u = (row.short_url as string).toLowerCase();
@@ -5876,8 +5886,12 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     }
     if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) {
       snapBusinessClicsFromDb += (row.human_clicks ?? 0);
+      if (row.date) snapChartByDate.set(row.date, (snapChartByDate.get(row.date) ?? 0) + (row.human_clicks ?? 0));
     }
   }
+  const snapShortioChartHistory = Array.from(snapChartByDate.entries())
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([date, clicks]) => ({ date, clicks }));
 
   // Dernier snapshot connu pour les valeurs cumulatives (followers, abonnés, etc.)
   const lastSnap = snaps[snaps.length - 1] ?? null;
@@ -6055,6 +6069,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     clicksByUrl: snapClicksByUrl,
     clicksByPath: snapClicksByPath,
     businessClicsFromDb: snapBusinessClicsFromDb,
+    shortioChartHistory: snapShortioChartHistory,
   };
 }
 
@@ -6414,6 +6429,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const clicksByPath: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByPath : null) ?? supaData?.clicksByPath ?? new Map();
   const clicksByUrl: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByUrl : null) ?? supaData?.clicksByUrl ?? new Map();
   const businessClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.businessClicsFromDb : snapData?.businessClicsFromDb;
+  const shortioChartHistory: { date: string; clicks: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistory : snapData?.shortioChartHistory;
   // Clics Calendly statiques (bio + desc) depuis DB — pour Vue générale uniquement
   const calendlyStaticClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.calendlyStaticClicsFromDb : undefined;
 
