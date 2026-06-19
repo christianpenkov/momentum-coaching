@@ -4457,17 +4457,20 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             </button>
           ))}
         </div>
-        {_pIdx > 0 && chartFilter === 'all' ? (
-          shortioChartHistory && shortioChartHistory.length > 0 ? (
-            <AreaChart data={shortioChartHistory} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+        {chartFilter === 'all' ? (() => {
+          const startStr = periodStart.toISOString().slice(0, 10);
+          const endStr   = periodEnd.toISOString().slice(0, 10);
+          const filtered = (shortioChartHistory ?? []).filter(d => d.date >= startStr && d.date <= endStr);
+          return filtered.length > 0 ? (
+            <AreaChart data={filtered} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
           ) : (
             <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
-              Historique graphique non disponible
+              Aucune donnée pour cette période
             </div>
-          )
-        ) : _pIdx > 0 ? (
+          );
+        })() : _pIdx > 0 ? (
           <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
-            Historique graphique non disponible pour ce filtre
+            Historique non disponible pour ce filtre
           </div>
         ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
           <ResponsiveContainer width="100%" height={160}>
