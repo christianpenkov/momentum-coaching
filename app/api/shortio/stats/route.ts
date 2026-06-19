@@ -66,8 +66,18 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
   const allLinks: any[] = linksData?.links || [];
   const totalLinks = Number(linksData?.count ?? allLinks.length);
 
+  // Prioriser bio + description pour garantir qu'ils sont dans le top 20 fetchés
+  const isBioOrDesc = (l: any) => {
+    const m = (l.utmMedium || '').toLowerCase();
+    return m === 'bio' || m === 'description';
+  };
+  const prioritized = [
+    ...allLinks.filter(isBioOrDesc),
+    ...allLinks.filter(l => !isBioOrDesc(l)),
+  ].slice(0, 20);
+
   const linksWithStats = await Promise.all(
-    allLinks.slice(0, 20).map(async (l: any) => {
+    prioritized.map(async (l: any) => {
       try {
         const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${l.id}?period=last30`, { headers });
         const stats = await safeJson(statsRes);

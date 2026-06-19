@@ -4113,15 +4113,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const prospectLinks = allShortioLinks.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect');
 
   // Helper : clics sur un lien Short.io pour la période courante.
-  // Si sPeriod < 30 → somme les N derniers points du chartData journalier.
-  // Si sPeriod === 30 → utilise humanClicks30d (valeur agrégée déjà fournie par l'API).
+  // DB (clicksByUrl) prioritaire. En S-0, si DB = 0, fallback sur l'API Short.io (plus fraîche).
+  // En S-1+, DB fait autorité (pas de fallback API — les données live ne correspondent pas à la période).
   const linkClics = (l: any): number => {
     if (!l) return 0;
-    if (sPeriod === 30) {
-      const urlKey = (l.shortUrl || '').toLowerCase();
-      const dbClics = clicksByUrl?.get(urlKey);
-      return dbClics !== undefined ? dbClics : (l.humanClicks30d || 0);
-    }
+    const urlKey = (l.shortUrl || '').toLowerCase();
+    const dbClics = clicksByUrl?.get(urlKey);
+    if (_pIdx > 0) return dbClics ?? 0;
+    // S-0 : DB prioritaire mais fallback API si DB absente ou à 0
+    if (dbClics) return dbClics;
+    if (sPeriod === 30) return l.humanClicks30d || 0;
     const pts: { clicks: number }[] = l.chartData || [];
     return pts.slice(-sPeriod).reduce((s, p) => s + (p.clicks || 0), 0);
   };
@@ -4600,13 +4601,13 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
           const lmClosed = lmProspectLinksDb.filter((l: any) => l.dealClosed === true).length;
           const lmRevenue = lmProspectLinksDb.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
 
-          const igContentClics = igContentLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const igContentClics = igContentLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
           const igContentBooked = igRows.reduce((s, r) => s + (r.callsBookedDesc ?? 0), 0);
           const igContentHonored = igRows.reduce((s, r) => s + (r.callsHonoredDesc ?? 0), 0);
           const igContentClosed = igRows.reduce((s, r) => s + (r.closedDesc ?? 0), 0);
           const igContentRevenue = igRows.reduce((s, r) => s + (r.revenueDesc ?? 0), 0);
 
-          const ytContentClics = ytContentLinks.reduce((s: number, l: any) => s + (l.humanClicks30d || 0), 0);
+          const ytContentClics = ytContentLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
           const ytContentBooked = ytRows.reduce((s, r) => s + (r.callsBookedDesc ?? 0), 0);
           const ytContentHonored = ytRows.reduce((s, r) => s + (r.callsHonoredDesc ?? 0), 0);
           const ytContentClosed = ytRows.reduce((s, r) => s + (r.closedDesc ?? 0), 0);
@@ -4632,8 +4633,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             </svg>
           );
           const rows: SourceRow[] = [
-            { label: 'Bio IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: bioIG?.humanClicks30d ?? null, booked: bioIGBooked, honored: bioIGHonored, closed: bioIGClosed, revenue: bioIGRevenue, isContentType: true },
-            { label: 'Bio YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: bioYT?.humanClicks30d ?? null, booked: bioYTBooked, honored: bioYTHonored, closed: bioYTClosed, revenue: bioYTRevenue, isContentType: true },
+            { label: 'Bio IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: bioIG ? linkClics(bioIG) : null, booked: bioIGBooked, honored: bioIGHonored, closed: bioIGClosed, revenue: bioIGRevenue, isContentType: true },
+            { label: 'Bio YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: bioYT ? linkClics(bioYT) : null, booked: bioYTBooked, honored: bioYTHonored, closed: bioYTClosed, revenue: bioYTRevenue, isContentType: true },
             { label: 'Lien contenu IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: igContentClics, booked: igContentBooked, honored: igContentHonored, closed: igContentClosed, revenue: igContentRevenue, isContentType: true },
             { label: 'Lien contenu YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: ytContentClics, booked: ytContentBooked, honored: ytContentHonored, closed: ytContentClosed, revenue: ytContentRevenue, isContentType: true },
             { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinksDb.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length, booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },

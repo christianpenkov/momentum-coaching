@@ -853,6 +853,8 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       const afterDate = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
       const csErrors = await syncLmClickStream(profileId, shioCreds, afterDate);
       if (csErrors.length) errors.push(...csErrors.map(e => `shortio_click_stream: ${e}`));
+      // Invalider le cache Short.io pour que le prochain chargement re-fetche les données fraîches
+      await supa.from('shortio_stats_cache').delete().eq('profile_id', profileId);
     } catch (e: any) { errors.push(`shortio_snapshot: ${e?.message || 'unknown'}`); }
   }
 
