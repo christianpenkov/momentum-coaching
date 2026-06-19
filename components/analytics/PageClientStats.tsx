@@ -3968,14 +3968,18 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const _pIdx = periodIndex ?? 0;
-  // Calcul en dates calendaires (minuit) pour éviter les décalages d'heure
-  const todayStr = new Date().toISOString().slice(0, 10);
-  const periodEndDate = new Date(todayStr);
-  periodEndDate.setDate(periodEndDate.getDate() - _pIdx * sPeriod);
-  const periodStartDate = new Date(periodEndDate);
-  periodStartDate.setDate(periodStartDate.getDate() - sPeriod);
-  const periodEnd = periodEndDate;
-  const periodStart = periodStartDate;
+  // Dates locales (pas UTC) pour éviter le décalage de fuseau
+  const localDateStr = (d: Date) => {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  };
+  const today = new Date();
+  const periodEnd = new Date(today);
+  periodEnd.setDate(today.getDate() - _pIdx * sPeriod);
+  const periodStart = new Date(today);
+  periodStart.setDate(today.getDate() - _pIdx * sPeriod - sPeriod);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
@@ -4160,8 +4164,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const totalClics = (() => {
     // Toutes périodes : shortioChartHistory filtré sur la fenêtre exacte (source de vérité)
     if (shortioChartHistory && shortioChartHistory.length > 0) {
-      const startStr = periodStart.toISOString().slice(0, 10);
-      const endStr   = periodEnd.toISOString().slice(0, 10);
+      const startStr = localDateStr(periodStart);
+      const endStr   = localDateStr(periodEnd);
       return shortioChartHistory
         .filter(d => d.date >= startStr && d.date <= endStr)
         .reduce((s, d) => s + d.clicks, 0);
