@@ -4456,7 +4456,11 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             </button>
           ))}
         </div>
-        {(chartFilter === 'content' || chartFilter === 'bio') ? (
+        {_pIdx > 0 ? (
+          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
+            Historique graphique non disponible pour les périodes passées
+          </div>
+        ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
           <ResponsiveContainer width="100%" height={160}>
             <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
               <defs>
