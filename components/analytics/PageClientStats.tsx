@@ -3968,23 +3968,16 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const _pIdx = periodIndex ?? 0;
-  // Dates locales (pas UTC) pour éviter le décalage de fuseau
-  const localDateStr = (d: Date) => {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-  };
+  const utcDateStr = (d: Date) => d.toISOString().split('T')[0];
   const today = new Date();
-  // periodEnd = dernier jour ayant un snapshot en DB (hier si aujourd'hui pas encore écrit)
-  // On détermine ça depuis shortioChartHistory : le dernier jour disponible
+  // periodEnd = dernier jour ayant un snapshot en DB
   const lastAvailableDate = shortioChartHistory && shortioChartHistory.length > 0
     ? shortioChartHistory[shortioChartHistory.length - 1].date
-    : localDateStr(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
-  const periodEnd = new Date(lastAvailableDate + 'T12:00:00');
-  periodEnd.setDate(periodEnd.getDate() - _pIdx * sPeriod);
+    : utcDateStr(new Date(Date.now() - 86400000));
+  const periodEnd = new Date(lastAvailableDate + 'T12:00:00Z');
+  periodEnd.setUTCDate(periodEnd.getUTCDate() - _pIdx * sPeriod);
   const periodStart = new Date(periodEnd);
-  periodStart.setDate(periodEnd.getDate() - sPeriod + 1);
+  periodStart.setUTCDate(periodEnd.getUTCDate() - sPeriod + 1);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
@@ -4168,8 +4161,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   const totalClics = (() => {
     if (shortioChartHistory && shortioChartHistory.length > 0) {
-      const startStr = localDateStr(periodStart);
-      const endStr   = localDateStr(periodEnd);
+      const startStr = utcDateStr(periodStart);
+      const endStr   = utcDateStr(periodEnd);
       return shortioChartHistory
         .filter(d => d.date >= startStr && d.date <= endStr)
         .reduce((s, d) => s + d.clicks, 0);
@@ -4558,8 +4551,8 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             </ReAreaChart>
           </ResponsiveContainer>
         ) : (() => {
-          const startStr = localDateStr(periodStart);
-          const endStr   = localDateStr(periodEnd);
+          const startStr = utcDateStr(periodStart);
+          const endStr   = utcDateStr(periodEnd);
           const filtered = (shortioChartHistory ?? []).filter(d => d.date >= startStr && d.date <= endStr);
           return filtered.length > 0 ? (
             <AreaChart data={filtered} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />

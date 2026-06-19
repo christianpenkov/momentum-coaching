@@ -381,7 +381,6 @@ export async function snapshotShortioLinks(
     if (error) console.error('[shortio-fetch] metadata_upsert:', error.message);
   });
 
-  // Date cible
   const d = new Date();
   if (period === 'yesterday') d.setDate(d.getDate() - 1);
   const date = d.toISOString().split('T')[0];
