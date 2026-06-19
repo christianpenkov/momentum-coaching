@@ -4157,7 +4157,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     if (clicksByUrl && clicksByUrl.size > 0) {
       // On a besoin de la link_category par url — on la lit depuis shortio.links enrichis
       const catByUrl = new Map<string, string | null>();
-      for (const l of (shortio?.links || [])) {
+      for (const l of (shortio?.links || []) as any[]) {
         if (l.shortUrl) catByUrl.set(l.shortUrl.toLowerCase(), l.linkCategory ?? null);
       }
       // Aussi depuis allShortioLinks qui est enrichi depuis DB
