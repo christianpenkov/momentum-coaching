@@ -4153,6 +4153,14 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   // En S-1+ : sommer tous les clics de clicksByUrl (snapshots DB filtrés sur la fenêtre)
   const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   const totalClics = (() => {
+    // Toutes périodes : shortioChartHistory filtré sur la fenêtre exacte (source de vérité)
+    if (shortioChartHistory && shortioChartHistory.length > 0) {
+      const startStr = periodStart.toISOString().slice(0, 10);
+      const endStr   = periodEnd.toISOString().slice(0, 10);
+      return shortioChartHistory
+        .filter(d => d.date >= startStr && d.date <= endStr)
+        .reduce((s, d) => s + d.clicks, 0);
+    }
     if (_pIdx === 0 && businessClicsFromDb !== undefined) return businessClicsFromDb;
     // S-1+ : sommer depuis clicksByUrl tous les liens dont la link_category est business
     if (clicksByUrl && clicksByUrl.size > 0) {
@@ -6161,8 +6169,8 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const clicksByPath = new Map<string, number>();
   // Clics Calendly bruts depuis la DB (bio + description uniquement, pas LM)
   const CALENDLY_CATEGORIES = new Set(['calendly_bio_ig','calendly_bio_yt','calendly_desc_ig','calendly_desc_yt']);
-  // Clics business complets pour Business micro (inclut LM)
-  const BUSINESS_CATEGORIES = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto']);
+  // Clics business complets pour Business micro (inclut LM + DM prospects)
+  const BUSINESS_CATEGORIES = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   let calendlyStaticClicsFromDb = 0;
   let businessClicsFromDb = 0;
   for (const row of (shortioClicksRes.data ?? [])) {
