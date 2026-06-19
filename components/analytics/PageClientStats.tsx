@@ -3976,13 +3976,15 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
     return `${y}-${m}-${day}`;
   };
   const today = new Date();
-  // S-0 : endDate = aujourd'hui, startDate = aujourd'hui - (sPeriod-1) → exactement sPeriod jours inclus
-  // S-1 : endDate = aujourd'hui - sPeriod, startDate = aujourd'hui - (2*sPeriod - 1)
-  // Formule : endDate = today - _pIdx*sPeriod, startDate = today - (_pIdx+1)*sPeriod + 1
-  const periodEnd = new Date(today);
-  periodEnd.setDate(today.getDate() - _pIdx * sPeriod);
-  const periodStart = new Date(today);
-  periodStart.setDate(today.getDate() - (_pIdx + 1) * sPeriod + 1);
+  // periodEnd = dernier jour ayant un snapshot en DB (hier si aujourd'hui pas encore écrit)
+  // On détermine ça depuis shortioChartHistory : le dernier jour disponible
+  const lastAvailableDate = shortioChartHistory && shortioChartHistory.length > 0
+    ? shortioChartHistory[shortioChartHistory.length - 1].date
+    : localDateStr(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1));
+  const periodEnd = new Date(lastAvailableDate + 'T12:00:00');
+  periodEnd.setDate(periodEnd.getDate() - _pIdx * sPeriod);
+  const periodStart = new Date(periodEnd);
+  periodStart.setDate(periodEnd.getDate() - sPeriod + 1);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
@@ -4165,9 +4167,12 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   // En S-1+ : sommer tous les clics de clicksByUrl (snapshots DB filtrés sur la fenêtre)
   const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   const totalClics = (() => {
-    // Somme tous les jours disponibles en DB depuis le début du tracking (pas filtré par période)
     if (shortioChartHistory && shortioChartHistory.length > 0) {
-      return shortioChartHistory.reduce((s, d) => s + d.clicks, 0);
+      const startStr = localDateStr(periodStart);
+      const endStr   = localDateStr(periodEnd);
+      return shortioChartHistory
+        .filter(d => d.date >= startStr && d.date <= endStr)
+        .reduce((s, d) => s + d.clicks, 0);
     }
     if (_pIdx === 0 && businessClicsFromDb !== undefined) return businessClicsFromDb;
     // S-1+ : sommer depuis clicksByUrl tous les liens dont la link_category est business
