@@ -4457,7 +4457,7 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
             </button>
           ))}
         </div>
-        {chartFilter === 'all' ? (() => {
+        {_pIdx > 0 && chartFilter === 'all' ? (() => {
           const startStr = periodStart.toISOString().slice(0, 10);
           const endStr   = periodEnd.toISOString().slice(0, 10);
           const filtered = (shortioChartHistory ?? []).filter(d => d.date >= startStr && d.date <= endStr);
