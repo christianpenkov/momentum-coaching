@@ -896,14 +896,14 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
       return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: p.views || p.reach || 0, totalViews: p.views || p.reach || 0, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0 };
     }),
     ...ytVideos.map(v => {
-      const share = ytTotalViews > 0 ? v.views30d / ytTotalViews : 0;
-      const callsBooked = Math.round(ytTotalCallsBooked * share);
-      const noShowCount = Math.min(callsBooked, Math.round(ytTotalNoShow * share));
-      const closedCount = Math.min(callsBooked - noShowCount, Math.round(ytTotalClosed * share));
+      const postCalls = ytCallsAll.filter(c => c.utm_content === v.id);
+      const callsBooked = postCalls.filter(c => c.status === 'active').length;
+      const noShowCount = postCalls.filter(c => c.no_show).length;
+      const closedCount = postCalls.filter(c => c.deal_closed).length;
+      const revTotal = postCalls.reduce((s, c) => s + (c.revenue || 0), 0);
       const honored = callsBooked - noShowCount;
       const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
-      const revTotal = Math.round(ytTotalRev * share);
       const avgWatchTimeMin = v.watchTime30d && v.views30d > 0 ? Math.round(v.watchTime30d / v.views30d / 60 * 10) / 10 : null;
       return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: Math.round(v.watchTime30d / 60), avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0 };
     }),
