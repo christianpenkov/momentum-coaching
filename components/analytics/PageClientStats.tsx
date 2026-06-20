@@ -6373,7 +6373,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const { data: supaData, refetch: refetchSupa } = useQuery({
     queryKey: ['stats-supa', profileId, period],
     queryFn: () => fetchSupabaseStats(profileId, period),
-    staleTime: 5 * 60 * 1000,
+    staleTime: 0,
   });
 
   const igLeads: MockLead[] = supaData?.igLeads ?? [];
