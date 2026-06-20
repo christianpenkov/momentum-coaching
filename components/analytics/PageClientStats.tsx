@@ -4121,15 +4121,15 @@ function TabShortioB({ shortio, ig, yt, leads, leadMagnets, destinations, lmHist
   const prospectLinks = allShortioLinks.filter((l: any) => l.linkType === 'dm' || l.linkType === 'prospect');
 
   // Helper : clics sur un lien Short.io pour la période courante.
-  // DB (clicksByUrl) prioritaire. En S-0, si DB = 0, fallback sur l'API Short.io (plus fraîche).
+  // DB (clicksByUrl) prioritaire. Fallback API seulement si aucun snapshot en DB (undefined).
   // En S-1+, DB fait autorité (pas de fallback API — les données live ne correspondent pas à la période).
   const linkClics = (l: any): number => {
     if (!l) return 0;
     const urlKey = (l.shortUrl || '').toLowerCase();
     const dbClics = clicksByUrl?.get(urlKey);
     if (_pIdx > 0) return dbClics ?? 0;
-    // S-0 : DB prioritaire mais fallback API si DB absente ou à 0
-    if (dbClics) return dbClics;
+    // S-0 : DB prioritaire ; fallback API seulement si aucun snapshot en DB (undefined)
+    if (dbClics !== undefined) return dbClics;
     if (sPeriod === 30) return l.humanClicks30d || 0;
     const pts: { clicks: number }[] = l.chartData || [];
     return pts.slice(-sPeriod).reduce((s, p) => s + (p.clicks || 0), 0);
