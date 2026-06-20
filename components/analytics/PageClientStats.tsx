@@ -6096,7 +6096,9 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  const since30d = new Date(Date.now() - period * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const _sinceDate = new Date();
+  _sinceDate.setUTCDate(_sinceDate.getUTCDate() - period);
+  const since30d = _sinceDate.toISOString().slice(0, 10);
 
   const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes, shortioChartHistoryRes] = await Promise.all([
     supabase.from('instagram_leads')
