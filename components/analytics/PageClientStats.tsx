@@ -6430,11 +6430,12 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const msgs: IGMessages | null = msgsRaw ?? null;
 
   // Short.io — onglets 0 (Vue générale) et 4 (Business micro) — cache 15min
-  const { data: shortioRaw, isLoading: shortioLoading, refetch: refetchShortio } = useQuery<ShortioStats | null>({
+  const { data: shortioRaw, isFetching: shortioLoading, refetch: refetchShortio } = useQuery<ShortioStats | null>({
     queryKey: ['stats-shortio', profileId],
     queryFn: () => fetchApi(`/api/shortio/stats${q}`),
     enabled: tab === 0 || tab === 3 || tab === 4,
     staleTime: 15 * 60 * 1000,
+    placeholderData: (prev) => prev ?? undefined,
   });
   const shortio: ShortioStats | null = shortioRaw ?? null;
 
