@@ -421,9 +421,9 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`] }; }
   if (!links.length) return { errors: [] };
 
+  const dateToday = new Date().toISOString().split('T')[0];
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
   const dateYesterday = yesterday.toISOString().split('T')[0];
-  const dateToday = new Date().toISOString().split('T')[0];
 
   // Préchargement des tables de référence pour le calcul de link_category
   const [{ data: contentLinksRows }, { data: prospectLinksRows }] = await Promise.all([
@@ -480,6 +480,33 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     return null;
   };
 
+  // Récupérer last_clicks une seule fois pour J-0 — stable vs API stats (eventually consistent)
+  // On compte les clics humains bruts par path pour aujourd'hui UTC
+  const todayClicksByPath = new Map<string, number>();
+  try {
+    const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    const lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`, {
+      method: 'POST',
+      headers: { authorization: creds.apiKey, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
+    });
+    if (lcRes.ok) {
+      const lcData = await safeJson(lcRes);
+      const rawClicks: { path: string; dt: string; human: boolean }[] = lcData?.clicks ?? lcData ?? [];
+      for (const click of rawClicks) {
+        if (!click.human || !click.path) continue;
+        const clickDate = click.dt ? click.dt.split('T')[0] : dateToday;
+        if (clickDate !== dateToday) continue;
+        const p = click.path.replace(/^\//, '');
+        todayClicksByPath.set(p, (todayClicksByPath.get(p) ?? 0) + 1);
+      }
+    }
+  } catch { /* non bloquant — fallback sur API stats si last_clicks échoue */ }
+
+  // Construit un index path → link_id pour mapper last_clicks vers les liens
+  const pathToLinkId = new Map<string, string>();
+  for (const l of links) if (l.path) pathToLinkId.set(l.path, String(l.id));
+
   // Helper : snapshot un lien pour une période donnée
   const snapshotLink = async (l: any, period: string, date: string) => {
     const linkId = String(l.id);
@@ -490,14 +517,27 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch {}
     const link_category = resolveLinkCategory(path, shortUrl, link_type);
 
-    const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=${period}`, { headers: { authorization: creds.apiKey, accept: 'application/json' } });
-    const stats = statsRes.ok ? await safeJson(statsRes) : {};
+    // Pour J-0 : utiliser last_clicks (stable) plutôt que l'API stats (eventually consistent)
+    // Pour J-1 : API stats (données finalisées = fiables)
+    let human_clicks: number;
+    let total_clicks: number;
+    let stats: any = {};
+
+    if (period === 'today') {
+      human_clicks = todayClicksByPath.get(path) ?? 0;
+      total_clicks = human_clicks; // last_clicks ne retourne que les clics humains
+    } else {
+      const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=${period}`, { headers: { authorization: creds.apiKey, accept: 'application/json' } });
+      stats = statsRes.ok ? await safeJson(statsRes) : {};
+      human_clicks = Number(stats.humanClicks ?? 0);
+      total_clicks = Number(stats.totalClicks ?? 0);
+    }
 
     await supa.from('shortio_link_daily_snapshots').upsert({
       profile_id: profileId, link_id: linkId, path, short_url: shortUrl,
       original_url: originalUrl, date, link_type, link_category,
-      human_clicks: Number(stats.humanClicks ?? 0),
-      total_clicks: Number(stats.totalClicks ?? 0),
+      human_clicks,
+      total_clicks,
       top_countries: (stats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country || 'Inconnu', code: c.country || '', value: Number(c.score) })),
       top_referrers: (stats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: Number(r.score) })),
       top_browsers: (stats.browser || []).filter((b: any) => b.score > 0).slice(0, 8).map((b: any) => ({ label: b.browser || 'Inconnu', value: Number(b.score) })),
@@ -507,6 +547,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       utm_sources: (stats.utm_source || []).filter((u: any) => u.score > 0 && u.utm_source).slice(0, 8).map((u: any) => ({ label: u.utm_source, value: Number(u.score) })),
       utm_mediums: (stats.utm_medium || []).filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 8).map((u: any) => ({ label: u.utm_medium, value: Number(u.score) })),
       backfill_source: 'cron',
+      updated_at: new Date().toISOString(),
     }, { onConflict: 'profile_id,link_id,date', ignoreDuplicates: false });
   };
 
