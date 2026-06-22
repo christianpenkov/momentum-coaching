@@ -3976,7 +3976,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const lastAvailableDate = shortioChartHistory && shortioChartHistory.length > 0
     ? shortioChartHistory[shortioChartHistory.length - 1].date
     : utcDateStr(new Date(Date.now() - 86400000));
-  const periodEnd = new Date(lastAvailableDate + 'T12:00:00Z');
+  const periodEnd = new Date(lastAvailableDate + 'T23:59:59Z');
   periodEnd.setUTCDate(periodEnd.getUTCDate() - _pIdx * sPeriod);
   const periodStart = new Date(periodEnd);
   periodStart.setUTCDate(periodEnd.getUTCDate() - sPeriod + 1);
@@ -4080,7 +4080,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   if (!shortio) return shortioLoading ? <InlineLoader /> : <Empty msg="Connecte ton compte Short.io pour voir les stats." />;
 
   // En S-1+ les posts DB peuvent être vides (snapshot hors fenêtre) — fallback live pour les métadonnées
-  const igPosts = (ig?.posts?.length ? ig.posts : igLive?.posts) || [];
+  // Thumbnails = métadonnées fixes du contenu, toujours depuis igLive (les URLs CDN IG expirent ~24h)
+  const igLiveThumbnails = new Map<string, string | null>((igLive?.posts ?? []).map((p: any) => [p.id, p.thumbnail ?? null]));
+  const igPostsRaw = (ig?.posts?.length ? ig.posts : igLive?.posts) || [];
+  const igPosts = igPostsRaw.map((p: any) => ({ ...p, thumbnail: igLiveThumbnails.get(p.id) ?? p.thumbnail ?? null }));
   const ytVideos = (yt?.videos?.length ? yt.videos : ytLive?.videos) || [];
 
   // Index prospect_links DB par short_url
