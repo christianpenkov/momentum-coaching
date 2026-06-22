@@ -1279,6 +1279,7 @@ a { color: inherit; text-decoration: none; }
 
 /* Page layout helpers */
 .page-content { max-width: 1280px; }
+@media (min-width: 1440px) { .page-content { max-width: 1440px; } }
 .page-header {
   display: flex; align-items: flex-start; justify-content: space-between;
   gap: 16px; flex-wrap: wrap; margin-bottom: 22px;
