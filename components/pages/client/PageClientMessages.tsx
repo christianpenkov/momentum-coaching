@@ -982,7 +982,7 @@ export default function PageClientMessages() {
           ref={fileInputRef}
           type="file"
           accept="image/*,application/pdf,.doc,.docx"
-          style={{ display: 'none' }}
+          style={{ position: 'absolute', width: 1, height: 1, opacity: 0, pointerEvents: 'none', overflow: 'hidden' }}
           onChange={e => {
             const f = e.target.files?.[0];
             if (!f) return;
