@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -380,6 +381,9 @@ export default function PageClientMessages() {
   const [coachTyping, setCoachTyping] = useState(false);
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [showScrollArrow, setShowScrollArrow] = useState(false);
+  const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [isSendingFile, setIsSendingFile] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatZoneRef = useRef<HTMLDivElement>(null);
@@ -645,15 +649,28 @@ export default function PageClientMessages() {
     const type: 'image' | 'document' = isImage ? 'image' : 'document';
     const maxSize = isImage ? 5 * 1024 * 1024 : 20 * 1024 * 1024;
     if (file.size > maxSize) return;
+    setIsSendingFile(true);
     const ext = file.name.split('.').pop() || 'bin';
     const fileName = `${clientId}/${Date.now()}.${ext}`;
     const { error: uploadError } = await supabase.storage
       .from('chat-medias').upload(fileName, file, { contentType: file.type });
-    if (uploadError) return;
+    if (uploadError) { setIsSendingFile(false); return; }
     const { data: urlData } = supabase.storage.from('chat-medias').getPublicUrl(fileName);
     await supabase.from('messages').insert({
       client_id: clientId, sender_id: userId, text: file.name, type, audio_url: urlData.publicUrl,
     });
+    setIsSendingFile(false);
+    setPendingFile(prev => { if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl); return null; });
+  }
+
+  function formatFileSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} o`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+  }
+
+  function getFileExt(name: string) {
+    return (name.split('.').pop() || '').toUpperCase();
   }
 
   // ── Enregistrement vocal ───────────────────────────────────────────────────
@@ -837,34 +854,90 @@ export default function PageClientMessages() {
                       {isAudio && msg.audio_url ? (
                         <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} />
                       ) : isImage && msg.audio_url ? (
-                        <img
-                          src={msg.audio_url} alt=""
-                          style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 10, display: 'block', cursor: 'pointer' }}
-                          onClick={() => window.open(msg.audio_url, '_blank')}
-                        />
+                        <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                          onClick={() => setLightboxUrl(msg.audio_url!)}
+                        >
+                          <img
+                            src={msg.audio_url} alt=""
+                            style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 12, display: 'block' }}
+                          />
+                          <div style={{
+                            position: 'absolute', inset: 0, borderRadius: 12,
+                            background: 'rgba(0,0,0,0)', display: 'flex',
+                            alignItems: 'center', justifyContent: 'center',
+                            transition: 'background 180ms',
+                          }}
+                            onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.18)')}
+                            onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0)')}
+                          >
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                              style={{ opacity: 0, transition: 'opacity 180ms', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }}
+                              onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                              onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+                            >
+                              <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                              <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+                            </svg>
+                          </div>
+                        </div>
                       ) : isDocument && msg.audio_url ? (
                         <a href={msg.audio_url} target="_blank" rel="noopener noreferrer"
-                          style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: isMe ? '#fff' : 'var(--ink)' }}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                          style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
+                            background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)',
+                            borderRadius: 10, padding: '10px 12px', minWidth: 200, maxWidth: 280 }}>
+                          <div style={{
+                            width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+                            background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                          }}>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.85)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                            </svg>
+                          </div>
+                          <div style={{ flex: 1, minWidth: 0 }}>
+                            <div style={{ fontSize: 13, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
+                              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {msg.text || 'Document'}
+                            </div>
+                            <div style={{ fontSize: 11, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
+                              {getFileExt(msg.text || '')}
+                            </div>
+                          </div>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
                           </svg>
-                          <span style={{ fontSize: 13, wordBreak: 'break-all' }}>{msg.text || 'Document'}</span>
                         </a>
                       ) : (
                         <div style={{ fontSize: 14, lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
                       )}
 
                       {/* Heure + statut */}
-                      <div style={{
-                        display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-                        gap: 3, marginTop: isImage ? 0 : 4,
-                        ...(isImage ? { position: 'absolute', bottom: 6, right: 8 } : {}),
-                      }}>
-                        <span style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)' }}>
-                          {formatTime(msg.created_at)}
-                        </span>
-                        <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} />
-                      </div>
+                      {!isDocument && (
+                        <div style={{
+                          display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+                          gap: 3, marginTop: isImage ? 0 : 4,
+                          ...(isImage ? {
+                            position: 'absolute', bottom: 6, right: 8,
+                            background: 'rgba(0,0,0,0.45)',
+                            backdropFilter: 'blur(4px)',
+                            borderRadius: 6,
+                            padding: '2px 5px',
+                          } : {}),
+                        }}>
+                          <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.9)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)') }}>
+                            {formatTime(msg.created_at)}
+                          </span>
+                          <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} />
+                        </div>
+                      )}
+                      {isDocument && (
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: 4 }}>
+                          <span style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)' }}>
+                            {formatTime(msg.created_at)}
+                          </span>
+                          <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} />
+                        </div>
+                      )}
                     </div>
                   </div>
                 );
@@ -910,8 +983,89 @@ export default function PageClientMessages() {
           type="file"
           accept="image/*,application/pdf,.doc,.docx"
           style={{ display: 'none' }}
-          onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }}
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            const isImg = f.type.startsWith('image/');
+            const previewUrl = isImg ? URL.createObjectURL(f) : undefined;
+            setPendingFile({ file: f, previewUrl, type: isImg ? 'image' : 'document' });
+            e.target.value = '';
+          }}
         />
+
+        {/* ── Preview fichier en attente ── */}
+        {pendingFile && (
+          <div style={{
+            padding: '10px 12px', background: 'var(--surface)',
+            borderTop: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+            animation: 'slideUp 180ms ease-out',
+          }}>
+            {pendingFile.type === 'image' && pendingFile.previewUrl ? (
+              <img src={pendingFile.previewUrl} alt=""
+                style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 56, height: 56, borderRadius: 8, flexShrink: 0,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {pendingFile.file.name}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                {formatFileSize(pendingFile.file.size)}
+              </div>
+            </div>
+            <button type="button"
+              onClick={() => {
+                if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
+                setPendingFile(null);
+              }}
+              style={{
+                width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border)',
+                background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+            <button type="button"
+              disabled={isSendingFile}
+              onClick={() => sendFile(pendingFile.file)}
+              className="btn-primary"
+              style={{
+                height: 36, padding: '0 16px', borderRadius: 18, fontSize: 13, fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                opacity: isSendingFile ? 0.6 : 1,
+              }}>
+              {isSendingFile ? (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ animation: 'spin 0.8s linear infinite' }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                  </svg>
+                  Envoi…
+                </>
+              ) : (
+                <>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                  </svg>
+                  Envoyer
+                </>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* ── Panneau enregistrement ── */}
         {isRecording && (
@@ -924,7 +1078,7 @@ export default function PageClientMessages() {
         )}
 
         {/* ── Input bar ── */}
-        {!isRecording && (
+        {!isRecording && !pendingFile && (
           <div className="chat-input-bar" style={{
             padding: '8px 12px', background: 'var(--surface)',
             borderTop: '1px solid var(--border)',
@@ -994,6 +1148,59 @@ export default function PageClientMessages() {
           </div>
         )}
       </div>
+
+      {/* ── Lightbox image ── */}
+      {lightboxUrl && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={() => setLightboxUrl(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.88)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: 'fadeIn 200ms ease-out',
+          }}
+        >
+          <img
+            src={lightboxUrl} alt=""
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: 'min(90vw, 900px)', maxHeight: '85vh',
+              objectFit: 'contain', borderRadius: 12,
+              animation: 'scaleIn 200ms ease-out',
+              boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+            }}
+          />
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.12)', border: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: '#fff',
+            }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+          <a
+            href={lightboxUrl} target="_blank" rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'absolute', top: 16, right: 68,
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.12)', border: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: '#fff', textDecoration: 'none',
+            }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+        </div>,
+        document.body
+      )}
     </AudioContext.Provider>
   );
 }
