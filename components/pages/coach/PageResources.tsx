@@ -36,6 +36,16 @@ export default function PageResources() {
   const [accessResource, setAccessResource] = useState<Resource | null>(null);
   const [previewResource, setPreviewResource] = useState<Resource | null>(null);
 
+  const refreshAccessMap = useCallback(async () => {
+    const { data } = await supabase.from('resource_access').select('resource_id, client_id').eq('unlocked', true);
+    const map: Record<string, string[]> = {};
+    for (const row of data || []) {
+      if (!map[row.resource_id]) map[row.resource_id] = [];
+      map[row.resource_id].push(row.client_id);
+    }
+    setAccessMap(map);
+  }, []);
+
   const load = useCallback(async () => {
     let { data: { user } } = await supabase.auth.getUser();
     if (!user) {
@@ -46,7 +56,7 @@ export default function PageResources() {
     if (!user) return;
 
     const [resourcesRes, accessRes] = await Promise.all([
-      supabase.from('resources').select('*').eq('coach_id', user.id).order('position'),
+      supabase.from('resources').select('*').eq('coach_id', user.id).order('created_at', { ascending: false }),
       supabase.from('resource_access').select('resource_id, client_id').eq('unlocked', true),
     ]);
 
@@ -250,7 +260,7 @@ export default function PageResources() {
             key={accessResource.id}
             resource={accessResource}
             onClose={() => setAccessResource(null)}
-            onChanged={load}
+            onChanged={refreshAccessMap}
           />
         )}
       </AnimatePresence>
