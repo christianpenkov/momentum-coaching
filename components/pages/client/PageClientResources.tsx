@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useMemo } from 'react';
-import Icon from '@/components/ui/Icon';
+import Icon, { type IconName } from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { createClient } from '@/lib/supabase/client';
 
@@ -57,7 +57,7 @@ function renderMarkdown(md: string): string {
     .replace(/^(?!<[hul]|<\/[hul]|<li|<\/li)(.+)$/gm, '<p>$1</p>');
 }
 
-const TYPE_ICON: Record<string, string> = {
+const TYPE_ICON: Record<string, IconName> = {
   link: 'link',
   file: 'folder',
   video: 'play',

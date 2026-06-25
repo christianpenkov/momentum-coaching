@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import Icon from '@/components/ui/Icon';
+import Icon, { type IconName } from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import ResourceDrawer, { type Resource } from './ResourceDrawer';
@@ -141,7 +141,7 @@ export default function PageResources() {
     ));
   }
 
-  const TYPE_ICON: Record<string, string> = {
+  const TYPE_ICON: Record<string, IconName> = {
     link: 'link',
     file: 'folder',
     video: 'play',

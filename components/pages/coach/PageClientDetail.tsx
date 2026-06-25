@@ -6,7 +6,7 @@ import Avatar from '@/components/ui/Avatar';
 import Pill from '@/components/ui/Pill';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
-import Icon from '@/components/ui/Icon';
+import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
@@ -64,7 +64,7 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
     setToggling(t => ({ ...t, [resourceId]: false }));
   }
 
-  const TYPE_ICON: Record<string, string> = { link: 'link', file: 'folder', video: 'play', markdown: 'list' };
+  const TYPE_ICON: Record<string, IconName> = { link: 'link', file: 'folder', video: 'play', markdown: 'list' };
   const unlockedCount = Object.values(accessMap).filter(Boolean).length;
 
   if (loading) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Chargement des ressources…</div>;
