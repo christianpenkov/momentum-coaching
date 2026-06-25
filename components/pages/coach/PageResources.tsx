@@ -257,7 +257,7 @@ export default function PageResources() {
                   title={section.locked ? 'Section verrouillée pour tous — cliquer pour déverrouiller' : 'Section déverrouillée (accès individuel) — cliquer pour verrouiller pour tous'}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: section.locked ? 'var(--red)' : 'var(--muted)', padding: 4 }}
                 >
-                  <Icon name={section.locked ? 'lock' : 'unlock'} size={14} />
+                  <Icon name="lock" size={14} />
                 </button>
                 <button
                   type="button"
