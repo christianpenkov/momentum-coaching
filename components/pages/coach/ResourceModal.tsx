@@ -97,17 +97,19 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
     let result: Resource | null = null;
 
     if (isEdit && resource) {
-      const { data } = await supabase.from('resources').update(payload).eq('id', resource.id).select().single();
+      const { data, error } = await supabase.from('resources').update(payload).eq('id', resource.id).select().single();
+      if (error) { console.error('update error', error); setSaving(false); return; }
       result = data;
     } else {
-      const { data: countData } = await supabase.from('resources').select('id', { count: 'exact', head: true }).eq('coach_id', user.id);
-      const { data } = await supabase.from('resources').insert({
+      const { count } = await supabase.from('resources').select('*', { count: 'exact', head: true }).eq('coach_id', user.id);
+      const { data, error } = await supabase.from('resources').insert({
         ...payload,
         coach_id: user.id,
-        position: (countData as unknown as number) ?? 0,
+        position: count ?? 0,
         is_new: false,
         locked: true,
       }).select().single();
+      if (error) { console.error('insert error', error); setSaving(false); return; }
       result = data;
     }
 
@@ -405,7 +407,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
               onClick={handleSave}
               disabled={saving || !title.trim() || uploading}
               className="btn-primary"
-              style={{ fontSize: 13, minWidth: 110, opacity: saving || !title.trim() ? 0.6 : 1 }}
+              style={{ fontSize: 13, minWidth: 110, opacity: saving || !title.trim() ? 0.6 : 1, justifyContent: 'center', lineHeight: 1 }}
             >
               {saving ? 'Enregistrement…' : (isEdit ? 'Mettre à jour' : 'Enregistrer')}
             </button>

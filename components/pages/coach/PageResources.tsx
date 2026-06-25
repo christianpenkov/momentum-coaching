@@ -37,7 +37,12 @@ export default function PageResources() {
   const [previewResource, setPreviewResource] = useState<Resource | null>(null);
 
   const load = useCallback(async () => {
-    const { data: { user } } = await supabase.auth.getUser();
+    let { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      await new Promise(r => setTimeout(r, 400));
+      const retry = await supabase.auth.getUser();
+      user = retry.data.user;
+    }
     if (!user) return;
 
     const [resourcesRes, accessRes] = await Promise.all([
