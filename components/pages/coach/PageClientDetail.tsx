@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
 import Pill from '@/components/ui/Pill';
@@ -11,6 +11,164 @@ import TaskModal from '@/components/ui/TaskModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import type { Task } from '@/lib/supabase/types';
+
+interface ResourceForClient {
+  id: string;
+  title: string;
+  type: string | null;
+  description: string | null;
+  section_id: string | null;
+}
+
+interface SectionForClient {
+  id: string;
+  title: string;
+}
+
+function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: string; coachId: string }) {
+  const supabase = createSupabase();
+  const [sections, setSections] = useState<SectionForClient[]>([]);
+  const [resources, setResources] = useState<ResourceForClient[]>([]);
+  const [accessMap, setAccessMap] = useState<Record<string, boolean>>({});
+  const [toggling, setToggling] = useState<Record<string, boolean>>({});
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    const [sectionsRes, resourcesRes, accessRes] = await Promise.all([
+      supabase.from('resource_sections').select('id, title').eq('coach_id', coachId).order('position'),
+      supabase.from('resources').select('id, title, type, description, section_id').eq('coach_id', coachId).order('position'),
+      supabase.from('resource_access').select('resource_id, unlocked').eq('client_id', clientProfileId),
+    ]);
+    setSections(sectionsRes.data || []);
+    setResources(resourcesRes.data || []);
+    const map: Record<string, boolean> = {};
+    for (const row of accessRes.data || []) map[row.resource_id] = row.unlocked;
+    setAccessMap(map);
+    setLoading(false);
+  }, [clientProfileId, coachId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function toggleAccess(resourceId: string) {
+    setToggling(t => ({ ...t, [resourceId]: true }));
+    const current = accessMap[resourceId] ?? false;
+    const newVal = !current;
+    await supabase.from('resource_access').upsert({
+      resource_id: resourceId,
+      client_id: clientProfileId,
+      unlocked: newVal,
+      unlocked_at: newVal ? new Date().toISOString() : null,
+    }, { onConflict: 'resource_id,client_id' });
+    if (newVal) await supabase.from('resources').update({ is_new: true }).eq('id', resourceId);
+    setAccessMap(prev => ({ ...prev, [resourceId]: newVal }));
+    setToggling(t => ({ ...t, [resourceId]: false }));
+  }
+
+  const TYPE_ICON: Record<string, string> = { link: 'link', file: 'folder', video: 'play', markdown: 'list' };
+  const unlockedCount = Object.values(accessMap).filter(Boolean).length;
+
+  if (loading) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Chargement des ressources…</div>;
+  if (resources.length === 0) return (
+    <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>
+      Aucune ressource créée. Crée des ressources depuis la page <Link href="/resources" style={{ color: 'var(--accent)' }}>Ressources</Link>.
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+        {unlockedCount}/{resources.length} ressource{resources.length !== 1 ? 's' : ''} débloquée{unlockedCount !== 1 ? 's' : ''} pour cet élève
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+        {/* Grouped by section */}
+        {sections.map(section => {
+          const sectionResources = resources.filter(r => r.section_id === section.id);
+          if (sectionResources.length === 0) return null;
+          return (
+            <div key={section.id}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--muted)', letterSpacing: '0.08em', textTransform: 'uppercase', padding: '8px 0 4px' }}>
+                {section.title}
+              </div>
+              {sectionResources.map(r => {
+                const isOn = accessMap[r.id] ?? false;
+                const isToggling = toggling[r.id];
+                return (
+                  <div key={r.id} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '8px 12px', borderRadius: 8,
+                    background: isOn ? 'rgba(34,197,94,0.05)' : 'var(--surface-2)',
+                    border: `1px solid ${isOn ? 'var(--green)' : 'var(--border)'}`,
+                    marginBottom: 4, transition: 'border-color 150ms',
+                  }}>
+                    <Icon name={TYPE_ICON[r.type || 'link'] || 'link'} size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+                    <span style={{ flex: 1, fontSize: 12, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+                    <button
+                      type="button"
+                      disabled={isToggling}
+                      onClick={() => toggleAccess(r.id)}
+                      style={{
+                        width: 38, height: 20, borderRadius: 10,
+                        background: isOn ? 'var(--green)' : 'var(--border)',
+                        border: 'none', cursor: isToggling ? 'default' : 'pointer',
+                        position: 'relative', transition: 'background 200ms',
+                        flexShrink: 0, opacity: isToggling ? 0.6 : 1,
+                      }}
+                    >
+                      <span style={{
+                        position: 'absolute', top: 2,
+                        left: isOn ? 19 : 2,
+                        width: 16, height: 16, borderRadius: '50%',
+                        background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                        transition: 'left 200ms cubic-bezier(0.16,1,0.3,1)',
+                      }} />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+        {/* Unsectioned */}
+        {resources.filter(r => !r.section_id).map(r => {
+          const isOn = accessMap[r.id] ?? false;
+          const isToggling = toggling[r.id];
+          return (
+            <div key={r.id} style={{
+              display: 'flex', alignItems: 'center', gap: 10,
+              padding: '8px 12px', borderRadius: 8,
+              background: isOn ? 'rgba(34,197,94,0.05)' : 'var(--surface-2)',
+              border: `1px solid ${isOn ? 'var(--green)' : 'var(--border)'}`,
+              marginBottom: 4, transition: 'border-color 150ms',
+            }}>
+              <Icon name={TYPE_ICON[r.type || 'link'] || 'link'} size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{r.title}</span>
+              <button
+                type="button"
+                disabled={isToggling}
+                onClick={() => toggleAccess(r.id)}
+                style={{
+                  width: 38, height: 20, borderRadius: 10,
+                  background: isOn ? 'var(--green)' : 'var(--border)',
+                  border: 'none', cursor: isToggling ? 'default' : 'pointer',
+                  position: 'relative', transition: 'background 200ms',
+                  flexShrink: 0, opacity: isToggling ? 0.6 : 1,
+                }}
+              >
+                <span style={{
+                  position: 'absolute', top: 2,
+                  left: isOn ? 19 : 2,
+                  width: 16, height: 16, borderRadius: '50%',
+                  background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  transition: 'left 200ms cubic-bezier(0.16,1,0.3,1)',
+                }} />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -265,6 +423,24 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         </div>
       </div>
+
+      {/* Ressources débloquées */}
+      {client.profile_id && (
+        <div className="card" style={{ marginTop: 24 }}>
+          <div className="card-head">
+            <div>
+              <div className="card-title">Ressources</div>
+              <div className="card-sub">Gérer les accès de cet élève</div>
+            </div>
+            <Link href="/resources" className="btn-ghost" style={{ fontSize: 12 }}>
+              <Icon name="folder" size={13} /> Toutes les ressources
+            </Link>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <ClientResourcesPanel clientProfileId={client.profile_id} coachId={client.coach_id} />
+          </div>
+        </div>
+      )}
 
       {/* Notes privées */}
       <div className="card" style={{ marginTop: 24 }}>
