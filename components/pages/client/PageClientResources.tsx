@@ -5,7 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { createClient } from '@/lib/supabase/client';
-import { formatSize, getEmbedUrl, renderMarkdown, TYPE_META } from '@/lib/resourceHelpers';
+import { formatSize, getEmbedUrl, TYPE_META } from '@/lib/resourceHelpers';
 
 interface Resource {
   id: string;
@@ -38,7 +38,7 @@ function ResourceCard({ resource, onMarkSeen }: { resource: Resource; onMarkSeen
   const type = (resource.type || 'link') as keyof typeof TYPE_META;
   const meta = TYPE_META[type] || TYPE_META.link;
   const embedUrl = resource.video_url ? getEmbedUrl(resource.video_url) : null;
-  const isExpandable = resource.type === 'markdown' || resource.type === 'video';
+  const isExpandable = resource.type === 'video';
 
   function handleOpen() {
     if (resource.is_new) onMarkSeen(resource.id);
@@ -116,33 +116,24 @@ function ResourceCard({ resource, onMarkSeen }: { resource: Resource; onMarkSeen
         </div>
       </div>
 
-      {/* Expandable content */}
+      {/* Expandable video */}
       <AnimatePresence>
-        {expanded && (
+        {expanded && resource.type === 'video' && embedUrl && (
           <motion.div
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 0.22, ease: 'easeOut' as const }}
             style={{ overflow: 'hidden', borderTop: '1px solid var(--border)' }}
           >
-            {resource.type === 'video' && embedUrl && (
-              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
-                <iframe
-                  src={embedUrl}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                  allowFullScreen
-                />
-              </div>
-            )}
-            {resource.type === 'markdown' && resource.markdown_content && (
-              <div
-                className="md-content"
-                style={{ padding: '16px 20px', fontSize: 13, lineHeight: 1.7, color: 'var(--ink)' }}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(resource.markdown_content) }}
+            <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0 }}>
+              <iframe
+                src={embedUrl}
+                style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', border: 'none' }}
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                allowFullScreen
               />
-            )}
+            </div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -294,18 +285,6 @@ export default function PageClientResources() {
           ))}
         </motion.div>
       )}
-
-      <style>{`
-        .md-content h1 { font-size: 18px; font-weight: 700; margin: 0 0 10px; color: var(--accent); }
-        .md-content h2 { font-size: 15px; font-weight: 700; margin: 16px 0 8px; color: var(--accent); }
-        .md-content h3 { font-size: 13px; font-weight: 700; margin: 14px 0 6px; color: var(--accent); }
-        .md-content p { margin: 0 0 10px; }
-        .md-content ul { margin: 0 0 10px; padding-left: 20px; }
-        .md-content li { margin-bottom: 4px; }
-        .md-content strong { font-weight: 700; }
-        .md-content em { font-style: italic; }
-        .md-content a { color: var(--accent); text-decoration: underline; }
-      `}</style>
     </div>
   );
 }

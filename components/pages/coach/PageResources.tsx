@@ -9,6 +9,7 @@ import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import ResourceModal, { type Resource } from './ResourceModal';
 import ResourceCardCoach from './ResourceCardCoach';
 import AccessSheet from './AccessSheet';
+import ResourcePreviewModal from './ResourcePreviewModal';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 
 const containerVariants = {
@@ -33,6 +34,7 @@ export default function PageResources() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
   const [accessResource, setAccessResource] = useState<Resource | null>(null);
+  const [previewResource, setPreviewResource] = useState<Resource | null>(null);
 
   const load = useCallback(async () => {
     const { data: { user } } = await supabase.auth.getUser();
@@ -67,6 +69,7 @@ export default function PageResources() {
   }
 
   function openEdit(r: Resource) {
+    setPreviewResource(null);
     setEditingResource(r);
     setModalOpen(true);
   }
@@ -204,16 +207,18 @@ export default function PageResources() {
                 onEdit={openEdit}
                 onDelete={handleDelete}
                 onManageAccess={r => setAccessResource(r)}
+                onOpen={r => setPreviewResource(r)}
               />
             </motion.div>
           ))}
         </motion.div>
       )}
 
-      {/* Modal création/édition */}
+      {/* Modal création/édition — key force remontage par ressource */}
       <AnimatePresence>
         {modalOpen && (
           <ResourceModal
+            key={editingResource?.id ?? 'new'}
             resource={editingResource}
             onClose={closeModal}
             onSaved={handleSaved}
@@ -221,10 +226,23 @@ export default function PageResources() {
         )}
       </AnimatePresence>
 
-      {/* AccessSheet */}
+      {/* Aperçu ressource */}
+      <AnimatePresence>
+        {previewResource && (
+          <ResourcePreviewModal
+            key={previewResource.id}
+            resource={previewResource}
+            onClose={() => setPreviewResource(null)}
+            onEdit={openEdit}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* AccessSheet — key force remontage par ressource (bug #7) */}
       <AnimatePresence>
         {accessResource && (
           <AccessSheet
+            key={accessResource.id}
             resource={accessResource}
             onClose={() => setAccessResource(null)}
             onChanged={load}

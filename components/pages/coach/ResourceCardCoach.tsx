@@ -13,6 +13,7 @@ interface Props {
   onEdit: (r: Resource) => void;
   onDelete: (r: Resource) => void;
   onManageAccess: (r: Resource) => void;
+  onOpen: (r: Resource) => void;
 }
 
 const AVATAR_COLORS = [
@@ -21,7 +22,7 @@ const AVATAR_COLORS = [
 
 function avatarColor(idx: number) { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
 
-export default function ResourceCardCoach({ resource, accessClients, onEdit, onDelete, onManageAccess }: Props) {
+export default function ResourceCardCoach({ resource, accessClients, onEdit, onDelete, onManageAccess, onOpen }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const type = (resource.type || 'link') as keyof typeof TYPE_META;
@@ -45,8 +46,11 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
       transition={{ duration: 0.15 }}
       style={{ padding: 0, overflow: 'hidden', cursor: 'default' }}
     >
-      {/* Top */}
-      <div style={{ padding: '16px 16px 12px' }}>
+      {/* Top — cliquable pour ouvrir l'aperçu */}
+      <div
+        onClick={() => onOpen(resource)}
+        style={{ padding: '16px 16px 12px', cursor: 'pointer' }}
+      >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
           {/* Icône type */}
           <div style={{
@@ -90,8 +94,8 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
             )}
           </div>
 
-          {/* Menu ⋯ */}
-          <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }}>
+          {/* Menu ⋯ — stopPropagation pour ne pas déclencher onOpen */}
+          <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
             <button
               type="button"
               onClick={() => setMenuOpen(o => !o)}
@@ -159,11 +163,14 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
       </div>
 
       {/* Footer */}
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '10px 16px 12px',
-        borderTop: '1px solid var(--border)',
-      }}>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          padding: '10px 16px 12px',
+          borderTop: '1px solid var(--border)',
+        }}
+      >
         {/* Avatars empilés */}
         <button
           type="button"

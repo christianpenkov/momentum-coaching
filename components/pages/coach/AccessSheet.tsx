@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
+import ModalShell from '@/components/ui/ModalShell';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Resource } from './ResourceModal';
@@ -14,12 +15,14 @@ interface Props {
 }
 
 export default function AccessSheet({ resource, onClose, onChanged }: Props) {
-  const { clients } = useSupabaseClients();
+  const { clients, loading: clientsLoading } = useSupabaseClients();
   const supabase = createClient();
   const validClients = clients.filter(c => c.profile_id);
-  const [accessMap, setAccessMap] = useState<Record<string, boolean>>({});
+
+  const [initialState, setInitialState] = useState<Record<string, boolean>>({});
+  const [draft, setDraft] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
-  const [toggling, setToggling] = useState<Record<string, boolean>>({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -29,37 +32,42 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
         .eq('resource_id', resource.id);
       const map: Record<string, boolean> = {};
       for (const row of data || []) map[row.client_id] = row.unlocked;
-      setAccessMap(map);
+      setInitialState(map);
+      setDraft(map);
       setLoading(false);
     }
     load();
   }, [resource.id]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+  function toggleDraft(clientProfileId: string) {
+    setDraft(prev => ({ ...prev, [clientProfileId]: !(prev[clientProfileId] ?? false) }));
+  }
 
-  async function toggleAccess(clientProfileId: string) {
-    setToggling(t => ({ ...t, [clientProfileId]: true }));
-    const current = accessMap[clientProfileId] ?? false;
-    const newVal = !current;
+  async function handleSave() {
+    setSaving(true);
 
-    await supabase.from('resource_access').upsert({
-      resource_id: resource.id,
-      client_id: clientProfileId,
-      unlocked: newVal,
-      unlocked_at: newVal ? new Date().toISOString() : null,
-    }, { onConflict: 'resource_id,client_id' });
+    const changed = validClients.filter(c => {
+      const id = c.profile_id!;
+      return (draft[id] ?? false) !== (initialState[id] ?? false);
+    });
 
-    if (newVal) {
-      await supabase.from('resources').update({ is_new: true }).eq('id', resource.id);
-    }
+    await Promise.all(changed.map(async c => {
+      const id = c.profile_id!;
+      const newVal = draft[id] ?? false;
+      await supabase.from('resource_access').upsert({
+        resource_id: resource.id,
+        client_id: id,
+        unlocked: newVal,
+        unlocked_at: newVal ? new Date().toISOString() : null,
+      }, { onConflict: 'resource_id,client_id' });
+      if (newVal) {
+        await supabase.from('resources').update({ is_new: true }).eq('id', resource.id);
+      }
+    }));
 
-    setAccessMap(prev => ({ ...prev, [clientProfileId]: newVal }));
-    setToggling(t => ({ ...t, [clientProfileId]: false }));
+    setSaving(false);
     onChanged?.();
+    onClose();
   }
 
   function getInitials(name: string): string {
@@ -69,160 +77,138 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
   const AVATAR_COLORS = [
     '#2563eb', '#7c3aed', '#db2777', '#d97706', '#059669', '#0891b2',
   ];
+  function avatarColor(idx: number): string { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
 
-  function avatarColor(idx: number): string {
-    return AVATAR_COLORS[idx % AVATAR_COLORS.length];
-  }
+  const hasDraftChanges = validClients.some(c => {
+    const id = c.profile_id!;
+    return (draft[id] ?? false) !== (initialState[id] ?? false);
+  });
 
   return (
-    <AnimatePresence>
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        exit={{ opacity: 0 }}
-        transition={{ duration: 0.15 }}
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, zIndex: 1001,
-          background: 'rgba(0,0,0,0.4)',
-          backdropFilter: 'blur(3px)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          padding: '16px',
-        }}
-      >
-        <motion.div
-          initial={{ opacity: 0, scale: 0.96, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          exit={{ opacity: 0, scale: 0.96, y: 8 }}
-          transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          onClick={e => e.stopPropagation()}
-          style={{
-            width: 420, maxWidth: '94vw',
-            background: 'var(--surface)',
-            borderRadius: 16,
-            boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
-            overflow: 'hidden',
-          }}
+    <ModalShell onClose={onClose} width={560}>
+      {/* Header */}
+      <div style={{
+        display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
+        padding: '20px 24px 18px',
+        borderBottom: '1px solid var(--border)',
+        flexShrink: 0,
+      }}>
+        <div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>Accès à la ressource</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, maxWidth: 340, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            « {resource.title} »
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 6, lineHeight: 0, flexShrink: 0 }}
         >
-          {/* Header */}
-          <div style={{
-            display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
-            padding: '18px 20px 16px',
-            borderBottom: '1px solid var(--border)',
-          }}>
-            <div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>Accès à la ressource</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                « {resource.title} »
-              </div>
+          <Icon name="x" size={18} />
+        </button>
+      </div>
+
+      {/* Body */}
+      <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+        {(loading || clientsLoading) ? (
+          <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '32px 0' }}>Chargement…</div>
+        ) : validClients.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '32px 0' }}>
+            <Icon name="users" size={28} style={{ color: 'var(--muted)', marginBottom: 10 }} />
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun élève pour le moment.</div>
+          </div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+              Clique sur un élève pour modifier son accès, puis valide.
             </div>
-            <button
-              type="button"
-              onClick={onClose}
-              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 6, lineHeight: 0, flexShrink: 0 }}
-            >
-              <Icon name="x" size={18} />
-            </button>
-          </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
+              {validClients.map((client, idx) => {
+                const hasAccess = draft[client.profile_id!] ?? false;
+                const color = avatarColor(idx);
+                const initials = client.initials || getInitials(client.name);
 
-          {/* Body */}
-          <div style={{ padding: '20px' }}>
-            {loading ? (
-              <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '20px 0' }}>Chargement…</div>
-            ) : validClients.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                <Icon name="users" size={28} style={{ color: 'var(--muted)', marginBottom: 10 }} />
-                <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun élève pour le moment.</div>
-              </div>
-            ) : (
-              <>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
-                  Clique sur un élève pour lui donner ou retirer l'accès.
-                </div>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 16 }}>
-                  {validClients.map((client, idx) => {
-                    const hasAccess = accessMap[client.profile_id!] ?? false;
-                    const isToggling = toggling[client.profile_id!];
-                    const color = avatarColor(idx);
-                    const initials = client.initials || getInitials(client.name);
+                return (
+                  <motion.button
+                    key={client.id}
+                    type="button"
+                    whileTap={{ scale: 0.92 }}
+                    onClick={() => toggleDraft(client.profile_id!)}
+                    style={{
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      padding: 6,
+                    }}
+                  >
+                    <div style={{ position: 'relative' }}>
+                      <div style={{
+                        width: 56, height: 56, borderRadius: '50%',
+                        background: color,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 17, fontWeight: 700, color: '#fff',
+                        filter: hasAccess ? 'none' : 'grayscale(1)',
+                        opacity: hasAccess ? 1 : 0.45,
+                        boxShadow: hasAccess ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px var(--green)` : 'none',
+                        transition: 'opacity 200ms, box-shadow 200ms, filter 200ms',
+                      }}>
+                        {initials}
+                      </div>
+                      <AnimatePresence>
+                        {hasAccess && (
+                          <motion.div
+                            initial={{ scale: 0 }}
+                            animate={{ scale: 1 }}
+                            exit={{ scale: 0 }}
+                            transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                            style={{
+                              position: 'absolute', bottom: -1, right: -1,
+                              width: 20, height: 20, borderRadius: '50%',
+                              background: 'var(--green)',
+                              border: '2px solid var(--surface)',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            }}
+                          >
+                            <Icon name="check" size={10} style={{ color: '#fff' }} />
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                    <span style={{
+                      fontSize: 11, color: hasAccess ? 'var(--accent)' : 'var(--muted)',
+                      fontWeight: hasAccess ? 600 : 400,
+                      maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                      transition: 'color 200ms',
+                    }}>
+                      {client.name.split(' ')[0]}
+                    </span>
+                  </motion.button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </div>
 
-                    return (
-                      <motion.button
-                        key={client.id}
-                        type="button"
-                        whileTap={{ scale: 0.92 }}
-                        onClick={() => !isToggling && toggleAccess(client.profile_id!)}
-                        style={{
-                          display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6,
-                          background: 'none', border: 'none', cursor: isToggling ? 'default' : 'pointer',
-                          padding: 4,
-                          opacity: isToggling ? 0.7 : 1,
-                        }}
-                      >
-                        {/* Avatar avec anneau */}
-                        <div style={{ position: 'relative' }}>
-                          <div style={{
-                            width: 52, height: 52, borderRadius: '50%',
-                            background: color,
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 16, fontWeight: 700, color: '#fff',
-                            filter: hasAccess ? 'none' : 'grayscale(1)',
-                            opacity: hasAccess ? 1 : 0.45,
-                            boxShadow: hasAccess ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px var(--green)` : 'none',
-                            transition: 'opacity 200ms, box-shadow 200ms, filter 200ms',
-                          }}>
-                            {initials}
-                          </div>
-                          {/* Badge check */}
-                          <AnimatePresence>
-                            {hasAccess && (
-                              <motion.div
-                                initial={{ scale: 0 }}
-                                animate={{ scale: 1 }}
-                                exit={{ scale: 0 }}
-                                transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                                style={{
-                                  position: 'absolute', bottom: -1, right: -1,
-                                  width: 18, height: 18, borderRadius: '50%',
-                                  background: 'var(--green)',
-                                  border: '2px solid var(--surface)',
-                                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                }}
-                              >
-                                <Icon name="check" size={9} style={{ color: '#fff' }} />
-                              </motion.div>
-                            )}
-                          </AnimatePresence>
-                        </div>
-                        {/* Prénom */}
-                        <span style={{
-                          fontSize: 11, color: hasAccess ? 'var(--accent)' : 'var(--muted)',
-                          fontWeight: hasAccess ? 600 : 400,
-                          maxWidth: 64, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          transition: 'color 200ms',
-                        }}>
-                          {client.name.split(' ')[0]}
-                        </span>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Footer */}
-          <div style={{
-            padding: '14px 20px 18px',
-            borderTop: '1px solid var(--border)',
-            display: 'flex', justifyContent: 'flex-end',
-          }}>
-            <button type="button" onClick={onClose} className="btn-primary" style={{ fontSize: 13 }}>
-              Terminé
-            </button>
-          </div>
-        </motion.div>
-      </motion.div>
-    </AnimatePresence>
+      {/* Footer */}
+      <div style={{
+        padding: '16px 24px 20px',
+        borderTop: '1px solid var(--border)',
+        display: 'flex', justifyContent: 'flex-end', gap: 8,
+        flexShrink: 0,
+      }}>
+        <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 13 }}>
+          Annuler
+        </button>
+        <button
+          type="button"
+          onClick={handleSave}
+          disabled={saving || loading || clientsLoading}
+          className="btn-primary"
+          style={{ fontSize: 13, minWidth: 90, opacity: saving ? 0.7 : 1 }}
+        >
+          {saving ? 'Enregistrement…' : hasDraftChanges ? 'Valider' : 'Fermer'}
+        </button>
+      </div>
+    </ModalShell>
   );
 }

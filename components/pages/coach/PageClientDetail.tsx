@@ -54,8 +54,8 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
     setToggling(t => ({ ...t, [resourceId]: false }));
   }
 
-  const TYPE_ICON: Record<string, IconName> = { link: 'link', file: 'folder', video: 'play', markdown: 'list' };
-  const TYPE_COLOR: Record<string, string> = { link: '#2563eb', file: '#b58025', video: '#cd5b3f', markdown: '#3f8a52' };
+  const TYPE_ICON: Record<string, IconName> = { link: 'link', file: 'folder', video: 'play' };
+  const TYPE_COLOR: Record<string, string> = { link: '#2563eb', file: '#b58025', video: '#cd5b3f' };
   const unlockedCount = Object.values(accessMap).filter(Boolean).length;
 
   if (loading) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Chargement des ressources…</div>;

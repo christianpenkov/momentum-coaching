@@ -30,7 +30,13 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
     setLoading(true);
     setError(null);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      let { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        // Session peut ne pas être hydratée au 1er render — retry une fois après 400ms
+        await new Promise(r => setTimeout(r, 400));
+        const retry = await supabase.auth.getUser();
+        user = retry.data.user;
+      }
       if (!user) { setError('Non authentifié'); setLoading(false); return; }
 
       setUserId(user.id);
