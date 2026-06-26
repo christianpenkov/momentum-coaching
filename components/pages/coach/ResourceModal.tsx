@@ -239,9 +239,27 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               {/* Titre */}
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-                  Titre *
-                </label>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                    Titre *
+                  </label>
+                  {type === 'video' && videoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleYtUrlChange(videoUrl)}
+                      disabled={fetchingTitle}
+                      style={{
+                        fontSize: 11, color: fetchingTitle ? 'var(--muted)' : 'var(--accent)',
+                        background: 'none', border: '1px solid var(--border)', borderRadius: 6,
+                        padding: '3px 9px', cursor: fetchingTitle ? 'default' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 4,
+                      }}
+                    >
+                      <Icon name="refresh-cw" size={11} />
+                      {fetchingTitle ? 'Récupération…' : 'Récupérer le titre'}
+                    </button>
+                  )}
+                </div>
                 <div style={{ position: 'relative' }}>
                   <input
                     ref={titleRef}
@@ -364,23 +382,6 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                       </button>
                     )}
                   </div>
-                  {/* Bouton récupération manuelle du titre */}
-                  {videoUrl && (
-                    <button
-                      type="button"
-                      onClick={() => handleYtUrlChange(videoUrl)}
-                      disabled={fetchingTitle}
-                      style={{
-                        marginTop: 8, fontSize: 12, color: fetchingTitle ? 'var(--muted)' : 'var(--accent)',
-                        background: 'none', border: '1px solid var(--border)', borderRadius: 7,
-                        padding: '5px 11px', cursor: fetchingTitle ? 'default' : 'pointer',
-                        display: 'flex', alignItems: 'center', gap: 5,
-                      }}
-                    >
-                      <Icon name="refresh-cw" size={12} />
-                      {fetchingTitle ? 'Récupération…' : 'Récupérer le titre'}
-                    </button>
-                  )}
                   {embedPreview && (
                     <div style={{ marginTop: 12, borderRadius: 10, overflow: 'hidden', position: 'relative', paddingBottom: '40%', height: 0, background: '#000' }}>
                       <iframe
