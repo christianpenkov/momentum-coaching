@@ -300,18 +300,34 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
                     URL
                   </label>
-                  <input
-                    value={url}
-                    onChange={e => setUrl(e.target.value)}
-                    placeholder="https://…"
-                    type="url"
-                    style={{
-                      width: '100%', padding: '10px 14px',
-                      border: '1px solid var(--border)', borderRadius: 9,
-                      background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
-                      outline: 'none', boxSizing: 'border-box',
-                    }}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      value={url}
+                      onChange={e => setUrl(e.target.value)}
+                      placeholder="https://…"
+                      type="url"
+                      style={{
+                        width: '100%', padding: url ? '10px 36px 10px 14px' : '10px 14px',
+                        border: '1px solid var(--border)', borderRadius: 9,
+                        background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                    {url && (
+                      <button
+                        type="button"
+                        onMouseDown={e => { e.preventDefault(); setUrl(''); }}
+                        style={{
+                          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--muted)', padding: 2, lineHeight: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <Icon name="x" size={14} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -321,17 +337,50 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                   <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
                     URL YouTube / Vimeo
                   </label>
-                  <input
-                    value={videoUrl}
-                    onChange={e => handleYtUrlChange(e.target.value)}
-                    placeholder="https://youtube.com/watch?v=…"
-                    style={{
-                      width: '100%', padding: '10px 14px',
-                      border: '1px solid var(--border)', borderRadius: 9,
-                      background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
-                      outline: 'none', boxSizing: 'border-box',
-                    }}
-                  />
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      value={videoUrl}
+                      onChange={e => handleYtUrlChange(e.target.value)}
+                      placeholder="https://youtube.com/watch?v=…"
+                      style={{
+                        width: '100%', padding: videoUrl ? '10px 36px 10px 14px' : '10px 14px',
+                        border: '1px solid var(--border)', borderRadius: 9,
+                        background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+                        outline: 'none', boxSizing: 'border-box',
+                      }}
+                    />
+                    {videoUrl && (
+                      <button
+                        type="button"
+                        onMouseDown={e => { e.preventDefault(); setVideoUrl(''); setVideoDuration(null); }}
+                        style={{
+                          position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                          background: 'none', border: 'none', cursor: 'pointer',
+                          color: 'var(--muted)', padding: 2, lineHeight: 0,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}
+                      >
+                        <Icon name="x" size={14} />
+                      </button>
+                    )}
+                  </div>
+                  {/* Bouton récupération manuelle du titre */}
+                  {videoUrl && (
+                    <button
+                      type="button"
+                      onClick={() => handleYtUrlChange(videoUrl)}
+                      disabled={fetchingTitle}
+                      style={{
+                        marginTop: 8, fontSize: 12, color: fetchingTitle ? 'var(--muted)' : 'var(--accent)',
+                        background: 'none', border: '1px solid var(--border)', borderRadius: 7,
+                        padding: '5px 11px', cursor: fetchingTitle ? 'default' : 'pointer',
+                        display: 'flex', alignItems: 'center', gap: 5,
+                      }}
+                    >
+                      <Icon name="refresh-cw" size={12} />
+                      {fetchingTitle ? 'Récupération…' : 'Récupérer le titre'}
+                    </button>
+                  )}
                   {embedPreview && (
                     <div style={{ marginTop: 12, borderRadius: 10, overflow: 'hidden', position: 'relative', paddingBottom: '40%', height: 0, background: '#000' }}>
                       <iframe
