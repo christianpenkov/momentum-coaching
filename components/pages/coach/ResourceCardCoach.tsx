@@ -47,6 +47,8 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           showFileName={true}
           resourceTitle={resource.title}
           videoDuration={resource.video_duration}
+          thumbnailUrl={resource.thumbnail_url}
+          pageCount={resource.page_count}
         />
       </div>
 

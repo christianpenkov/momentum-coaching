@@ -18,6 +18,8 @@ export interface Resource {
   file_size: number | null;
   video_url: string | null;
   video_duration: number | null;
+  thumbnail_url: string | null;
+  page_count: number | null;
   markdown_content: string | null;
   section_id: string | null;
   position: number;
@@ -55,6 +57,8 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
   const [fileName, setFileName] = useState(resource?.file_name || '');
   const [fileSize, setFileSize] = useState<number | null>(resource?.file_size || null);
   const [videoDuration, setVideoDuration] = useState<number | null>(resource?.video_duration ?? null);
+  const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(resource?.thumbnail_url ?? null);
+  const [pageCount, setPageCount] = useState<number | null>(resource?.page_count ?? null);
   const [isDefault, setIsDefault] = useState(resource?.is_default ?? false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -96,6 +100,8 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
       setFileUrl(data.url);
       setFileName(data.name);
       setFileSize(data.size);
+      setThumbnailUrl(data.thumbnail_url ?? null);
+      setPageCount(data.page_count ?? null);
       if (!title.trim()) setTitle(stripExtension(data.name));
     }
     setUploading(false);
@@ -118,6 +124,8 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
       file_url: type === 'file' ? fileUrl || null : null,
       file_name: type === 'file' ? fileName || null : null,
       file_size: type === 'file' ? fileSize : null,
+      thumbnail_url: type === 'file' ? thumbnailUrl : null,
+      page_count: type === 'file' ? pageCount : null,
       is_default: isDefault,
     };
 
@@ -452,7 +460,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                       </div>
                       <button
                         type="button"
-                        onClick={() => { setFileUrl(''); setFileName(''); setFileSize(null); }}
+                        onClick={() => { setFileUrl(''); setFileName(''); setFileSize(null); setThumbnailUrl(null); setPageCount(null); }}
                         style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2 }}
                       >
                         <Icon name="x" size={14} />

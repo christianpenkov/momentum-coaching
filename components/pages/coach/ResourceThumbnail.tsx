@@ -16,6 +16,8 @@ interface ResourceThumbnailProps {
   showFileName?: boolean;
   resourceTitle?: string | null;
   videoDuration?: number | null;
+  thumbnailUrl?: string | null;
+  pageCount?: number | null;
 }
 
 function getDomain(url: string): string | null {
@@ -47,6 +49,12 @@ function YtThumbnail({ id }: { id: string }) {
   );
 }
 
+function formatSize(bytes: number | null | undefined): string {
+  if (!bytes) return '';
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
+
 export default function ResourceThumbnail({
   type,
   videoUrl,
@@ -58,6 +66,8 @@ export default function ResourceThumbnail({
   showFileName = false,
   resourceTitle,
   videoDuration,
+  thumbnailUrl,
+  pageCount,
 }: ResourceThumbnailProps) {
   const [imgError, setImgError] = useState(false);
   const [faviconError, setFaviconError] = useState(false);
@@ -144,7 +154,68 @@ export default function ResourceThumbnail({
       );
     }
 
-    // PDF / autre → placeholder card style (icône seule)
+    // PDF avec thumbnail → design WhatsApp/Notion
+    const isPdfFile = (fileName?.toLowerCase().endsWith('.pdf') || false);
+    if (isPdfFile && thumbnailUrl) {
+      const FOOTER_H = 52;
+      const previewH = height - FOOTER_H;
+      return (
+        <div style={{ ...containerStyle, background: '#f5f5f5', display: 'flex', flexDirection: 'column' }}>
+          {/* Zone aperçu — page 1 du PDF */}
+          <div style={{
+            flex: 1, overflow: 'hidden',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+            background: '#fff',
+            minHeight: previewH,
+          }}>
+            <img
+              src={thumbnailUrl}
+              alt="Aperçu PDF"
+              style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }}
+            />
+            {/* Dégradé subtil en bas pour transition vers le footer */}
+            <div style={{
+              position: 'absolute', bottom: FOOTER_H, left: 0, right: 0, height: 24,
+              background: 'linear-gradient(to bottom, transparent, rgba(0,0,0,0.06))',
+              pointerEvents: 'none',
+            }} />
+          </div>
+
+          {/* Footer PDF — bandeau rouge */}
+          <div style={{
+            height: FOOTER_H, flexShrink: 0,
+            background: '#1a1a2e',
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '0 12px',
+          }}>
+            {/* Badge PDF rouge */}
+            <div style={{
+              width: 34, height: 34, borderRadius: 8, flexShrink: 0,
+              background: '#dc2626',
+              display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+              boxShadow: '0 2px 6px rgba(220,38,38,0.4)',
+            }}>
+              <span style={{ fontSize: 8, fontWeight: 900, letterSpacing: '0.08em', color: '#fff', lineHeight: 1 }}>PDF</span>
+            </div>
+
+            {/* Titre + métadonnées */}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 600, color: '#f1f5f9',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              }}>
+                {resourceTitle || (fileName ? stripExtension(fileName) : 'Document')}
+              </div>
+              <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 1 }}>
+                {[pageCount ? `${pageCount} pages` : null, 'PDF', fileSize ? formatSize(fileSize) : null].filter(Boolean).join(' · ')}
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // PDF sans thumbnail OU autre fichier → placeholder card style (icône seule)
     const ext = (fileName?.split('.').pop() || 'FILE').toUpperCase().slice(0, 4);
     return (
       <div style={{

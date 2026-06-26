@@ -20,6 +20,8 @@ interface Resource {
   file_size: number | null;
   video_url: string | null;
   video_duration: number | null;
+  thumbnail_url: string | null;
+  page_count: number | null;
   markdown_content: string | null;
   is_new: boolean;
   position: number;
@@ -211,6 +213,9 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
         url={resource.url}
         height={140}
         videoDuration={resource.video_duration}
+        thumbnailUrl={resource.thumbnail_url}
+        pageCount={resource.page_count}
+        resourceTitle={resource.title}
       />
 
       {/* Infos */}
