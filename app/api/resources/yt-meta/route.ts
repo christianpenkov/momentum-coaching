@@ -10,7 +10,7 @@ export async function GET(req: Request) {
 
   const [oembedRes, pageRes] = await Promise.all([
     fetch(`https://www.youtube.com/oembed?format=json&url=${encodeURIComponent(url)}`),
-    fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; bot)' } }),
+    fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36' } }),
   ]);
 
   const title = oembedRes.ok ? ((await oembedRes.json()).title ?? null) : null;
