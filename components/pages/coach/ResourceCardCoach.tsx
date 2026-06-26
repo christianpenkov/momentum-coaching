@@ -40,8 +40,9 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
   return (
     <motion.div
       className="card"
-      whileHover={{ y: -2, boxShadow: 'var(--shadow-elev)' }}
-      transition={{ duration: 0.15 }}
+      whileHover={{ y: -3, scale: 1.01, boxShadow: 'var(--shadow-elev)' }}
+      whileTap={{ scale: 0.985 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       style={{ padding: 0, overflow: 'hidden', cursor: 'default' }}
     >
       {/* Miniature — cliquable pour ouvrir l'aperçu */}
@@ -51,6 +52,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           videoUrl={resource.video_url}
           fileUrl={resource.file_url}
           fileName={resource.file_name}
+          fileSize={resource.file_size}
           url={resource.url}
           height={148}
         />

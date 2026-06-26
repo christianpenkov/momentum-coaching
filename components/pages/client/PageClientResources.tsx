@@ -47,8 +47,23 @@ function ResourcePreviewModal({ resource, onClose }: { resource: ResourceWithSee
   const embedUrl = resource.video_url ? getEmbedUrl(resource.video_url) : null;
   const isImg = isImageFile(resource.file_name);
 
+  const modalWidth = type === 'video' ? 900 : 720;
+
+  async function forceDownload(url: string, fileName: string) {
+    const res = await fetch(url);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = objectUrl;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(objectUrl);
+  }
+
   return (
-    <ModalShell onClose={onClose} width={680}>
+    <ModalShell onClose={onClose} width={modalWidth}>
       <div style={{
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
         padding: '20px 24px 18px', borderBottom: '1px solid var(--border)', flexShrink: 0,
@@ -81,6 +96,7 @@ function ResourcePreviewModal({ resource, onClose }: { resource: ResourceWithSee
       </div>
 
       <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+        {/* Vidéo */}
         {type === 'video' && (
           embedUrl ? (
             <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, borderRadius: 10, overflow: 'hidden', background: '#000' }}>
@@ -98,18 +114,25 @@ function ResourcePreviewModal({ resource, onClose }: { resource: ResourceWithSee
           )
         )}
 
+        {/* Fichier */}
         {type === 'file' && resource.file_url && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {isImg ? (
-              <img src={resource.file_url} alt={resource.file_name || ''} style={{ maxWidth: '100%', borderRadius: 10, border: '1px solid var(--border)' }} />
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)', padding: 12 }}>
+                <img
+                  src={resource.file_url}
+                  alt={resource.file_name || ''}
+                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 6, display: 'block' }}
+                />
+              </div>
             ) : (
               <iframe
                 src={resource.file_url}
-                style={{ width: '100%', height: 420, border: '1px solid var(--border)', borderRadius: 10 }}
+                style={{ width: '100%', height: 460, border: '1px solid var(--border)', borderRadius: 10 }}
                 title={resource.file_name || 'Fichier'}
               />
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{resource.file_name}</div>
                 {resource.file_size && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{formatSize(resource.file_size)}</div>}
@@ -118,16 +141,24 @@ function ResourcePreviewModal({ resource, onClose }: { resource: ResourceWithSee
                 href={resource.file_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                download={resource.file_name || true}
-                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 16px', borderRadius: 8, background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600, textDecoration: 'none' }}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface-2)', fontSize: 13, fontWeight: 500, color: 'var(--accent)', textDecoration: 'none' }}
+              >
+                <Icon name="external" size={13} />
+                Ouvrir
+              </a>
+              <button
+                type="button"
+                onClick={() => forceDownload(resource.file_url!, resource.file_name || 'fichier')}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, background: 'var(--accent)', color: '#fff', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer' }}
               >
                 <Icon name="download" size={13} style={{ color: '#fff' }} />
                 Télécharger
-              </a>
+              </button>
             </div>
           </div>
         )}
 
+        {/* Lien */}
         {type === 'link' && resource.url && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '32px 0' }}>
             <div style={{ width: 64, height: 64, borderRadius: 18, background: meta.bg, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -163,7 +194,9 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
         transition: 'border-color 300ms, box-shadow 150ms',
         cursor: 'pointer',
       }}
-      whileHover={{ y: -2, boxShadow: 'var(--shadow-elev)' }}
+      whileHover={{ y: -3, scale: 1.01, boxShadow: 'var(--shadow-elev)' }}
+      whileTap={{ scale: 0.98 }}
+      transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       onClick={() => onOpen(resource)}
     >
       {/* Miniature */}
@@ -172,6 +205,7 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
         videoUrl={resource.video_url}
         fileUrl={resource.file_url}
         fileName={resource.file_name}
+        fileSize={resource.file_size}
         url={resource.url}
         height={140}
       />
@@ -186,8 +220,9 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
             {isNew && (
               <motion.span
                 initial={{ scale: 0.7, opacity: 0 }}
-                animate={{ scale: 1, opacity: 1 }}
+                animate={{ scale: [1, 1.08, 1], opacity: 1 }}
                 exit={{ scale: 0.7, opacity: 0 }}
+                transition={{ scale: { repeat: Infinity, duration: 2.4, ease: 'easeInOut', delay: 0.3 } }}
                 style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
                   padding: '2px 6px', borderRadius: 20,

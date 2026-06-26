@@ -1,9 +1,8 @@
 'use client';
 
-import { AnimatePresence } from 'framer-motion';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
-import { getEmbedUrl, formatSize, TYPE_META } from '@/lib/resourceHelpers';
+import { getEmbedUrl, formatSize, TYPE_META, isImageFile } from '@/lib/resourceHelpers';
 import type { Resource } from './ResourceModal';
 
 interface Props {
@@ -12,17 +11,28 @@ interface Props {
   onEdit: (r: Resource) => void;
 }
 
+async function forceDownload(url: string, fileName: string) {
+  const res = await fetch(url);
+  const blob = await res.blob();
+  const objectUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objectUrl;
+  a.download = fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objectUrl);
+}
+
 export default function ResourcePreviewModal({ resource, onClose, onEdit }: Props) {
   const type = (resource.type || 'link') as keyof typeof TYPE_META;
   const meta = TYPE_META[type] || TYPE_META.link;
   const embedUrl = resource.video_url ? getEmbedUrl(resource.video_url) : null;
-
-  const isImage = resource.file_name
-    ? /\.(png|jpe?g|gif|webp|svg)$/i.test(resource.file_name)
-    : false;
+  const isImage = isImageFile(resource.file_name);
+  const modalWidth = type === 'video' ? 900 : 720;
 
   return (
-    <ModalShell onClose={onClose} width={680}>
+    <ModalShell onClose={onClose} width={modalWidth}>
       {/* Header */}
       <div style={{
         display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between',
@@ -75,6 +85,8 @@ export default function ResourcePreviewModal({ resource, onClose, onEdit }: Prop
 
       {/* Body */}
       <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+
+        {/* Vidéo */}
         {type === 'video' && (
           embedUrl ? (
             <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, borderRadius: 10, overflow: 'hidden', background: '#000' }}>
@@ -92,47 +104,69 @@ export default function ResourcePreviewModal({ resource, onClose, onEdit }: Prop
           )
         )}
 
+        {/* Fichier */}
         {type === 'file' && resource.file_url && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {isImage ? (
-              <img
-                src={resource.file_url}
-                alt={resource.file_name || ''}
-                style={{ maxWidth: '100%', borderRadius: 10, border: '1px solid var(--border)' }}
-              />
+              /* Image — contain, max-height 70vh, centrée */
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)', padding: 12 }}>
+                <img
+                  src={resource.file_url}
+                  alt={resource.file_name || ''}
+                  style={{ maxWidth: '100%', maxHeight: '70vh', objectFit: 'contain', borderRadius: 6, display: 'block' }}
+                />
+              </div>
             ) : (
+              /* PDF / autre — iframe aperçu */
               <iframe
                 src={resource.file_url}
-                style={{ width: '100%', height: 420, border: '1px solid var(--border)', borderRadius: 10 }}
+                style={{ width: '100%', height: 460, border: '1px solid var(--border)', borderRadius: 10 }}
                 title={resource.file_name || 'Fichier'}
               />
             )}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+
+            {/* Barre de téléchargement */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{resource.file_name}</div>
                 {resource.file_size && (
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{formatSize(resource.file_size)}</div>
                 )}
               </div>
+              {/* Ouvrir dans un onglet */}
               <a
                 href={resource.file_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                download={resource.file_name || true}
                 style={{
                   display: 'inline-flex', alignItems: 'center', gap: 6,
-                  padding: '8px 16px', borderRadius: 8,
+                  padding: '8px 14px', borderRadius: 8,
+                  border: '1px solid var(--border)', background: 'var(--surface-2)',
+                  fontSize: 13, fontWeight: 500, color: 'var(--accent)', textDecoration: 'none',
+                }}
+              >
+                <Icon name="external" size={13} />
+                Ouvrir
+              </a>
+              {/* Télécharger — force le download */}
+              <button
+                type="button"
+                onClick={() => forceDownload(resource.file_url!, resource.file_name || 'fichier')}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 6,
+                  padding: '8px 14px', borderRadius: 8,
                   background: 'var(--accent)', color: '#fff',
-                  fontSize: 13, fontWeight: 600, textDecoration: 'none',
+                  fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
                 }}
               >
                 <Icon name="download" size={13} style={{ color: '#fff' }} />
                 Télécharger
-              </a>
+              </button>
             </div>
           </div>
         )}
 
+        {/* Lien */}
         {type === 'link' && resource.url && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 20, padding: '32px 0' }}>
             <div style={{
@@ -142,10 +176,8 @@ export default function ResourcePreviewModal({ resource, onClose, onEdit }: Prop
             }}>
               <Icon name="link" size={28} style={{ color: meta.color }} />
             </div>
-            <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 4, wordBreak: 'break-all' }}>
-                {resource.url}
-              </div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', wordBreak: 'break-all', textAlign: 'center' }}>
+              {resource.url}
             </div>
             <a
               href={resource.url}
