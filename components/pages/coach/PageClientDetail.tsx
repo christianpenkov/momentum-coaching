@@ -61,7 +61,7 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
   if (loading) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Chargement des ressources…</div>;
   if (resources.length === 0) return (
     <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>
-      Aucune ressource créée. Crée des ressources depuis la page <Link href="/resources" style={{ color: 'var(--accent)' }}>Ressources</Link>.
+      Aucune ressource créée. Crée des ressources depuis la page <Link href="/ressources" style={{ color: 'var(--accent)' }}>Ressources</Link>.
     </div>
   );
 
@@ -374,7 +374,7 @@ export default function PageClientDetail({ id }: Props) {
               <div className="card-title">Ressources</div>
               <div className="card-sub">Gérer les accès de cet élève</div>
             </div>
-            <Link href="/resources" className="btn-ghost" style={{ fontSize: 12 }}>
+            <Link href="/ressources" className="btn-ghost" style={{ fontSize: 12 }}>
               <Icon name="folder" size={13} /> Toutes les ressources
             </Link>
           </div>

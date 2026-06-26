@@ -15,7 +15,7 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/client/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/client/calls', icon: 'phone-call', label: 'Prochain call' },
   { href: '/client/calendar', icon: 'calendar', label: 'Calendrier' },
-  { href: '/client/resources', icon: 'folder', label: 'Ressources' },
+  { href: '/client/ressources', icon: 'folder', label: 'Ressources' },
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [

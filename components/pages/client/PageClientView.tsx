@@ -288,7 +288,7 @@ export default function PageClientView() {
           <div className="card">
             <div className="card-head">
               <div className="card-title">Ressources</div>
-              <Link href="/client/resources" className="btn-ghost" style={{ fontSize: 12 }}>
+              <Link href="/client/ressources" className="btn-ghost" style={{ fontSize: 12 }}>
                 Voir tout <Icon name="chevR" size={12} />
               </Link>
             </div>
