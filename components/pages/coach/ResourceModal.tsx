@@ -22,6 +22,7 @@ export interface Resource {
   section_id: string | null;
   position: number;
   is_new: boolean;
+  is_default: boolean;
 }
 
 interface Props {
@@ -54,6 +55,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
   const [fileName, setFileName] = useState(resource?.file_name || '');
   const [fileSize, setFileSize] = useState<number | null>(resource?.file_size || null);
   const [videoDuration, setVideoDuration] = useState<number | null>(resource?.video_duration ?? null);
+  const [isDefault, setIsDefault] = useState(resource?.is_default ?? false);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fetchingTitle, setFetchingTitle] = useState(false);
@@ -116,6 +118,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
       file_url: type === 'file' ? fileUrl || null : null,
       file_name: type === 'file' ? fileName || null : null,
       file_size: type === 'file' ? fileSize : null,
+      is_default: isDefault,
     };
 
     let result: Resource | null = null;
@@ -394,6 +397,41 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                   )}
                 </div>
               )}
+
+              {/* Toggle par défaut */}
+              <button
+                type="button"
+                onClick={() => setIsDefault(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '12px 14px', borderRadius: 10,
+                  background: isDefault ? 'rgba(5,150,105,0.07)' : 'var(--surface-2)',
+                  border: `1px solid ${isDefault ? 'rgba(5,150,105,0.25)' : 'var(--border)'}`,
+                  cursor: 'pointer', textAlign: 'left', width: '100%',
+                  transition: 'background 150ms, border-color 150ms',
+                }}
+              >
+                <div style={{
+                  width: 32, height: 18, borderRadius: 9, flexShrink: 0,
+                  background: isDefault ? 'var(--green)' : 'var(--border)',
+                  position: 'relative', transition: 'background 200ms',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 2, left: isDefault ? 16 : 2,
+                    width: 14, height: 14, borderRadius: '50%', background: '#fff',
+                    boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                    transition: 'left 200ms',
+                  }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: isDefault ? 'var(--green)' : 'var(--accent)' }}>
+                    Ressource par défaut
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
+                    Donnée automatiquement à tous les nouveaux élèves
+                  </div>
+                </div>
+              </button>
 
               {/* Champ Fichier */}
               {type === 'file' && (

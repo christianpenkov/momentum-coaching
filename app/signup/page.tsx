@@ -67,10 +67,20 @@ function SignupContent() {
       });
 
       if (token) {
-        await supabase.from('clients')
+        const { data: clientRow } = await supabase.from('clients')
           .update({ profile_id: data.user.id })
           .eq('invite_token', token)
-          .is('profile_id', null);
+          .is('profile_id', null)
+          .select('coach_id')
+          .single();
+
+        if (clientRow?.coach_id) {
+          await fetch('/api/client/grant-default-resources', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ coach_id: clientRow.coach_id }),
+          });
+        }
       }
 
       if (!data.session) {

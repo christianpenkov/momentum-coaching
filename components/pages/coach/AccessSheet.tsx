@@ -52,6 +52,20 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
     setDraft(prev => ({ ...prev, [clientProfileId]: !(prev[clientProfileId] ?? false) }));
   }
 
+  function selectAll() {
+    const next: Record<string, boolean> = {};
+    for (const c of validClients) if (c.profile_id) next[c.profile_id] = true;
+    setDraft(next);
+  }
+
+  function deselectAll() {
+    const next: Record<string, boolean> = {};
+    for (const c of validClients) if (c.profile_id) next[c.profile_id] = false;
+    setDraft(next);
+  }
+
+  const allSelected = validClients.length > 0 && validClients.every(c => draft[c.profile_id!] ?? false);
+
   function handleRequestSave() {
     const changed = validClients.filter(c => {
       const id = c.profile_id!;
@@ -147,8 +161,26 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
                 </div>
               ) : (
                 <>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-                    Clique sur un élève pour modifier son accès, puis valide.
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
+                    <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      Clique sur un élève pour modifier son accès, puis valide.
+                    </div>
+                    <button
+                      type="button"
+                      onClick={allSelected ? deselectAll : selectAll}
+                      style={{
+                        fontSize: 11, fontWeight: 600,
+                        color: allSelected ? 'var(--red)' : 'var(--accent)',
+                        background: allSelected ? 'rgba(205,91,63,0.08)' : 'rgba(var(--accent-rgb, 99,102,241),0.08)',
+                        border: `1px solid ${allSelected ? 'rgba(205,91,63,0.25)' : 'var(--border)'}`,
+                        borderRadius: 6, padding: '4px 10px',
+                        cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
+                        flexShrink: 0, whiteSpace: 'nowrap',
+                      }}
+                    >
+                      <Icon name={allSelected ? 'x' : 'users'} size={11} />
+                      {allSelected ? 'Tout désélectionner' : 'Tout le monde'}
+                    </button>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
                     {validClients.map((client, idx) => {
