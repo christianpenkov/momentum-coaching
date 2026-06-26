@@ -19,6 +19,7 @@ interface Resource {
   file_name: string | null;
   file_size: number | null;
   video_url: string | null;
+  video_duration: number | null;
   markdown_content: string | null;
   is_new: boolean;
   position: number;
@@ -193,6 +194,7 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
         border: isNew ? '1.5px solid var(--green)' : '1px solid var(--border)',
         transition: 'border-color 300ms, box-shadow 150ms',
         cursor: 'pointer',
+        display: 'flex', flexDirection: 'column', height: '100%',
       }}
       whileHover={{ y: -3, scale: 1.01, boxShadow: 'var(--shadow-elev)' }}
       whileTap={{ scale: 0.98 }}
@@ -208,6 +210,7 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
         fileSize={resource.file_size}
         url={resource.url}
         height={140}
+        videoDuration={resource.video_duration}
       />
 
       {/* Infos */}
@@ -236,13 +239,12 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
         </div>
 
         {resource.description && (
-          <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{
+            fontSize: 12, color: 'var(--muted)', lineHeight: 1.4,
+            display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+            overflow: 'hidden',
+          } as React.CSSProperties}>
             {resource.description}
-          </div>
-        )}
-        {resource.type === 'file' && resource.file_name && (
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-            {resource.file_name} · {formatSize(resource.file_size)}
           </div>
         )}
       </div>

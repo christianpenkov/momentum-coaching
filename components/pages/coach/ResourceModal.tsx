@@ -17,6 +17,7 @@ export interface Resource {
   file_name: string | null;
   file_size: number | null;
   video_url: string | null;
+  video_duration: number | null;
   markdown_content: string | null;
   section_id: string | null;
   position: number;
@@ -52,6 +53,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
   const [fileUrl, setFileUrl] = useState(resource?.file_url || '');
   const [fileName, setFileName] = useState(resource?.file_name || '');
   const [fileSize, setFileSize] = useState<number | null>(resource?.file_size || null);
+  const [videoDuration, setVideoDuration] = useState<number | null>(resource?.video_duration ?? null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fetchingTitle, setFetchingTitle] = useState(false);
@@ -64,14 +66,14 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
   }, [step]);
 
   async function handleYtTitleFetch(url: string) {
-    if (title.trim()) return;
     const isYt = /^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v(?:i)?=|&v(?:i)?=))([^#&?\s]{11})/.test(url);
     if (!isYt) return;
     setFetchingTitle(true);
     try {
-      const res = await fetch(`/api/resources/yt-title?url=${encodeURIComponent(url)}`);
+      const res = await fetch(`/api/resources/yt-meta?url=${encodeURIComponent(url)}`);
       const data = await res.json();
       if (data.title && !title.trim()) setTitle(data.title);
+      if (data.duration) setVideoDuration(data.duration);
     } catch { /* silencieux */ }
     setFetchingTitle(false);
   }
@@ -103,6 +105,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
       type,
       url: type === 'link' ? url.trim() || null : null,
       video_url: type === 'video' ? videoUrl.trim() || null : null,
+      video_duration: type === 'video' ? videoDuration : null,
       markdown_content: null,
       file_url: type === 'file' ? fileUrl || null : null,
       file_name: type === 'file' ? fileName || null : null,

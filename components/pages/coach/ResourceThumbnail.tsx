@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon, { type IconName } from '@/components/ui/Icon';
-import { isImageFile, stripExtension, TYPE_META, type ResourceType } from '@/lib/resourceHelpers';
+import { isImageFile, stripExtension, formatDuration, TYPE_META, type ResourceType } from '@/lib/resourceHelpers';
 
 interface ResourceThumbnailProps {
   type: string | null;
@@ -15,6 +15,7 @@ interface ResourceThumbnailProps {
   height?: number;
   showFileName?: boolean;
   resourceTitle?: string | null;
+  videoDuration?: number | null;
 }
 
 function getDomain(url: string): string | null {
@@ -29,11 +30,11 @@ function getYtId(url: string): string | null {
 
 
 // Proxy same-domain → zéro CORS/CSP
-function YtThumbnail({ id, meta }: { id: string; meta: typeof TYPE_META.video }) {
+function YtThumbnail({ id }: { id: string }) {
   const [failed, setFailed] = useState(false);
 
   if (failed) {
-    return <div style={{ width: '100%', height: '100%', background: meta.bg }} />;
+    return <div style={{ width: '100%', height: '100%', background: '#111' }} />;
   }
 
   return (
@@ -41,7 +42,7 @@ function YtThumbnail({ id, meta }: { id: string; meta: typeof TYPE_META.video })
       src={`/api/resources/yt-thumb?id=${id}`}
       alt=""
       onError={() => setFailed(true)}
-      style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
+      style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
     />
   );
 }
@@ -56,6 +57,7 @@ export default function ResourceThumbnail({
   height = 160,
   showFileName = false,
   resourceTitle,
+  videoDuration,
 }: ResourceThumbnailProps) {
   const [imgError, setImgError] = useState(false);
   const [faviconError, setFaviconError] = useState(false);
@@ -77,32 +79,45 @@ export default function ResourceThumbnail({
   if (rtype === 'video' && videoUrl) {
     const ytId = getYtId(videoUrl);
     return (
-      <div style={containerStyle} className="resource-thumb-video">
+      <div style={{ ...containerStyle, background: '#000' }} className="resource-thumb-video">
         {ytId ? (
-          <YtThumbnail id={ytId} meta={meta} />
+          <YtThumbnail id={ytId} />
         ) : (
-          <div style={{ width: '100%', height: '100%', background: meta.bg }} />
+          <div style={{ width: '100%', height: '100%', background: '#111' }} />
         )}
-        {/* Overlay sombre + bouton play */}
+        {/* Overlay + bouton play SVG */}
         <div style={{
           position: 'absolute', inset: 0,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(0,0,0,0.28)',
+          background: 'rgba(0,0,0,0.22)',
         }}>
           <motion.div
-            className="play-btn"
-            whileHover={{ scale: 1.12 }}
-            transition={{ type: 'spring', stiffness: 400, damping: 20 }}
+            whileHover={{ scale: 1.1 }}
+            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
             style={{
-              width: 46, height: 46, borderRadius: '50%',
-              background: 'rgba(255,255,255,0.93)',
+              width: 52, height: 52, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.95)',
+              backdropFilter: 'blur(4px)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.28)',
+              boxShadow: '0 4px 20px rgba(0,0,0,0.4)',
             }}
           >
-            <Icon name="play" size={18} style={{ color: meta.color, marginLeft: 3 }} />
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <polygon points="7,3 17,10 7,17" fill={meta.color} />
+            </svg>
           </motion.div>
         </div>
+        {/* Badge durée */}
+        {videoDuration && (
+          <div style={{
+            position: 'absolute', bottom: 8, right: 8,
+            background: 'rgba(0,0,0,0.80)', color: '#fff',
+            fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4,
+            letterSpacing: '0.02em', lineHeight: 1.4,
+          }}>
+            {formatDuration(videoDuration)}
+          </div>
+        )}
       </div>
     );
   }

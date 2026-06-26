@@ -46,6 +46,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           height={148}
           showFileName={true}
           resourceTitle={resource.title}
+          videoDuration={resource.video_duration}
         />
       </div>
 
