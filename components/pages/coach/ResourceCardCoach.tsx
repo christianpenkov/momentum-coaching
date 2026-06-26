@@ -53,7 +53,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
       {/* Titre + description + boutons actions */}
       <div
         onClick={() => onOpen(resource)}
-        style={{ padding: '12px 16px 10px', cursor: 'pointer', minHeight: 60 }}
+        style={{ padding: '12px 16px 10px', cursor: 'pointer', minHeight: 60, overflow: 'hidden' }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
