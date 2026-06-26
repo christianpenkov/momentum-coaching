@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: 'Content-Security-Policy',
-            value: "img-src 'self' data: blob: https://img.youtube.com https://www.google.com https://*.supabase.co;",
+            value: "img-src 'self' data: blob: https://img.youtube.com https://www.google.com https://*.supabase.co https://*.cdninstagram.com https://*.fbcdn.net https://scontent.cdninstagram.com;",
           },
         ],
       },
