@@ -102,7 +102,7 @@ export default function PageResources() {
         next[idx] = saved;
         return next;
       }
-      return [...prev, saved];
+      return [saved, ...prev];
     });
     closeModal();
   }
