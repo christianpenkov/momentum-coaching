@@ -59,10 +59,9 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{
               fontSize: 13, fontWeight: 600, color: 'var(--accent)',
-              display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
-              overflow: 'hidden',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               marginBottom: resource.description ? 3 : 0,
-            } as React.CSSProperties}>
+            }}>
               {resource.title}
             </div>
 
