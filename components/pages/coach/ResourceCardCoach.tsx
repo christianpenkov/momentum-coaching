@@ -75,11 +75,28 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8, width: '100%', overflow: 'hidden' }}>
           <div style={{ flex: 1, width: 0, minWidth: 0 }}>
             <div style={{
-              fontSize: 13, fontWeight: 600, color: 'var(--accent)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+              display: 'flex', alignItems: 'center', gap: 6,
               marginBottom: resource.description ? 3 : 0,
+              overflow: 'hidden',
             }}>
-              {resource.title}
+              <span style={{
+                fontSize: 13, fontWeight: 600, color: 'var(--accent)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                flex: 1, minWidth: 0,
+              }}>
+                {resource.title}
+              </span>
+              {resource.page_count && resource.type === 'file' && (
+                <span style={{
+                  fontSize: 9, fontWeight: 700, letterSpacing: '0.04em', flexShrink: 0,
+                  padding: '2px 5px', borderRadius: 4,
+                  background: 'var(--surface-2)', color: 'var(--muted)',
+                  border: '1px solid var(--border)',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {resource.page_count} p.
+                </span>
+              )}
             </div>
 
             {resource.description && (

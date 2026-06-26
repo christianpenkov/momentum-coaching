@@ -175,16 +175,7 @@ export default function ResourceThumbnail({
             style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top', display: 'block' }}
           />
           {/* Badge PDF haut droite */}
-          <div style={{ position: 'absolute', top: 10, right: 10, display: 'flex', alignItems: 'center', gap: 5 }}>
-            {pageCount && (
-              <span style={{
-                fontSize: 9, fontWeight: 700, letterSpacing: '0.04em',
-                padding: '2px 6px', borderRadius: 5,
-                background: 'rgba(0,0,0,0.55)', color: '#fff',
-              }}>
-                {pageCount} p.
-              </span>
-            )}
+          <div style={{ position: 'absolute', top: 10, right: 10 }}>
             <span style={{
               fontSize: 9, fontWeight: 800, letterSpacing: '0.07em',
               padding: '3px 7px', borderRadius: 6,
