@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
 import type { Resource } from './ResourceModal';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
@@ -23,19 +22,9 @@ const AVATAR_COLORS = [
 function avatarColor(idx: number) { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
 
 export default function ResourceCardCoach({ resource, accessClients, onEdit, onDelete, onManageAccess, onOpen }: Props) {
-  const [menuOpen, setMenuOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
   const MAX_AVATARS = 4;
   const shownClients = accessClients.slice(0, MAX_AVATARS);
   const extraCount = accessClients.length - shownClients.length;
-
-  useEffect(() => {
-    function onClick(e: MouseEvent) {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false);
-    }
-    if (menuOpen) document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [menuOpen]);
 
   return (
     <motion.div
@@ -45,7 +34,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       style={{ padding: 0, overflow: 'visible', cursor: 'default' }}
     >
-      {/* Miniature — cliquable pour ouvrir l'aperçu, overflow:hidden ici seulement */}
+      {/* Miniature — overflow:hidden ici seulement */}
       <div onClick={() => onOpen(resource)} style={{ cursor: 'pointer', overflow: 'hidden', borderRadius: '10px 10px 0 0' }}>
         <ResourceThumbnail
           type={resource.type}
@@ -55,17 +44,17 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           fileSize={resource.file_size}
           url={resource.url}
           height={148}
+          showFileName={true}
         />
       </div>
 
-      {/* Top — info titre/description + menu */}
+      {/* Titre + description + boutons actions */}
       <div
         onClick={() => onOpen(resource)}
-        style={{ padding: '12px 16px 10px', cursor: 'pointer' }}
+        style={{ padding: '12px 16px 10px', cursor: 'pointer', minHeight: 64 }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Titre */}
             <div style={{
               fontSize: 13, fontWeight: 600, color: 'var(--accent)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
@@ -74,7 +63,6 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
               {resource.title}
             </div>
 
-            {/* Description */}
             {resource.description && (
               <div style={{
                 fontSize: 12, color: 'var(--muted)', lineHeight: 1.4,
@@ -86,70 +74,26 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
             )}
           </div>
 
-          {/* Menu ⋯ — stopPropagation pour ne pas déclencher onOpen */}
-          <div ref={menuRef} style={{ position: 'relative', flexShrink: 0 }} onClick={e => e.stopPropagation()}>
+          {/* Boutons edit + delete inline */}
+          <div style={{ display: 'flex', gap: 2, flexShrink: 0 }} onClick={e => e.stopPropagation()}>
             <button
               type="button"
-              onClick={() => setMenuOpen(o => !o)}
-              style={{
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--accent)', padding: '4px 6px', borderRadius: 6,
-                lineHeight: 0,
-              }}
+              onClick={() => onEdit(resource)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px 5px', borderRadius: 6, lineHeight: 0 }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--accent)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
             >
-              <Icon name="ellipsis" size={16} />
+              <Icon name="edit" size={14} />
             </button>
-
-            <AnimatePresence>
-              {menuOpen && (
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -4 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -4 }}
-                  transition={{ duration: 0.1 }}
-                  style={{
-                    position: 'absolute', right: 0, top: 30, zIndex: 100,
-                    background: 'var(--surface)',
-                    border: '1px solid var(--border)',
-                    borderRadius: 10,
-                    boxShadow: '0 8px 24px rgba(0,0,0,0.12)',
-                    minWidth: 140, overflow: 'hidden',
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => { setMenuOpen(false); onEdit(resource); }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      width: '100%', padding: '9px 14px',
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      fontSize: 13, color: 'var(--accent)', textAlign: 'left',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                  >
-                    <Icon name="edit" size={13} style={{ color: 'var(--muted)' }} />
-                    Modifier
-                  </button>
-                  <div style={{ height: 1, background: 'var(--border)', margin: '2px 0' }} />
-                  <button
-                    type="button"
-                    onClick={() => { setMenuOpen(false); onDelete(resource); }}
-                    style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      width: '100%', padding: '9px 14px',
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      fontSize: 13, color: 'var(--red)', textAlign: 'left',
-                    }}
-                    onMouseEnter={e => (e.currentTarget.style.background = 'rgba(205,91,63,0.06)')}
-                    onMouseLeave={e => (e.currentTarget.style.background = 'none')}
-                  >
-                    <Icon name="trash" size={13} style={{ color: 'var(--red)' }} />
-                    Supprimer
-                  </button>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            <button
+              type="button"
+              onClick={() => onDelete(resource)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: '4px 5px', borderRadius: 6, lineHeight: 0 }}
+              onMouseEnter={e => (e.currentTarget.style.color = 'var(--red)')}
+              onMouseLeave={e => (e.currentTarget.style.color = 'var(--muted)')}
+            >
+              <Icon name="trash" size={14} />
+            </button>
           </div>
         </div>
       </div>

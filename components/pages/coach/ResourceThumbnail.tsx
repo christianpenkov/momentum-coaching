@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon, { type IconName } from '@/components/ui/Icon';
-import { isImageFile, TYPE_META, type ResourceType } from '@/lib/resourceHelpers';
+import { isImageFile, stripExtension, TYPE_META, type ResourceType } from '@/lib/resourceHelpers';
 
 interface ResourceThumbnailProps {
   type: string | null;
@@ -13,6 +13,7 @@ interface ResourceThumbnailProps {
   fileSize?: number | null;
   url?: string | null;
   height?: number;
+  showFileName?: boolean;
 }
 
 function getDomain(url: string): string | null {
@@ -25,14 +26,8 @@ function getYtId(url: string): string | null {
 }
 
 
-// Composant image YT avec fallback progressif maxresdefault → hqdefault → mqdefault
+// Proxy same-domain → zéro CORS/CSP
 function YtThumbnail({ id, meta }: { id: string; meta: typeof TYPE_META.video }) {
-  const resolutions = [
-    `https://img.youtube.com/vi/${id}/maxresdefault.jpg`,
-    `https://img.youtube.com/vi/${id}/hqdefault.jpg`,
-    `https://img.youtube.com/vi/${id}/mqdefault.jpg`,
-  ];
-  const [idx, setIdx] = useState(0);
   const [failed, setFailed] = useState(false);
 
   if (failed) {
@@ -41,15 +36,9 @@ function YtThumbnail({ id, meta }: { id: string; meta: typeof TYPE_META.video })
 
   return (
     <img
-      key={resolutions[idx]}
-      src={resolutions[idx]}
+      src={`/api/resources/yt-thumb?id=${id}`}
       alt=""
-      referrerPolicy="no-referrer"
-      crossOrigin="anonymous"
-      onError={() => {
-        if (idx < resolutions.length - 1) setIdx(i => i + 1);
-        else setFailed(true);
-      }}
+      onError={() => setFailed(true)}
       style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
     />
   );
@@ -63,6 +52,7 @@ export default function ResourceThumbnail({
   fileSize,
   url,
   height = 160,
+  showFileName = false,
 }: ResourceThumbnailProps) {
   const [imgError, setImgError] = useState(false);
   const [faviconError, setFaviconError] = useState(false);
@@ -156,14 +146,27 @@ export default function ResourceThumbnail({
           </span>
         </div>
         {/* Icône centrée */}
-        <div style={{
-          width: 56, height: 56, borderRadius: 14,
-          background: 'rgba(255,255,255,0.7)',
-          border: `1.5px solid rgba(181,128,37,0.2)`,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: '0 2px 10px rgba(181,128,37,0.12)',
-        }}>
-          <Icon name="folder" size={28} style={{ color: meta.color }} />
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+          <div style={{
+            width: 56, height: 56, borderRadius: 14,
+            background: 'rgba(255,255,255,0.7)',
+            border: `1.5px solid rgba(181,128,37,0.2)`,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            boxShadow: '0 2px 10px rgba(181,128,37,0.12)',
+          }}>
+            <Icon name="folder" size={28} style={{ color: meta.color }} />
+          </div>
+          {showFileName && fileName && (
+            <div style={{
+              fontSize: 10, color: meta.color, fontWeight: 600, marginTop: 6,
+              textAlign: 'center', padding: '0 10px',
+              overflow: 'hidden', display: '-webkit-box',
+              WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
+              lineHeight: 1.3, maxWidth: 120,
+            } as React.CSSProperties}>
+              {stripExtension(fileName)}
+            </div>
+          )}
         </div>
       </div>
     );
