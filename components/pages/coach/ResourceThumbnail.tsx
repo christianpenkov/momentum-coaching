@@ -24,11 +24,6 @@ function getYtId(url: string): string | null {
   return m ? m[1] : null;
 }
 
-function formatSizeShort(bytes: number | null | undefined): string {
-  if (!bytes) return '';
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
-}
 
 // Composant image YT avec fallback progressif maxresdefault → hqdefault → mqdefault
 function YtThumbnail({ id, meta }: { id: string; meta: typeof TYPE_META.video }) {
@@ -141,16 +136,14 @@ export default function ResourceThumbnail({
       );
     }
 
-    // PDF / autre → placeholder card style
+    // PDF / autre → placeholder card style (icône seule)
     const ext = (fileName?.split('.').pop() || 'FILE').toUpperCase().slice(0, 4);
-    const sizeStr = formatSizeShort(fileSize);
     return (
       <div style={{
         ...containerStyle,
         background: 'rgba(181,128,37,0.06)',
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center', gap: 10,
-        padding: '0 16px',
+        display: 'flex',
+        alignItems: 'center', justifyContent: 'center',
       }}>
         {/* Badge ext */}
         <div style={{ position: 'absolute', top: 12, right: 12 }}>
@@ -162,31 +155,16 @@ export default function ResourceThumbnail({
             {ext}
           </span>
         </div>
-        {/* Icône */}
+        {/* Icône centrée */}
         <div style={{
-          width: 52, height: 52, borderRadius: 14,
+          width: 56, height: 56, borderRadius: 14,
           background: 'rgba(255,255,255,0.7)',
           border: `1.5px solid rgba(181,128,37,0.2)`,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           boxShadow: '0 2px 10px rgba(181,128,37,0.12)',
         }}>
-          <Icon name="folder" size={26} style={{ color: meta.color }} />
+          <Icon name="folder" size={28} style={{ color: meta.color }} />
         </div>
-        {/* Nom + taille */}
-        {fileName && (
-          <div style={{ textAlign: 'center', maxWidth: '100%' }}>
-            <div style={{
-              fontSize: 12, fontWeight: 600, color: 'var(--accent)',
-              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-              maxWidth: 180,
-            }}>
-              {fileName}
-            </div>
-            {sizeStr && (
-              <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>{sizeStr}</div>
-            )}
-          </div>
-        )}
       </div>
     );
   }

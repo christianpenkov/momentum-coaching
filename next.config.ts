@@ -4,6 +4,16 @@ const nextConfig: NextConfig = {
   async headers() {
     return [
       {
+        // Autoriser les images YouTube et favicons Google sur toutes les pages
+        source: '/(.*)',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "img-src 'self' data: blob: https://img.youtube.com https://www.google.com https://*.supabase.co;",
+          },
+        ],
+      },
+      {
         // sw.js ne doit JAMAIS être mis en cache — Safari iOS vérifie sinon une fois par 24h
         source: '/sw.js',
         headers: [

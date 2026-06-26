@@ -219,22 +219,38 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                 <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
                   Titre *
                 </label>
-                <input
-                  ref={titleRef}
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                  onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleSave(); }}
-                  placeholder="Nom de la ressource…"
-                  style={{
-                    width: '100%', padding: '10px 14px',
-                    border: '1px solid var(--border)', borderRadius: 9,
-                    background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
-                    outline: 'none', boxSizing: 'border-box',
-                    transition: 'border-color 150ms',
-                  }}
-                  onFocus={e => (e.target.style.borderColor = 'var(--accent)')}
-                  onBlur={e => (e.target.style.borderColor = 'var(--border)')}
-                />
+                <div style={{ position: 'relative' }}>
+                  <input
+                    ref={titleRef}
+                    value={title}
+                    onChange={e => setTitle(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) handleSave(); }}
+                    placeholder="Nom de la ressource…"
+                    style={{
+                      width: '100%', padding: title ? '10px 36px 10px 14px' : '10px 14px',
+                      border: '1px solid var(--border)', borderRadius: 9,
+                      background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+                      outline: 'none', boxSizing: 'border-box',
+                      transition: 'border-color 150ms',
+                    }}
+                    onFocus={e => (e.target.style.borderColor = 'var(--accent)')}
+                    onBlur={e => (e.target.style.borderColor = 'var(--border)')}
+                  />
+                  {title && (
+                    <button
+                      type="button"
+                      onMouseDown={e => { e.preventDefault(); setTitle(''); titleRef.current?.focus(); }}
+                      style={{
+                        position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', cursor: 'pointer',
+                        color: 'var(--muted)', padding: 2, lineHeight: 0,
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      }}
+                    >
+                      <Icon name="x" size={14} />
+                    </button>
+                  )}
+                </div>
               </div>
 
               {/* Description */}

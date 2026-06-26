@@ -43,10 +43,10 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
       whileHover={{ y: -3, scale: 1.01, boxShadow: 'var(--shadow-elev)' }}
       whileTap={{ scale: 0.985 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-      style={{ padding: 0, overflow: 'hidden', cursor: 'default' }}
+      style={{ padding: 0, overflow: 'visible', cursor: 'default' }}
     >
-      {/* Miniature — cliquable pour ouvrir l'aperçu */}
-      <div onClick={() => onOpen(resource)} style={{ cursor: 'pointer' }}>
+      {/* Miniature — cliquable pour ouvrir l'aperçu, overflow:hidden ici seulement */}
+      <div onClick={() => onOpen(resource)} style={{ cursor: 'pointer', overflow: 'hidden', borderRadius: '10px 10px 0 0' }}>
         <ResourceThumbnail
           type={resource.type}
           videoUrl={resource.video_url}
@@ -93,7 +93,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
               onClick={() => setMenuOpen(o => !o)}
               style={{
                 background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--muted)', padding: '4px 6px', borderRadius: 6,
+                color: 'var(--accent)', padding: '4px 6px', borderRadius: 6,
                 lineHeight: 0,
               }}
             >
@@ -173,7 +173,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           }}
         >
           {accessClients.length === 0 ? (
-            <span style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span style={{ fontSize: 11, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}>
               <Icon name="lock" size={11} />
               Aucun accès
             </span>
@@ -210,7 +210,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
                   </div>
                 )}
               </div>
-              <span style={{ fontSize: 11, color: 'var(--muted)' }}>
+              <span style={{ fontSize: 11, color: 'var(--accent)' }}>
                 {accessClients.length} élève{accessClients.length !== 1 ? 's' : ''}
               </span>
             </>
@@ -222,13 +222,13 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           type="button"
           onClick={() => onManageAccess(resource)}
           style={{
-            fontSize: 11, color: 'var(--muted)',
+            fontSize: 11, color: 'var(--accent)',
             background: 'none', border: '1px solid var(--border)',
             borderRadius: 6, padding: '4px 9px',
             cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 4,
           }}
-          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent)'; }}
-          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--muted)'; }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--accent)'; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; }}
         >
           <Icon name="users" size={11} />
           Gérer l'accès

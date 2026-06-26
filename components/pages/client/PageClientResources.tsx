@@ -220,9 +220,8 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
             {isNew && (
               <motion.span
                 initial={{ scale: 0.7, opacity: 0 }}
-                animate={{ scale: [1, 1.08, 1], opacity: 1 }}
+                animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.7, opacity: 0 }}
-                transition={{ scale: { repeat: Infinity, duration: 2.4, ease: 'easeInOut', delay: 0.3 } }}
                 style={{
                   fontSize: 9, fontWeight: 700, letterSpacing: '0.06em',
                   padding: '2px 6px', borderRadius: 20,
