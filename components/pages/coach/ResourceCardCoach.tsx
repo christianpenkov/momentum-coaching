@@ -32,7 +32,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
       whileHover={{ y: -3, scale: 1.01, boxShadow: 'var(--shadow-elev)' }}
       whileTap={{ scale: 0.985 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
-      style={{ padding: 0, overflow: 'visible', cursor: 'default' }}
+      style={{ padding: 0, overflow: 'visible', cursor: 'default', display: 'flex', flexDirection: 'column', height: '100%' }}
     >
       {/* Miniature — overflow:hidden ici seulement */}
       <div onClick={() => onOpen(resource)} style={{ cursor: 'pointer', overflow: 'hidden', borderRadius: '10px 10px 0 0' }}>
@@ -45,13 +45,14 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           url={resource.url}
           height={148}
           showFileName={true}
+          resourceTitle={resource.title}
         />
       </div>
 
       {/* Titre + description + boutons actions */}
       <div
         onClick={() => onOpen(resource)}
-        style={{ padding: '12px 16px 10px', cursor: 'pointer', minHeight: 64 }}
+        style={{ padding: '12px 16px 10px', cursor: 'pointer' }}
       >
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -105,6 +106,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           display: 'flex', alignItems: 'center', justifyContent: 'space-between',
           padding: '10px 16px 12px',
           borderTop: '1px solid var(--border)',
+          marginTop: 'auto',
         }}
       >
         {/* Avatars empilés */}

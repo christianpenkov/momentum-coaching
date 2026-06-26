@@ -4,17 +4,23 @@ export function formatSize(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+function extractYtId(url: string): string | null {
+  if (!url) return null;
+  const m = url.match(/^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v(?:i)?=|&v(?:i)?=))([^#&?\s]*).*/);
+  return (m && m[1].length === 11) ? m[1] : null;
+}
+
 export function getEmbedUrl(url: string): string | null {
-  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
-  if (yt) return `https://www.youtube.com/embed/${yt[1]}`;
+  const ytId = extractYtId(url);
+  if (ytId) return `https://www.youtube.com/embed/${ytId}`;
   const vimeo = url.match(/vimeo\.com\/(\d+)/);
   if (vimeo) return `https://player.vimeo.com/video/${vimeo[1]}`;
   return null;
 }
 
 export function getVideoThumbnail(url: string): string | null {
-  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
-  if (yt) return `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`;
+  const ytId = extractYtId(url);
+  if (ytId) return `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
   return null;
 }
 

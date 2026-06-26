@@ -14,6 +14,7 @@ interface ResourceThumbnailProps {
   url?: string | null;
   height?: number;
   showFileName?: boolean;
+  resourceTitle?: string | null;
 }
 
 function getDomain(url: string): string | null {
@@ -21,8 +22,9 @@ function getDomain(url: string): string | null {
 }
 
 function getYtId(url: string): string | null {
-  const m = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
-  return m ? m[1] : null;
+  if (!url) return null;
+  const m = url.match(/^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v(?:i)?=|&v(?:i)?=))([^#&?\s]*).*/);
+  return (m && m[1].length === 11) ? m[1] : null;
 }
 
 
@@ -53,6 +55,7 @@ export default function ResourceThumbnail({
   url,
   height = 160,
   showFileName = false,
+  resourceTitle,
 }: ResourceThumbnailProps) {
   const [imgError, setImgError] = useState(false);
   const [faviconError, setFaviconError] = useState(false);
@@ -156,7 +159,7 @@ export default function ResourceThumbnail({
           }}>
             <Icon name="folder" size={28} style={{ color: meta.color }} />
           </div>
-          {showFileName && fileName && (
+          {showFileName && (resourceTitle || fileName) && (
             <div style={{
               fontSize: 10, color: meta.color, fontWeight: 600, marginTop: 6,
               textAlign: 'center', padding: '0 10px',
@@ -164,7 +167,7 @@ export default function ResourceThumbnail({
               WebkitLineClamp: 2, WebkitBoxOrient: 'vertical',
               lineHeight: 1.3, maxWidth: 120,
             } as React.CSSProperties}>
-              {stripExtension(fileName)}
+              {resourceTitle || (fileName ? stripExtension(fileName) : '')}
             </div>
           )}
         </div>

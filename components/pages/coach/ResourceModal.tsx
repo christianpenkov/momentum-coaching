@@ -65,7 +65,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
 
   async function handleYtTitleFetch(url: string) {
     if (title.trim()) return;
-    const isYt = /(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/.test(url);
+    const isYt = /^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v(?:i)?=|&v(?:i)?=))([^#&?\s]{11})/.test(url);
     if (!isYt) return;
     setFetchingTitle(true);
     try {
