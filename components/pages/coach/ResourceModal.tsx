@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
@@ -65,18 +65,24 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
     if (step === 2) setTimeout(() => titleRef.current?.focus(), 100);
   }, [step]);
 
-  async function handleYtTitleFetch(url: string) {
+  const ytFetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleYtUrlChange = useCallback((url: string) => {
+    setVideoUrl(url);
+    if (ytFetchTimerRef.current) clearTimeout(ytFetchTimerRef.current);
     const isYt = /^.*(?:(?:youtu\.be\/|v\/|vi\/|u\/\w\/|embed\/|shorts\/)|(?:(?:watch)?\?v(?:i)?=|&v(?:i)?=))([^#&?\s]{11})/.test(url);
     if (!isYt) return;
-    setFetchingTitle(true);
-    try {
-      const res = await fetch(`/api/resources/yt-meta?url=${encodeURIComponent(url)}`);
-      const data = await res.json();
-      if (data.title && !title.trim()) setTitle(data.title);
-      if (data.duration) setVideoDuration(data.duration);
-    } catch { /* silencieux */ }
-    setFetchingTitle(false);
-  }
+    ytFetchTimerRef.current = setTimeout(async () => {
+      setFetchingTitle(true);
+      try {
+        const res = await fetch(`/api/resources/yt-meta?url=${encodeURIComponent(url)}`);
+        const data = await res.json();
+        if (data.title && !title.trim()) setTitle(data.title);
+        if (data.duration) setVideoDuration(data.duration);
+      } catch { /* silencieux */ }
+      setFetchingTitle(false);
+    }, 600);
+  }, [title]);
 
   async function handleUpload(file: File) {
     setUploading(true);
@@ -317,8 +323,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                   </label>
                   <input
                     value={videoUrl}
-                    onChange={e => setVideoUrl(e.target.value)}
-                    onBlur={e => handleYtTitleFetch(e.target.value)}
+                    onChange={e => handleYtUrlChange(e.target.value)}
                     placeholder="https://youtube.com/watch?v=…"
                     style={{
                       width: '100%', padding: '10px 14px',
