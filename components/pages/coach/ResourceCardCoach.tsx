@@ -2,10 +2,10 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Icon, { type IconName } from '@/components/ui/Icon';
-import { TYPE_META } from '@/lib/resourceHelpers';
+import Icon from '@/components/ui/Icon';
 import type { Resource } from './ResourceModal';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
+import ResourceThumbnail from './ResourceThumbnail';
 
 interface Props {
   resource: Resource;
@@ -25,8 +25,6 @@ function avatarColor(idx: number) { return AVATAR_COLORS[idx % AVATAR_COLORS.len
 export default function ResourceCardCoach({ resource, accessClients, onEdit, onDelete, onManageAccess, onOpen }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
-  const type = (resource.type || 'link') as keyof typeof TYPE_META;
-  const meta = TYPE_META[type] || TYPE_META.link;
   const MAX_AVATARS = 4;
   const shownClients = accessClients.slice(0, MAX_AVATARS);
   const extraCount = accessClients.length - shownClients.length;
@@ -46,33 +44,25 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
       transition={{ duration: 0.15 }}
       style={{ padding: 0, overflow: 'hidden', cursor: 'default' }}
     >
-      {/* Top — cliquable pour ouvrir l'aperçu */}
+      {/* Miniature — cliquable pour ouvrir l'aperçu */}
+      <div onClick={() => onOpen(resource)} style={{ cursor: 'pointer' }}>
+        <ResourceThumbnail
+          type={resource.type}
+          videoUrl={resource.video_url}
+          fileUrl={resource.file_url}
+          fileName={resource.file_name}
+          url={resource.url}
+          height={148}
+        />
+      </div>
+
+      {/* Top — info titre/description + menu */}
       <div
         onClick={() => onOpen(resource)}
-        style={{ padding: '16px 16px 12px', cursor: 'pointer' }}
+        style={{ padding: '12px 16px 10px', cursor: 'pointer' }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
-          {/* Icône type */}
-          <div style={{
-            width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-            background: meta.bg,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
-            <Icon name={meta.icon as IconName} size={18} style={{ color: meta.color }} />
-          </div>
-
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            {/* Type pill */}
-            <div style={{
-              display: 'inline-flex', alignItems: 'center', gap: 4,
-              padding: '2px 7px', borderRadius: 20,
-              background: meta.bg, marginBottom: 5,
-            }}>
-              <span style={{ fontSize: 10, fontWeight: 600, color: meta.color, letterSpacing: '0.04em' }}>
-                {meta.label}
-              </span>
-            </div>
-
             {/* Titre */}
             <div style={{
               fontSize: 13, fontWeight: 600, color: 'var(--accent)',

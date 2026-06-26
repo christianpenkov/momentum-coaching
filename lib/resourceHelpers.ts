@@ -12,6 +12,21 @@ export function getEmbedUrl(url: string): string | null {
   return null;
 }
 
+export function getVideoThumbnail(url: string): string | null {
+  const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+  if (yt) return `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg`;
+  return null;
+}
+
+export function isImageFile(fileName: string | null): boolean {
+  if (!fileName) return false;
+  return /\.(png|jpe?g|gif|webp|svg)$/i.test(fileName);
+}
+
+export function stripExtension(fileName: string): string {
+  return fileName.replace(/\.[^.]+$/, '');
+}
+
 export type ResourceType = 'link' | 'file' | 'video';
 
 export const TYPE_META: Record<ResourceType, { icon: string; label: string; color: string; bg: string }> = {

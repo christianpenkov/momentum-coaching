@@ -14,6 +14,11 @@ interface Props {
   onChanged?: () => void;
 }
 
+type ConfirmData = {
+  gaining: string[];
+  losing: string[];
+};
+
 export default function AccessSheet({ resource, onClose, onChanged }: Props) {
   const { clients, loading: clientsLoading } = useSupabaseClients();
   const supabase = createClient();
@@ -23,6 +28,10 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
   const [draft, setDraft] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Écran de confirmation
+  const [confirmData, setConfirmData] = useState<ConfirmData | null>(null);
+  const [confirmed, setConfirmed] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -43,7 +52,18 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
     setDraft(prev => ({ ...prev, [clientProfileId]: !(prev[clientProfileId] ?? false) }));
   }
 
-  async function handleSave() {
+  function handleRequestSave() {
+    const changed = validClients.filter(c => {
+      const id = c.profile_id!;
+      return (draft[id] ?? false) !== (initialState[id] ?? false);
+    });
+    const gaining = changed.filter(c => draft[c.profile_id!] ?? false).map(c => c.name.split(' ')[0]);
+    const losing = changed.filter(c => !(draft[c.profile_id!] ?? false)).map(c => c.name.split(' ')[0]);
+    setConfirmData({ gaining, losing });
+    setConfirmed(false);
+  }
+
+  async function handleConfirmSave() {
     setSaving(true);
 
     const changed = validClients.filter(c => {
@@ -59,10 +79,8 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
         client_id: id,
         unlocked: newVal,
         unlocked_at: newVal ? new Date().toISOString() : null,
+        seen_at: null,
       }, { onConflict: 'resource_id,client_id' });
-      if (newVal) {
-        await supabase.from('resources').update({ is_new: true }).eq('id', resource.id);
-      }
     }));
 
     setSaving(false);
@@ -108,107 +126,230 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
         </button>
       </div>
 
-      {/* Body */}
-      <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
-        {(loading || clientsLoading) ? (
-          <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '32px 0' }}>Chargement…</div>
-        ) : validClients.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '32px 0' }}>
-            <Icon name="users" size={28} style={{ color: 'var(--muted)', marginBottom: 10 }} />
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun élève pour le moment.</div>
-          </div>
-        ) : (
-          <>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
-              Clique sur un élève pour modifier son accès, puis valide.
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
-              {validClients.map((client, idx) => {
-                const hasAccess = draft[client.profile_id!] ?? false;
-                const color = avatarColor(idx);
-                const initials = client.initials || getInitials(client.name);
+      <AnimatePresence mode="wait">
+        {/* Écran liste élèves */}
+        {!confirmData && (
+          <motion.div
+            key="list"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.12 }}
+            style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+          >
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              {(loading || clientsLoading) ? (
+                <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '32px 0' }}>Chargement…</div>
+              ) : validClients.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '32px 0' }}>
+                  <Icon name="users" size={28} style={{ color: 'var(--muted)', marginBottom: 10 }} />
+                  <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun élève pour le moment.</div>
+                </div>
+              ) : (
+                <>
+                  <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+                    Clique sur un élève pour modifier son accès, puis valide.
+                  </div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
+                    {validClients.map((client, idx) => {
+                      const hasAccess = draft[client.profile_id!] ?? false;
+                      const color = avatarColor(idx);
+                      const initials = client.initials || getInitials(client.name);
 
-                return (
-                  <motion.button
-                    key={client.id}
-                    type="button"
-                    whileTap={{ scale: 0.92 }}
-                    onClick={() => toggleDraft(client.profile_id!)}
-                    style={{
-                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-                      background: 'none', border: 'none', cursor: 'pointer',
-                      padding: 6,
-                    }}
-                  >
-                    <div style={{ position: 'relative' }}>
-                      <div style={{
-                        width: 56, height: 56, borderRadius: '50%',
-                        background: color,
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 17, fontWeight: 700, color: '#fff',
-                        filter: hasAccess ? 'none' : 'grayscale(1)',
-                        opacity: hasAccess ? 1 : 0.45,
-                        boxShadow: hasAccess ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px var(--green)` : 'none',
-                        transition: 'opacity 200ms, box-shadow 200ms, filter 200ms',
-                      }}>
-                        {initials}
-                      </div>
-                      <AnimatePresence>
-                        {hasAccess && (
-                          <motion.div
-                            initial={{ scale: 0 }}
-                            animate={{ scale: 1 }}
-                            exit={{ scale: 0 }}
-                            transition={{ type: 'spring', stiffness: 500, damping: 25 }}
-                            style={{
-                              position: 'absolute', bottom: -1, right: -1,
-                              width: 20, height: 20, borderRadius: '50%',
-                              background: 'var(--green)',
-                              border: '2px solid var(--surface)',
+                      return (
+                        <motion.button
+                          key={client.id}
+                          type="button"
+                          whileTap={{ scale: 0.92 }}
+                          onClick={() => toggleDraft(client.profile_id!)}
+                          style={{
+                            display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            padding: 6,
+                          }}
+                        >
+                          <div style={{ position: 'relative' }}>
+                            <div style={{
+                              width: 56, height: 56, borderRadius: '50%',
+                              background: color,
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            }}
-                          >
-                            <Icon name="check" size={10} style={{ color: '#fff' }} />
-                          </motion.div>
-                        )}
-                      </AnimatePresence>
-                    </div>
-                    <span style={{
-                      fontSize: 11, color: hasAccess ? 'var(--accent)' : 'var(--muted)',
-                      fontWeight: hasAccess ? 600 : 400,
-                      maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                      transition: 'color 200ms',
-                    }}>
-                      {client.name.split(' ')[0]}
-                    </span>
-                  </motion.button>
-                );
-              })}
+                              fontSize: 17, fontWeight: 700, color: '#fff',
+                              filter: hasAccess ? 'none' : 'grayscale(1)',
+                              opacity: hasAccess ? 1 : 0.45,
+                              boxShadow: hasAccess ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px var(--green)` : 'none',
+                              transition: 'opacity 200ms, box-shadow 200ms, filter 200ms',
+                            }}>
+                              {initials}
+                            </div>
+                            <AnimatePresence>
+                              {hasAccess && (
+                                <motion.div
+                                  initial={{ scale: 0 }}
+                                  animate={{ scale: 1 }}
+                                  exit={{ scale: 0 }}
+                                  transition={{ type: 'spring', stiffness: 500, damping: 25 }}
+                                  style={{
+                                    position: 'absolute', bottom: -1, right: -1,
+                                    width: 20, height: 20, borderRadius: '50%',
+                                    background: 'var(--green)',
+                                    border: '2px solid var(--surface)',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                  }}
+                                >
+                                  <Icon name="check" size={10} style={{ color: '#fff' }} />
+                                </motion.div>
+                              )}
+                            </AnimatePresence>
+                          </div>
+                          <span style={{
+                            fontSize: 11, color: hasAccess ? 'var(--accent)' : 'var(--muted)',
+                            fontWeight: hasAccess ? 600 : 400,
+                            maxWidth: 70, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                            transition: 'color 200ms',
+                          }}>
+                            {client.name.split(' ')[0]}
+                          </span>
+                        </motion.button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
             </div>
-          </>
-        )}
-      </div>
 
-      {/* Footer */}
-      <div style={{
-        padding: '16px 24px 20px',
-        borderTop: '1px solid var(--border)',
-        display: 'flex', justifyContent: 'flex-end', gap: 8,
-        flexShrink: 0,
-      }}>
-        <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 13 }}>
-          Annuler
-        </button>
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={saving || loading || clientsLoading}
-          className="btn-primary"
-          style={{ fontSize: 13, minWidth: 90, opacity: saving ? 0.7 : 1 }}
-        >
-          {saving ? 'Enregistrement…' : hasDraftChanges ? 'Valider' : 'Fermer'}
-        </button>
-      </div>
+            <div style={{
+              padding: '16px 24px 20px',
+              borderTop: '1px solid var(--border)',
+              display: 'flex', justifyContent: 'flex-end', gap: 8,
+              flexShrink: 0,
+            }}>
+              {hasDraftChanges ? (
+                <>
+                  <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 13 }}>
+                    Annuler
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRequestSave}
+                    disabled={loading || clientsLoading}
+                    className="btn-primary"
+                    style={{ fontSize: 13, minWidth: 90, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                  >
+                    Valider
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="btn-primary"
+                  style={{ fontSize: 13, minWidth: 90, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  Fermer
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* Écran confirmation */}
+        {confirmData && (
+          <motion.div
+            key="confirm"
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            exit={{ opacity: 0, x: 16 }}
+            transition={{ duration: 0.15 }}
+            style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}
+          >
+            <div style={{ padding: '24px', overflowY: 'auto', flex: 1 }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
+                Vérifie les changements avant d'enregistrer.
+              </div>
+
+              {confirmData.gaining.length > 0 && (
+                <div style={{
+                  padding: '14px 16px', borderRadius: 10,
+                  background: 'rgba(5,150,105,0.07)', border: '1px solid rgba(5,150,105,0.18)',
+                  marginBottom: 12,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--green)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="check" size={12} style={{ color: 'var(--green)' }} />
+                    Auront désormais accès
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--accent)' }}>
+                    {confirmData.gaining.join(', ')}
+                  </div>
+                </div>
+              )}
+
+              {confirmData.losing.length > 0 && (
+                <div style={{
+                  padding: '14px 16px', borderRadius: 10,
+                  background: 'rgba(205,91,63,0.07)', border: '1px solid rgba(205,91,63,0.18)',
+                  marginBottom: 12,
+                }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--red)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 6 }}>
+                    <Icon name="x" size={12} style={{ color: 'var(--red)' }} />
+                    N'auront plus accès
+                  </div>
+                  <div style={{ fontSize: 13, color: 'var(--accent)' }}>
+                    {confirmData.losing.join(', ')}
+                  </div>
+                </div>
+              )}
+
+              {/* Case à cocher obligatoire */}
+              <label style={{
+                display: 'flex', alignItems: 'flex-start', gap: 10,
+                marginTop: 20, cursor: 'pointer',
+                padding: '12px 14px', borderRadius: 8,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+              }}>
+                <input
+                  type="checkbox"
+                  checked={confirmed}
+                  onChange={e => setConfirmed(e.target.checked)}
+                  style={{ marginTop: 1, width: 15, height: 15, cursor: 'pointer', flexShrink: 0, accentColor: 'var(--accent)' }}
+                />
+                <span style={{ fontSize: 13, color: 'var(--accent)', lineHeight: 1.4 }}>
+                  Je confirme ces changements d'accès
+                </span>
+              </label>
+            </div>
+
+            <div style={{
+              padding: '16px 24px 20px',
+              borderTop: '1px solid var(--border)',
+              display: 'flex', justifyContent: 'space-between', gap: 8,
+              flexShrink: 0,
+            }}>
+              <button
+                type="button"
+                onClick={() => setConfirmData(null)}
+                className="btn-ghost"
+                style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 5 }}
+              >
+                <Icon name="arrowR" size={13} style={{ transform: 'rotate(180deg)' }} />
+                Retour
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmSave}
+                disabled={saving || !confirmed}
+                className="btn-primary"
+                style={{
+                  fontSize: 13, minWidth: 120,
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  opacity: !confirmed ? 0.5 : 1,
+                }}
+              >
+                {saving ? 'Enregistrement…' : 'Confirmer'}
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </ModalShell>
   );
 }

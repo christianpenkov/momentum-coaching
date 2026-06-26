@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
-import { getEmbedUrl, type ResourceType } from '@/lib/resourceHelpers';
+import { getEmbedUrl, stripExtension, type ResourceType } from '@/lib/resourceHelpers';
 import { createClient } from '@/lib/supabase/client';
 
 export interface Resource {
@@ -72,6 +72,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
       setFileUrl(data.url);
       setFileName(data.name);
       setFileSize(data.size);
+      if (!title.trim()) setTitle(stripExtension(data.name));
     }
     setUploading(false);
   }
