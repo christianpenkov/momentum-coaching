@@ -6236,7 +6236,7 @@ async function fetchIntegrationStatus(profileId?: string) {
 
   const { data } = await supabase
     .from('integrations')
-    .select('provider, backfill_done, backfill_started_at, last_snapshot_status, last_snapshot_error, connected_at, updated_at')
+    .select('provider, backfill_done, backfill_started_at, last_snapshot_status, last_snapshot_error, connected_at')
     .eq('profile_id', targetId)
     .in('provider', ['instagram', 'youtube']);
 
