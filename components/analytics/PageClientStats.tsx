@@ -5818,6 +5818,10 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   if (!user) return null;
   const targetId = profileId || user.id;
 
+  // Borne basse onboarding
+  const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at').eq('profile_id', targetId).maybeSingle();
+  const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
+
   // Fenêtre temporelle en dates locales — exactement `period` jours inclus, sans chevauchement entre périodes
   const todaySnap = new Date();
   const periodEnd = new Date(todaySnap);
@@ -5859,13 +5863,17 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .gte('snapshot_date', startDateStr)
       .lte('snapshot_date', endDateStr)
       .order('snapshot_date', { ascending: false }),
-    supabase.from('calls').select('*')
-      .eq('coach_id', targetId)
-      .gte('scheduled_at', periodStart.toISOString())
-      .lte('scheduled_at', periodEnd.toISOString())
-      .not('calendly_event_uuid', 'is', null)
-      .neq('ignored', true)
-      .order('scheduled_at', { ascending: false }),
+    (() => {
+      // Borne basse = max(periodStart, onboardingFloor) pour ne jamais afficher de calls avant l'onboarding
+      const callsFloor = onboardingFloor && onboardingFloor > periodStart.toISOString() ? onboardingFloor : periodStart.toISOString();
+      return supabase.from('calls').select('*')
+        .eq('coach_id', targetId)
+        .gte('scheduled_at', callsFloor)
+        .lte('scheduled_at', periodEnd.toISOString())
+        .not('calendly_event_uuid', 'is', null)
+        .neq('ignored', true)
+        .order('scheduled_at', { ascending: false });
+    })(),
     supabase
       .from('stripe_payments')
       .select('*')
@@ -6101,6 +6109,10 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   if (!user) return null;
   const targetId = profileId || user.id;
 
+  // Lire onboarding_completed_at depuis clients — borne basse pour calls/leads
+  const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at').eq('profile_id', targetId).maybeSingle();
+  const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
+
   const _sinceDate = new Date();
   _sinceDate.setUTCDate(_sinceDate.getUTCDate() - period);
   const since30d = _sinceDate.toISOString().slice(0, 10);
@@ -6155,11 +6167,13 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
 
   // Dans la table calls, coach_id = profile_id de l'élève (leadsProfileId dans le sync Calendly)
   const callsOwnerId = profileId ?? user.id;
-  const callsRes = await supabase.from('calls').select('*')
+  const callsQuery = supabase.from('calls').select('*')
     .eq('coach_id', callsOwnerId)
     .neq('ignored', true)
     .not('calendly_event_uuid', 'is', null)
     .order('scheduled_at', { ascending: false }).limit(500);
+  if (onboardingFloor) callsQuery.gte('scheduled_at', onboardingFloor);
+  const callsRes = await callsQuery;
 
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
