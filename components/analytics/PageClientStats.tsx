@@ -3972,14 +3972,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const _pIdx = periodIndex ?? 0;
   const utcDateStr = (d: Date) => d.toISOString().split('T')[0];
   const today = new Date();
-  // periodEnd = dernier jour ayant un snapshot en DB
-  const lastAvailableDate = shortioChartHistory && shortioChartHistory.length > 0
-    ? shortioChartHistory[shortioChartHistory.length - 1].date
-    : utcDateStr(new Date(Date.now() - 86400000));
-  const periodEnd = new Date(lastAvailableDate + 'T23:59:59Z');
+  // periodEnd/periodStart alignés sur aujourd'hui UTC, cohérents avec fetchSnapshot
+  const periodEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59));
   periodEnd.setUTCDate(periodEnd.getUTCDate() - _pIdx * sPeriod);
-  const periodStart = new Date(periodEnd);
-  periodStart.setUTCDate(periodEnd.getUTCDate() - sPeriod + 1);
+  const periodStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
+  periodStart.setUTCDate(today.getUTCDate() - (_pIdx + 1) * sPeriod + 1);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
