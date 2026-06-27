@@ -13,13 +13,21 @@ export async function GET(request: NextRequest) {
   const videoId = request.nextUrl.searchParams.get('videoId');
   if (!videoId) return NextResponse.json({ error: 'videoId requis' }, { status: 400 });
 
-  // profileId optionnel — si absent, on utilise l'user connecté
-  let profileId = request.nextUrl.searchParams.get('profileId');
-  if (!profileId) {
-    const supabase = await createServerClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
-    profileId = user.id;
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const rawProfileId = request.nextUrl.searchParams.get('profileId');
+  let profileId = user.id;
+  if (rawProfileId && rawProfileId !== user.id) {
+    const { data: clientRow } = await serviceSupabase
+      .from('clients')
+      .select('id')
+      .eq('profile_id', rawProfileId)
+      .eq('coach_id', user.id)
+      .single();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    profileId = rawProfileId;
   }
 
   const [ctrRes, syncRes] = await Promise.all([

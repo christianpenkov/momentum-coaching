@@ -67,7 +67,20 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const accessToken = await getFreshToken(user.id);
+  const rawProfileId = searchParams.get('profileId');
+  let targetProfileId = user.id;
+  if (rawProfileId && rawProfileId !== user.id) {
+    const { data: clientRow } = await serviceSupabase
+      .from('clients')
+      .select('id')
+      .eq('profile_id', rawProfileId)
+      .eq('coach_id', user.id)
+      .single();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    targetProfileId = rawProfileId;
+  }
+
+  const accessToken = await getFreshToken(targetProfileId);
   if (!accessToken) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
   const authHeader = { Authorization: `Bearer ${accessToken}` };

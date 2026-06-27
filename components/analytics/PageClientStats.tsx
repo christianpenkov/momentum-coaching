@@ -1458,7 +1458,7 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
     setCtrPending(false);
     try {
       const [retRes, ctrRes] = await Promise.all([
-        fetch(`/api/youtube/video-retention?videoId=${videoId}`),
+        fetch(`/api/youtube/video-retention?videoId=${videoId}${profileId ? `&profileId=${profileId}` : ''}`),
         fetch(`/api/youtube/video-ctr?videoId=${videoId}${profileId ? `&profileId=${profileId}` : ''}`),
       ]);
       const retData = await retRes.json();
