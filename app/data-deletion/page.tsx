@@ -2,7 +2,7 @@ export default function DataDeletionPage() {
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '60px 24px', fontFamily: 'sans-serif', color: '#111', lineHeight: 1.7 }}>
       <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Data Deletion Request</h1>
-      <p style={{ color: '#666', marginBottom: 40 }}>Last updated: May 2026</p>
+      <p style={{ color: '#666', marginBottom: 40 }}>Last updated: June 2026</p>
 
       <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>How to delete your data</h2>
       <p>
@@ -21,8 +21,8 @@ export default function DataDeletionPage() {
       <h3 style={{ fontSize: 16, fontWeight: 700, margin: '24px 0 8px' }}>Option 2 — Email request</h3>
       <p>
         Send a deletion request to{' '}
-        <a href="mailto:christianpenkov06@gmail.com" style={{ color: '#111' }}>
-          christianpenkov06@gmail.com
+        <a href="mailto:christianpenkov@ubizenai.com" style={{ color: '#111' }}>
+          christianpenkov@ubizenai.com
         </a>{' '}
         with the subject line <strong>"Data Deletion Request"</strong> and your account email address.
         We will process your request within 30 days and confirm deletion by email.
@@ -39,9 +39,14 @@ export default function DataDeletionPage() {
       <h2 style={{ fontSize: 18, fontWeight: 700, margin: '32px 0 8px' }}>Contact</h2>
       <p>
         For any questions:{' '}
-        <a href="mailto:christianpenkov06@gmail.com" style={{ color: '#111' }}>
-          christianpenkov06@gmail.com
+        <a href="mailto:christianpenkov@ubizenai.com" style={{ color: '#111' }}>
+          christianpenkov@ubizenai.com
         </a>
+      </p>
+
+      <hr style={{ margin: '48px 0', borderColor: '#e5e7eb' }} />
+      <p style={{ fontSize: 12, color: '#9ca3af' }}>
+        Momentum is a platform published by the sole proprietorship Penkov Christian (UbizenAI) — SIREN 924 627 988 — Saint-Martin-d'Hères, France.
       </p>
     </div>
   );
