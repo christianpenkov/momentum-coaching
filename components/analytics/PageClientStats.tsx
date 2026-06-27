@@ -4336,9 +4336,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const callsHonoredDesc = postCallsDesc.filter(c => c.status === 'active' && !c.no_show).length;
     const closedDesc = postCallsDesc.filter(c => c.deal_closed).length;
     const revenueDesc = postCallsDesc.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+    const postCallsLm = postCalls.filter(c => !!c.ig_lead_id);
+    const callsBookedLm = postCallsLm.filter(c => c.status === 'active').length;
+    const callsHonoredLm = postCallsLm.filter(c => c.status === 'active' && !c.no_show).length;
+    const closedLm = postCallsLm.filter(c => c.deal_closed).length;
+    const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, vuesParCall, lmName };
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, lmName };
   }).sort((a, b) => b.views - a.views || b.revenue - a.revenue);
 
   // ── Section 3 : pipeline prospects ──
@@ -5142,10 +5147,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
         // Funnel lien contenu
         const f1_clics = row.clicsDesc;
-        const f1_calls = row.callsBooked; // simplification mock
-        const f1_honored = row.callsHonored;
-        const f1_closed = row.closed;
-        const f1_revenue = row.revenue;
+        const f1_calls = row.callsBookedDesc;
+        const f1_honored = row.callsHonoredDesc;
+        const f1_closed = row.closedDesc;
+        const f1_revenue = row.revenueDesc;
         const r1_clicCall = f1_clics > 0 ? Math.round((f1_calls / f1_clics) * 100) : null;
         const r1_callHon = f1_calls > 0 ? Math.round((f1_honored / f1_calls) * 100) : null;
         const r1_honClosed = f1_honored > 0 ? Math.round((f1_closed / f1_honored) * 100) : null;
@@ -5153,10 +5158,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         // Funnel lead magnet
         const f2_comments = row.lmDetectes;
         const f2_sent = row.lmSent;
-        const f2_calls = row.callsBooked; // mock : même calls
-        const f2_honored = row.callsHonored;
-        const f2_closed = row.closed;
-        const f2_revenue = row.revenue;
+        const f2_calls = row.callsBookedLm;
+        const f2_honored = row.callsHonoredLm;
+        const f2_closed = row.closedLm;
+        const f2_revenue = row.revenueLm;
         const r2_sentComm = f2_comments > 0 ? Math.round((f2_sent / f2_comments) * 100) : null;
         const r2_callSent = f2_sent > 0 ? Math.round((f2_calls / f2_sent) * 100) : null;
         const r2_callHon = f2_calls > 0 ? Math.round((f2_honored / f2_calls) * 100) : null;
