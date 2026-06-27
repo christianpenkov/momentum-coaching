@@ -1,6 +1,8 @@
 export default function DataDeletionPage() {
   return (
     <div style={{ maxWidth: 720, margin: '0 auto', padding: '60px 24px', fontFamily: 'sans-serif', color: '#111', lineHeight: 1.7 }}>
+
+      {/* ——— ENGLISH ——— */}
       <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Data Deletion Request</h1>
       <p style={{ color: '#666', marginBottom: 40 }}>Last updated: June 2026</p>
 
@@ -39,6 +41,52 @@ export default function DataDeletionPage() {
       <h2 style={{ fontSize: 18, fontWeight: 700, margin: '32px 0 8px' }}>Contact</h2>
       <p>
         For any questions:{' '}
+        <a href="mailto:christianpenkov@ubizenai.com" style={{ color: '#111' }}>
+          christianpenkov@ubizenai.com
+        </a>
+      </p>
+
+      <hr style={{ margin: '48px 0', borderColor: '#e5e7eb' }} />
+
+      {/* ——— FRANÇAIS ——— */}
+      <h1 style={{ fontSize: 28, fontWeight: 800, marginBottom: 8 }}>Demande de suppression des données</h1>
+      <p style={{ color: '#666', marginBottom: 40 }}>Dernière mise à jour : juin 2026</p>
+
+      <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 8 }}>Comment supprimer vos données</h2>
+      <p>
+        Si vous avez connecté votre compte Instagram à la plateforme Momentum et souhaitez supprimer toutes les données associées,
+        deux options s'offrent à vous :
+      </p>
+
+      <h3 style={{ fontSize: 16, fontWeight: 700, margin: '24px 0 8px' }}>Option 1 — Depuis la plateforme (instantané)</h3>
+      <ol>
+        <li>Connectez-vous à votre compte sur <a href="https://momentum-plateforme.vercel.app" style={{ color: '#111' }}>momentum-plateforme.vercel.app</a></li>
+        <li>Accédez aux <strong>Paramètres</strong></li>
+        <li>Cliquez sur <strong>Déconnecter</strong> à côté de votre compte Instagram</li>
+      </ol>
+      <p>Cela supprime immédiatement votre token d'accès Instagram et toutes les données associées de nos systèmes.</p>
+
+      <h3 style={{ fontSize: 16, fontWeight: 700, margin: '24px 0 8px' }}>Option 2 — Demande par e-mail</h3>
+      <p>
+        Envoyez une demande de suppression à{' '}
+        <a href="mailto:christianpenkov@ubizenai.com" style={{ color: '#111' }}>
+          christianpenkov@ubizenai.com
+        </a>{' '}
+        avec l'objet <strong>« Data Deletion Request »</strong> et l'adresse e-mail de votre compte.
+        Nous traiterons votre demande dans un délai de 30 jours et confirmerons la suppression par e-mail.
+      </p>
+
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '32px 0 8px' }}>Données supprimées</h2>
+      <ul>
+        <li>Votre token d'accès Instagram</li>
+        <li>Les métadonnées de votre compte Instagram (nom d'utilisateur, identifiant)</li>
+        <li>Toutes les statistiques Instagram mises en cache dans notre base de données</li>
+        <li>Votre compte Momentum et toutes les données associées sur demande</li>
+      </ul>
+
+      <h2 style={{ fontSize: 18, fontWeight: 700, margin: '32px 0 8px' }}>Contact</h2>
+      <p>
+        Pour toute question :{' '}
         <a href="mailto:christianpenkov@ubizenai.com" style={{ color: '#111' }}>
           christianpenkov@ubizenai.com
         </a>
