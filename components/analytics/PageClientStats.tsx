@@ -5818,10 +5818,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  // Borne basse onboarding
-  const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at').eq('profile_id', targetId).maybeSingle();
-  const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
-
   // Fenêtre temporelle en dates locales — exactement `period` jours inclus, sans chevauchement entre périodes
   const todaySnap = new Date();
   const periodEnd = new Date(todaySnap);
@@ -5863,17 +5859,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .gte('snapshot_date', startDateStr)
       .lte('snapshot_date', endDateStr)
       .order('snapshot_date', { ascending: false }),
-    (() => {
-      // Borne basse = max(periodStart, onboardingFloor) pour ne jamais afficher de calls avant l'onboarding
-      const callsFloor = onboardingFloor && onboardingFloor > periodStart.toISOString() ? onboardingFloor : periodStart.toISOString();
-      return supabase.from('calls').select('*')
-        .eq('coach_id', targetId)
-        .gte('scheduled_at', callsFloor)
-        .lte('scheduled_at', periodEnd.toISOString())
-        .not('calendly_event_uuid', 'is', null)
-        .neq('ignored', true)
-        .order('scheduled_at', { ascending: false });
-    })(),
+    supabase.from('calls').select('*')
+      .eq('coach_id', targetId)
+      .gte('scheduled_at', periodStart.toISOString())
+      .lte('scheduled_at', periodEnd.toISOString())
+      .not('calendly_event_uuid', 'is', null)
+      .neq('ignored', true)
+      .order('scheduled_at', { ascending: false }),
     supabase
       .from('stripe_payments')
       .select('*')
