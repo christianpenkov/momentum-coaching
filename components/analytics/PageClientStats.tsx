@@ -1147,11 +1147,11 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
 
 // ─── TAB 2 : Instagram ────────────────────────────────────────────────────────
 
-function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
+function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period: Period; periodIndex?: number }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
 
-  if (!ig) return <Empty msg="Connecte ton compte Instagram pour voir les stats." />;
+  if (!ig) return <Empty msg={periodIndex && periodIndex > 0 ? "Pas de données Instagram pour cette période." : "Connecte ton compte Instagram pour voir les stats."} />;
 
   // Valeurs sur la période sélectionnée (7j ou 30j depuis chartData)
   const igDaysSlice = ig.chartData.slice(-period);
@@ -1443,7 +1443,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Period; profileId?: string }) {
+function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
@@ -1483,7 +1483,7 @@ function TabYouTube({ yt, period, profileId }: { yt: YTStats | null; period: Per
     finally { setLoadingRetention(false); }
   }, [profileId]);
 
-  if (!yt) return <Empty msg="Connecte ton compte YouTube pour voir les stats." />;
+  if (!yt) return <Empty msg={periodIndex && periodIndex > 0 ? "Pas de données YouTube pour cette période." : "Connecte ton compte YouTube pour voir les stats."} />;
 
   const ytDays = yt.chartData.slice(-period);
   // Valeurs sur la période sélectionnée depuis chartData
@@ -5726,6 +5726,7 @@ async function fetchApi(url: string) {
 
 async function fetchSnapshot(profileId: string | undefined, periodIndex: number, period: number) {
   if (periodIndex === 0) return null;
+  try {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return null;
@@ -6005,6 +6006,10 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     businessClicsFromDb: snapBusinessClicsFromDb,
     shortioChartHistory: snapShortioChartHistory,
   };
+  } catch (e) {
+    console.error('[fetchSnapshot] error:', e);
+    return null;
+  }
 }
 
 async function fetchSupabaseStats(profileId?: string, period: number = 30) {
@@ -6506,8 +6511,8 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       {loading ? <InlineLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} />}
-          {tab === 1 && <TabInstagram ig={igEff} period={period} />}
-          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} />}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={supaData?.shortioChartHistory} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
