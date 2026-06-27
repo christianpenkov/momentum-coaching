@@ -2074,9 +2074,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const now = new Date();
   const mrr = stripe?.mrr || 0;
 
-  // ── Fenêtre temporelle de la période sélectionnée ──
-  const periodEnd   = new Date(now.getTime() - periodIndex * period * 86400000);
-  const periodStart = new Date(periodEnd.getTime() - period * 86400000);
+  // ── Fenêtre temporelle de la période sélectionnée (bornes en début/fin de journée UTC) ──
+  const _todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59));
+  const periodEnd   = new Date(_todayUTC);
+  periodEnd.setUTCDate(_todayUTC.getUTCDate() - periodIndex * period);
+  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+  periodStart.setUTCDate(now.getUTCDate() - periodIndex * period - period + 1);
   const callsInWindow = calls.filter(c => {
     const t = new Date(c.scheduled_at).getTime();
     return t >= periodStart.getTime() && t <= periodEnd.getTime();
@@ -2245,20 +2248,19 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const totalCloses  = igCloses + ytCloses;
   const totalRev     = igRev + ytRev;
   const closingRate  = totalHonores > 0 ? pct(totalCloses, totalHonores) : 0;
-  const noShowRate   = totalBookes > 0 ? pct(calls.filter(c => c.no_show).length, totalBookes) : 0;
+  const noShowRate   = totalBookes > 0 ? pct(callsInWindow.filter(c => c.no_show).length, totalBookes) : 0;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
 
       {/* ── HERO — STATS GLOBALES ── */}
       {(() => {
-        const noShowCount = calls.filter(c => c.no_show).length;
+        const noShowCount = callsInWindow.filter(c => c.no_show).length;
         const revPerCall = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
 
         // Hero chart data — réel depuis calls agrégés par jour
         const n = period;
-        const cutoff2 = new Date(now.getTime() - n * 86400000);
-        const callsP = calls.filter(c => new Date(c.scheduled_at) >= cutoff2);
+        const callsP = callsInWindow;
         function buildDay2(filterFn: (c: CallRecord) => boolean, valFn: (cs: CallRecord[]) => number) {
           return Array.from({ length: n }, (_, i) => {
             const d = new Date(now); d.setDate(d.getDate() - (n - 1 - i));
