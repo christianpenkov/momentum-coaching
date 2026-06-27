@@ -7,17 +7,33 @@ const supa = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
+  const { searchParams } = new URL(request.url);
+  const profileId = searchParams.get('profileId');
+
+  // Si profileId fourni (vue coach), vérifier que l'élève appartient bien au coach
+  let targetId = user.id;
+  if (profileId) {
+    const { data: clientRow } = await supa
+      .from('clients')
+      .select('id')
+      .eq('profile_id', profileId)
+      .eq('coach_id', user.id)
+      .single();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+    targetId = profileId;
+  }
+
   const { data, error } = await supa
     .from('prospect_links')
     .select('*')
-    .eq('profile_id', user.id)
+    .eq('profile_id', targetId)
     .order('created_at', { ascending: false })
-    .limit(50);
+    .limit(500);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ links: data ?? [] });
