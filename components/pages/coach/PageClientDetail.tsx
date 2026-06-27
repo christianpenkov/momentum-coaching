@@ -153,6 +153,34 @@ export default function PageClientDetail({ id }: Props) {
   const [depotComments, setDepotComments] = useState<{ file: string; text: string; by: 'coach'; time: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // KPIs live depuis les vraies sources (IG/YT API + Supabase instagram_leads + Stripe)
+  const [liveKpis, setLiveKpis] = useState<{ posts30: number | null; leads30: number | null; mrr: number | null } | null>(null);
+
+  useEffect(() => {
+    if (!client?.profile_id) return;
+    const pid = client.profile_id;
+    const supabase = createSupabase();
+    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+    Promise.all([
+      fetch(`/api/instagram/stats?profileId=${pid}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/youtube/stats?profileId=${pid}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      supabase.from('instagram_leads')
+        .select('id', { count: 'exact', head: true })
+        .eq('profile_id', pid)
+        .gte('detected_at', since30),
+      fetch(`/api/stripe/client-data?profileId=${pid}`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([ig, yt, leadsRes, stripe]) => {
+      const igPosts = (ig?.posts?.length ?? 0);
+      const ytPosts = (yt?.videos?.length ?? 0);
+      setLiveKpis({
+        posts30: igPosts + ytPosts,
+        leads30: leadsRes?.count ?? null,
+        mrr: stripe?.monthlyRevenue ?? null,
+      });
+    });
+  }, [client?.profile_id]);
+
   if (!client) return (
     <div className="page-content">
       <div className="page-header"><h1 className="page-title">Client introuvable</h1></div>
@@ -163,18 +191,14 @@ export default function PageClientDetail({ id }: Props) {
   const last = metrics[metrics.length - 1] || null;
   const prev = metrics[metrics.length - 2] || null;
 
-  // Stats 30j
+  // Calls 30j depuis le contexte global (source de vérité)
   const cutoff30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const recent4Metrics = metrics.slice(-4); // ~4 semaines = ~30j
-  const posts30 = recent4Metrics.reduce((sum, m) => sum + (m.posts_count || 0), 0);
-  const leads30 = recent4Metrics.reduce((sum, m) => sum + (m.iclosed_deals || 0), 0);
   const calls30 = calls.filter(c =>
     c.client_id === id &&
     !['cancelled', 'canceled', 'declined'].includes(c.status ?? '') &&
     c.scheduled_at != null &&
     new Date(c.scheduled_at) >= cutoff30
   ).length;
-  const cash30 = last ? last.stripe_mrr : null;
 
   const doneCount = tasks.filter(t => t.done).length;
   const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
@@ -221,13 +245,13 @@ export default function PageClientDetail({ id }: Props) {
       <div className="grid-4" style={{ marginBottom: 24 }}>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Posts (30j)</div>
-          <div className="kpi-value">{metrics.length > 0 ? posts30 : '—'}</div>
-          {last && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{last.avg_views.toLocaleString('fr-FR')} vues moy.</div>}
+          <div className="kpi-value">{liveKpis ? (liveKpis.posts30 ?? '—') : '—'}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG + YouTube</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Leads générés (30j)</div>
-          <div className="kpi-value">{metrics.length > 0 ? leads30 : '—'}</div>
-          {last && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{last.closing_rate}% closing</div>}
+          <div className="kpi-value">{liveKpis ? (liveKpis.leads30 ?? '—') : '—'}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>commentaires détectés</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Calls (30j)</div>
@@ -236,11 +260,8 @@ export default function PageClientDetail({ id }: Props) {
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash contracté</div>
-          <div className="kpi-value">{cash30 !== null ? `${cash30.toLocaleString('fr-FR')} €` : '—'}</div>
-          {last && prev && (() => {
-            const g = prev.stripe_mrr > 0 ? Math.round(((last.stripe_mrr - prev.stripe_mrr) / prev.stripe_mrr) * 100) : 0;
-            return <div className={`kpi-delta${g >= 0 ? ' kpi-delta-up' : ' kpi-delta-down'}`}>{g >= 0 ? '+' : ''}{g}% vs sem. préc.</div>;
-          })()}
+          <div className="kpi-value">{liveKpis?.mrr != null ? `${liveKpis.mrr.toLocaleString('fr-FR')} €` : '—'}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>MRR Stripe</div>
         </div>
       </div>
 
@@ -341,10 +362,10 @@ export default function PageClientDetail({ id }: Props) {
               <Icon name="calendar" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Calls Calendly/mois</span>
               <strong>{client.calendly_monthly || 0}</strong>
             </div>
-            {last && (
+            {liveKpis?.mrr != null && (
               <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
                 <Icon name="dollar-sign" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>MRR actuel</span>
-                <strong>{last.stripe_mrr.toLocaleString('fr-FR')} €</strong>
+                <strong>{liveKpis.mrr.toLocaleString('fr-FR')} €</strong>
               </div>
             )}
             <div style={{ marginTop: 8 }}>
