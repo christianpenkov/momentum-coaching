@@ -2098,23 +2098,24 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igCallsLive = calcCalls(callsIG);
   const ytCallsLive = calcCalls(callsYT);
 
-  // noData seulement si période historique sans snapshot disponible
+  // noData seulement si période historique sans snapshot IG/YT disponible
+  // Ne s'applique PAS aux calls (indépendants des stats IG/YT)
   const noData = periodIndex > 0 && !ig && !yt;
 
   const igReachD  = noData ? 0 : (ig ? ig.chartData.slice(-period).reduce((s, d) => s + d.reach, 0) : 0);
   const igLeadsD  = noData ? 0 : (msgs?.leadCount || 0);
-  const igBookes  = noData ? 0 : igCallsLive.bookes;
-  const igHonores = noData ? 0 : igCallsLive.honores;
-  const igCloses  = noData ? 0 : igCallsLive.closes;
-  const igRev     = noData ? 0 : igCallsLive.rev;
-  const igNoShows = noData ? 0 : igCallsLive.noShows;
+  const igBookes  = igCallsLive.bookes;
+  const igHonores = igCallsLive.honores;
+  const igCloses  = igCallsLive.closes;
+  const igRev     = igCallsLive.rev;
+  const igNoShows = igCallsLive.noShows;
 
   const ytViewsD  = noData ? 0 : (yt ? yt.chartData.slice(-period).reduce((s, d) => s + d.views, 0) : 0);
-  const ytBookes  = noData ? 0 : ytCallsLive.bookes;
-  const ytHonores = noData ? 0 : ytCallsLive.honores;
-  const ytCloses  = noData ? 0 : ytCallsLive.closes;
-  const ytRev     = noData ? 0 : ytCallsLive.rev;
-  const ytNoShows = noData ? 0 : ytCallsLive.noShows;
+  const ytBookes  = ytCallsLive.bookes;
+  const ytHonores = ytCallsLive.honores;
+  const ytCloses  = ytCallsLive.closes;
+  const ytRev     = ytCallsLive.rev;
+  const ytNoShows = ytCallsLive.noShows;
   const isCalendlyUrl = (l: any) => (l.originalUrl || '').toLowerCase().includes('calendly');
   // Clics Short.io filtrés par période : clicksByUrl (DB) prioritaire, fallback humanClicks30d en S-0/30j uniquement
   const resolveClics = (l: any): number => {
@@ -2170,19 +2171,19 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igFunnelSteps = [
     { label: period === 7 ? 'Reach 7j' : 'Reach 30j', value: noData ? dash : (igReachD >= 1000 ? `${fmt(igReachD / 1000, 1)}k` : fmt(igReachD)), rawValue: igReachD },
     { label: 'Clics liens Calendly', value: noData ? dash : fmt(igTotalClicsD), sub: 'bio + descr. + DM', rawValue: igTotalClicsD, rate: noData ? 0 : (igReachD > 0 ? (igTotalClicsD / igReachD) * 100 : 0) },
-    { label: 'Calls bookés', value: noData ? dash : fmt(igBookes), rawValue: igBookes, rate: noData ? 0 : (igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0) },
-    { label: 'Calls honorés', value: noData ? dash : fmt(igHonores), rawValue: igHonores, rate: noData ? 0 : (igBookes > 0 ? (igHonores / igBookes) * 100 : 0) },
-    { label: 'Deals closés', value: noData ? dash : fmt(igCloses), rawValue: igCloses, rate: noData ? 0 : (igHonores > 0 ? (igCloses / igHonores) * 100 : 0) },
-    { label: 'Revenue', value: noData ? dash : fmtEur(igRev), rawValue: igRev },
+    { label: 'Calls bookés', value: fmt(igBookes), rawValue: igBookes, rate: igTotalClicsD > 0 ? (igBookes / igTotalClicsD) * 100 : 0 },
+    { label: 'Calls honorés', value: fmt(igHonores), rawValue: igHonores, rate: igBookes > 0 ? (igHonores / igBookes) * 100 : 0 },
+    { label: 'Deals closés', value: fmt(igCloses), rawValue: igCloses, rate: igHonores > 0 ? (igCloses / igHonores) * 100 : 0 },
+    { label: 'Revenue', value: fmtEur(igRev), rawValue: igRev },
   ];
 
   const ytFunnelSteps = [
     { label: period === 7 ? 'Vues 7j' : 'Vues 30j', value: noData ? dash : (ytViewsD >= 1000 ? `${fmt(ytViewsD / 1000, 1)}k` : fmt(ytViewsD)), rawValue: ytViewsD },
     { label: 'Clics Calendly', value: noData ? dash : fmt(ytClicsD), sub: 'Bio + Descr.', rawValue: ytClicsD, rate: noData ? 0 : (ytViewsD > 0 ? (ytClicsD / ytViewsD) * 100 : 0) },
-    { label: 'Calls bookés', value: noData ? dash : fmt(ytBookes), rawValue: ytBookes, rate: noData ? 0 : (ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0) },
-    { label: 'Calls honorés', value: noData ? dash : fmt(ytHonores), rawValue: ytHonores, rate: noData ? 0 : (ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0) },
-    { label: 'Deals closés', value: noData ? dash : fmt(ytCloses), rawValue: ytCloses, rate: noData ? 0 : (ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0) },
-    { label: 'Revenue', value: noData ? dash : fmtEur(ytRev), rawValue: ytRev },
+    { label: 'Calls bookés', value: fmt(ytBookes), rawValue: ytBookes, rate: ytClicsD > 0 ? (ytBookes / ytClicsD) * 100 : 0 },
+    { label: 'Calls honorés', value: fmt(ytHonores), rawValue: ytHonores, rate: ytBookes > 0 ? (ytHonores / ytBookes) * 100 : 0 },
+    { label: 'Deals closés', value: fmt(ytCloses), rawValue: ytCloses, rate: ytHonores > 0 ? (ytCloses / ytHonores) * 100 : 0 },
+    { label: 'Revenue', value: fmtEur(ytRev), rawValue: ytRev },
   ];
 
   const igNoShowRate = igBookes > 0 ? pct(igNoShows, igBookes) : 0;
@@ -2278,14 +2279,14 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         ];
 
         const heroItems = [
-          { label: 'Calls bookés',  value: noData ? dash : fmt(totalBookes),   sub: noData ? '' : 'toutes sources' },
-          { label: 'Calls IG',      value: noData ? dash : fmt(igBookes),      sub: noData ? '' : `${igCloses} closés` },
-          { label: 'Calls YT',      value: noData ? dash : fmt(ytBookes),      sub: noData ? '' : `${ytCloses} closés` },
-          { label: 'Calls honorés', value: noData ? dash : fmt(totalHonores),  sub: noData ? '' : `${noShowRate}% no-show` },
-          { label: 'No-show',       value: noData ? dash : fmt(noShowCount),   sub: noData ? '' : `${noShowRate}% des bookés` },
-          { label: 'Deals closés',  value: noData ? dash : fmt(totalCloses),   sub: noData ? '' : `${closingRate}% closing` },
-          { label: 'Revenue total', value: noData ? dash : fmtEur(totalRev),   sub: noData ? '' : 'cumulé' },
-          { label: 'Rev / call',    value: noData ? dash : fmtEur(revPerCall), sub: noData ? '' : 'par call booké' },
+          { label: 'Calls bookés',  value: fmt(totalBookes),   sub: 'toutes sources' },
+          { label: 'Calls IG',      value: fmt(igBookes),      sub: `${igCloses} closés` },
+          { label: 'Calls YT',      value: fmt(ytBookes),      sub: `${ytCloses} closés` },
+          { label: 'Calls honorés', value: fmt(totalHonores),  sub: `${noShowRate}% no-show` },
+          { label: 'No-show',       value: fmt(noShowCount),   sub: `${noShowRate}% des bookés` },
+          { label: 'Deals closés',  value: fmt(totalCloses),   sub: `${closingRate}% closing` },
+          { label: 'Revenue total', value: fmtEur(totalRev),   sub: 'cumulé' },
+          { label: 'Rev / call',    value: fmtEur(revPerCall), sub: 'par call booké' },
         ];
 
         return (
@@ -3842,96 +3843,6 @@ function makeDays(n: number, base: number, variance: number) {
   });
 }
 
-const MOCK_IG: IGStats = {
-  username: 'quennel.coaching', name: 'Quennel Coaching', profilePicture: null,
-  followers: 12840, following: 312, mediaCount: 187, biography: 'Coach business & mindset 🚀',
-  reach30d: 284500, accountsEngaged30d: 18200, totalInteractions30d: 9640,
-  followsUnfollows30d: 380, profileLinksTaps30d: 11, websiteClicks30d: 8,
-  views30d: 512000,
-  viewsFollowerBreakdown: { follower: 148000, nonFollower: 364000 },
-  chartData: makeDays(30, 9500, 4000).map((d, i) => ({ date: d.date, reach: d.value, followerCount: 12200 + i * 21 })),
-  demographics: {
-    age: [
-      { label: '18-24', value: 22 }, { label: '25-34', value: 41 }, { label: '35-44', value: 24 },
-      { label: '45-54', value: 9 }, { label: '55+', value: 4 },
-    ],
-    country: [
-      { label: 'France', value: 68 }, { label: 'Belgique', value: 12 }, { label: 'Suisse', value: 8 },
-      { label: 'Canada', value: 6 }, { label: 'Autres', value: 6 },
-    ],
-    city: [
-      { label: 'Paris', value: 24 }, { label: 'Lyon', value: 11 }, { label: 'Marseille', value: 8 },
-      { label: 'Bordeaux', value: 6 }, { label: 'Bruxelles', value: 5 },
-    ],
-    gender: [{ label: 'Hommes', value: 62 }, { label: 'Femmes', value: 38 }],
-  },
-  onlineFollowers: {
-    hour_counts: Object.fromEntries(
-      ['monday','tuesday','wednesday','thursday','friday','saturday','sunday'].map(day => [
-        day, Object.fromEntries(Array.from({ length: 24 }, (_, h) => [
-          String(h), Math.round(200 + Math.random() * 600 * (h >= 18 && h <= 22 ? 2 : h >= 12 && h <= 14 ? 1.4 : 0.6))
-        ]))
-      ])
-    ),
-  },
-  posts: [
-    { id: '1', caption: 'Comment j\'ai closé 3 clients en 1 semaine sans prospecter 🔥', type: 'VIDEO', thumbnail: null, timestamp: new Date(Date.now() - 2*86400000).toISOString(), permalink: '#', likes: 892, comments: 74, reach: 48200, saved: 312, shares: 156, views: 91400, totalInteractions: 1434, follows: null, profileVisits: null, videoDuration: 58, avgWatchTimeMs: 32000, totalWatchTimeMs: 2924800000, skipRate: 0.18 },
-    { id: '2', caption: 'Le mindset qui m\'a tout changé', type: 'VIDEO', thumbnail: null, timestamp: new Date(Date.now() - 5*86400000).toISOString(), permalink: '#', likes: 1240, comments: 108, reach: 62800, saved: 487, shares: 210, views: 124000, totalInteractions: 2045, follows: null, profileVisits: null, videoDuration: 44, avgWatchTimeMs: 28000, totalWatchTimeMs: 3472000000, skipRate: 0.12 },
-    { id: '3', caption: '3 erreurs qui tuent ton business en ligne', type: 'VIDEO', thumbnail: null, timestamp: new Date(Date.now() - 9*86400000).toISOString(), permalink: '#', likes: 678, comments: 52, reach: 34100, saved: 198, shares: 87, views: 67800, totalInteractions: 1015, follows: null, profileVisits: null, videoDuration: 62, avgWatchTimeMs: 22000, totalWatchTimeMs: 1491600000, skipRate: 0.24 },
-    { id: '4', caption: 'Routine matinale pour entrepreneurs', type: 'IMAGE', thumbnail: null, timestamp: new Date(Date.now() - 12*86400000).toISOString(), permalink: '#', likes: 421, comments: 38, reach: 18400, saved: 142, shares: 44, views: null, totalInteractions: 645, follows: 28, profileVisits: 312, videoDuration: null, avgWatchTimeMs: null, totalWatchTimeMs: null, skipRate: null },
-    { id: '5', caption: 'Témoignage client — de 0 à 5k€/mois en 3 mois', type: 'VIDEO', thumbnail: null, timestamp: new Date(Date.now() - 16*86400000).toISOString(), permalink: '#', likes: 1580, comments: 142, reach: 78400, saved: 624, shares: 298, views: 156000, totalInteractions: 2644, follows: null, profileVisits: null, videoDuration: 75, avgWatchTimeMs: 48000, totalWatchTimeMs: 7488000000, skipRate: 0.09 },
-    { id: '6', caption: 'Pourquoi tu rates tes calls de vente', type: 'VIDEO', thumbnail: null, timestamp: new Date(Date.now() - 20*86400000).toISOString(), permalink: '#', likes: 742, comments: 61, reach: 39200, saved: 224, shares: 98, views: 82400, totalInteractions: 1125, follows: null, profileVisits: null, videoDuration: 52, avgWatchTimeMs: 31000, totalWatchTimeMs: 2554400000, skipRate: 0.21 },
-  ],
-};
-
-const MOCK_YT: YTStats = {
-  channelName: 'Quennel Coaching', channelThumbnail: null as any, subscribers: 8240,
-  totalViews: 1240000, videoCount: 64,
-  views30d: 48200, watchTime30d: 241000, likes30d: 1840, comments30d: 312,
-  shares30d: 480, subsGained30d: 284, subsLost30d: 38, netSubs30d: 246,
-  avgViewDurationSec: 312,
-  chartData: Array.from({ length: 30 }, (_, i) => {
-    const d = new Date(); d.setDate(d.getDate() - (29 - i));
-    const subsGained = Math.round(6 + Math.random() * 14);
-    const subsLost = Math.round(1 + Math.random() * 3);
-    return { date: d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }), views: Math.round(1400 + (Math.random() - 0.4) * 1200), watchTime: Math.round(7200 + (Math.random() - 0.4) * 4000), subsGained, subsLost, netSubs: subsGained - subsLost };
-  }),
-  videos: [
-    { id: 'v1', title: 'Comment créer une offre à 3000€ irrésistible', thumbnail: '', publishedAt: new Date(Date.now() - 8*86400000).toISOString(), duration: '18:42', isShort: false, views: 12400, likes: 487, comments: 84, views30d: 9800, watchTime30d: 84000, avgViewPct: 62, url: '#', likes30d: 320, comments30d: 54, shares30d: 42 },
-    { id: 'v2', title: 'Tunnel de vente Instagram — tuto complet 2025', thumbnail: '', publishedAt: new Date(Date.now() - 22*86400000).toISOString(), duration: '24:18', isShort: false, views: 28600, likes: 1240, comments: 198, views30d: 7200, watchTime30d: 62000, avgViewPct: 58, url: '#', likes30d: 480, comments30d: 72, shares30d: 98 },
-    { id: 'v3', title: 'Script DM qui converti #shorts', thumbnail: '', publishedAt: new Date(Date.now() - 4*86400000).toISOString(), duration: '0:58', isShort: true, views: 84200, likes: 3800, comments: 412, views30d: 72000, watchTime30d: 2592000, avgViewPct: 48, url: '#', likes30d: 2840, comments30d: 312, shares30d: 580 },
-    { id: 'v4', title: 'Ma méthode pour closer 80% de mes calls', thumbnail: '', publishedAt: new Date(Date.now() - 35*86400000).toISOString(), duration: '31:04', isShort: false, views: 18400, likes: 780, comments: 124, views30d: 4100, watchTime30d: 38000, avgViewPct: 71, url: '#', likes30d: 180, comments30d: 28, shares30d: 24 },
-    { id: 'v5', title: 'Mindset millionnaire — 5 habitudes', thumbnail: '', publishedAt: new Date(Date.now() - 48*86400000).toISOString(), duration: '14:22', isShort: false, views: 9800, likes: 342, comments: 58, views30d: 2400, watchTime30d: 18000, avgViewPct: 54, url: '#', likes30d: 120, comments30d: 18, shares30d: 14 },
-    // 19 Shorts supplémentaires (total 20 Shorts)
-    ...Array.from({ length: 19 }, (_, i) => { const v30 = Math.round(1200 + Math.sin(i*1.7)*800); return { id: `vs${i+1}`, title: `Short ${i+1} #shorts`, thumbnail: '', publishedAt: new Date(Date.now() - (60+i*14)*86400000).toISOString(), duration: '0:45', isShort: true, views: Math.round(8000 + Math.sin(i*2.1)*6000), likes: Math.round(320 + i*40), comments: Math.round(18 + i*8), views30d: v30, watchTime30d: Math.round(v30 * 36), avgViewPct: Math.round(44 + Math.sin(i)*8), url: '#', likes30d: Math.round(80 + i*20), comments30d: Math.round(8 + i*3), shares30d: Math.round(12 + i*6) }; }),
-    // 40 vidéos longues supplémentaires (total 44 longues)
-    ...Array.from({ length: 40 }, (_, i) => ({ id: `vl${i+1}`, title: `Vidéo ${i+1} — stratégie business`, thumbnail: '', publishedAt: new Date(Date.now() - (90+i*7)*86400000).toISOString(), duration: `${12+Math.round(Math.sin(i)*8)}:${String(Math.round(Math.abs(Math.sin(i*1.3))*59)).padStart(2,'0')}`, isShort: false, views: Math.round(3000 + Math.sin(i*1.9)*2500), likes: Math.round(120 + i*15), comments: Math.round(14 + i*4), views30d: Math.round(400 + Math.sin(i*2.3)*350), watchTime30d: Math.round(4200 + Math.sin(i*1.7)*2800), avgViewPct: Math.round(52 + Math.sin(i*1.1)*12), url: '#', likes30d: Math.round(40 + i*8), comments30d: Math.round(6 + i*2), shares30d: Math.round(4 + i*2) })),
-  ],
-  trafficSources: [
-    { source: 'YT_SEARCH', views: 18400, watchMinutes: 92000 },
-    { source: 'YT_SUGGESTED', views: 14200, watchMinutes: 71000 },
-    { source: 'YT_EXTERNAL', views: 8400, watchMinutes: 42000 },
-    { source: 'YT_BROWSE', views: 4800, watchMinutes: 24000 },
-    { source: 'YT_SHORTS', views: 2400, watchMinutes: 12000 },
-  ],
-  devices: [
-    { device: 'MOBILE', views: 31200, watchMinutes: 156000 },
-    { device: 'DESKTOP', views: 12400, watchMinutes: 62000 },
-    { device: 'TABLET', views: 4600, watchMinutes: 23000 },
-  ],
-  demographics: [
-    { ageGroup: '18-24', gender: 'male', viewerPct: 18 }, { ageGroup: '25-34', gender: 'male', viewerPct: 38 },
-    { ageGroup: '35-44', gender: 'male', viewerPct: 22 }, { ageGroup: '18-24', gender: 'female', viewerPct: 8 },
-    { ageGroup: '25-34', gender: 'female', viewerPct: 14 },
-  ],
-  searchKeywords: [
-    { term: 'comment closer un client', views: 2840 }, { term: 'tunnel de vente instagram', views: 2120 },
-    { term: 'script dm instagram', views: 1840 }, { term: 'offre coaching prix', views: 1420 },
-    { term: 'mindset entrepreneur', views: 1180 }, { term: 'comment vendre en ligne', views: 980 },
-    { term: 'quennel coaching', views: 840 }, { term: 'closer vente', views: 720 },
-    { term: 'automatiser prospection', views: 680 }, { term: 'coach business instagram', views: 540 },
-  ],
-};
 
 
 
