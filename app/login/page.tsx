@@ -123,6 +123,10 @@ export default function LoginPage() {
           </form>
         )}
       </div>
+      <p style={{ marginTop: 24, fontSize: 11, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.6, maxWidth: 400 }}>
+        Momentum est une plateforme éditée par l'Entreprise Individuelle Penkov Christian (UbizenAI) — SIREN 924 627 988 — Saint-Martin-d'Hères, France. Tous droits réservés.{' '}
+        <a href="/privacy" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Politique de confidentialité</a>
+      </p>
     </div>
   );
 }
