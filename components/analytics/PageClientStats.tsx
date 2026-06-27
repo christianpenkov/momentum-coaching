@@ -6156,22 +6156,13 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .order('date', { ascending: true }),
   ]);
 
-  let callsRes: { data: any[] | null };
-  if (profileId) {
-    // Vue coach : calls Calendly de ses élèves (calendly_event_uuid non null)
-    callsRes = await supabase.from('calls').select('*')
-      .eq('coach_id', user.id)
-      .neq('ignored', true)
-      .not('calendly_event_uuid', 'is', null)
-      .order('scheduled_at', { ascending: false }).limit(500);
-  } else {
-    // Vue élève : ses calls leads Calendly (coach_id = son propre profile_id)
-    callsRes = await supabase.from('calls').select('*')
-      .eq('coach_id', user.id)
-      .neq('ignored', true)
-      .not('calendly_event_uuid', 'is', null)
-      .order('scheduled_at', { ascending: false }).limit(500);
-  }
+  // Dans la table calls, coach_id = profile_id de l'élève (leadsProfileId dans le sync Calendly)
+  const callsOwnerId = profileId ?? user.id;
+  const callsRes = await supabase.from('calls').select('*')
+    .eq('coach_id', callsOwnerId)
+    .neq('ignored', true)
+    .not('calendly_event_uuid', 'is', null)
+    .order('scheduled_at', { ascending: false }).limit(500);
 
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
