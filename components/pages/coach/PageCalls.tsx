@@ -11,6 +11,7 @@ interface CreateCallForm {
   topic: string;
   date: string;
   startHour: string;
+  startMinute: string;
   durationMin: string;
 }
 
@@ -19,6 +20,7 @@ const EMPTY_FORM: CreateCallForm = {
   topic: '',
   date: '',
   startHour: '',
+  startMinute: '00',
   durationMin: '60',
 };
 
@@ -65,7 +67,7 @@ export default function PageCalls() {
     setCreating(true);
     setCreateMsg(null);
 
-    const startTime = new Date(`${form.date}T${form.startHour}:00`);
+    const startTime = new Date(`${form.date}T${form.startHour}:${form.startMinute}:00`);
     const endTime = new Date(startTime.getTime() + parseInt(form.durationMin) * 60 * 1000);
     const client = clients.find(c => c.id === form.clientId);
 
@@ -335,7 +337,8 @@ export default function PageCalls() {
       {showModal && (
         <div
           style={{
-            position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)',
+            position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+            background: 'rgba(0,0,0,0.55)',
             display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
           }}
           onClick={(e) => { if (e.target === e.currentTarget) setShowModal(false); }}
@@ -405,14 +408,30 @@ export default function PageCalls() {
                   <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                     Heure de début
                   </label>
-                  <input
-                    className="input"
-                    type="time"
-                    value={form.startHour}
-                    onChange={e => setForm(f => ({ ...f, startHour: e.target.value }))}
-                    required
-                    style={{ width: '100%' }}
-                  />
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+                    <select
+                      className="input"
+                      value={form.startHour}
+                      onChange={e => setForm(f => ({ ...f, startHour: e.target.value }))}
+                      required
+                      style={{ width: '100%' }}
+                    >
+                      <option value="">h</option>
+                      {Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')).map(h => (
+                        <option key={h} value={h}>{h}</option>
+                      ))}
+                    </select>
+                    <select
+                      className="input"
+                      value={form.startMinute}
+                      onChange={e => setForm(f => ({ ...f, startMinute: e.target.value }))}
+                      style={{ width: '100%' }}
+                    >
+                      {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map(m => (
+                        <option key={m} value={m}>{m}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
               </div>
 
