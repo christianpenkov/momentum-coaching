@@ -176,7 +176,7 @@ export function useClientSelfData() {
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
         supabase.from('messages').select('text, created_at').eq('client_id', clientRow.id).eq('sender_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(1),
-        supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).single(),
+        supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle(),
       ]);
 
       const metrics = metricsRes.data || [];
