@@ -3987,7 +3987,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const filteredLeads = leads.filter(l => !leadSearch || l.igUsername.toLowerCase().includes(leadSearch.toLowerCase()) || l.postTitle.toLowerCase().includes(leadSearch.toLowerCase()));
   const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 
-  if (!shortio) return shortioLoading ? <InlineLoader /> : <Empty msg={periodIndex > 0 ? "Pas de données Short.io pour cette période." : "Connecte ton compte Short.io pour voir les stats."} />;
+  if (!shortio) return shortioLoading ? <InlineLoader /> : <Empty msg={(periodIndex ?? 0) > 0 ? "Pas de données Short.io pour cette période." : "Connecte ton compte Short.io pour voir les stats."} />;
 
   // En S-1+ les posts DB peuvent être vides (snapshot hors fenêtre) — fallback live pour les métadonnées
   // Thumbnails = métadonnées fixes du contenu, toujours depuis igLive (les URLs CDN IG expirent ~24h)
