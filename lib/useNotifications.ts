@@ -149,45 +149,29 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     setNotifs([...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs]);
   }, [profileId, isClient]);
 
+  const refreshRef = useRef(refresh);
+  useEffect(() => { refreshRef.current = refresh; }, [refresh]);
+
   useEffect(() => {
     if (!profileId) return;
-    refresh();
-    const interval = setInterval(refresh, 60_000);
-    window.addEventListener('notifs-refresh', refresh);
+    refreshRef.current();
+    const interval = setInterval(() => refreshRef.current(), 60_000);
+    const handler = () => refreshRef.current();
+    window.addEventListener('notifs-refresh', handler);
 
     const supabase = createClient();
-
-    // Realtime sur client_notifications (annulations, acceptations, refus)
     const channel = supabase
       .channel(`notifs-rt-${profileId}`)
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'client_notifications',
-          filter: `profile_id=eq.${profileId}`,
-        },
-        () => refresh()
-      )
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'calls',
-          ...(isClient ? {} : { filter: `coach_id=eq.${profileId}` }),
-        },
-        () => refresh()
-      )
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'client_notifications', filter: `profile_id=eq.${profileId}` }, () => refreshRef.current())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', ...(isClient ? {} : { filter: `coach_id=eq.${profileId}` }) }, () => refreshRef.current())
       .subscribe();
 
     return () => {
       clearInterval(interval);
-      window.removeEventListener('notifs-refresh', refresh);
+      window.removeEventListener('notifs-refresh', handler);
       supabase.removeChannel(channel);
     };
-  }, [profileId, isClient, refresh]);
+  }, [profileId, isClient]);
 
   return { notifs, refresh };
 }
