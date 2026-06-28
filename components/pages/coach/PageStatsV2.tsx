@@ -742,7 +742,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
         <Stat label="Abonnés nets 30j" value={`${ig.followsUnfollows30d >= 0 ? '+' : ''}${fmt(ig.followsUnfollows30d)}`} color={ig.followsUnfollows30d >= 0 ? GREEN : RED} />
         <Stat label="Clics site web 30j" value={fmt(ig.websiteClicks30d)} />
         <Stat label="Taux d'engagement" value={fmtPct(engRate)} color={engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED} sub="interactions / reach" />
-        <Stat label="Reach rate" value={fmtPct(reachRate)} sub="reach / abonnés" />
+        <Stat label="Followers reach rate" value={fmtPct(reachRate)} sub="reach / abonnés" />
         {viralPct !== null && <Stat label="Viralité" value={fmtPct(viralPct)} sub="vues non-abonnés" color={viralPct > 50 ? GREEN : AMBER} />}
       </StatGrid>
 
@@ -915,7 +915,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
                 {[
                   ['ER', selectedPost.totalInteractions && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
                   ['Save rate', selectedPost.saved && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
-                  ['Reach rate', selectedPost.reach && ig.followers ? fmtPct(pct(selectedPost.reach, ig.followers)) : '—', 'Reach / Abonnés'],
+                  ['Followers reach rate', selectedPost.reach && ig.followers ? fmtPct(pct(selectedPost.reach, ig.followers)) : '—', 'Reach / Abonnés'],
                 ].map(([label, value, desc], i) => (
                   <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</div>

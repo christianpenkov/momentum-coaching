@@ -1197,7 +1197,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
       return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
     }), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
-    'Reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
+    'Followers reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
   };
 
@@ -1251,7 +1251,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         {[
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Reach rate', tooltip: 'Quel pourcentage de tes abonnés est touché par tes contenus. 100% = tous tes abonnés ont été atteints par toutes tes publications.' },
+          { label: 'Followers reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Followers reach rate', tooltip: 'Quel pourcentage de tes abonnés est touché par tes contenus. 100% = tous tes abonnés ont été atteints par toutes tes publications.' },
           { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null, tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
         ].map(s => (
           <div key={s.label}
@@ -1421,7 +1421,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                 {[
                   ['ER', selectedPost.totalInteractions && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
                   ['Save rate', selectedPost.saved && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
-                  ['Reach rate', selectedPost.reach && ig.followers ? fmtPct(pct(selectedPost.reach, ig.followers)) : '—', 'Reach / Abonnés'],
+                  ['Followers reach rate', selectedPost.reach && ig.followers ? fmtPct(pct(selectedPost.reach, ig.followers)) : '—', 'Reach / Abonnés'],
                 ].map(([label, value, desc], i) => (
                   <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</div>

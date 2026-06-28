@@ -965,7 +965,7 @@ export default function PageClientStats() {
                         return [
                           { label: 'Vues', value: n(p.views) },
                           { label: 'Reach', value: n(p.reach) },
-                          { label: 'Reach rate', value: pct(reachRate), tip: 'reach / abonnés' },
+                          { label: 'Followers reach rate', value: pct(reachRate), tip: 'reach / abonnés' },
                           { label: 'Likes', value: n(p.likes) },
                           { label: 'Commentaires', value: n(p.comments) },
                           { label: 'Partages', value: n(p.shares) },
