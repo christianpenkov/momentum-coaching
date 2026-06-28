@@ -301,8 +301,8 @@ export default function PageCalls() {
                     <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>
                       {displayName}
                       {call.topic && <span style={{ fontWeight: 400, color: 'var(--ink)', marginLeft: 6 }}>· {call.topic}</span>}
-                      {isGoogle && <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--accent)', fontWeight: 600, letterSpacing: '0.04em' }}>MEET</span>}
                     </div>
+                    {isGoogle && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Google Meet</div>}
                   </div>
                   {call.join_url && call.status !== 'canceled' && (
                     <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost"
