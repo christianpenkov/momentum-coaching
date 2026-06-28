@@ -282,8 +282,8 @@ export default function PageCalls() {
               const d = new Date(call.scheduled_at!);
               const isGoogle = (call as { call_type?: string }).call_type === 'google';
               return (
-                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', opacity: call.status === 'canceled' ? 0.55 : 1 }}>
-                  <div style={{ minWidth: 80, textAlign: 'center' }}>
+                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
+                  <div style={{ minWidth: 80, textAlign: 'center', opacity: call.status === 'canceled' ? 0.55 : 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)', textDecoration: call.status === 'canceled' ? 'line-through' : 'none' }}>
                       {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                     </div>
@@ -291,11 +291,11 @@ export default function PageCalls() {
                       {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                     </div>
                   </div>
-                  <div style={{ width: 1, height: 40, background: 'var(--border)' }} />
-                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0 }}>
+                  <div style={{ width: 1, height: 40, background: 'var(--border)', opacity: call.status === 'canceled' ? 0.55 : 1 }} />
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0, opacity: call.status === 'canceled' ? 0.55 : 1 }}>
                     {initials}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ flex: 1, minWidth: 0, opacity: call.status === 'canceled' ? 0.55 : 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{displayName}</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                       {call.topic || 'Call coaching'}

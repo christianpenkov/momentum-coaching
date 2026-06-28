@@ -165,7 +165,7 @@ export default function PageClientCalls() {
 
   const now = new Date();
   const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && !c.calendly_event_uuid);
-  const canceledCalls = calls.filter(c => ['canceled', 'cancelled'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) >= now);
+  const canceledCalls = calls.filter(c => ['canceled', 'cancelled', 'declined'].includes(c.status || ''));
   const upcoming = calls
     .filter(c => c.scheduled_at && new Date(c.scheduled_at) >= now && c.status === 'active')
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
@@ -584,7 +584,7 @@ export default function PageClientCalls() {
                       className="btn-ghost"
                       onClick={() => setConfirmDismissId(call.id)}
                       disabled={dismissingCanceledId === call.id}
-                      style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
+                      style={{ fontSize: 11, color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
                     >
                       <Icon name="trash" size={12} />
                       {dismissingCanceledId === call.id ? '…' : 'Retirer'}
