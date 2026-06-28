@@ -3,6 +3,8 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
+let instanceCounter = 0;
+
 export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled' | 'call_accepted' | 'call_declined';
 
 export interface AppNotif {
@@ -20,6 +22,7 @@ export interface AppNotif {
 export function useNotifications(profileId: string | null, isClient: boolean) {
   const [notifs, setNotifs] = useState<AppNotif[]>([]);
   const coachNameRef = useRef<string | null>(null);
+  const instanceId = useRef(`${++instanceCounter}`);
 
   // Charge le prénom du coach une seule fois (pour l'élève uniquement)
   useEffect(() => {
@@ -161,7 +164,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
 
     const supabase = createClient();
     const channel = supabase
-      .channel(`notifs-rt-${profileId}`)
+      .channel(`notifs-rt-${profileId}-${instanceId.current}`)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'client_notifications', filter: `profile_id=eq.${profileId}` }, () => refreshRef.current())
       .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', ...(isClient ? {} : { filter: `coach_id=eq.${profileId}` }) }, () => refreshRef.current())
       .subscribe();

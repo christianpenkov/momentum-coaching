@@ -33,7 +33,7 @@ export default function SidebarClient() {
   useEffect(() => {
     if (!user?.id) return;
     const supabase = createClient();
-    supabase.from('clients').select('week, coach_id').eq('profile_id', user.id).single()
+    supabase.from('clients').select('week, coach_id').eq('profile_id', user.id).maybeSingle()
       .then(({ data }) => {
         if (data) {
           setWeek(data.week);
