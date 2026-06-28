@@ -206,6 +206,7 @@ interface CardData {
   noSource?: boolean;
   // Badges post-call
   badge?: 'no_show' | 'rescheduled' | 'not_qualified' | 'to_recontact' | null;
+  lmNotReceived?: boolean;
   lmClickedAt?: string | null;
   // Pour afficher le bouton rapport
   callId?: string;
@@ -312,6 +313,11 @@ function PipelineCard({
             {card.badge === 'to_recontact' && (
               <span style={{ fontSize: 9, fontWeight: 700, background: '#fff7ed', color: '#c2410c', border: '1px solid #fed7aa', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
                 ↩ Recontacter
+              </span>
+            )}
+            {card.lmNotReceived && (
+              <span title="DM auto non envoyé (app en review)" style={{ fontSize: 9, fontWeight: 700, background: '#fefce8', color: '#a16207', border: '1px solid #fde047', borderRadius: 4, padding: '1px 5px', flexShrink: 0 }}>
+                LM non reçu
               </span>
             )}
           </div>
@@ -1099,6 +1105,7 @@ export default function PagePipeline() {
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
         badge,
+        lmNotReceived: lead ? !lead.lead_magnet_sent : false,
         lmClickedAt: lmClickedEvent?.occurred_at ?? null,
         callId: call?.id ?? undefined,
         callScheduledAt: call?.scheduled_at ?? undefined,

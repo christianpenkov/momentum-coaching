@@ -5742,8 +5742,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const startDateStr = periodStart.toISOString().split('T')[0];
   const endDateStr   = periodEnd.toISOString().split('T')[0];
 
-  console.log('[fetchSnapshot]', { profileId, targetId, periodIndex, period, startDateStr, endDateStr });
-
   // Toutes les requêtes en parallèle pour ne pas dépasser 2s
   const [
     snapsRes,
@@ -5800,7 +5798,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   ]);
 
   const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
-  console.log('[fetchSnapshot] snaps', snaps.length, snapsRes.status === 'fulfilled' ? snapsRes.value.error : 'rejected');
   const igPostsRows = igPostsRes.status === 'fulfilled' ? (igPostsRes.value.data ?? []) : [];
   const ytVideosRows = ytVideosRes.status === 'fulfilled' ? (ytVideosRes.value.data ?? []) : [];
   const stripeRows = stripeRes.status === 'fulfilled' ? (stripeRes.value.data ?? []) : [];
@@ -6010,7 +6007,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     shortioChartHistory: snapShortioChartHistory,
   };
   } catch (e) {
-    console.error('[fetchSnapshot] error:', e);
     return null;
   }
 }
