@@ -60,6 +60,7 @@ export default function PageClientCalls() {
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [respondingId, setRespondingId] = useState<string | null>(null);
   const [dismissingCanceledId, setDismissingCanceledId] = useState<string | null>(null);
+  const [confirmDismissId, setConfirmDismissId] = useState<string | null>(null);
   const [declineModal, setDeclineModal] = useState<{ callId: string; topic: string; scheduledAt: string } | null>(null);
   const [proposedAt, setProposedAt] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
@@ -362,46 +363,6 @@ export default function PageClientCalls() {
         </div>
       )}
 
-      {/* Calls annulés — visibles rayés jusqu'à ce que l'élève les retire */}
-      {canceledCalls.length > 0 && (
-        <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-            {canceledCalls.length} call{canceledCalls.length > 1 ? 's' : ''} annulé{canceledCalls.length > 1 ? 's' : ''}
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {canceledCalls.map(call => (
-              <div key={call.id} className="card" style={{ opacity: 0.55, borderLeft: '3px solid #ef4444', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'line-through' }}>{call.topic || 'Call coaching'}</div>
-                  {call.scheduled_at && (
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      {new Date(call.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                      {' · '}{new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                  )}
-                </div>
-                <span style={{ fontSize: 10, padding: '2px 8px', background: '#fee2e2', color: '#991b1b', borderRadius: 20, fontWeight: 700, border: '1px solid #fca5a5', flexShrink: 0 }}>Annulé</span>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  onClick={async () => {
-                    setDismissingCanceledId(call.id);
-                    const res = await fetch(`/api/client/calls/${call.id}`, { method: 'DELETE' });
-                    if ((await res.json()).ok) setCalls(prev => prev.filter(c => c.id !== call.id));
-                    setDismissingCanceledId(null);
-                  }}
-                  disabled={dismissingCanceledId === call.id}
-                  style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
-                >
-                  <Icon name="trash" size={12} />
-                  {dismissingCanceledId === call.id ? '…' : 'Retirer'}
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {/* Pas de Calendly connecté */}
       {!hasCalendly && (
         <div className="card" style={{ padding: '32px 24px', textAlign: 'center', marginBottom: 24 }}>
@@ -435,7 +396,7 @@ export default function PageClientCalls() {
               <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: nextCall.invitee_name ? 2 : 8 }}>
                 {nextCall.topic || 'Session de coaching'}
               </div>
-              {nextCall.join_url && (
+              {nextCall.join_url && nextCall.status !== 'canceled' && nextCall.status !== 'cancelled' && (
                 <div style={{ marginTop: 16 }}>
                   <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <Icon name="video" size={14} /> Rejoindre le call
@@ -559,6 +520,75 @@ export default function PageClientCalls() {
                     <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
                       {call.notes}
                     </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Calls annulés / refusés — en bas de page */}
+      {canceledCalls.length > 0 && (
+        <div style={{ marginTop: 32 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            {canceledCalls.length} call{canceledCalls.length > 1 ? 's' : ''} annulé{canceledCalls.length > 1 ? 's' : ''}
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            {canceledCalls.map(call => {
+              const isDeclined = call.status === 'declined';
+              return (
+                <div key={call.id} className="card" style={{ borderLeft: '3px solid #ef4444', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0, opacity: 0.6 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'line-through' }}>{call.topic || 'Call coaching'}</div>
+                    {call.scheduled_at && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        {new Date(call.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                        {' · '}{new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 10, padding: '2px 8px', background: '#fee2e2', color: '#991b1b', borderRadius: 20, fontWeight: 700, border: '1px solid #fca5a5', flexShrink: 0 }}>
+                    {isDeclined ? 'Refusé' : 'Annulé'}
+                  </span>
+                  {confirmDismissId === call.id ? (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>Retirer ?</span>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={async () => {
+                          setDismissingCanceledId(call.id);
+                          setConfirmDismissId(null);
+                          const res = await fetch(`/api/client/calls/${call.id}`, { method: 'DELETE' });
+                          if ((await res.json()).ok) setCalls(prev => prev.filter(c => c.id !== call.id));
+                          setDismissingCanceledId(null);
+                        }}
+                        disabled={dismissingCanceledId === call.id}
+                        style={{ fontSize: 11, color: 'var(--red)', border: 'none', background: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                      >
+                        {dismissingCanceledId === call.id ? '…' : 'Oui'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-ghost"
+                        onClick={() => setConfirmDismissId(null)}
+                        style={{ fontSize: 11, border: 'none', background: 'none', cursor: 'pointer', padding: '2px 6px' }}
+                      >
+                        Non
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      onClick={() => setConfirmDismissId(call.id)}
+                      disabled={dismissingCanceledId === call.id}
+                      style={{ fontSize: 11, color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
+                    >
+                      <Icon name="trash" size={12} />
+                      {dismissingCanceledId === call.id ? '…' : 'Retirer'}
+                    </button>
                   )}
                 </div>
               );

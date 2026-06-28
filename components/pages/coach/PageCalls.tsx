@@ -41,6 +41,7 @@ export default function PageCalls() {
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
 
   async function syncCalls() {
     setSyncing(true);
@@ -303,7 +304,7 @@ export default function PageCalls() {
                       )}
                     </div>
                   </div>
-                  {call.join_url && (
+                  {call.join_url && call.status !== 'canceled' && (
                     <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost"
                       style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
                       <Icon name="video" size={13} /> Rejoindre
@@ -319,7 +320,7 @@ export default function PageCalls() {
                       </div>
                     ) : (
                       <button className="btn-ghost" type="button"
-                        onClick={() => call.status === 'canceled' ? setConfirmDeleteId(call.id) : handleCancelCall(call.id)}
+                        onClick={() => call.status === 'canceled' ? setConfirmDeleteId(call.id) : setConfirmCancelId(call.id)}
                         disabled={cancelingId === call.id}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }}>
                         <Icon name={call.status === 'canceled' ? 'trash' : 'x'} size={13} />
@@ -537,6 +538,40 @@ export default function PageCalls() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Modal confirmation annulation */}
+      {confirmCancelId && createPortal(
+        <div
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999 }}
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmCancelId(null); }}
+        >
+          <div className="card" style={{ width: '100%', maxWidth: 380, padding: 24, margin: 16 }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', marginBottom: 10 }}>Annuler ce call ?</div>
+            <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.5 }}>
+              L'élève sera notifié et l'événement Google Calendar sera supprimé.
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn-ghost" type="button" style={{ flex: 1 }} onClick={() => setConfirmCancelId(null)}>
+                Retour
+              </button>
+              <button
+                className="btn-primary"
+                type="button"
+                style={{ flex: 1, background: '#ef4444', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
+                disabled={cancelingId === confirmCancelId}
+                onClick={async () => {
+                  const id = confirmCancelId;
+                  setConfirmCancelId(null);
+                  await handleCancelCall(id);
+                }}
+              >
+                {cancelingId === confirmCancelId ? '…' : 'Confirmer'}
+              </button>
+            </div>
           </div>
         </div>,
         document.body
