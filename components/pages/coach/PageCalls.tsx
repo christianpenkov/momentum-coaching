@@ -228,8 +228,10 @@ export default function PageCalls() {
                     {initials}
                   </div>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>{displayName}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
+                      {displayName}
+                      {call.topic && <span style={{ fontWeight: 400, color: 'var(--ink)', marginLeft: 6 }}>· {call.topic}</span>}
+                    </div>
                   </div>
                   <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
                     Réponse en attente
@@ -296,12 +298,10 @@ export default function PageCalls() {
                     {initials}
                   </div>
                   <div style={{ flex: 1, minWidth: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{displayName}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                      {call.topic || 'Call coaching'}
-                      {isGoogle && (
-                        <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--accent)', fontWeight: 600, letterSpacing: '0.04em' }}>MEET</span>
-                      )}
+                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>
+                      {displayName}
+                      {call.topic && <span style={{ fontWeight: 400, color: 'var(--ink)', marginLeft: 6 }}>· {call.topic}</span>}
+                      {isGoogle && <span style={{ marginLeft: 8, fontSize: 10, color: 'var(--accent)', fontWeight: 600, letterSpacing: '0.04em' }}>MEET</span>}
                     </div>
                   </div>
                   {call.join_url && call.status !== 'canceled' && (
