@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
 export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled' | 'call_accepted' | 'call_declined';
@@ -19,7 +19,7 @@ export interface AppNotif {
 
 export function useNotifications(profileId: string | null, isClient: boolean) {
   const [notifs, setNotifs] = useState<AppNotif[]>([]);
-  const [coachName, setCoachName] = useState<string | null>(null);
+  const coachNameRef = useRef<string | null>(null);
 
   // Charge le prénom du coach une seule fois (pour l'élève uniquement)
   useEffect(() => {
@@ -29,7 +29,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .then(({ data }) => {
         if (!data?.coach_id) return;
         supabase.from('profiles').select('full_name').eq('id', data.coach_id).maybeSingle()
-          .then(({ data: p }) => { if (p?.full_name) setCoachName(p.full_name.split(' ')[0]); });
+          .then(({ data: p }) => { if (p?.full_name) coachNameRef.current = p.full_name.split(' ')[0]; });
       });
   }, [profileId, isClient]);
 
@@ -139,7 +139,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       id: `call_canceled_${row.id}`,
       type: 'call_canceled' as NotifType,
       title: 'Call annulé',
-      body: row.payload?.topic ? `${coachName || 'Ton coach'} a annulé : ${row.payload.topic}` : `${coachName || 'Ton coach'} a annulé ce call.`,
+      body: row.payload?.topic ? `${coachNameRef.current || 'Ton coach'} a annulé : ${row.payload.topic}` : `${coachNameRef.current || 'Ton coach'} a annulé ce call.`,
       callId: row.call_id ?? undefined,
       scheduledAt: row.payload?.scheduled_at ?? null,
       // on stocke le notif DB id pour pouvoir le marquer lu
@@ -147,7 +147,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     }));
 
     setNotifs([...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs]);
-  }, [profileId, isClient, coachName]);
+  }, [profileId, isClient]);
 
   useEffect(() => {
     if (!profileId) return;
