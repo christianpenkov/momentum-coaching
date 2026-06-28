@@ -320,7 +320,7 @@ export async function deleteGoogleCall(params: {
 
   if (error) throw error;
 
-  // Récupère les infos séparément pour la notif (évite PGRST116 sur UPDATE+single)
+  // Récupère les infos séparément pour la notif
   const { data: canceledCall } = await sb
     .from('calls')
     .select('topic, scheduled_at')
