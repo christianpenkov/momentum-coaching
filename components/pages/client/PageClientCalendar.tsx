@@ -70,6 +70,10 @@ export default function PageClientCalendar() {
       const { data: googleCalls } = await supabase.from('calls').select('*')
         .eq('client_id', client.id)
         .is('calendly_event_uuid', null)
+        .neq('status', 'canceled')
+        .neq('status', 'cancelled')
+        .neq('status', 'declined')
+        .neq('ignored', true)
         .order('scheduled_at', { ascending: true });
 
       const all = [...(calendlyCalls || []), ...(googleCalls || [])];
