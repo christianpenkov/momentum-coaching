@@ -320,11 +320,11 @@ export default function PageCalls() {
                       </div>
                     ) : (
                       <button className="btn-ghost" type="button"
-                        onClick={() => call.status === 'canceled' ? setConfirmDeleteId(call.id) : setConfirmCancelId(call.id)}
+                        onClick={() => ['canceled','declined'].includes(call.status || '') ? setConfirmDeleteId(call.id) : setConfirmCancelId(call.id)}
                         disabled={cancelingId === call.id}
                         style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }}>
-                        <Icon name={call.status === 'canceled' ? 'trash' : 'x'} size={13} />
-                        {cancelingId === call.id ? '…' : call.status === 'canceled' ? 'Retirer' : 'Annuler'}
+                        <Icon name={['canceled','declined'].includes(call.status || '') ? 'trash' : 'x'} size={13} />
+                        {cancelingId === call.id ? '…' : ['canceled','declined'].includes(call.status || '') ? 'Retirer' : 'Annuler'}
                       </button>
                     )
                   )}
