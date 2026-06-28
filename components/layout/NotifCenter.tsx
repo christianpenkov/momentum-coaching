@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { AppNotif } from '@/lib/useNotifications';
@@ -13,6 +13,8 @@ interface Props {
   onRapportDone: () => void;
   onRefresh: () => void;
 }
+
+type RespondState = 'idle' | 'accepting' | 'declining' | 'done';
 
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -85,6 +87,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
                   if (notif.type === 'rapport_call') setRapportNotif(notif);
                 }}
                 onDismiss={notif.dbId ? () => dismissCanceled(notif.dbId!) : undefined}
+                onRefresh={onRefresh}
               />
             ))}
           </div>
@@ -105,37 +108,52 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
   );
 }
 
-function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: () => void; onDismiss?: () => void }) {
+function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif; onAction: () => void; onDismiss?: () => void; onRefresh: () => void }) {
+  const [respondState, setRespondState] = useState<RespondState>('idle');
   const isRapport = notif.type === 'rapport_call';
   const isCallRequest = notif.type === 'call_request';
   const isCanceled = notif.type === 'call_canceled';
   const isAccepted = notif.type === 'call_accepted';
   const isDeclined = notif.type === 'call_declined';
   const isCoachResponse = isAccepted || isDeclined;
-  const accentColor = isRapport ? '#f59e0b' : isCallRequest ? '#3b82f6' : isCanceled ? '#ef4444' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
+  const accentColor = isRapport ? '#f59e0b' : isCanceled ? '#ef4444' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
 
-  const WrapTag = isCallRequest ? 'a' : 'div';
-  const wrapProps = isCallRequest ? { href: '/client/calls', style: { textDecoration: 'none', color: 'inherit', display: 'block' } } : {};
+  async function handleAccept() {
+    if (!notif.callId) return;
+    setRespondState('accepting');
+    await fetch(`/api/calls/${notif.callId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response: 'accepted' }),
+    });
+    setRespondState('done');
+    onRefresh();
+  }
+
+  async function handleDecline() {
+    if (!notif.callId) return;
+    setRespondState('declining');
+    await fetch(`/api/calls/${notif.callId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response: 'declined' }),
+    });
+    setRespondState('done');
+    onRefresh();
+  }
 
   return (
-    <WrapTag {...(wrapProps as any)}>
     <div style={{
       padding: '12px 16px',
       display: 'flex',
       gap: 12,
       alignItems: 'flex-start',
       borderBottom: '1px solid var(--border)',
-      cursor: isCallRequest ? 'pointer' : 'default',
-      background: isCallRequest ? 'transparent' : undefined,
-      transition: isCallRequest ? 'background 0.15s' : undefined,
-    }}
-    onMouseEnter={isCallRequest ? e => (e.currentTarget.style.background = '#3b82f608') : undefined}
-    onMouseLeave={isCallRequest ? e => (e.currentTarget.style.background = 'transparent') : undefined}
-    >
+    }}>
       {/* Icône */}
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: isRapport ? '#f59e0b20' : isCallRequest ? '#3b82f620' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
+        background: isRapport ? '#f59e0b20' : isCallRequest ? 'var(--surface-2)' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         <Icon name={isCanceled || isDeclined ? 'x' : isCallRequest ? 'calendar' : isRapport ? 'video' : isAccepted ? 'check' : 'bell'} size={16} />
@@ -153,48 +171,33 @@ function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: 
           </div>
         )}
         {isRapport && (
-          <button
-            type="button"
-            onClick={onAction}
-            style={{
-              marginTop: 10, fontSize: 12, fontWeight: 700,
-              background: accentColor, color: '#fff',
-              border: 'none', borderRadius: 8, padding: '6px 14px',
-              cursor: 'pointer',
-            }}
-          >
+          <button type="button" onClick={onAction}
+            style={{ marginTop: 10, fontSize: 12, fontWeight: 700, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
             Remplir le rapport
           </button>
         )}
-        {isCallRequest && (
-          <a
-            href="/client/calls"
-            style={{
-              display: 'inline-block', marginTop: 10, fontSize: 12, fontWeight: 700,
-              background: accentColor, color: '#fff',
-              border: 'none', borderRadius: 8, padding: '6px 14px',
-              cursor: 'pointer', textDecoration: 'none',
-            }}
-          >
-            Répondre →
-          </a>
+        {isCallRequest && respondState !== 'done' && (
+          <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
+            <button type="button" onClick={handleAccept} disabled={respondState !== 'idle'}
+              style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
+              {respondState === 'accepting' ? '…' : 'Accepter'}
+            </button>
+            <button type="button" onClick={handleDecline} disabled={respondState !== 'idle'}
+              style={{ fontSize: 12, fontWeight: 700, background: 'none', color: '#ef4444', border: '1px solid #ef4444', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
+              {respondState === 'declining' ? '…' : 'Refuser'}
+            </button>
+          </div>
+        )}
+        {isCallRequest && respondState === 'done' && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Réponse envoyée</div>
         )}
         {(isCanceled || isCoachResponse) && onDismiss && (
-          <button
-            type="button"
-            onClick={onDismiss}
-            style={{
-              marginTop: 10, fontSize: 12, fontWeight: 700,
-              background: accentColor, color: '#fff',
-              border: 'none', borderRadius: 8, padding: '6px 14px',
-              cursor: 'pointer',
-            }}
-          >
+          <button type="button" onClick={onDismiss}
+            style={{ marginTop: 10, fontSize: 12, fontWeight: 700, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
             OK, compris
           </button>
         )}
       </div>
     </div>
-    </WrapTag>
   );
 }

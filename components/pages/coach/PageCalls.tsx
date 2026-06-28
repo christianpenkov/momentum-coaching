@@ -37,8 +37,10 @@ export default function PageCalls() {
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState<string | null>(null);
 
-  // Modal suppression
+  // Annulation / suppression (2 étapes)
+  const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   async function syncCalls() {
     setSyncing(true);
@@ -89,8 +91,8 @@ export default function PageCalls() {
         await refetch();
         setShowModal(false);
         setForm(EMPTY_FORM);
-        setSyncMsg('Call créé avec lien Meet');
-        setTimeout(() => setSyncMsg(null), 4000);
+        setSyncMsg('✓ Call créé — invitation envoyée à l\'élève');
+        setTimeout(() => setSyncMsg(null), 5000);
       } else {
         setCreateMsg(data.error || 'Erreur lors de la création');
       }
@@ -100,14 +102,39 @@ export default function PageCalls() {
     setCreating(false);
   }
 
+  async function handleCancelCall(callId: string) {
+    setCancelingId(callId);
+    try {
+      const res = await fetch(`/api/calls/${callId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'canceled' }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        await refetch();
+        setSyncMsg('Call annulé — visible rayé pour l\'élève');
+        setTimeout(() => setSyncMsg(null), 4000);
+      } else {
+        setSyncMsg(data.error || 'Erreur annulation');
+        setTimeout(() => setSyncMsg(null), 4000);
+      }
+    } catch {
+      setSyncMsg('Erreur réseau');
+      setTimeout(() => setSyncMsg(null), 4000);
+    }
+    setCancelingId(null);
+  }
+
   async function handleDeleteCall(callId: string) {
     setDeletingId(callId);
+    setConfirmDeleteId(null);
     try {
       const res = await fetch(`/api/calls/${callId}`, { method: 'DELETE' });
       const data = await res.json();
       if (data.ok) {
         await refetch();
-        setSyncMsg('Call supprimé');
+        setSyncMsg('Call retiré de l\'interface');
         setTimeout(() => setSyncMsg(null), 4000);
       } else {
         setSyncMsg(data.error || 'Erreur suppression');
@@ -122,16 +149,24 @@ export default function PageCalls() {
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const upcoming = calls
-    .filter(c => !['cancelled', 'canceled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
+    .filter(c => !['declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   const history = calls
-    .filter(c => !['cancelled', 'canceled', 'declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
+    .filter(c => !['declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
   const pending = calls.filter(c => c.status === 'pending_acceptance');
 
   function getClient(clientId: string) {
     return clients.find(c => c.id === clientId);
   }
+
+  if (loading) return (
+    <div className="page-content">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
+        <span className="loading-dots"><span /><span /><span /></span>
+      </div>
+    </div>
+  );
 
   return (
     <div className="page-content">
@@ -198,16 +233,24 @@ export default function PageCalls() {
                   <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
                     Réponse en attente
                   </span>
-                  <button
-                    className="btn-ghost"
-                    type="button"
-                    onClick={() => handleDeleteCall(call.id)}
-                    disabled={deletingId === call.id}
-                    style={{ fontSize: 11, color: 'var(--red)', display: 'inline-flex', alignItems: 'center', gap: 4 }}
-                  >
-                    <Icon name="trash" size={12} />
-                    {deletingId === call.id ? '…' : 'Annuler'}
-                  </button>
+                  {confirmDeleteId === call.id ? (
+                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>Retirer ?</span>
+                      <button className="btn-ghost" type="button" onClick={() => handleDeleteCall(call.id)} disabled={deletingId === call.id}
+                        style={{ fontSize: 11, color: 'var(--red)' }}>
+                        {deletingId === call.id ? '…' : 'Oui'}
+                      </button>
+                      <button className="btn-ghost" type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11 }}>Non</button>
+                    </div>
+                  ) : (
+                    <button className="btn-ghost" type="button"
+                      onClick={() => call.status === 'canceled' ? setConfirmDeleteId(call.id) : handleCancelCall(call.id)}
+                      disabled={cancelingId === call.id}
+                      style={{ fontSize: 11, color: 'var(--red)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+                      <Icon name={call.status === 'canceled' ? 'trash' : 'x'} size={12} />
+                      {cancelingId === call.id ? '…' : call.status === 'canceled' ? 'Retirer' : 'Annuler'}
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -238,9 +281,9 @@ export default function PageCalls() {
               const d = new Date(call.scheduled_at!);
               const isGoogle = (call as { call_type?: string }).call_type === 'google';
               return (
-                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
+                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px', opacity: call.status === 'canceled' ? 0.55 : 1 }}>
                   <div style={{ minWidth: 80, textAlign: 'center' }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)', textDecoration: call.status === 'canceled' ? 'line-through' : 'none' }}>
                       {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
@@ -267,20 +310,30 @@ export default function PageCalls() {
                     </a>
                   )}
                   {isGoogle && (
-                    <button
-                      className="btn-ghost"
-                      type="button"
-                      onClick={() => handleDeleteCall(call.id)}
-                      disabled={deletingId === call.id}
-                      style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }}
-                    >
-                      <Icon name="trash" size={13} />
-                      {deletingId === call.id ? '…' : 'Annuler'}
-                    </button>
+                    confirmDeleteId === call.id ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 11, color: 'var(--muted)' }}>Retirer ?</span>
+                        <button className="btn-ghost" type="button" onClick={() => handleDeleteCall(call.id)} disabled={deletingId === call.id}
+                          style={{ fontSize: 11, color: 'var(--red)' }}>{deletingId === call.id ? '…' : 'Oui'}</button>
+                        <button className="btn-ghost" type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11 }}>Non</button>
+                      </div>
+                    ) : (
+                      <button className="btn-ghost" type="button"
+                        onClick={() => call.status === 'canceled' ? setConfirmDeleteId(call.id) : handleCancelCall(call.id)}
+                        disabled={cancelingId === call.id}
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }}>
+                        <Icon name={call.status === 'canceled' ? 'trash' : 'x'} size={13} />
+                        {cancelingId === call.id ? '…' : call.status === 'canceled' ? 'Retirer' : 'Annuler'}
+                      </button>
+                    )
                   )}
-                  <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
-                    {call.ready === 'ready' ? 'Prêt' : 'En attente'}
-                  </span>
+                  {call.status === 'canceled' ? (
+                    <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Annulé</span>
+                  ) : (
+                    <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
+                      {call.ready === 'ready' ? 'Prêt' : 'En attente'}
+                    </span>
+                  )}
                 </div>
               );
             })}

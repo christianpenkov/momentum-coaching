@@ -18,6 +18,33 @@ const PRIORITY_CONFIG = {
   low:    { label: 'Basse',   color: 'var(--green)', bg: '#22c55e20' },
 };
 
+function CallRequestInlineButtons({ callId, onRefresh }: { callId: string; onRefresh: () => void }) {
+  const [state, setState] = useState<'idle' | 'accepting' | 'declining' | 'done'>('idle');
+  async function respond(response: 'accepted' | 'declined') {
+    setState(response === 'accepted' ? 'accepting' : 'declining');
+    await fetch(`/api/calls/${callId}/respond`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ response }),
+    });
+    setState('done');
+    onRefresh();
+  }
+  if (state === 'done') return <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Réponse envoyée</span>;
+  return (
+    <>
+      <button type="button" onClick={() => respond('accepted')} disabled={state !== 'idle'}
+        style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
+        {state === 'accepting' ? '…' : 'Accepter'}
+      </button>
+      <button type="button" onClick={() => respond('declined')} disabled={state !== 'idle'}
+        style={{ fontSize: 12, fontWeight: 700, background: 'none', color: '#ef4444', border: '1px solid #ef4444', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
+        {state === 'declining' ? '…' : 'Refuser'}
+      </button>
+    </>
+  );
+}
+
 function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
   if (!deadline || done) return null;
   const d = new Date(deadline);
@@ -88,31 +115,29 @@ export default function PageClientView() {
       {/* Demandes de call coaching en attente */}
       {callRequestNotifs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
             {callRequestNotifs.length} demande{callRequestNotifs.length > 1 ? 's' : ''} de call en attente
           </div>
           {callRequestNotifs.map(notif => (
-            <Link key={notif.id} href="/client/calls" style={{ textDecoration: 'none', display: 'block' }}>
-              <div className="card" style={{ borderLeft: '4px solid #3b82f6', padding: '18px 20px', marginBottom: 10, cursor: 'pointer' }}>
-                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8', marginBottom: 4 }}>DEMANDE DE CALL COACHING</div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
-                    {notif.scheduledAt && (
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                        {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                        {' · '}
-                        {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                        {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
-                      </div>
-                    )}
-                  </div>
-                  <span style={{ fontSize: 13, fontWeight: 700, background: '#3b82f6', color: '#fff', borderRadius: 8, padding: '6px 14px', flexShrink: 0 }}>
-                    Répondre →
-                  </span>
+            <div key={notif.id} className="card" style={{ borderLeft: '4px solid var(--accent)', padding: '18px 20px', marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>DEMANDE DE CALL COACHING</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
+                  {notif.scheduledAt && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                      {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      {' · '}
+                      {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
+                    </div>
+                  )}
+                </div>
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0 }}>
+                  <CallRequestInlineButtons callId={notif.callId!} onRefresh={refresh} />
                 </div>
               </div>
-            </Link>
+            </div>
           ))}
         </div>
       )}
