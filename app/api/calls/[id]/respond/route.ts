@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
-import { sendPushToProfile } from '@/lib/googleCalendarService';
+import { sendPushToProfile, getAuthClientForProfile } from '@/lib/googleCalendarService';
+import { google } from 'googleapis';
 
 // POST /api/calls/[id]/respond — l'élève accepte ou refuse un call
 export async function POST(
@@ -68,6 +69,19 @@ export async function POST(
   // Met à jour le statut du call
   const newStatus = response === 'accepted' ? 'active' : 'declined';
   await sb.from('calls').update({ status: newStatus }).eq('id', id);
+
+  // Si refus : supprimer l'événement Google Calendar (non bloquant)
+  if (response === 'declined' && call.google_event_id) {
+    try {
+      const auth = await getAuthClientForProfile(call.coach_id);
+      const calendar = google.calendar({ version: 'v3', auth });
+      await calendar.events.delete({
+        calendarId: 'primary',
+        eventId: call.google_event_id,
+        sendUpdates: 'all',
+      });
+    } catch {}
+  }
 
   // Notif push au coach
   const d = new Date(call.scheduled_at);

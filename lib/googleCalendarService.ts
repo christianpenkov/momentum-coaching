@@ -17,7 +17,7 @@ function serviceSupabase() {
   );
 }
 
-async function getAuthClientForProfile(profileId: string) {
+export async function getAuthClientForProfile(profileId: string) {
   const sb = serviceSupabase();
   const { data: integration } = await sb
     .from('integrations')
