@@ -306,7 +306,7 @@ export default function PageCalls() {
                   </div>
                   {call.join_url && call.status !== 'canceled' && (
                     <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost"
-                      style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                      style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>
                       <Icon name="video" size={13} /> Rejoindre
                     </a>
                   )}
@@ -315,14 +315,14 @@ export default function PageCalls() {
                       <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                         <span style={{ fontSize: 11, color: 'var(--muted)' }}>Retirer ?</span>
                         <button className="btn-ghost" type="button" onClick={() => handleDeleteCall(call.id)} disabled={deletingId === call.id}
-                          style={{ fontSize: 11, color: 'var(--red)' }}>{deletingId === call.id ? '…' : 'Oui'}</button>
-                        <button className="btn-ghost" type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11 }}>Non</button>
+                          style={{ fontSize: 11, color: 'var(--red)', border: '1px solid #fca5a5', borderRadius: 8, padding: '4px 10px' }}>{deletingId === call.id ? '…' : 'Oui'}</button>
+                        <button className="btn-ghost" type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>Non</button>
                       </div>
                     ) : (
                       <button className="btn-ghost" type="button"
                         onClick={() => ['canceled','declined'].includes(call.status || '') ? setConfirmDeleteId(call.id) : setConfirmCancelId(call.id)}
                         disabled={cancelingId === call.id}
-                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)' }}>
+                        style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)', border: '1px solid #fca5a5', borderRadius: 8, padding: '4px 10px' }}>
                         <Icon name={['canceled','declined'].includes(call.status || '') ? 'trash' : 'x'} size={13} />
                         {cancelingId === call.id ? '…' : ['canceled','declined'].includes(call.status || '') ? 'Retirer' : 'Annuler'}
                       </button>
