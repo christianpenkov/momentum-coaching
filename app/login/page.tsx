@@ -65,8 +65,8 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-      <div style={{ width: 400, background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '48px 40px', boxShadow: 'var(--shadow-elev)' }}>
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)', padding: '24px 16px' }}>
+      <div style={{ width: 'min(400px, 100%)', background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border)', padding: '48px 40px', boxShadow: 'var(--shadow-elev)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', marginBottom: 36 }}>
           <Image src="/logo-momentum.png" alt="Momentum" width={56} height={56} style={{ objectFit: 'contain', marginBottom: 12 }} />
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: 0 }}>Momentum</h1>
@@ -123,7 +123,7 @@ export default function LoginPage() {
           </form>
         )}
       </div>
-      <p style={{ marginTop: 24, fontSize: 11, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.6, maxWidth: 400 }}>
+      <p style={{ marginTop: 16, fontSize: 11, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.6, width: 'min(400px, 100%)' }}>
         Momentum est une plateforme éditée par l'Entreprise Individuelle Penkov Christian (UbizenAI) — SIREN 924 627 988 — Saint-Martin-d'Hères, France. Tous droits réservés.{' '}
         <a href="/privacy" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Politique de confidentialité</a>
       </p>

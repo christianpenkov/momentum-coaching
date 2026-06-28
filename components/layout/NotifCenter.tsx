@@ -98,6 +98,8 @@ export default function NotifCenter({ notifs, onClose, onRapportDone }: Props) {
 
 function NotifItem({ notif, onAction }: { notif: AppNotif; onAction: () => void }) {
   const isRapport = notif.type === 'rapport_call';
+  const isCallRequest = notif.type === 'call_request';
+  const accentColor = isRapport ? '#f59e0b' : isCallRequest ? '#3b82f6' : 'var(--accent)';
 
   return (
     <div style={{
@@ -110,10 +112,10 @@ function NotifItem({ notif, onAction }: { notif: AppNotif; onAction: () => void 
       {/* Icône */}
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: isRapport ? '#f59e0b20' : 'var(--surface-2)',
+        background: isRapport ? '#f59e0b20' : isCallRequest ? '#3b82f620' : 'var(--surface-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name={isRapport ? 'video' : 'bell'} size={16} />
+        <Icon name={isCallRequest ? 'calendar' : isRapport ? 'video' : 'bell'} size={16} />
       </div>
 
       {/* Contenu */}
@@ -133,13 +135,26 @@ function NotifItem({ notif, onAction }: { notif: AppNotif; onAction: () => void 
             onClick={onAction}
             style={{
               marginTop: 10, fontSize: 12, fontWeight: 700,
-              background: '#f59e0b', color: '#fff',
+              background: accentColor, color: '#fff',
               border: 'none', borderRadius: 8, padding: '6px 14px',
               cursor: 'pointer',
             }}
           >
             Remplir le rapport
           </button>
+        )}
+        {isCallRequest && (
+          <a
+            href="/client/calls"
+            style={{
+              display: 'inline-block', marginTop: 10, fontSize: 12, fontWeight: 700,
+              background: accentColor, color: '#fff',
+              border: 'none', borderRadius: 8, padding: '6px 14px',
+              cursor: 'pointer', textDecoration: 'none',
+            }}
+          >
+            Accepter ou refuser →
+          </a>
         )}
       </div>
     </div>

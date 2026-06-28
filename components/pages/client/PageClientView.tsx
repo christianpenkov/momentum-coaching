@@ -52,6 +52,7 @@ export default function PageClientView() {
   const { user } = useUser();
   const { notifs, refresh } = useNotifications(user?.id ?? null, true);
   const rapportNotifs = notifs.filter(n => n.type === 'rapport_call');
+  const callRequestNotifs = notifs.filter(n => n.type === 'call_request');
   const [openRapport, setOpenRapport] = useState<typeof rapportNotifs[0] | null>(null);
   const [rapportIdx, setRapportIdx] = useState(0);
 
@@ -83,6 +84,36 @@ export default function PageClientView() {
 
   return (
     <div className="page-content">
+
+      {/* Demandes de call coaching en attente */}
+      {callRequestNotifs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            {callRequestNotifs.length} demande{callRequestNotifs.length > 1 ? 's' : ''} de call en attente
+          </div>
+          {callRequestNotifs.map(notif => (
+            <div key={notif.id} className="card" style={{ borderLeft: '4px solid #3b82f6', padding: '18px 20px', marginBottom: 10 }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                <div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8', marginBottom: 4 }}>DEMANDE DE CALL COACHING</div>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
+                  {notif.scheduledAt && (
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                      {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      {' · '}
+                      {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
+                    </div>
+                  )}
+                </div>
+                <Link href="/client/calls" className="btn-primary" style={{ fontSize: 13, background: '#3b82f6', flexShrink: 0 }}>
+                  Accepter ou refuser →
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Rapports de call en attente — carrousel avec flèches latérales */}
       {rapportNotifs.length > 0 && (

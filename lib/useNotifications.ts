@@ -3,14 +3,13 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-export type NotifType = 'rapport_call';
+export type NotifType = 'rapport_call' | 'call_request';
 
 export interface AppNotif {
   id: string;
   type: NotifType;
   title: string;
   body: string;
-  // données spécifiques selon le type
   callId?: string;
   inviteeName?: string | null;
   scheduledAt?: string | null;
@@ -65,7 +64,24 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         duration: c.duration,
       }));
 
-    setNotifs(rapportNotifs);
+    // ── Calls coaching en attente d'acceptation (créés par le coach, pas Calendly) ──
+    const { data: pendingCalls } = await supabase
+      .from('calls')
+      .select('id, topic, scheduled_at, duration')
+      .eq('status', 'pending_acceptance')
+      .is('calendly_event_uuid', null);
+
+    const callRequestNotifs: AppNotif[] = (pendingCalls ?? []).map(c => ({
+      id: `call_request_${c.id}`,
+      type: 'call_request' as NotifType,
+      title: 'Demande de call coaching',
+      body: (c.topic && c.topic !== 'Call coaching') ? c.topic : 'En attente de ta réponse',
+      callId: c.id,
+      scheduledAt: c.scheduled_at,
+      duration: c.duration,
+    }));
+
+    setNotifs([...rapportNotifs, ...callRequestNotifs]);
   }, [profileId, isClient]);
 
   useEffect(() => {
