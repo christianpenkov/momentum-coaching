@@ -312,15 +312,20 @@ export async function deleteGoogleCall(params: {
     }
   }
 
-  const { data: canceledCall, error } = await sb
+  const { error } = await sb
     .from('calls')
     .update({ status: 'canceled' })
     .eq('id', params.callId)
-    .eq('coach_id', params.coachId)
-    .select('topic, scheduled_at')
-    .single();
+    .eq('coach_id', params.coachId);
 
   if (error) throw error;
+
+  // Récupère les infos séparément pour la notif (évite PGRST116 sur UPDATE+single)
+  const { data: canceledCall } = await sb
+    .from('calls')
+    .select('topic, scheduled_at')
+    .eq('id', params.callId)
+    .maybeSingle();
 
   // Notif push + notif persistante à l'élève pour l'annulation
   if (call?.client_id) {
