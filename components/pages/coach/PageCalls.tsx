@@ -332,7 +332,9 @@ export default function PageCalls() {
                     <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Annulé</span>
                   ) : call.status === 'declined' ? (
                     <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Refusé</span>
-                  ) : !isGoogle && (
+                  ) : isGoogle ? (
+                    call.status === 'active' && <span className="pill pill-green" style={{ fontSize: 11 }}>Accepté</span>
+                  ) : (
                     <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
                       {call.ready === 'ready' ? 'Prêt' : 'En attente'}
                     </span>
