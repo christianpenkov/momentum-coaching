@@ -121,6 +121,7 @@ export default function PageClientCalls() {
         .select('*')
         .eq('client_id', clientRow.id)
         .is('calendly_event_uuid', null)
+        .neq('ignored', true)
         .order('scheduled_at', { ascending: false });
       googleCalls = (data as Call[]) || [];
     }

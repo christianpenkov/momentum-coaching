@@ -150,10 +150,10 @@ export default function PageCalls() {
 
   const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
   const upcoming = calls
-    .filter(c => !['declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
+    .filter(c => c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   const history = calls
-    .filter(c => !['declined'].includes(c.status || '') && c.scheduled_at && new Date(c.scheduled_at) < todayStart)
+    .filter(c => c.scheduled_at && new Date(c.scheduled_at) < todayStart)
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
   const pending = calls.filter(c => c.status === 'pending_acceptance');
 
@@ -283,19 +283,19 @@ export default function PageCalls() {
               const isGoogle = (call as { call_type?: string }).call_type === 'google';
               return (
                 <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
-                  <div style={{ minWidth: 80, textAlign: 'center', opacity: call.status === 'canceled' ? 0.55 : 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)', textDecoration: call.status === 'canceled' ? 'line-through' : 'none' }}>
+                  <div style={{ minWidth: 80, textAlign: 'center', opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)', textDecoration: ['canceled','declined'].includes(call.status || '') ? 'line-through' : 'none' }}>
                       {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                       {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                     </div>
                   </div>
-                  <div style={{ width: 1, height: 40, background: 'var(--border)', opacity: call.status === 'canceled' ? 0.55 : 1 }} />
-                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0, opacity: call.status === 'canceled' ? 0.55 : 1 }}>
+                  <div style={{ width: 1, height: 40, background: 'var(--border)', opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }} />
+                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
                     {initials}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0, opacity: call.status === 'canceled' ? 0.55 : 1 }}>
+                  <div style={{ flex: 1, minWidth: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>{displayName}</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                       {call.topic || 'Call coaching'}
@@ -330,6 +330,8 @@ export default function PageCalls() {
                   )}
                   {call.status === 'canceled' ? (
                     <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Annulé</span>
+                  ) : call.status === 'declined' ? (
+                    <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Refusé</span>
                   ) : (
                     <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
                       {call.ready === 'ready' ? 'Prêt' : 'En attente'}
