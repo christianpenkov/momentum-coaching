@@ -75,22 +75,26 @@ export async function POST(
   const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
   const topic = call.topic || 'Call coaching';
 
-  if (response === 'accepted') {
-    await sendPushToProfile(
-      call.coach_id,
-      'Call accepté',
-      `${topic} · ${dateStr} à ${timeStr}`,
-      '/calls'
-    );
-  } else {
-    const suffix = proposedAt ? ` — propose : ${proposedAt}` : '';
-    await sendPushToProfile(
-      call.coach_id,
-      'Call refusé',
-      `${topic} · ${dateStr} à ${timeStr}${suffix}`,
-      '/calls'
-    );
-  }
+  const suffix = proposedAt ? ` — propose : ${proposedAt}` : '';
+  const notifTitle = response === 'accepted' ? 'Call accepté ✓' : 'Call refusé';
+  const notifBody = response === 'accepted'
+    ? `${topic} · ${dateStr} à ${timeStr}`
+    : `${topic} · ${dateStr} à ${timeStr}${suffix}`;
+
+  // Push immédiate au coach
+  await sendPushToProfile(call.coach_id, notifTitle, notifBody, '/calls');
+
+  // Notif persistante pour le coach (reste jusqu'au clic OK)
+  await sb.from('client_notifications').insert({
+    profile_id: call.coach_id,
+    type: response === 'accepted' ? 'call_accepted' : 'call_declined',
+    call_id: id,
+    payload: {
+      topic,
+      scheduled_at: call.scheduled_at,
+      proposed_at: proposedAt || null,
+    },
+  });
 
   return NextResponse.json({ ok: true, status: newStatus });
 }

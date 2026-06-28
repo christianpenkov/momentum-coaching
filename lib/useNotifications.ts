@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled';
+export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled' | 'call_accepted' | 'call_declined';
 
 export interface AppNotif {
   id: string;
@@ -21,7 +21,40 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
   const [notifs, setNotifs] = useState<AppNotif[]>([]);
 
   const refresh = useCallback(async () => {
-    if (!profileId || !isClient) { setNotifs([]); return; }
+    if (!profileId) { setNotifs([]); return; }
+
+    // ── Notifs coach (réponses élève) ──
+    if (!isClient) {
+      const supabase = createClient();
+      const { data: coachRows } = await supabase
+        .from('client_notifications')
+        .select('id, type, payload, created_at, call_id')
+        .in('type', ['call_accepted', 'call_declined'])
+        .is('read_at', null);
+
+      const coachNotifs: AppNotif[] = (coachRows ?? []).map(row => {
+        const isAccepted = row.type === 'call_accepted';
+        const topic = row.payload?.topic || 'Call coaching';
+        const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;
+        const dateStr = d ? d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+        const timeStr = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+        const proposedSuffix = row.payload?.proposed_at ? ` — propose : ${row.payload.proposed_at}` : '';
+        return {
+          id: `coach_notif_${row.id}`,
+          type: row.type as NotifType,
+          title: isAccepted ? 'Call accepté ✓' : 'Call refusé',
+          body: isAccepted
+            ? `${topic} · ${dateStr} à ${timeStr}`
+            : `${topic} · ${dateStr} à ${timeStr}${proposedSuffix}`,
+          callId: row.call_id ?? undefined,
+          scheduledAt: row.payload?.scheduled_at ?? null,
+          dbId: row.id,
+        };
+      });
+
+      setNotifs(coachNotifs);
+      return;
+    }
     const supabase = createClient();
     const now = new Date().toISOString();
 

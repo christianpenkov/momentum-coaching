@@ -109,7 +109,10 @@ function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: 
   const isRapport = notif.type === 'rapport_call';
   const isCallRequest = notif.type === 'call_request';
   const isCanceled = notif.type === 'call_canceled';
-  const accentColor = isRapport ? '#f59e0b' : isCallRequest ? '#3b82f6' : isCanceled ? '#ef4444' : 'var(--accent)';
+  const isAccepted = notif.type === 'call_accepted';
+  const isDeclined = notif.type === 'call_declined';
+  const isCoachResponse = isAccepted || isDeclined;
+  const accentColor = isRapport ? '#f59e0b' : isCallRequest ? '#3b82f6' : isCanceled ? '#ef4444' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
 
   const WrapTag = isCallRequest ? 'a' : 'div';
   const wrapProps = isCallRequest ? { href: '/client/calls', style: { textDecoration: 'none', color: 'inherit', display: 'block' } } : {};
@@ -132,10 +135,10 @@ function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: 
       {/* Icône */}
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: isRapport ? '#f59e0b20' : isCallRequest ? '#3b82f620' : isCanceled ? '#ef444420' : 'var(--surface-2)',
+        background: isRapport ? '#f59e0b20' : isCallRequest ? '#3b82f620' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name={isCanceled ? 'x' : isCallRequest ? 'calendar' : isRapport ? 'video' : 'bell'} size={16} />
+        <Icon name={isCanceled || isDeclined ? 'x' : isCallRequest ? 'calendar' : isRapport ? 'video' : isAccepted ? 'check' : 'bell'} size={16} />
       </div>
 
       {/* Contenu */}
@@ -176,13 +179,13 @@ function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: 
             Répondre →
           </a>
         )}
-        {isCanceled && onDismiss && (
+        {(isCanceled || isCoachResponse) && onDismiss && (
           <button
             type="button"
             onClick={onDismiss}
             style={{
               marginTop: 10, fontSize: 12, fontWeight: 700,
-              background: '#ef4444', color: '#fff',
+              background: accentColor, color: '#fff',
               border: 'none', borderRadius: 8, padding: '6px 14px',
               cursor: 'pointer',
             }}
