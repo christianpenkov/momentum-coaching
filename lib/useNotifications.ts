@@ -137,14 +137,44 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
   }, [profileId, isClient]);
 
   useEffect(() => {
+    if (!profileId) return;
     refresh();
     const interval = setInterval(refresh, 60_000);
     window.addEventListener('notifs-refresh', refresh);
+
+    const supabase = createClient();
+
+    // Realtime sur client_notifications (annulations, acceptations, refus)
+    const channel = supabase
+      .channel(`notifs-rt-${profileId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'client_notifications',
+          filter: `profile_id=eq.${profileId}`,
+        },
+        () => refresh()
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'calls',
+          ...(isClient ? {} : { filter: `coach_id=eq.${profileId}` }),
+        },
+        () => refresh()
+      )
+      .subscribe();
+
     return () => {
       clearInterval(interval);
       window.removeEventListener('notifs-refresh', refresh);
+      supabase.removeChannel(channel);
     };
-  }, [refresh]);
+  }, [profileId, isClient, refresh]);
 
   return { notifs, refresh };
 }
