@@ -92,25 +92,27 @@ export default function PageClientView() {
             {callRequestNotifs.length} demande{callRequestNotifs.length > 1 ? 's' : ''} de call en attente
           </div>
           {callRequestNotifs.map(notif => (
-            <div key={notif.id} className="card" style={{ borderLeft: '4px solid #3b82f6', padding: '18px 20px', marginBottom: 10 }}>
-              <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8', marginBottom: 4 }}>DEMANDE DE CALL COACHING</div>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
-                  {notif.scheduledAt && (
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                      {' · '}
-                      {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                      {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
-                    </div>
-                  )}
+            <Link key={notif.id} href="/client/calls" style={{ textDecoration: 'none', display: 'block' }}>
+              <div className="card" style={{ borderLeft: '4px solid #3b82f6', padding: '18px 20px', marginBottom: 10, cursor: 'pointer' }}>
+                <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                  <div>
+                    <div style={{ fontSize: 11, fontWeight: 600, color: '#1d4ed8', marginBottom: 4 }}>DEMANDE DE CALL COACHING</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
+                    {notif.scheduledAt && (
+                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                        {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                        {' · '}
+                        {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                        {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{ fontSize: 13, fontWeight: 700, background: '#3b82f6', color: '#fff', borderRadius: 8, padding: '6px 14px', flexShrink: 0 }}>
+                    Répondre →
+                  </span>
                 </div>
-                <Link href="/client/calls" className="btn-primary" style={{ fontSize: 13, background: '#3b82f6', flexShrink: 0 }}>
-                  Accepter ou refuser →
-                </Link>
               </div>
-            </div>
+            </Link>
           ))}
         </div>
       )}

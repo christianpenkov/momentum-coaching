@@ -111,14 +111,24 @@ function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: 
   const isCanceled = notif.type === 'call_canceled';
   const accentColor = isRapport ? '#f59e0b' : isCallRequest ? '#3b82f6' : isCanceled ? '#ef4444' : 'var(--accent)';
 
+  const WrapTag = isCallRequest ? 'a' : 'div';
+  const wrapProps = isCallRequest ? { href: '/client/calls', style: { textDecoration: 'none', color: 'inherit', display: 'block' } } : {};
+
   return (
+    <WrapTag {...(wrapProps as any)}>
     <div style={{
       padding: '12px 16px',
       display: 'flex',
       gap: 12,
       alignItems: 'flex-start',
       borderBottom: '1px solid var(--border)',
-    }}>
+      cursor: isCallRequest ? 'pointer' : 'default',
+      background: isCallRequest ? 'transparent' : undefined,
+      transition: isCallRequest ? 'background 0.15s' : undefined,
+    }}
+    onMouseEnter={isCallRequest ? e => (e.currentTarget.style.background = '#3b82f608') : undefined}
+    onMouseLeave={isCallRequest ? e => (e.currentTarget.style.background = 'transparent') : undefined}
+    >
       {/* Icône */}
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
@@ -163,7 +173,7 @@ function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: 
               cursor: 'pointer', textDecoration: 'none',
             }}
           >
-            Accepter ou refuser →
+            Répondre →
           </a>
         )}
         {isCanceled && onDismiss && (
@@ -182,5 +192,6 @@ function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: 
         )}
       </div>
     </div>
+    </WrapTag>
   );
 }
