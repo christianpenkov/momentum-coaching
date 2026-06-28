@@ -66,6 +66,7 @@ export async function DELETE(
     return NextResponse.json({ ok: true });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erreur inconnue';
+    console.error('[DELETE /api/calls]', message, err);
     return NextResponse.json({ error: message }, { status: 500 });
   }
 }
