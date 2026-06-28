@@ -5,16 +5,24 @@ import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { AppNotif } from '@/lib/useNotifications';
 import RapportModal from '@/components/ui/RapportModal';
+import { createClient } from '@/lib/supabase/client';
 
 interface Props {
   notifs: AppNotif[];
   onClose: () => void;
   onRapportDone: () => void;
+  onRefresh: () => void;
 }
 
-export default function NotifCenter({ notifs, onClose, onRapportDone }: Props) {
+export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [rapportNotif, setRapportNotif] = useState<AppNotif | null>(null);
+
+  async function dismissCanceled(dbId: string) {
+    const supabase = createClient();
+    await supabase.from('client_notifications').update({ read_at: new Date().toISOString() }).eq('id', dbId);
+    onRefresh();
+  }
 
   // Ferme si clic dehors — désactivé si la modale rapport est ouverte
   useEffect(() => {
@@ -76,6 +84,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone }: Props) {
                 onAction={() => {
                   if (notif.type === 'rapport_call') setRapportNotif(notif);
                 }}
+                onDismiss={notif.dbId ? () => dismissCanceled(notif.dbId!) : undefined}
               />
             ))}
           </div>
@@ -96,10 +105,11 @@ export default function NotifCenter({ notifs, onClose, onRapportDone }: Props) {
   );
 }
 
-function NotifItem({ notif, onAction }: { notif: AppNotif; onAction: () => void }) {
+function NotifItem({ notif, onAction, onDismiss }: { notif: AppNotif; onAction: () => void; onDismiss?: () => void }) {
   const isRapport = notif.type === 'rapport_call';
   const isCallRequest = notif.type === 'call_request';
-  const accentColor = isRapport ? '#f59e0b' : isCallRequest ? '#3b82f6' : 'var(--accent)';
+  const isCanceled = notif.type === 'call_canceled';
+  const accentColor = isRapport ? '#f59e0b' : isCallRequest ? '#3b82f6' : isCanceled ? '#ef4444' : 'var(--accent)';
 
   return (
     <div style={{
@@ -112,10 +122,10 @@ function NotifItem({ notif, onAction }: { notif: AppNotif; onAction: () => void 
       {/* Icône */}
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: isRapport ? '#f59e0b20' : isCallRequest ? '#3b82f620' : 'var(--surface-2)',
+        background: isRapport ? '#f59e0b20' : isCallRequest ? '#3b82f620' : isCanceled ? '#ef444420' : 'var(--surface-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name={isCallRequest ? 'calendar' : isRapport ? 'video' : 'bell'} size={16} />
+        <Icon name={isCanceled ? 'x' : isCallRequest ? 'calendar' : isRapport ? 'video' : 'bell'} size={16} />
       </div>
 
       {/* Contenu */}
@@ -155,6 +165,20 @@ function NotifItem({ notif, onAction }: { notif: AppNotif; onAction: () => void 
           >
             Accepter ou refuser →
           </a>
+        )}
+        {isCanceled && onDismiss && (
+          <button
+            type="button"
+            onClick={onDismiss}
+            style={{
+              marginTop: 10, fontSize: 12, fontWeight: 700,
+              background: '#ef4444', color: '#fff',
+              border: 'none', borderRadius: 8, padding: '6px 14px',
+              cursor: 'pointer',
+            }}
+          >
+            OK, compris
+          </button>
         )}
       </div>
     </div>

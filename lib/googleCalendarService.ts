@@ -312,15 +312,17 @@ export async function deleteGoogleCall(params: {
     }
   }
 
-  const { error } = await sb
+  const { data: canceledCall, error } = await sb
     .from('calls')
     .update({ status: 'canceled' })
     .eq('id', params.callId)
-    .eq('coach_id', params.coachId);
+    .eq('coach_id', params.coachId)
+    .select('topic, scheduled_at')
+    .single();
 
   if (error) throw error;
 
-  // Notif push à l'élève pour l'annulation
+  // Notif push + notif persistante à l'élève pour l'annulation
   if (call?.client_id) {
     const { data: clientRow } = await sb
       .from('clients')
@@ -329,12 +331,24 @@ export async function deleteGoogleCall(params: {
       .single();
 
     if (clientRow?.profile_id) {
+      const topic = canceledCall?.topic || 'Call coaching';
+      const scheduledAt = canceledCall?.scheduled_at ?? null;
+
+      // Push immédiate
       await sendPushToProfile(
         clientRow.profile_id,
         'Call annulé',
-        'Le coach a annulé ce call.',
+        `Ton coach a annulé : ${topic}`,
         '/client/calls'
       );
+
+      // Notif persistante dans client_notifications (reste jusqu'au clic OK)
+      await sb.from('client_notifications').insert({
+        profile_id: clientRow.profile_id,
+        type: 'call_canceled',
+        call_id: params.callId,
+        payload: { topic, scheduled_at: scheduledAt },
+      });
     }
   }
 }

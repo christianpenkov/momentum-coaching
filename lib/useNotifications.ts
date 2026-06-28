@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
 
-export type NotifType = 'rapport_call' | 'call_request';
+export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled';
 
 export interface AppNotif {
   id: string;
@@ -11,6 +11,7 @@ export interface AppNotif {
   title: string;
   body: string;
   callId?: string;
+  dbId?: string;
   inviteeName?: string | null;
   scheduledAt?: string | null;
   duration?: string | null;
@@ -81,7 +82,25 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       duration: c.duration,
     }));
 
-    setNotifs([...rapportNotifs, ...callRequestNotifs]);
+    // ── Annulations de call non lues (persistées en DB jusqu'au clic OK) ──
+    const { data: canceledRows } = await supabase
+      .from('client_notifications')
+      .select('id, payload, created_at, call_id')
+      .eq('type', 'call_canceled')
+      .is('read_at', null);
+
+    const callCanceledNotifs: AppNotif[] = (canceledRows ?? []).map(row => ({
+      id: `call_canceled_${row.id}`,
+      type: 'call_canceled' as NotifType,
+      title: 'Call annulé',
+      body: row.payload?.topic ? `Ton coach a annulé : ${row.payload.topic}` : 'Ton coach a annulé ce call.',
+      callId: row.call_id ?? undefined,
+      scheduledAt: row.payload?.scheduled_at ?? null,
+      // on stocke le notif DB id pour pouvoir le marquer lu
+      dbId: row.id,
+    }));
+
+    setNotifs([...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs]);
   }, [profileId, isClient]);
 
   useEffect(() => {

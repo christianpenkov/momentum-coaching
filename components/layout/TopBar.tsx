@@ -59,6 +59,7 @@ export default function TopBar() {
           notifs={notifs}
           onClose={() => setNotifOpen(false)}
           onRapportDone={() => { refresh(); setNotifOpen(false); }}
+          onRefresh={refresh}
         />
       )}
     </div>
