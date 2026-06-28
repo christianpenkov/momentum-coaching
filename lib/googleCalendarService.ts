@@ -150,7 +150,7 @@ export async function createGoogleCall(params: {
     conferenceDataVersion: 1,
     sendUpdates: clientEmail ? 'all' : 'none', // envoie l'invite email Google si l'élève est connecté
     requestBody: {
-      summary: params.topic || 'Call coaching',
+      summary: params.topic ? `Call coaching — ${params.clientName} · ${params.topic}` : `Call coaching — ${params.clientName}`,
       description: '',
       start: { dateTime: params.startTime, timeZone: 'Europe/Paris' },
       end: { dateTime: params.endTime, timeZone: 'Europe/Paris' },
