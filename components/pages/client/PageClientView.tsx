@@ -278,7 +278,7 @@ export default function PageClientView() {
                     </span>
                   )}
                   {task.added_by === 'coach' && (
-                    <span title="Tâche assignée par ton coach" style={{ fontSize: 11, flexShrink: 0 }}>⭐</span>
+                    <span title={`Tâche assignée par ${client.coachName || 'ton coach'}`} style={{ fontSize: 11, flexShrink: 0 }}>⭐</span>
                   )}
                 </div>
               );
@@ -309,7 +309,7 @@ export default function PageClientView() {
             <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
               <div className="card-head">
                 <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Icon name="sparkle" size={14} /> Message de ton coach
+                  <Icon name="sparkle" size={14} /> Message de {client.coachName || 'ton coach'}
                 </div>
               </div>
               <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--accent)', marginTop: 12, fontStyle: 'italic' }}>

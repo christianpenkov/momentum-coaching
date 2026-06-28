@@ -69,6 +69,7 @@ export default function PageClientSettings() {
   const [keyError, setKeyError] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
+  const [coachName, setCoachName] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -79,6 +80,12 @@ export default function PageClientSettings() {
 
       const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single();
       if (profile) setName(profile.full_name || '');
+
+      const { data: clientRow } = await supabase.from('clients').select('coach_id').eq('profile_id', user.id).maybeSingle();
+      if (clientRow?.coach_id) {
+        const { data: coachProfile } = await supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle();
+        if (coachProfile?.full_name) setCoachName(coachProfile.full_name.split(' ')[0]);
+      }
 
       const { data: integs } = await supabase.from('integrations').select('provider').eq('profile_id', user.id);
       if (integs) {
@@ -198,7 +205,7 @@ export default function PageClientSettings() {
       <div className="settings-section" style={{ marginTop: 28 }}>
         <div className="settings-section-title">Mes connexions</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
-          Colle tes clés API pour que ton coach puisse suivre tes progrès en temps réel.
+          Colle tes clés API pour que {coachName || 'ton coach'} puisse suivre tes progrès en temps réel.
         </div>
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {INTEGRATIONS.map((cfg, i) => {
@@ -210,7 +217,7 @@ export default function PageClientSettings() {
                   <Icon name={cfg.icon as any} size={20} color={connected ? 'var(--green)' : 'var(--muted)'} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc}</div>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc.replace('ton coach', coachName || 'ton coach')}</div>
                   </div>
                   {connected ? (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>

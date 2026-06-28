@@ -7,6 +7,7 @@ import Icon, { IconName } from './Icon';
 interface OnboardingProps {
   open: boolean;
   onClose: () => void;
+  coachName?: string | null;
 }
 
 interface StepFeature {
@@ -179,7 +180,7 @@ const checkVariants = {
   visible: { scale: 1, opacity: 1, transition: { type: 'spring' as const, stiffness: 400, damping: 20 } },
 };
 
-export default function Onboarding({ open, onClose }: OnboardingProps) {
+export default function Onboarding({ open, onClose, coachName }: OnboardingProps) {
   const [step, setStep] = useState(0);
   const [nextHovered, setNextHovered] = useState(false);
   const [connected, setConnected] = useState<Set<string>>(new Set());
@@ -196,7 +197,17 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
-  const current = STEPS[step];
+  function substituteCoach(text: string) {
+    if (!coachName) return text;
+    return text.replace(/votre coach/gi, coachName).replace(/ton coach/gi, coachName);
+  }
+
+  const rawStep = STEPS[step];
+  const current = {
+    ...rawStep,
+    subtitle: substituteCoach(rawStep.subtitle),
+    features: rawStep.features.map(f => ({ ...f, text: substituteCoach(f.text) })),
+  };
   const isLast = step === STEPS.length - 1;
   const anyConnected = connected.size > 0;
 
@@ -377,7 +388,7 @@ export default function Onboarding({ open, onClose }: OnboardingProps) {
                       {/* Security badge */}
                       <m.div variants={staggerChild} className="onboarding-badge-secure">
                         <Icon name="shield" size={15} color="var(--green)" style={{ flexShrink: 0 }} />
-                        <span>Vos données sont privées et sécurisées. Accessibles uniquement par votre coach.</span>
+                        <span>Vos données sont privées et sécurisées. Accessibles uniquement par {coachName || 'votre coach'}.</span>
                       </m.div>
                     </>
                   ) : (

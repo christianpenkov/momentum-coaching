@@ -28,12 +28,21 @@ export default function SidebarClient() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const { user } = useUser();
   const [week, setWeek] = useState<number | null>(null);
+  const [coachName, setCoachName] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user?.id) return;
     const supabase = createClient();
-    supabase.from('clients').select('week').eq('profile_id', user.id).single()
-      .then(({ data }) => { if (data) setWeek(data.week); });
+    supabase.from('clients').select('week, coach_id').eq('profile_id', user.id).single()
+      .then(({ data }) => {
+        if (data) {
+          setWeek(data.week);
+          if (data.coach_id) {
+            supabase.from('profiles').select('full_name').eq('id', data.coach_id).maybeSingle()
+              .then(({ data: p }) => { if (p?.full_name) setCoachName(p.full_name.split(' ')[0]); });
+          }
+        }
+      });
   }, [user?.id]);
 
   return (
@@ -82,7 +91,7 @@ export default function SidebarClient() {
         </div>
       </nav>
     </aside>
-    <Onboarding open={onboardingOpen} onClose={() => setOnboardingOpen(false)} />
+    <Onboarding open={onboardingOpen} onClose={() => setOnboardingOpen(false)} coachName={coachName} />
     </>
   );
 }

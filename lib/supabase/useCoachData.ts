@@ -11,6 +11,7 @@ export interface ClientWithMetrics extends Client {
   prevMetrics: WeeklyMetrics | null;
   resources: { id: string; title: string; description: string | null; url: string | null; week: number | null; created_at: string }[];
   lastCoachMessage: string | null;
+  coachName: string | null;
 }
 
 export interface CoachData {
@@ -170,14 +171,18 @@ export function useClientSelfData() {
         .from('clients').select('*').eq('profile_id', user.id).single();
       if (!clientRow) { setLoading(false); return; }
 
-      const [metricsRes, tasksRes, resourcesRes, lastMsgRes] = await Promise.all([
+      const [metricsRes, tasksRes, resourcesRes, lastMsgRes, coachProfileRes] = await Promise.all([
         supabase.from('weekly_metrics').select('*').eq('client_id', clientRow.id).order('week', { ascending: true }),
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
         supabase.from('messages').select('text, created_at').eq('client_id', clientRow.id).eq('sender_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(1),
+        supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).single(),
       ]);
 
       const metrics = metricsRes.data || [];
+      const coachFullName: string | null = coachProfileRes.data?.full_name ?? null;
+      const coachName = coachFullName ? coachFullName.split(' ')[0] : null;
+
       setData({
         ...clientRow,
         weeklyMetrics: metrics,
@@ -186,6 +191,7 @@ export function useClientSelfData() {
         prevMetrics: metrics[metrics.length - 2] || null,
         resources: resourcesRes.data || [],
         lastCoachMessage: lastMsgRes.data?.[0]?.text || null,
+        coachName,
       });
       setLoading(false);
     }

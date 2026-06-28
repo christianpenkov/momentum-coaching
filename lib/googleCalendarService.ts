@@ -191,19 +191,19 @@ export async function createGoogleCall(params: {
   if (error) throw error;
 
   // Notif push immédiate à l'élève
-  const { data: client } = await sb
-    .from('clients')
-    .select('profile_id')
-    .eq('id', params.clientId)
-    .single();
+  const [clientRes, coachProfileRes] = await Promise.all([
+    sb.from('clients').select('profile_id').eq('id', params.clientId).single(),
+    sb.from('profiles').select('full_name').eq('id', params.coachId).maybeSingle(),
+  ]);
+  const coachFirstName = coachProfileRes.data?.full_name ? coachProfileRes.data.full_name.split(' ')[0] : null;
 
-  if (client?.profile_id) {
+  if (clientRes.data?.profile_id) {
     const d = new Date(params.startTime);
     const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
     const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     await sendPushToProfile(
-      client.profile_id,
-      'Nouvelle demande de call',
+      clientRes.data.profile_id,
+      `Demande de call — ${coachFirstName || 'ton coach'}`,
       `${params.topic || 'Call coaching'} · ${dateStr} à ${timeStr} — Accepter ou refuser`,
       '/client/calls'
     );
@@ -264,19 +264,19 @@ export async function updateGoogleCall(params: {
 
   // Notif push à l'élève pour le déplacement
   if (call.client_id) {
-    const { data: clientRow } = await sb
-      .from('clients')
-      .select('profile_id')
-      .eq('id', call.client_id)
-      .single();
+    const [clientRes, coachProfileRes] = await Promise.all([
+      sb.from('clients').select('profile_id').eq('id', call.client_id).single(),
+      sb.from('profiles').select('full_name').eq('id', params.coachId).maybeSingle(),
+    ]);
+    const coachFirstName = coachProfileRes.data?.full_name ? coachProfileRes.data.full_name.split(' ')[0] : null;
 
-    if (clientRow?.profile_id) {
+    if (clientRes.data?.profile_id) {
       const d = new Date(params.startTime);
       const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
       const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
       await sendPushToProfile(
-        clientRow.profile_id,
-        'Call déplacé',
+        clientRes.data.profile_id,
+        `Call déplacé — ${coachFirstName || 'ton coach'}`,
         `Nouveau créneau : ${dateStr} à ${timeStr}`,
         '/client/calls'
       );
@@ -327,6 +327,14 @@ export async function deleteGoogleCall(params: {
     .eq('id', params.callId)
     .maybeSingle();
 
+  // Prénom du coach pour personnaliser la notif
+  const { data: coachProfile } = await sb
+    .from('profiles')
+    .select('full_name')
+    .eq('id', params.coachId)
+    .maybeSingle();
+  const coachFirstName = coachProfile?.full_name ? coachProfile.full_name.split(' ')[0] : null;
+
   // Notif push + notif persistante à l'élève pour l'annulation
   if (call?.client_id) {
     const { data: clientRow } = await sb
@@ -343,7 +351,7 @@ export async function deleteGoogleCall(params: {
       await sendPushToProfile(
         clientRow.profile_id,
         'Call annulé',
-        `Ton coach a annulé : ${topic}`,
+        `${coachFirstName || 'Ton coach'} a annulé : ${topic}`,
         '/client/calls'
       );
 

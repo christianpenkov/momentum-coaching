@@ -263,6 +263,7 @@ export default function PageClientResources() {
   const [search, setSearch] = useState('');
   const [previewResource, setPreviewResource] = useState<ResourceWithSeen | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [coachName, setCoachName] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -278,6 +279,10 @@ export default function PageClientResources() {
         .single();
 
       if (!clientRow) { setLoading(false); return; }
+
+      const { data: coachProfile } = await supabase
+        .from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle();
+      if (coachProfile?.full_name) setCoachName(coachProfile.full_name.split(' ')[0]);
 
       const { data: accessData } = await supabase
         .from('resource_access')
@@ -398,7 +403,7 @@ export default function PageClientResources() {
           </div>
           <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Aucune ressource</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Ton coach te débloquera des ressources au fur et à mesure de ta progression.
+            {coachName || 'Ton coach'} te débloquera des ressources au fur et à mesure de ta progression.
           </div>
         </motion.div>
       )}

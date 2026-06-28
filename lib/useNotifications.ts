@@ -19,6 +19,19 @@ export interface AppNotif {
 
 export function useNotifications(profileId: string | null, isClient: boolean) {
   const [notifs, setNotifs] = useState<AppNotif[]>([]);
+  const [coachName, setCoachName] = useState<string | null>(null);
+
+  // Charge le prénom du coach une seule fois (pour l'élève uniquement)
+  useEffect(() => {
+    if (!profileId || !isClient) return;
+    const supabase = createClient();
+    supabase.from('clients').select('coach_id').eq('profile_id', profileId).maybeSingle()
+      .then(({ data }) => {
+        if (!data?.coach_id) return;
+        supabase.from('profiles').select('full_name').eq('id', data.coach_id).maybeSingle()
+          .then(({ data: p }) => { if (p?.full_name) setCoachName(p.full_name.split(' ')[0]); });
+      });
+  }, [profileId, isClient]);
 
   const refresh = useCallback(async () => {
     if (!profileId) { setNotifs([]); return; }
@@ -126,7 +139,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       id: `call_canceled_${row.id}`,
       type: 'call_canceled' as NotifType,
       title: 'Call annulé',
-      body: row.payload?.topic ? `Ton coach a annulé : ${row.payload.topic}` : 'Ton coach a annulé ce call.',
+      body: row.payload?.topic ? `${coachName || 'Ton coach'} a annulé : ${row.payload.topic}` : `${coachName || 'Ton coach'} a annulé ce call.`,
       callId: row.call_id ?? undefined,
       scheduledAt: row.payload?.scheduled_at ?? null,
       // on stocke le notif DB id pour pouvoir le marquer lu
@@ -134,7 +147,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     }));
 
     setNotifs([...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs]);
-  }, [profileId, isClient]);
+  }, [profileId, isClient, coachName]);
 
   useEffect(() => {
     if (!profileId) return;
