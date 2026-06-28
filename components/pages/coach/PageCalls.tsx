@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
@@ -333,8 +334,8 @@ export default function PageCalls() {
         )
       )}
 
-      {/* Modal création de call */}
-      {showModal && (
+      {/* Modal création de call — portal sur document.body pour éviter le stacking context de la sidebar */}
+      {showModal && createPortal(
         <div
           style={{
             position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
@@ -484,7 +485,8 @@ export default function PageCalls() {
               </div>
             </form>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
