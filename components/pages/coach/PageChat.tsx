@@ -250,10 +250,15 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 const CTX_MENU_WIDTH = 160;
 const CTX_MENU_HEIGHT = 90;
 
-function MessageContextMenu({ rect, canEdit, canDelete, onEdit, onDelete, onClose }: {
-  rect: DOMRect; canEdit: boolean; canDelete: boolean;
+function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, onClose }: {
+  rect: DOMRect; html: string; canEdit: boolean; canDelete: boolean;
   onEdit: () => void; onDelete: () => void; onClose: () => void;
 }) {
+  const cloneRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (cloneRef.current) cloneRef.current.innerHTML = html;
+  }, [html]);
+
   if (typeof document === 'undefined') return null;
   // Ancré sous la bulle agrandie (façon WhatsApp), pas aux coordonnées brutes du doigt.
   const GAP = 8;
@@ -264,6 +269,17 @@ function MessageContextMenu({ rect, canEdit, canDelete, onEdit, onDelete, onClos
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
+      {/* Clone visuel de la bulle — même raison que côté élève : overflow:auto de la
+          zone de scroll parente clippe tout transform:scale() sur l'original. */}
+      <div
+        ref={cloneRef}
+        style={{
+          position: 'fixed', left: rect.left, top: rect.top, width: rect.width, height: rect.height,
+          zIndex: 10000, transform: 'scale(1.06)', transformOrigin: 'center center',
+          animation: 'ctxBubbleIn 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+          pointerEvents: 'none',
+        }}
+      />
       <div style={{
         position: 'fixed', left, top: Math.max(top, 8), zIndex: 10000,
         background: 'var(--surface)', border: '1px solid var(--border)',
@@ -337,7 +353,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   isEditing: boolean; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
-  onOpenCtxMenu: (rect: DOMRect) => void;
+  onOpenCtxMenu: (rect: DOMRect, html: string) => void;
   onOpenLightbox: (url: string) => void;
   isMenuTarget?: boolean;
   onEnterViewport?: (msgId: string) => void;
@@ -347,8 +363,12 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const isImage = msg.type === 'image';
   const isDocument = msg.type === 'document';
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const openMenu = () => {
+    if (!bubbleRef.current) return;
+    onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
+  };
   const longPress = useLongPress(() => {
-    if (isMe && (canEdit || canDelete) && bubbleRef.current) onOpenCtxMenu(bubbleRef.current.getBoundingClientRect());
+    if (isMe && (canEdit || canDelete)) openMenu();
   });
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
@@ -361,10 +381,22 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
     if (!onEnterViewport || isMe || !bubbleRef.current || typeof IntersectionObserver === 'undefined') return;
     const el = bubbleRef.current;
     let pendingVisible = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    // Le message doit rester affiché ~1,5s avant d'être considéré lu — un simple
+    // passage rapide en scrollant ne doit pas suffire.
+    const READ_DELAY_MS = 1500;
+
+    const clearTimer = () => {
+      if (timer) { clearTimeout(timer); timer = null; }
+    };
 
     const tryMark = () => {
+      clearTimer();
       if (pendingVisible && document.visibilityState === 'visible') {
-        onEnterViewport(msg.id);
+        timer = setTimeout(() => {
+          if (pendingVisible && document.visibilityState === 'visible') onEnterViewport(msg.id);
+        }, READ_DELAY_MS);
       }
     };
 
@@ -376,6 +408,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
     document.addEventListener('visibilitychange', tryMark);
 
     return () => {
+      clearTimer();
       observer.disconnect();
       document.removeEventListener('visibilitychange', tryMark);
     };
@@ -388,7 +421,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
         onContextMenu={e => {
           if (!isMe || (!canEdit && !canDelete)) return;
           e.preventDefault();
-          if (bubbleRef.current) onOpenCtxMenu(bubbleRef.current.getBoundingClientRect());
+          openMenu();
         }}
         {...(isMe ? longPress : {})}
         style={{
@@ -401,9 +434,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
-          transform: isMenuTarget ? 'scale(1.06)' : 'scale(1)',
-          transition: 'transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
-          zIndex: isMenuTarget ? 10000 : 'auto',
+          visibility: isMenuTarget ? 'hidden' : 'visible',
         }}>
         {isEditing ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -528,7 +559,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
   const [isSendingFile, setIsSendingFile] = useState(false);
-  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; html: string; msgId: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -841,7 +872,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
                     onSaveEdit={() => { editMessage(msg.id, editText); setEditingId(null); }}
                     canEdit={canEditMsg(msg)}
                     canDelete={canDeleteMsg(msg)}
-                    onOpenCtxMenu={(rect) => setCtxMenu({ rect, msgId: msg.id })}
+                    onOpenCtxMenu={(rect, html) => setCtxMenu({ rect, html, msgId: msg.id })}
                     onOpenLightbox={setLightboxUrl}
                     isMenuTarget={ctxMenu?.msgId === msg.id}
                     onEnterViewport={markMessageRead}
@@ -1027,6 +1058,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         return (
           <MessageContextMenu
             rect={ctxMenu.rect}
+            html={ctxMenu.html}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
             onEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
             onDelete={() => setConfirmDeleteId(msg.id)}

@@ -1647,6 +1647,10 @@ a { color: inherit; text-decoration: none; }
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+@keyframes ctxBubbleIn {
+  from { transform: scale(1); }
+  to   { transform: scale(1.06); }
+}
 @keyframes scaleIn {
   from { opacity: 0; transform: scale(0.94); }
   to   { opacity: 1; transform: scale(1); }
