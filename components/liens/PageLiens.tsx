@@ -946,15 +946,18 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         </div>
 
         <div style={{ padding: '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* Bulle DM1 — accroche */}
-          <ChatBubble tag="1" tagLabel="envoyé avec le commentaire">
+          {/* DM1 — accroche, même style autonome que DM3 */}
+          <div>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
+              DM 1 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé avec le commentaire</span>
+            </div>
             <Dm1Editor
               value={dm1Text}
               onChange={v => { setDm1Text(v); setDm1Saved(false); }}
               saved={dm1Saved}
               blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
             />
-          </ChatBubble>
+          </div>
           {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8 }}>{dm1Error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2, marginBottom: 4 }}>
             <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
@@ -1124,14 +1127,17 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
         </div>
         <div style={{ padding: '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          <ChatBubble tag="1" tagLabel="envoyé avec le commentaire">
+          <div>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
+              DM 1 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé avec le commentaire</span>
+            </div>
             <Dm1Editor
               value={dm1Text}
               onChange={v => setDm1Text(v)}
               saved={true}
               blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
             />
-          </ChatBubble>
+          </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2, marginBottom: 10 }}>
             <input
