@@ -4191,7 +4191,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const calendlyLinksSeries = dayRange.map(date => ({ date, v: calendlyLinksPerDay.get(date) ?? 0 }));
 
   // 5. Taux d'activation DM — ratio clics/liens envoyés par jour (via first_click_at)
-  // null (pas 0) pour les jours sans lien envoyé — évite un faux 0% visuel
+  // 0% (pas de trou) pour les jours sans lien envoyé — priorité à la lisibilité
+  // d'une ligne continue plutôt qu'à des points isolés difficiles à lire sur 30 jours.
   const activationClicsPerDay = new Map<string, number>();
   for (const l of calendlyLinksSent) {
     if (!l.first_click_at) continue;
@@ -4201,7 +4202,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const activationSeries = dayRange.map(date => {
     const sent = calendlyLinksPerDay.get(date) ?? 0;
     const clicked = activationClicsPerDay.get(date) ?? 0;
-    return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : null };
+    return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
   });
 
   // 6. Calls bookés — grouper callsInWindow par jour sur scheduled_at
@@ -4601,10 +4602,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[0, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
-                    <div className="chart-tooltip-row"><strong>{payload[0].value == null ? 'Aucun lien envoyé' : `${payload[0].value}%`}</strong></div>
+                    <div className="chart-tooltip-row"><strong>{payload[0].value}%</strong></div>
                   </div>
                 )} />
-                <Area type="monotone" dataKey="v" stroke={BLUE} strokeWidth={2} fill="none" dot={{ r: 2 }} connectNulls={false} isAnimationActive={false} />
+                <Area type="monotone" dataKey="v" stroke={BLUE} strokeWidth={2} fill="none" dot={{ r: 2 }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           </div>
@@ -4612,7 +4613,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         {selectedMetric === 'calls' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={180}>
-              <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="2%">
+              <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="0%" barGap={1}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
@@ -4623,9 +4624,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </div>
                 )} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar yAxisId="left" dataKey="booked" name="Bookés" fill={BLUE} radius={[2,2,0,0]} />
-                <Bar yAxisId="left" dataKey="honored" name="Honorés" fill={GREEN} radius={[2,2,0,0]} opacity={0.75} />
-                <Bar yAxisId="left" dataKey="closed" name="Closés" fill={AMBER} radius={[2,2,0,0]} opacity={0.75} />
+                <Bar yAxisId="left" dataKey="booked" name="Bookés" fill={BLUE} radius={[2,2,0,0]} barSize={7} />
+                <Bar yAxisId="left" dataKey="honored" name="Honorés" fill={GREEN} radius={[2,2,0,0]} opacity={0.75} barSize={7} />
+                <Bar yAxisId="left" dataKey="closed" name="Closés" fill={AMBER} radius={[2,2,0,0]} opacity={0.75} barSize={7} />
                 <Line yAxisId="right" type="monotone" dataKey="revenue" name="Revenu" stroke={RED} strokeWidth={2} dot={false} />
               </ComposedChart>
             </ResponsiveContainer>
