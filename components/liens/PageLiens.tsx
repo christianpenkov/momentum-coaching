@@ -1907,6 +1907,35 @@ export default function PageLiens() {
     },
   }), []);
 
+  // Fermeture d'onglet / rechargement / navigation hors-app : popup native du navigateur
+  // (impossible d'afficher un modal custom pour ce cas précis — limitation du navigateur)
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedRef.current) { e.preventDefault(); e.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
+  // Navigation interne (menu latéral, autres liens Next.js) : intercepte le clic avant que
+  // le routeur ne change de page, pour proposer le même modal de confirmation.
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (!hasUnsavedRef.current) return;
+      const target = (e.target as HTMLElement)?.closest('a[href]') as HTMLAnchorElement | null;
+      if (!target) return;
+      const href = target.getAttribute('href') || '';
+      // Ignore les ancres internes à la page, les liens externes/nouvel onglet et le lien courant
+      if (!href || href.startsWith('#') || target.target === '_blank') return;
+      if (href === window.location.pathname) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPendingLeaveAction(() => () => { window.location.href = href; });
+    };
+    document.addEventListener('click', handler, true);
+    return () => document.removeEventListener('click', handler, true);
+  }, []);
+
   // ── Mutations locales (optimistic UI sur les lead magnets) ────────────────
   const [lmOverrides, setLmOverrides] = useState<LeadMagnet[] | null>(null);
   const [calendlyOverride, setCalendlyOverride] = useState<string | null>(null);
@@ -2401,7 +2430,7 @@ export default function PageLiens() {
       </div>
 
       {pendingLeaveAction && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setPendingLeaveAction(null)}>
           <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 12, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 10px 40px rgba(0,0,0,.2)' }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 8 }}>Modifications non sauvegardées</div>
