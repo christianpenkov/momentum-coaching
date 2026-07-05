@@ -3165,6 +3165,7 @@ interface MockLead {
   keyword: string;
   leadMagnetSent: boolean;
   hookReplied?: boolean;
+  hookRepliedAt?: string | null;
   trackingLink?: string | null;
   lmClicked?: boolean;
 }
@@ -3899,6 +3900,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const periodStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
   periodStart.setUTCDate(today.getUTCDate() - (_pIdx + 1) * sPeriod + 1);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
+  const [selectedMetric, setSelectedMetric] = useState<'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls' | null>(null);
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
   const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string; calendly_link_sent: boolean | null; calendly_link_sent_at: string | null; first_click_at: string | null }[]>([]);
@@ -4131,6 +4133,82 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
   const callsTotal = callsBooked;
 
+  // ── Séries jour-par-jour pour les KPI cliquables ──
+  // Génère chaque date UTC de periodStart à periodEnd inclus, pour combler les jours
+  // sans donnée à 0 (sinon Recharts trace un point isolé au lieu d'une ligne continue).
+  const dayRange: string[] = (() => {
+    const days: string[] = [];
+    const d = new Date(periodStart);
+    while (d.getTime() <= periodEnd.getTime()) {
+      days.push(utcDateStr(d));
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return days;
+  })();
+
+  // 1. Clics totaux — déjà par jour dans shortioChartHistory, filtrer sur la fenêtre
+  const clicsSeries = dayRange.map(date => ({
+    date,
+    v: (shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0,
+  }));
+  const clicsSeriesHasData = (shortioChartHistory ?? []).length > 0;
+
+  // 2. Leads commentaires — group by detected_at (jour) sur leadsInPeriod
+  const leadsPerDay = new Map<string, number>();
+  for (const l of leadsInPeriod) {
+    const day = utcDateStr(new Date(l.commentedAt));
+    leadsPerDay.set(day, (leadsPerDay.get(day) ?? 0) + 1);
+  }
+  const leadsSeries = dayRange.map(date => ({ date, v: leadsPerDay.get(date) ?? 0 }));
+
+  // 3. Réponses accroche LM DM — vrai timestamp hook_replied_at (ajouté au select ci-dessus)
+  const hookRepliesPerDay = new Map<string, number>();
+  for (const l of leadsInPeriod) {
+    if (!l.hookReplied || !l.hookRepliedAt) continue;
+    if (!isInPeriod(l.hookRepliedAt)) continue;
+    const day = utcDateStr(new Date(l.hookRepliedAt));
+    hookRepliesPerDay.set(day, (hookRepliesPerDay.get(day) ?? 0) + 1);
+  }
+  const hookReplySeries = dayRange.map(date => ({ date, v: hookRepliesPerDay.get(date) ?? 0 }));
+
+  // 4. Liens Calendly envoyés DM — calendly_link_sent_at ?? created_at, sur calendlyLinksSent (déjà filtré période)
+  const calendlyLinksPerDay = new Map<string, number>();
+  for (const l of calendlyLinksSent) {
+    const ts = l.calendly_link_sent_at ?? l.created_at;
+    const day = utcDateStr(new Date(ts));
+    calendlyLinksPerDay.set(day, (calendlyLinksPerDay.get(day) ?? 0) + 1);
+  }
+  const calendlyLinksSeries = dayRange.map(date => ({ date, v: calendlyLinksPerDay.get(date) ?? 0 }));
+
+  // 5. Taux d'activation DM — ratio clics/liens envoyés par jour (via first_click_at)
+  // null (pas 0) pour les jours sans lien envoyé — évite un faux 0% visuel
+  const activationClicsPerDay = new Map<string, number>();
+  for (const l of calendlyLinksSent) {
+    if (!l.first_click_at) continue;
+    const day = utcDateStr(new Date(l.first_click_at));
+    activationClicsPerDay.set(day, (activationClicsPerDay.get(day) ?? 0) + 1);
+  }
+  const activationSeries = dayRange.map(date => {
+    const sent = calendlyLinksPerDay.get(date) ?? 0;
+    const clicked = activationClicsPerDay.get(date) ?? 0;
+    return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : null };
+  });
+
+  // 6. Calls bookés — grouper callsInWindow par jour sur scheduled_at
+  const callsPerDay = new Map<string, { booked: number; honored: number; closed: number; revenue: number }>();
+  for (const c of callsInWindow) {
+    const day = utcDateStr(new Date(c.scheduled_at));
+    const cur = callsPerDay.get(day) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 };
+    if (c.status === 'active') {
+      cur.booked += 1;
+      if (!c.no_show) cur.honored += 1;
+    }
+    if (c.deal_closed) cur.closed += 1;
+    cur.revenue += c.revenue || 0;
+    callsPerDay.set(day, cur);
+  }
+  const callsSeries = dayRange.map(date => ({ date, ...(callsPerDay.get(date) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 }) }));
+
   // ── Graphique filtré — limité à sPeriod jours ──
   // offset : si sPeriod=7, les 7 derniers points du domaine correspondent aux indices [23..29]
   const shortioChart = shortio.chartData ?? [];
@@ -4307,11 +4385,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
           const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
 
+          const cardStyle = (metric: NonNullable<typeof selectedMetric>) => ({
+            background: selectedMetric === metric ? BLUE + '10' : 'var(--surface-2)',
+            border: selectedMetric === metric ? `1px solid ${BLUE}` : '1px solid transparent',
+            borderRadius: 10, padding: '12px 14px', flex: 1, cursor: 'pointer', transition: 'all .12s',
+          });
+          const toggleMetric = (metric: NonNullable<typeof selectedMetric>) => setSelectedMetric(m => m === metric ? null : metric);
+
           return (
             <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'stretch' }}>
 
               {/* 1 — Clics totaux */}
-              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+              <div onClick={() => toggleMetric('clics')} style={cardStyle('clics')}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Clics totaux</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalClics)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>volume global, tous liens</div>
@@ -4321,7 +4406,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 2 — Leads commentaires */}
-              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+              <div onClick={() => toggleMetric('leads')} style={cardStyle('leads')}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Leads commentaires</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>mots-clés détectés</div>
@@ -4330,7 +4415,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 3 — Réponses message d'accroche */}
-              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+              <div onClick={() => toggleMetric('hookReply')} style={cardStyle('hookReply')}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Réponses accroche LM DM</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, lineHeight: 1 }}>
                   <div style={{ fontSize: 24, fontWeight: 800, color: hookReplies > 0 ? GREEN : 'var(--faint)' }}>{fmt(hookReplies)}</div>
@@ -4342,7 +4427,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 4 — Liens Calendly envoyés DM */}
-              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+              <div onClick={() => toggleMetric('calendlyLinks')} style={cardStyle('calendlyLinks')}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Liens Calendly envoyés DM</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(lmCalendlyLinks)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>activité commerciale brute</div>
@@ -4351,7 +4436,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 5 — Taux d'activation DM */}
-              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+              <div onClick={() => toggleMetric('activation')} style={cardStyle('activation')}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation DM</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                   <div>
@@ -4370,7 +4455,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
               {/* 5 — Calls bookés depuis liens */}
-              <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px', flex: 1 }}>
+              <div onClick={() => toggleMetric('calls')} style={cardStyle('calls')}>
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Calls bookés</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>résultat final du tracking</div>
@@ -4380,7 +4465,92 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           );
         })()}
 
+        {selectedMetric && (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+              {{
+                clics: 'Clics totaux / jour',
+                leads: 'Leads commentaires / jour',
+                hookReply: 'Réponses accroche LM DM / jour',
+                calendlyLinks: 'Liens Calendly envoyés DM / jour',
+                activation: "Taux d'activation DM / jour",
+                calls: 'Calls bookés / honorés / closés / revenu — par jour',
+              }[selectedMetric]}
+            </div>
+            <button onClick={() => setSelectedMetric(null)} style={{ fontSize: 11, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
+              ← Retour au graphique clics
+            </button>
+          </div>
+        )}
+
+        {selectedMetric === 'clics' && (
+          clicsSeriesHasData || clicsSeries.some(d => d.v > 0) ? (
+            <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+              <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+            </div>
+          ) : (
+            <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
+              Aucun événement
+            </div>
+          )
+        )}
+        {selectedMetric === 'leads' && (
+          <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+            <AreaChart data={leadsSeries} areas={[{ key: 'v', label: 'Leads', color: AMBER }]} xKey="date" height={160} />
+          </div>
+        )}
+        {selectedMetric === 'hookReply' && (
+          <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+            <AreaChart data={hookReplySeries} areas={[{ key: 'v', label: 'Réponses', color: GREEN }]} xKey="date" height={160} />
+          </div>
+        )}
+        {selectedMetric === 'calendlyLinks' && (
+          <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+            <AreaChart data={calendlyLinksSeries} areas={[{ key: 'v', label: 'Liens envoyés', color: BLUE }]} xKey="date" height={160} />
+          </div>
+        )}
+        {selectedMetric === 'activation' && (
+          <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+            <ResponsiveContainer width="100%" height={160}>
+              <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[0, 100]} />
+                <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
+                  <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
+                    <div className="chart-tooltip-row"><strong>{payload[0].value == null ? 'Aucun lien envoyé' : `${payload[0].value}%`}</strong></div>
+                  </div>
+                )} />
+                <Area type="monotone" dataKey="v" stroke={BLUE} strokeWidth={2} fill="none" dot={{ r: 2 }} connectNulls={false} isAnimationActive={false} />
+              </ReAreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+        {selectedMetric === 'calls' && (
+          <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+            <ResponsiveContainer width="100%" height={180}>
+              <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}€`} />
+                <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
+                  <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
+                    {payload.map((p: any, i: number) => <div key={i} className="chart-tooltip-row" style={{ color: p.color }}><span>{p.name}</span><strong style={{ marginLeft: 8 }}>{p.dataKey === 'revenue' ? `${p.value}€` : p.value}</strong></div>)}
+                  </div>
+                )} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Bar yAxisId="left" dataKey="booked" name="Bookés" fill={BLUE} radius={[2,2,0,0]} />
+                <Bar yAxisId="left" dataKey="honored" name="Honorés" fill={GREEN} radius={[2,2,0,0]} opacity={0.75} />
+                <Bar yAxisId="left" dataKey="closed" name="Closés" fill={AMBER} radius={[2,2,0,0]} opacity={0.75} />
+                <Line yAxisId="right" type="monotone" dataKey="revenue" name="Revenu" stroke={RED} strokeWidth={2} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         {/* Toggle graphique */}
+        {!selectedMetric && (
+        <>
         <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
           {([['all', 'Tous les clics'], ['dm', 'DM uniquement'], ['content', 'Contenu uniquement'], ['bio', 'Bio uniquement']] as const).map(([k, label]) => (
             <button key={k} onClick={() => setChartFilter(k)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${chartFilter === k ? BLUE : 'var(--border)'}`, background: chartFilter === k ? BLUE + '12' : 'transparent', color: chartFilter === k ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
@@ -4479,6 +4649,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             </div>
           );
         })()}
+        </>
+        )}
 
         {/* ── Tableau breakdown par source ── */}
         {(() => {
@@ -6019,7 +6191,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
 
   const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes, shortioChartHistoryRes] = await Promise.all([
     supabase.from('instagram_leads')
-      .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, tracking_link, detected_at, source')
+      .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
     supabase.from('lead_magnets')
       .select('id, name, keyword, url').eq('profile_id', targetId).order('created_at', { ascending: true }),
@@ -6084,7 +6256,8 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       postId: l.media_id || '', postTitle: l.media_permalink || l.media_id || '',
       postType: 'IG' as const, commentedAt: l.detected_at,
       keyword: l.keyword_matched || '', leadMagnetSent: l.lead_magnet_sent || false,
-      hookReplied: l.hook_replied || false, trackingLink: l.tracking_link || null,
+      hookReplied: l.hook_replied || false, hookRepliedAt: l.hook_replied_at ?? null,
+      trackingLink: l.tracking_link || null,
     }));
 
   const lmData = lmRes.data ?? [];
