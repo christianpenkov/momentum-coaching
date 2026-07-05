@@ -375,19 +375,25 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 
 // ─── MessageContextMenu — clic droit desktop / appui long mobile ─────────────
 
+const CTX_MENU_WIDTH = 160;
+const CTX_MENU_HEIGHT = 90;
+
 function MessageContextMenu({ x, y, canEdit, canDelete, onEdit, onDelete, onClose }: {
   x: number; y: number; canEdit: boolean; canDelete: boolean;
   onEdit: () => void; onDelete: () => void; onClose: () => void;
 }) {
   if (typeof document === 'undefined') return null;
+  // Clamp aux limites de la fenêtre — évite que le menu déborde hors écran
+  const clampedX = Math.min(x, window.innerWidth - CTX_MENU_WIDTH - 8);
+  const clampedY = Math.min(y, window.innerHeight - CTX_MENU_HEIGHT - 8);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }} onMouseDown={onClose} onTouchStart={onClose} />
       <div style={{
-        position: 'fixed', left: x, top: y, zIndex: 10000,
+        position: 'fixed', left: clampedX, top: clampedY, zIndex: 10000,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
-        minWidth: 160, overflow: 'hidden', fontSize: 13,
+        minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 13,
       }}>
         {canEdit && (
           <button onMouseDown={() => { onEdit(); onClose(); }} style={{
@@ -408,6 +414,41 @@ function MessageContextMenu({ x, y, canEdit, canDelete, onEdit, onDelete, onClos
         {!canEdit && !canDelete && (
           <div style={{ padding: '10px 14px', color: 'var(--faint)' }}>Délai dépassé</div>
         )}
+      </div>
+    </>,
+    document.body
+  );
+}
+
+// ─── DeleteMessageConfirm — confirmation avec case à cocher avant suppression ──
+
+function DeleteMessageConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  const [checked, setChecked] = useState(false);
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <>
+      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={onCancel} />
+      <div style={{
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+        zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 12, padding: '24px 28px', minWidth: 320, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
+      }}>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Supprimer ce message ?</div>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+          Cette action supprime définitivement le message pour toi et ton interlocuteur.
+        </div>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink)', marginBottom: 20, cursor: 'pointer' }}>
+          <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: 14, height: 14, cursor: 'pointer' }} />
+          Je comprends que cette action est irréversible
+        </label>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+          <button onMouseDown={onCancel} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}>
+            Annuler
+          </button>
+          <button onMouseDown={() => { if (!checked) return; onConfirm(); }} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: checked ? 'pointer' : 'not-allowed', opacity: checked ? 1 : 0.4 }}>
+            Supprimer
+          </button>
+        </div>
       </div>
     </>,
     document.body
@@ -578,6 +619,7 @@ export default function PageClientMessages() {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isSendingFile, setIsSendingFile] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msgId: string } | null>(null);
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
@@ -1305,11 +1347,18 @@ export default function PageClientMessages() {
             x={ctxMenu.x} y={ctxMenu.y}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
             onEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
-            onDelete={() => deleteMessage(msg.id)}
+            onDelete={() => setConfirmDeleteId(msg.id)}
             onClose={() => setCtxMenu(null)}
           />
         );
       })()}
+
+      {confirmDeleteId && (
+        <DeleteMessageConfirm
+          onCancel={() => setConfirmDeleteId(null)}
+          onConfirm={() => { deleteMessage(confirmDeleteId); setConfirmDeleteId(null); }}
+        />
+      )}
 
       {/* ── Lightbox image ── */}
       {lightboxUrl && typeof document !== 'undefined' && createPortal(
