@@ -4237,12 +4237,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const lmReponses = postLeads.filter((l: MockLead) => l.hookReplied).length;
     const dmCount = dmProspects.length;
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
-    // postCalls = tous les calls rattachés à ce contenu (DM + description)
+    // postCalls = calls rattachés à ce contenu (DM + description), filtrés sur la période sélectionnée (scheduled_at)
     // postCallsDesc = uniquement via lien description (utm_medium = 'description') — pour breakdown par source
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => {
-          if (c.ig_lead_id) return leadIdToMediaId.get(c.ig_lead_id) === postId;
-          return c.utm_content === postId;
+          const matchesContent = c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === postId : c.utm_content === postId;
+          if (!matchesContent) return false;
+          const t = new Date(c.scheduled_at).getTime();
+          return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
         })
       : [];
     const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
