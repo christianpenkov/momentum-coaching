@@ -2054,10 +2054,15 @@ function FunnelHorizontal({ platform, color, steps }: {
 
 
 function periodLabel(period: number, index: number): string {
-  const now = new Date();
-  const end = new Date(now.getTime() - index * period * 86400000);
-  const start = new Date(end.getTime() - period * 86400000);
-  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  // Même calcul que periodStart/periodEnd de TabShortioB (alignement UTC minuit + le +1
+  // qui rend la fenêtre inclusive des deux bords) — sinon le header affiche une fenêtre
+  // décalée d'un jour par rapport au graphique jour par jour réellement affiché.
+  const today = new Date();
+  const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
+  end.setUTCDate(end.getUTCDate() - index * period);
+  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
+  start.setUTCDate(today.getUTCDate() - (index + 1) * period + 1);
+  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
   return `${fmt2(start)} – ${fmt2(end)}`;
 }
 
@@ -3900,7 +3905,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const periodStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
   periodStart.setUTCDate(today.getUTCDate() - (_pIdx + 1) * sPeriod + 1);
   const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
-  const [selectedMetric, setSelectedMetric] = useState<'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls' | null>(null);
+  // 'clics' par défaut (jamais null) — persiste ensuite le dernier KPI sélectionné
+  // même en changeant de période, au lieu de retomber sur l'ancien toggle chartFilter
+  // qui dépend de shortioChartHistory (une source moins fiable en S-1+, cf. bug remonté).
+  const [selectedMetric, setSelectedMetric] = useState<'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls'>('clics');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
   const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string; calendly_link_sent: boolean | null; calendly_link_sent_at: string | null; first_click_at: string | null }[]>([]);
@@ -4390,7 +4398,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             border: selectedMetric === metric ? `1px solid ${BLUE}` : '1px solid transparent',
             borderRadius: 10, padding: '12px 14px', flex: 1, cursor: 'pointer', transition: 'all .12s',
           });
-          const toggleMetric = (metric: NonNullable<typeof selectedMetric>) => setSelectedMetric(m => m === metric ? null : metric);
+          const toggleMetric = (metric: typeof selectedMetric) => setSelectedMetric(metric);
 
           return (
             <div style={{ display: 'flex', gap: 8, marginBottom: 20, alignItems: 'stretch' }}>
@@ -4465,34 +4473,108 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           );
         })()}
 
-        {selectedMetric && (
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
-              {{
-                clics: 'Clics totaux / jour',
-                leads: 'Leads commentaires / jour',
-                hookReply: 'Réponses accroche LM DM / jour',
-                calendlyLinks: 'Liens Calendly envoyés DM / jour',
-                activation: "Taux d'activation DM / jour",
-                calls: 'Calls bookés / honorés / closés / revenu — par jour',
-              }[selectedMetric]}
-            </div>
-            <button onClick={() => setSelectedMetric(null)} style={{ fontSize: 11, color: BLUE, background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}>
-              ← Retour au graphique clics
-            </button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
+            {{
+              clics: 'Clics totaux / jour',
+              leads: 'Leads commentaires / jour',
+              hookReply: 'Réponses accroche LM DM / jour',
+              calendlyLinks: 'Liens Calendly envoyés DM / jour',
+              activation: "Taux d'activation DM / jour",
+              calls: 'Calls bookés / honorés / closés / revenu — par jour',
+            }[selectedMetric]}
           </div>
-        )}
+        </div>
 
         {selectedMetric === 'clics' && (
-          clicsSeriesHasData || clicsSeries.some(d => d.v > 0) ? (
-            <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-              <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
-            </div>
-          ) : (
+          <>
+          <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
+            {([['all', 'Tous les clics'], ['dm', 'DM uniquement'], ['content', 'Contenu uniquement'], ['bio', 'Bio uniquement']] as const).map(([k, label]) => (
+              <button key={k} onClick={() => setChartFilter(k)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${chartFilter === k ? BLUE : 'var(--border)'}`, background: chartFilter === k ? BLUE + '12' : 'transparent', color: chartFilter === k ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {chartFilter === 'all' ? (
+            clicsSeriesHasData || clicsSeries.some(d => d.v > 0) ? (
+              <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
+                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+              </div>
+            ) : (
+              <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
+                Aucun événement
+              </div>
+            )
+          ) : _pIdx > 0 ? (
             <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
-              Aucun événement
+              Historique non disponible pour ce filtre
             </div>
-          )
+          ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
+            <ResponsiveContainer width="100%" height={160}>
+              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#F06292" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#F06292" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="grad-chart-yt" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#B91C1C" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#B91C1C" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} />
+                <Tooltip content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  return (
+                    <div className="chart-tooltip">
+                      <div className="chart-tooltip-label">{label}</div>
+                      {payload.map((p: any, i: number) => (
+                        <div key={i} className="chart-tooltip-row" style={{ color: p.color }}>
+                          <span>{p.name}</span><strong style={{ marginLeft: 8 }}>{fmt(p.value)}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }} />
+                <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
+              </ReAreaChart>
+            </ResponsiveContainer>
+          ) : chartFilter === 'dm' ? (
+            <ResponsiveContainer width="100%" height={160}>
+              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="grad-dm-calendly" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={BLUE} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={BLUE} stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="grad-dm-lm" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={AMBER} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
+                <Tooltip content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  return (
+                    <div className="chart-tooltip">
+                      <div className="chart-tooltip-label">{label}</div>
+                      {payload.map((p: any, i: number) => (
+                        <div key={i} className="chart-tooltip-row" style={{ color: p.color }}>
+                          <span>{p.name}</span><strong style={{ marginLeft: 8 }}>{p.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                  );
+                }} />
+                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
+              </ReAreaChart>
+            </ResponsiveContainer>
+          ) : null}
+          </>
         )}
         {selectedMetric === 'leads' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
@@ -4513,7 +4595,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={160}>
               <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" padding={{ left: 0, right: 0 }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[0, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
@@ -4530,7 +4612,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <ResponsiveContainer width="100%" height={180}>
               <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" padding={{ left: 0, right: 0 }} />
                 <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
                 <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}€`} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
@@ -4546,110 +4628,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-        )}
-
-        {/* Toggle graphique */}
-        {!selectedMetric && (
-        <>
-        <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
-          {([['all', 'Tous les clics'], ['dm', 'DM uniquement'], ['content', 'Contenu uniquement'], ['bio', 'Bio uniquement']] as const).map(([k, label]) => (
-            <button key={k} onClick={() => setChartFilter(k)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${chartFilter === k ? BLUE : 'var(--border)'}`, background: chartFilter === k ? BLUE + '12' : 'transparent', color: chartFilter === k ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
-              {label}
-            </button>
-          ))}
-        </div>
-        {_pIdx > 0 && chartFilter === 'all' ? (() => {
-          const startStr = periodStart.toISOString().slice(0, 10);
-          const endStr   = periodEnd.toISOString().slice(0, 10);
-          const filtered = (shortioChartHistory ?? []).filter(d => d.date >= startStr && d.date <= endStr);
-          return filtered.length > 0 ? (
-            <AreaChart data={filtered} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
-          ) : (
-            <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
-              Aucune donnée pour cette période
-            </div>
-          );
-        })() : _pIdx > 0 ? (
-          <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
-            Historique non disponible pour ce filtre
-          </div>
-        ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
-          <ResponsiveContainer width="100%" height={160}>
-            <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#F06292" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#F06292" stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="grad-chart-yt" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor="#B91C1C" stopOpacity={0.15} />
-                  <stop offset="95%" stopColor="#B91C1C" stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} />
-              <Tooltip content={({ active, payload, label }) => {
-                if (!active || !payload?.length) return null;
-                return (
-                  <div className="chart-tooltip">
-                    <div className="chart-tooltip-label">{label}</div>
-                    {payload.map((p: any, i: number) => (
-                      <div key={i} className="chart-tooltip-row" style={{ color: p.color }}>
-                        <span>{p.name}</span><strong style={{ marginLeft: 8 }}>{fmt(p.value)}</strong>
-                      </div>
-                    ))}
-                  </div>
-                );
-              }} />
-              <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
-              <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
-            </ReAreaChart>
-          </ResponsiveContainer>
-        ) : chartFilter === 'dm' ? (
-          <ResponsiveContainer width="100%" height={160}>
-            <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <defs>
-                <linearGradient id="grad-dm-calendly" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={BLUE} stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={BLUE} stopOpacity={0} />
-                </linearGradient>
-                <linearGradient id="grad-dm-lm" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={AMBER} stopOpacity={0.15} />
-                  <stop offset="95%" stopColor={AMBER} stopOpacity={0} />
-                </linearGradient>
-              </defs>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} />
-              <Tooltip content={({ active, payload, label }) => {
-                if (!active || !payload?.length) return null;
-                return (
-                  <div className="chart-tooltip">
-                    <div className="chart-tooltip-label">{label}</div>
-                    {payload.map((p: any, i: number) => (
-                      <div key={i} className="chart-tooltip-row" style={{ color: p.color }}>
-                        <span>{p.name}</span><strong style={{ marginLeft: 8 }}>{p.value}</strong>
-                      </div>
-                    ))}
-                  </div>
-                );
-              }} />
-              <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
-              <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
-            </ReAreaChart>
-          </ResponsiveContainer>
-        ) : (() => {
-          const startStr = utcDateStr(periodStart);
-          const endStr   = utcDateStr(periodEnd);
-          const filtered = (shortioChartHistory ?? []).filter(d => d.date >= startStr && d.date <= endStr);
-          return filtered.length > 0 ? (
-            <AreaChart data={filtered} areas={[{ key: 'clicks', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
-          ) : (
-            <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12 }}>
-              Aucune donnée pour cette période
-            </div>
-          );
-        })()}
-        </>
         )}
 
         {/* ── Tableau breakdown par source ── */}
