@@ -328,6 +328,54 @@ const icons = {
       <line x1="1" y1="9" x2="4" y2="9" /><line x1="1" y1="14" x2="4" y2="14" />
     </>
   ),
+  'calendar-plus': (
+    <>
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="12" y1="14" x2="12" y2="18" /><line x1="10" y1="16" x2="14" y2="16" />
+    </>
+  ),
+  'mouse-pointer-click': (
+    <>
+      <path d="M14 4.1L12 6" />
+      <path d="M4.1 14L2 12" />
+      <path d="M4.1 4L2 6" />
+      <path d="M17.9 17.4L20 20l-3-1-1-3z" />
+      <path d="M9.7 9.7l7.3 2.3-2.3 2.3-2.3-2.3z" />
+      <path d="M8 6l4 4" />
+    </>
+  ),
+  'check-circle-2': (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M9 12l2 2 4-4" />
+    </>
+  ),
+  'calendar-x': (
+    <>
+      <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+      <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <line x1="10" y1="14" x2="14" y2="18" /><line x1="14" y1="14" x2="10" y2="18" />
+    </>
+  ),
+  'calendar-clock': (
+    <>
+      <path d="M21 7.5V6a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2h6" />
+      <line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" />
+      <line x1="3" y1="10" x2="21" y2="10" />
+      <circle cx="17" cy="17" r="4" />
+      <path d="M17 15.5v1.5l1 1" />
+    </>
+  ),
+  'circle-dollar-sign': (
+    <>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 6v12" />
+      <path d="M15 9.5c0-1.1-1.34-2-3-2s-3 .9-3 2 1.34 2 3 2 3 .9 3 2-1.34 2-3 2-3-.9-3-2" />
+    </>
+  ),
 };
 
 export type IconName = keyof typeof icons;

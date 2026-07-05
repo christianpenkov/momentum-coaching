@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModal';
+import ProspectDetailModal from './ProspectDetailModal';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,8 @@ interface PipelineData {
   events: ProspectEvent[];
 }
 
+export type { IgLead, ProspectLink, Call, ProspectEvent, PipelineData };
+
 // ── Colonnes ──────────────────────────────────────────────────────────────────
 
 const IG_STAGES = [
@@ -193,6 +196,69 @@ function getBestKnownStage(
   return 'lm_sent';
 }
 
+// ── resolveProspectContext ──────────────────────────────────────────────────────
+// Retrouve le contexte brut (lead/prospect IG ou calls YT/Autre) d'une card à partir
+// de sa clé — même logique de matching que celle utilisée pour construire les cards
+// (IG : username ; YT/Autre : prospect_id ou call.id fallback), extraite ici pour être
+// réutilisée par ProspectDetailModal sans dupliquer une 3ème fois cette recherche.
+
+export interface ProspectContext {
+  platform: 'ig' | 'yt' | 'other';
+  cardKey: string;
+  lead: IgLead | null;
+  prospect: ProspectLink | null;
+  calls: Call[]; // tous les calls rattachés à ce prospect, triés scheduled_at desc
+  events: ProspectEvent[]; // tous les prospect_events rattachés à ce prospect
+}
+
+export function resolveProspectContext(
+  cardKey: string,
+  platform: 'ig' | 'yt' | 'other',
+  data: PipelineData,
+): ProspectContext | null {
+  if (platform === 'ig') {
+    // cardKey peut être soit un username IG, soit `ig_link_${call.id}` (calls description/bio)
+    if (cardKey.startsWith('ig_link_')) {
+      const callId = cardKey.slice('ig_link_'.length);
+      const call = data.calls.find(c => c.id === callId);
+      if (!call) return null;
+      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [] };
+    }
+
+    const username = cardKey.toLowerCase();
+    const lead = data.leads.find(l => l.ig_username.toLowerCase() === username) ?? null;
+    const prospect = data.prospects.find(p => p.ig_username.toLowerCase() === username) ?? null;
+    const prospectPath = prospect?.short_url
+      ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
+      : null;
+
+    const matchingCalls = data.calls.filter(c => {
+      if (lead && c.ig_lead_id === lead.id) return true;
+      if (!lead && prospect && c.short_link_path && prospectPath && c.short_link_path === prospectPath && !c.ig_lead_id) return true;
+      return false;
+    }).sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+
+    const matchingEvents = data.events.filter(e => {
+      if (e.platform !== 'ig') return false;
+      if (e.prospect_key.toLowerCase() !== username) return false;
+      if (lead?.id && e.ig_lead_id && e.ig_lead_id !== lead.id) return false;
+      return true;
+    });
+
+    if (!lead && !prospect && matchingCalls.length === 0) return null;
+    return { platform, cardKey, lead, prospect, calls: matchingCalls, events: matchingEvents };
+  }
+
+  // YT / Autre : cardKey = prospect_id, ou call.id en fallback (prospect_id absent)
+  const calls = data.calls
+    .filter(c => (c.prospect_id ?? c.id) === cardKey)
+    .sort((a, b) => new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime());
+  if (calls.length === 0) return null;
+
+  const events = data.events.filter(e => e.platform === platform && e.prospect_key === cardKey);
+  return { platform, cardKey, lead: null, prospect: null, calls, events };
+}
+
 // ── Card ──────────────────────────────────────────────────────────────────────
 
 interface CardData {
@@ -221,7 +287,7 @@ interface CardData {
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick,
+  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick,
 }: {
   card: CardData;
   stages: typeof IG_STAGES | typeof YT_STAGES;
@@ -232,12 +298,14 @@ function PipelineCard({
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
+  onCardClick?: (cardKey: string) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
+  const dragStartedRef = useRef(false);
 
   // Bouton "Remplir le rapport d'appel" : visible dès le début du call, caché si rapport déjà rempli
   // Accepte aussi status=cancelled sans outcome — fenêtre de transition Calendly entre reschedule et nouveau call
@@ -253,8 +321,12 @@ function PipelineCard({
     <div
       draggable
       data-pipeline-card
-      onDragStart={e => onDragStart(e, card.key)}
+      onDragStart={e => { dragStartedRef.current = true; onDragStart(e, card.key); }}
       onContextMenu={e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); }}
+      onClick={() => {
+        if (dragStartedRef.current) { dragStartedRef.current = false; return; }
+        onCardClick?.(card.key);
+      }}
       style={{
         background: 'var(--surface)',
         border: `1px solid ${isDragging ? stage.color : 'var(--border)'}`,
@@ -388,6 +460,7 @@ function PipelineCard({
           <div style={{ display: 'flex', gap: 6 }}>
             <button
               onMouseDown={e => { e.stopPropagation(); onConfirmLead?.(card.key); }}
+              onClick={e => e.stopPropagation()}
               style={{ flex: 1, padding: '5px 0', fontSize: 10, fontWeight: 600, cursor: 'pointer', borderRadius: 6, border: '1px solid #2563EB', background: '#EFF6FF', color: '#2563EB', transition: 'all .12s' }}
               onMouseEnter={e => { e.currentTarget.style.background = '#2563EB'; e.currentTarget.style.color = '#fff'; }}
               onMouseLeave={e => { e.currentTarget.style.background = '#EFF6FF'; e.currentTarget.style.color = '#2563EB'; }}
@@ -396,6 +469,7 @@ function PipelineCard({
             </button>
             <button
               onMouseDown={e => { e.stopPropagation(); onDismissLead?.(card.key); }}
+              onClick={e => e.stopPropagation()}
               style={{ padding: '5px 10px', fontSize: 10, fontWeight: 600, cursor: 'pointer', borderRadius: 6, border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)', transition: 'all .12s' }}
               onMouseEnter={e => { e.currentTarget.style.background = 'var(--border)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}
@@ -486,7 +560,7 @@ function PipelineCard({
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick,
+  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick,
 }: {
   stage: typeof IG_STAGES[number] | typeof YT_STAGES[number];
   cards: CardData[];
@@ -502,6 +576,7 @@ function KanbanColumn({
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
+  onCardClick?: (cardKey: string) => void;
 }) {
   return (
     <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, transition: 'background .1s', alignSelf: 'stretch' }}>
@@ -557,6 +632,7 @@ function KanbanColumn({
             onDismissLead={onDismissLead}
             onDeleteLead={onDeleteLead}
             onRapportClick={onRapportClick}
+            onCardClick={onCardClick}
           />
         ))}
       </div>
@@ -942,6 +1018,9 @@ export default function PagePipeline() {
     scheduledAt: string;
     isFollowUp?: boolean;
   } | null>(null);
+
+  // Modal détail prospect (timeline) ouvert au clic sur une card
+  const [detailModal, setDetailModal] = useState<{ cardKey: string; platform: 'ig' | 'yt' | 'other' } | null>(null);
 
   const { data, isLoading: loading, refetch } = useQuery<PipelineData | null>({
     queryKey: ['pipeline'],
@@ -1606,6 +1685,7 @@ export default function PagePipeline() {
                   onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
                   onDeleteLead={handleDeleteLead}
                   onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp })}
+                  onCardClick={cardKey => setDetailModal({ cardKey, platform })}
                 />
               );
             })}
@@ -1661,6 +1741,29 @@ export default function PagePipeline() {
           onClose={() => { setRapportModal(null); refetch(); }}
         />
       )}
+
+      {/* Modal détail prospect — timeline chronologique */}
+      {detailModal && data && (() => {
+        const ctx = resolveProspectContext(detailModal.cardKey, detailModal.platform, data);
+        if (!ctx) return null;
+        const detailStages = detailModal.platform === 'ig' ? IG_STAGES : YT_STAGES;
+        const sourceCards = detailModal.platform === 'ig' ? igCards : detailModal.platform === 'yt' ? filteredYtCards : filteredOtherCards;
+        const matchedCard = sourceCards.find(c => c.key === detailModal.cardKey);
+        const stageIdx = matchedCard ? matchedCard.stageIdx : 0;
+        const stage = detailStages[stageIdx] ?? detailStages[0];
+        const displayName = matchedCard
+          ? (detailModal.platform === 'ig' && !matchedCard.isIgLink ? `@${matchedCard.name}` : matchedCard.name)
+          : (ctx.lead?.ig_username ? `@${ctx.lead.ig_username}` : ctx.calls[0]?.invitee_name || 'Prospect');
+        return (
+          <ProspectDetailModal
+            context={ctx}
+            displayName={displayName}
+            stageLabel={stage.label}
+            stageColor={stage.color}
+            onClose={() => setDetailModal(null)}
+          />
+        );
+      })()}
     </div>
   );
 }
