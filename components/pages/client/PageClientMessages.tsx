@@ -522,7 +522,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
 
     // Le message doit rester affiché ~1,5s avant d'être considéré lu — un simple
     // passage rapide en scrollant ne doit pas suffire.
-    const READ_DELAY_MS = 1500;
+    const READ_DELAY_MS = 1000;
 
     const clearTimer = () => {
       if (timer) { clearTimeout(timer); timer = null; }
