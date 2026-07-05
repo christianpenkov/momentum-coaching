@@ -4637,39 +4637,22 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         )}
         {selectedMetric === 'calls' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            {/* Revenu en haut — graphique séparé du reste, pas de 2e axe partagé (le
-                double axe est un anti-pattern dataviz : deux échelles arbitraires sur
-                le même graphique peuvent suggérer une fausse corrélation visuelle). */}
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4 }}>Revenu / jour</div>
-            <ResponsiveContainer width="100%" height={80}>
-              <ReAreaChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={40} tickFormatter={(v: number) => `${v}€`} />
-                <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
-                  <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
-                    <div className="chart-tooltip-row"><strong>{payload[0].value}€</strong></div>
-                  </div>
-                )} />
-                <Area type="monotone" dataKey="revenue" name="Revenu" stroke={RED} strokeWidth={2} fill={RED + '18'} dot={false} isAnimationActive={false} />
-              </ReAreaChart>
-            </ResponsiveContainer>
-            {/* Bookés/Honorés/Closés en dessous — bâtons fins (petits compteurs discrets
-                0-5/jour), pas de gros blocs de barres classiques. */}
-            <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginTop: 12, marginBottom: 4 }}>Bookés / honorés / closés / jour</div>
-            <ResponsiveContainer width="100%" height={140}>
+            <ResponsiveContainer width="100%" height={180}>
               <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="0%">
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
+                <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: number) => `${v}€`} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
-                    {payload.map((p: any, i: number) => <div key={i} className="chart-tooltip-row" style={{ color: p.color }}><span>{p.name}</span><strong style={{ marginLeft: 8 }}>{p.value}</strong></div>)}
+                    {payload.map((p: any, i: number) => <div key={i} className="chart-tooltip-row" style={{ color: p.color }}><span>{p.name}</span><strong style={{ marginLeft: 8 }}>{p.dataKey === 'revenue' ? `${p.value}€` : p.value}</strong></div>)}
                   </div>
                 )} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar dataKey="booked" name="Bookés" fill={BLUE} barSize={3} />
-                <Bar dataKey="honored" name="Honorés" fill={GREEN} barSize={3} />
-                <Bar dataKey="closed" name="Closés" fill={AMBER} barSize={3} />
+                <Bar yAxisId="left" dataKey="booked" name="Bookés" fill={BLUE} barSize={3} />
+                <Bar yAxisId="left" dataKey="honored" name="Honorés" fill={GREEN} barSize={3} />
+                <Bar yAxisId="left" dataKey="closed" name="Closés" fill={AMBER} barSize={3} />
+                <Line yAxisId="right" type="monotone" dataKey="revenue" name="Revenu" stroke={RED} strokeWidth={2} dot={false} isAnimationActive={false} />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
