@@ -353,16 +353,32 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
   // viewport visible (scroll) — pas juste "la conversation est ouverte".
+  // Pas de document.hasFocus() : peu fiable en PWA standalone. Si le message est
+  // déjà visible au montage mais la page pas encore visible à cet instant, on
+  // retente au prochain visibilitychange (IntersectionObserver ne redéclenche pas
+  // tant qu'on ne re-scrolle pas hors-champ puis dedans).
   useEffect(() => {
     if (!onEnterViewport || isMe || !bubbleRef.current || typeof IntersectionObserver === 'undefined') return;
     const el = bubbleRef.current;
-    const observer = new IntersectionObserver((entries) => {
-      if (entries[0]?.isIntersecting && document.visibilityState === 'visible' && document.hasFocus()) {
+    let pendingVisible = false;
+
+    const tryMark = () => {
+      if (pendingVisible && document.visibilityState === 'visible') {
         onEnterViewport(msg.id);
       }
+    };
+
+    const observer = new IntersectionObserver((entries) => {
+      pendingVisible = !!entries[0]?.isIntersecting;
+      tryMark();
     }, { threshold: 0.6 });
     observer.observe(el);
-    return () => observer.disconnect();
+    document.addEventListener('visibilitychange', tryMark);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', tryMark);
+    };
   }, [onEnterViewport, isMe, msg.id]);
 
   return (
