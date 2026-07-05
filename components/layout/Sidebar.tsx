@@ -5,6 +5,7 @@ import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
 import { useUser } from '@/lib/UserContext';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/dashboard', icon: 'activity', label: 'Aujourd\'hui' },
@@ -25,6 +26,7 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user } = useUser();
   const { clients } = useSupabaseClients();
+  const unreadCount = useUnreadMessagesCount();
 
   return (
     <aside className="sidebar">
@@ -36,6 +38,11 @@ export default function Sidebar() {
               <Icon name={icon} size={16} />
               <span>{label}</span>
               {highlight && !active && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>IA</span>}
+              {href === '/messages' && unreadCount > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--red)', color: '#fff', borderRadius: 999, minWidth: 16, height: 16, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </Link>
           );
         })}

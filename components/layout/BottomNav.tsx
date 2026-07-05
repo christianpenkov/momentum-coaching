@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 
 const NAV = [
   {
@@ -49,6 +50,7 @@ const NAV = [
 
 export default function BottomNav() {
   const pathname = usePathname();
+  const unreadCount = useUnreadMessagesCount();
 
   return (
     <nav className="bottom-nav" role="navigation" aria-label="Navigation principale">
@@ -62,9 +64,13 @@ export default function BottomNav() {
             href={item.href}
             className={`bottom-nav-item${isActive ? ' active' : ''}`}
             aria-current={isActive ? 'page' : undefined}
+            style={{ position: 'relative' }}
           >
             {item.icon}
             <span className="bnav-label">{item.label}</span>
+            {item.href === '/client/messages' && unreadCount > 0 && (
+              <span style={{ position: 'absolute', top: 2, right: '30%', width: 8, height: 8, borderRadius: '50%', background: 'var(--red)' }} />
+            )}
           </Link>
         );
       })}

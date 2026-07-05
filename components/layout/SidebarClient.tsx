@@ -7,6 +7,7 @@ import Icon, { IconName } from '../ui/Icon';
 import Onboarding from '../ui/Onboarding';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
+import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/client', icon: 'activity', label: 'Mon espace' },
@@ -29,6 +30,7 @@ export default function SidebarClient() {
   const { user } = useUser();
   const [week, setWeek] = useState<number | null>(null);
   const [coachName, setCoachName] = useState<string | null>(null);
+  const unreadCount = useUnreadMessagesCount();
 
   useEffect(() => {
     if (!user?.id) return;
@@ -56,6 +58,11 @@ export default function SidebarClient() {
               <Icon name={icon} size={16} />
               <span>{label}</span>
               {highlight && !active && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>IA</span>}
+              {href === '/client/messages' && unreadCount > 0 && (
+                <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--red)', color: '#fff', borderRadius: 999, minWidth: 16, height: 16, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </span>
+              )}
             </Link>
           );
         })}
