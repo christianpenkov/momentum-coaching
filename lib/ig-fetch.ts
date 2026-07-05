@@ -295,7 +295,17 @@ export async function pollIgComments(
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   recipient: { comment_id: comment.id },
-                  message: { text: dm1Text },
+                  messaging_type: 'RESPONSE',
+                  message: {
+                    text: dm1Text,
+                    quick_replies: [
+                      {
+                        content_type: 'text',
+                        title: '🚀 Je veux le lien !',
+                        payload: 'LM_LINK_CLICKED',
+                      },
+                    ],
+                  },
                   access_token: token,
                 }),
               }
