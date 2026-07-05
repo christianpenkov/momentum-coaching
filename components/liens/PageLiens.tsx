@@ -9,6 +9,8 @@ import { useUser } from '@/lib/UserContext';
 interface UnsavedGuardApi {
   setHasUnsaved: (v: boolean) => void;
   guard: (action: () => void) => void;
+  registerSaveAll: (fn: (() => Promise<void>) | null) => void;
+  saveAll: () => Promise<void>;
 }
 const UnsavedGuardContext = createContext<UnsavedGuardApi | null>(null);
 function useUnsavedGuard() {
@@ -943,6 +945,17 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       setButtonSaved(true);
     } catch (e: any) { setButtonError(e.message || 'Erreur'); } finally { setButtonSaving(false); }
   };
+
+  // Enregistre auprès du guard de navigation la fonction qui sauvegarde tout ce qui ne l'est pas encore
+  useEffect(() => {
+    unsavedGuard?.registerSaveAll(async () => {
+      if (!dm1Saved) await saveDm1(dm1Text);
+      if (!dm2Saved) await saveDm2(dm2Text);
+      if (!buttonSaved) await saveButtonText(buttonText);
+    });
+    return () => { unsavedGuard?.registerSaveAll(null); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dm1Saved, dm2Saved, buttonSaved, dm1Text, dm2Text, buttonText]);
 
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1899,13 +1912,17 @@ export default function PageLiens() {
 
   // Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés
   const hasUnsavedRef = useRef(false);
+  const saveAllRef = useRef<(() => Promise<void>) | null>(null);
   const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
+  const [savingAll, setSavingAll] = useState(false);
   const unsavedGuardApi = useMemo<UnsavedGuardApi>(() => ({
     setHasUnsaved: (v: boolean) => { hasUnsavedRef.current = v; },
     guard: (action: () => void) => {
       if (hasUnsavedRef.current) setPendingLeaveAction(() => action);
       else action();
     },
+    registerSaveAll: (fn) => { saveAllRef.current = fn; },
+    saveAll: async () => { if (saveAllRef.current) await saveAllRef.current(); },
   }), []);
 
   // Fermeture d'onglet / rechargement / navigation hors-app : popup native du navigateur
@@ -2438,14 +2455,25 @@ export default function PageLiens() {
             <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5, marginBottom: 20 }}>
               Tu as des changements dans la séquence de DM qui n'ont pas été enregistrés. Si tu quittes maintenant, ils seront perdus.
             </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-              <button onClick={() => setPendingLeaveAction(null)}
-                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: 'pointer' }}>
-                Rester et sauvegarder
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button onClick={() => setPendingLeaveAction(null)} disabled={savingAll}
+                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
+                Annuler
               </button>
-              <button onClick={() => { const action = pendingLeaveAction; hasUnsavedRef.current = false; setPendingLeaveAction(null); action(); }}
-                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: RED, color: '#fff', cursor: 'pointer' }}>
-                Quitter sans sauvegarder
+              <button onClick={() => { const action = pendingLeaveAction; hasUnsavedRef.current = false; setPendingLeaveAction(null); action(); }} disabled={savingAll}
+                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: RED, color: '#fff', cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
+                Ne pas enregistrer
+              </button>
+              <button onClick={async () => {
+                  setSavingAll(true);
+                  try { await unsavedGuardApi.saveAll(); } finally { setSavingAll(false); }
+                  const action = pendingLeaveAction;
+                  hasUnsavedRef.current = false;
+                  setPendingLeaveAction(null);
+                  action?.();
+                }} disabled={savingAll}
+                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.7 : 1 }}>
+                {savingAll ? 'Enregistrement...' : 'Enregistrer'}
               </button>
             </div>
           </div>
