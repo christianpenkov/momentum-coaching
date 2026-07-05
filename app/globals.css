@@ -1529,6 +1529,22 @@ a { color: inherit; text-decoration: none; }
 
 }
 
+/* ── Messagerie : boutons plus grands sur mobile (menu ctx, confirmation suppression, édition inline) ── */
+@media (max-width: 767px) {
+  .msg-ctx-btn {
+    padding: 14px 16px !important;
+    font-size: 15px !important;
+  }
+  .msg-confirm-btn {
+    padding: 11px 20px !important;
+    font-size: 14px !important;
+  }
+  .msg-edit-btn {
+    padding: 8px 14px !important;
+    font-size: 13px !important;
+  }
+}
+
 /* ── Bottom Navigation Bar (mobile uniquement) ──────────────────────────────── */
 .bottom-nav {
   display: none;

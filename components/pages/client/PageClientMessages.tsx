@@ -396,7 +396,7 @@ function MessageContextMenu({ x, y, canEdit, canDelete, onEdit, onDelete, onClos
         minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 13,
       }}>
         {canEdit && (
-          <button onMouseDown={() => { onEdit(); onClose(); }} style={{
+          <button className="msg-ctx-btn" onMouseDown={() => { onEdit(); onClose(); }} style={{
             display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
             border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink)',
           }}>
@@ -404,7 +404,7 @@ function MessageContextMenu({ x, y, canEdit, canDelete, onEdit, onDelete, onClos
           </button>
         )}
         {canDelete && (
-          <button onMouseDown={() => { onDelete(); onClose(); }} style={{
+          <button className="msg-ctx-btn" onMouseDown={() => { onDelete(); onClose(); }} style={{
             display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
             border: 'none', background: 'none', cursor: 'pointer', color: 'var(--red)',
           }}>
@@ -442,10 +442,10 @@ function DeleteMessageConfirm({ onConfirm, onCancel }: { onConfirm: () => void; 
           Je comprends que cette action est irréversible
         </label>
         <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <button onMouseDown={onCancel} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}>
+          <button className="msg-confirm-btn" onMouseDown={onCancel} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}>
             Annuler
           </button>
-          <button onMouseDown={() => { if (!checked) return; onConfirm(); }} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: checked ? 'pointer' : 'not-allowed', opacity: checked ? 1 : 0.4 }}>
+          <button className="msg-confirm-btn" onMouseDown={() => { if (!checked) return; onConfirm(); }} style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: checked ? 'pointer' : 'not-allowed', opacity: checked ? 1 : 0.4 }}>
             Supprimer
           </button>
         </div>
@@ -513,8 +513,8 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
               }}
             />
             <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-              <button onClick={onCancelEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)', cursor: 'pointer' }}>Annuler</button>
-              <button onClick={onSaveEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--ink)', color: '#fff', cursor: 'pointer' }}>Enregistrer</button>
+              <button className="msg-edit-btn" onClick={onCancelEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)', cursor: 'pointer' }}>Annuler</button>
+              <button className="msg-edit-btn" onClick={onSaveEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--ink)', color: '#fff', cursor: 'pointer' }}>Enregistrer</button>
             </div>
           </div>
         ) : isAudio && msg.audio_url ? (
