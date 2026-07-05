@@ -332,7 +332,7 @@ function DeleteMessageConfirm({ onConfirm, onCancel }: { onConfirm: () => void; 
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
@@ -340,6 +340,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   onOpenCtxMenu: (rect: DOMRect) => void;
   onOpenLightbox: (url: string) => void;
   isMenuTarget?: boolean;
+  onEnterViewport?: (msgId: string) => void;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
@@ -349,6 +350,20 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const longPress = useLongPress(() => {
     if (isMe && (canEdit || canDelete) && bubbleRef.current) onOpenCtxMenu(bubbleRef.current.getBoundingClientRect());
   });
+
+  // Marque le message lu seulement quand sa bulle entre réellement dans le
+  // viewport visible (scroll) — pas juste "la conversation est ouverte".
+  useEffect(() => {
+    if (!onEnterViewport || isMe || !bubbleRef.current || typeof IntersectionObserver === 'undefined') return;
+    const el = bubbleRef.current;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && document.visibilityState === 'visible' && document.hasFocus()) {
+        onEnterViewport(msg.id);
+      }
+    }, { threshold: 0.6 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onEnterViewport, isMe, msg.id]);
 
   return (
     <div className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
@@ -539,16 +554,21 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       .then(({ data }) => {
         setMessages((data as Msg[]) || []);
         setLoading(false);
-        // Marquer lu
-        const unread = (data || []).filter((m: Msg) => !m.read_at && m.sender_id !== userId).map((m: Msg) => m.id);
-        if (unread.length > 0) {
-          supabase.from('messages').update({ read_at: new Date().toISOString(), read: true }).in('id', unread).then(() => {
-            setMessages(prev => prev.map(m => unread.includes(m.id) ? { ...m, read_at: new Date().toISOString() } : m));
-            clearAppBadge();
-          });
-        }
+        // Le marquage lu se fait maintenant uniquement via onEnterViewport (IntersectionObserver
+        // par bulle) — un message trop haut dans l'historique, jamais scrollé jusqu'à lui, ne
+        // doit pas être marqué lu juste parce que la conversation est ouverte.
       });
   }, [clientId, userId, supabase]);
+
+  const markMessageRead = useCallback((msgId: string) => {
+    setMessages(prev => {
+      const msg = prev.find(m => m.id === msgId);
+      if (!msg || msg.read_at) return prev;
+      supabase.from('messages').update({ read_at: new Date().toISOString(), read: true })
+        .eq('id', msgId).then(() => { clearAppBadge(); });
+      return prev.map(m => m.id === msgId ? { ...m, read_at: new Date().toISOString() } : m);
+    });
+  }, [supabase]);
 
   // Realtime messages + typing client sur le canal presence
   useEffect(() => {
@@ -565,12 +585,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
             if (optIdx !== -1) { const next = [...prev]; next[optIdx] = msg; return next; }
             return [...prev, msg];
           });
-          if (msg.sender_id !== userId) {
-            await supabase.from('messages').update({ read_at: new Date().toISOString(), read: true }).eq('id', msg.id);
-            setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, read_at: new Date().toISOString() } : m));
-            clearAppBadge();
-            // Push géré par le trigger Supabase côté serveur
-          }
+          // Le marquage lu se fait via onEnterViewport quand la bulle entre réellement
+          // dans le viewport (pas automatique à la réception — cf. markMessageRead).
+          // Push géré par le trigger Supabase côté serveur
         })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
         (payload) => {
@@ -811,6 +828,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
                     onOpenCtxMenu={(rect) => setCtxMenu({ rect, msgId: msg.id })}
                     onOpenLightbox={setLightboxUrl}
                     isMenuTarget={ctxMenu?.msgId === msg.id}
+                    onEnterViewport={markMessageRead}
                   />
                 );
               })}
