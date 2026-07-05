@@ -462,7 +462,7 @@ function DeleteMessageConfirm({ onConfirm, onCancel }: { onConfirm: () => void; 
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
@@ -470,6 +470,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   onOpenCtxMenu: (rect: DOMRect) => void;
   onOpenLightbox: (url: string) => void;
   isMenuTarget?: boolean;
+  onEnterViewport?: (msgId: string) => void;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
@@ -479,6 +480,21 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const longPress = useLongPress(() => {
     if (isMe && (canEdit || canDelete) && bubbleRef.current) onOpenCtxMenu(bubbleRef.current.getBoundingClientRect());
   });
+
+  // Marque le message lu seulement quand sa bulle entre réellement dans le
+  // viewport visible (scroll) — pas juste "la conversation est ouverte quelque
+  // part avec un message trop haut, jamais scrollé jusqu'à lui".
+  useEffect(() => {
+    if (!onEnterViewport || isMe || !bubbleRef.current || typeof IntersectionObserver === 'undefined') return;
+    const el = bubbleRef.current;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0]?.isIntersecting && document.visibilityState === 'visible' && document.hasFocus()) {
+        onEnterViewport(msg.id);
+      }
+    }, { threshold: 0.6 });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [onEnterViewport, isMe, msg.id]);
 
   return (
     <div className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
@@ -702,18 +718,21 @@ export default function PageClientMessages() {
       if (error) console.error('messages fetch error:', error.message);
       setMessages((data as Msg[]) || []);
       setLoading(false);
-
-      // Marquer comme lus uniquement si la page est visible au chargement
-      if (document.visibilityState === 'visible') {
-        await supabase.from('messages')
-          .update({ read_at: new Date().toISOString() })
-          .eq('client_id', clientRow.id)
-          .eq('sender_id', clientRow.coach_id)
-          .is('read_at', null);
-        clearAppBadge();
-      }
+      // Le marquage lu se fait maintenant uniquement via onEnterViewport (IntersectionObserver
+      // par bulle) — un message trop haut dans l'historique, jamais scrollé jusqu'à lui, ne
+      // doit pas être marqué lu juste parce que la page est ouverte.
     }
     load();
+  }, [supabase]);
+
+  const markMessageRead = useCallback((msgId: string) => {
+    setMessages(prev => {
+      const msg = prev.find(m => m.id === msgId);
+      if (!msg || msg.read_at) return prev;
+      supabase.from('messages').update({ read_at: new Date().toISOString() })
+        .eq('id', msgId).then(() => { clearAppBadge(); });
+      return prev.map(m => m.id === msgId ? { ...m, read_at: new Date().toISOString() } : m);
+    });
   }, [supabase]);
 
   // ── Realtime messages ───────────────────────────────────────────────────────
@@ -741,11 +760,8 @@ export default function PageClientMessages() {
           }
           return [...prev, incoming];
         });
-        // Marquer lu si message du coach et page visible
-        if (incoming.sender_id === coachIdRef.current && document.visibilityState === 'visible') {
-          supabase.from('messages').update({ read_at: new Date().toISOString() })
-            .eq('id', incoming.id).then(() => { clearAppBadge(); });
-        }
+        // Le marquage lu se fait via onEnterViewport quand la bulle entre réellement
+        // dans le viewport (pas automatique à la réception — cf. markMessageRead).
         // Push géré par le trigger Supabase côté serveur — pas de déclenchement client
       })
       .on('postgres_changes', {
@@ -1129,6 +1145,7 @@ export default function PageClientMessages() {
                     onOpenCtxMenu={(rect) => setCtxMenu({ rect, msgId: msg.id })}
                     onOpenLightbox={setLightboxUrl}
                     isMenuTarget={ctxMenu?.msgId === msg.id}
+                    onEnterViewport={markMessageRead}
                   />
                 );
               })}
