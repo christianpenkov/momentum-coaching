@@ -379,19 +379,23 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 const CTX_MENU_WIDTH = 160;
 const CTX_MENU_HEIGHT = 90;
 
-function MessageContextMenu({ x, y, canEdit, canDelete, onEdit, onDelete, onClose }: {
-  x: number; y: number; canEdit: boolean; canDelete: boolean;
+function MessageContextMenu({ rect, canEdit, canDelete, onEdit, onDelete, onClose }: {
+  rect: DOMRect; canEdit: boolean; canDelete: boolean;
   onEdit: () => void; onDelete: () => void; onClose: () => void;
 }) {
   if (typeof document === 'undefined') return null;
-  // Clamp aux limites de la fenêtre — évite que le menu déborde hors écran
-  const clampedX = Math.min(x, window.innerWidth - CTX_MENU_WIDTH - 8);
-  const clampedY = Math.min(y, window.innerHeight - CTX_MENU_HEIGHT - 8);
+  // Ancré sous la bulle agrandie (façon WhatsApp), pas aux coordonnées brutes du doigt.
+  // Bascule au-dessus si pas assez de place en dessous.
+  const GAP = 8;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  const openUpward = spaceBelow < CTX_MENU_HEIGHT + GAP + 16;
+  const top = openUpward ? rect.top - CTX_MENU_HEIGHT - GAP : rect.bottom + GAP;
+  const left = Math.min(Math.max(rect.left, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }} onMouseDown={onClose} onTouchStart={onClose} />
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
       <div style={{
-        position: 'fixed', left: clampedX, top: clampedY, zIndex: 10000,
+        position: 'fixed', left, top: Math.max(top, 8), zIndex: 10000,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
         minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 13,
@@ -458,30 +462,32 @@ function DeleteMessageConfirm({ onConfirm, onCancel }: { onConfirm: () => void; 
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
-  onOpenCtxMenu: (x: number, y: number) => void;
+  onOpenCtxMenu: (rect: DOMRect) => void;
   onOpenLightbox: (url: string) => void;
+  isMenuTarget?: boolean;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
   const isImage = msg.type === 'image';
   const isDocument = msg.type === 'document';
-  const longPress = useLongPress(e => {
-    const touch = e.touches[0] ?? e.changedTouches?.[0];
-    if (isMe && (canEdit || canDelete)) onOpenCtxMenu(touch?.clientX ?? 0, touch?.clientY ?? 0);
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const longPress = useLongPress(() => {
+    if (isMe && (canEdit || canDelete) && bubbleRef.current) onOpenCtxMenu(bubbleRef.current.getBoundingClientRect());
   });
 
   return (
     <div className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
       <div
+        ref={bubbleRef}
         onContextMenu={e => {
           if (!isMe || (!canEdit && !canDelete)) return;
           e.preventDefault();
-          onOpenCtxMenu(e.clientX, e.clientY);
+          if (bubbleRef.current) onOpenCtxMenu(bubbleRef.current.getBoundingClientRect());
         }}
         {...(isMe ? longPress : {})}
         style={{
@@ -494,6 +500,9 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
+          transform: isMenuTarget ? 'scale(1.06)' : 'scale(1)',
+          transition: 'transform 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+          zIndex: isMenuTarget ? 10000 : 'auto',
         }}>
         {isEditing ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -619,7 +628,7 @@ export default function PageClientMessages() {
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [isSendingFile, setIsSendingFile] = useState(false);
-  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msgId: string } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState('');
@@ -1117,8 +1126,9 @@ export default function PageClientMessages() {
                     onSaveEdit={() => { editMessage(msg.id, editText); setEditingId(null); }}
                     canEdit={canEditMsg(msg)}
                     canDelete={canDeleteMsg(msg)}
-                    onOpenCtxMenu={(x, y) => setCtxMenu({ x, y, msgId: msg.id })}
+                    onOpenCtxMenu={(rect) => setCtxMenu({ rect, msgId: msg.id })}
                     onOpenLightbox={setLightboxUrl}
+                    isMenuTarget={ctxMenu?.msgId === msg.id}
                   />
                 );
               })}
@@ -1346,7 +1356,7 @@ export default function PageClientMessages() {
         if (!msg) return null;
         return (
           <MessageContextMenu
-            x={ctxMenu.x} y={ctxMenu.y}
+            rect={ctxMenu.rect}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
             onEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
             onDelete={() => setConfirmDeleteId(msg.id)}
