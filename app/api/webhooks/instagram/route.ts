@@ -444,6 +444,8 @@ export async function POST(request: Request) {
       pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dm1Text, dm2Text, mediaId });
 
       // Envoie DM 1 via private reply sur le commentaire
+      // Quick Reply : force l'utilisateur à cliquer pour ouvrir la fenêtre 24h Meta
+      // Sans ce clic, le message reste en "Demandes" sans notification push
       const dm1Res = await fetch(
         `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
         {
@@ -451,7 +453,17 @@ export async function POST(request: Request) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             recipient: { comment_id: commentId },
-            message: { text: dm1Text },
+            messaging_type: 'RESPONSE',
+            message: {
+              text: dm1Text,
+              quick_replies: [
+                {
+                  content_type: 'text',
+                  title: '🚀 Je veux le lien !',
+                  payload: 'LM_LINK_CLICKED',
+                },
+              ],
+            },
             access_token,
           }),
         }
