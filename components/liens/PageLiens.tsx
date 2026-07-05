@@ -688,7 +688,8 @@ function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
       style={{
         width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8,
         borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg,
-        color: ink, outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
+        color: ink, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
+        WebkitAppearance: 'none' as any,
       }}
     />
   );
@@ -995,17 +996,18 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           </ChatBubble>
           <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 8, marginTop: 2, marginBottom: 4 }}>Non modifiable — généré automatiquement depuis le lead magnet associé</div>
 
-          {/* Bulle DM3 — message d'ouverture, envoyé juste après */}
+          {/* DM3 — message d'ouverture, envoyé juste après. Même style que le textarea DM1 */}
           <div style={{ marginTop: 2 }}>
-            <ChatBubble tag="3" tagLabel="envoyé juste après, à la suite">
-              <textarea
-                value={dm2Text}
-                onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
-                placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
-                rows={2}
-                style={{ width: '100%', padding: 0, fontSize: 13, border: 'none', background: 'transparent', color: '#000', outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.45, fontFamily: 'inherit' }}
-              />
-            </ChatBubble>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
+              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé juste après, à la suite</span>
+            </div>
+            <textarea
+              value={dm2Text}
+              onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
+              placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
+              rows={3}
+              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            />
           </div>
           {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dm2Error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
@@ -1152,15 +1154,16 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           </ChatBubble>
 
           <div style={{ marginTop: 4 }}>
-            <ChatBubble tag="3" tagLabel="envoyé juste après, à la suite">
-              <textarea
-                value={dmMessage}
-                onChange={e => handleDmChange(e.target.value)}
-                placeholder={`Ex : "Salut ! Tu as bien reçu le guide ? Si tu as des questions je suis là 😊"`}
-                rows={2}
-                style={{ width: '100%', padding: 0, fontSize: 13, border: 'none', background: 'transparent', color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.45, fontFamily: 'inherit' }}
-              />
-            </ChatBubble>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
+              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé juste après, à la suite</span>
+            </div>
+            <textarea
+              value={dmMessage}
+              onChange={e => handleDmChange(e.target.value)}
+              placeholder={`Ex : "Salut ! Tu as bien reçu le guide ? Si tu as des questions je suis là 😊"`}
+              rows={3}
+              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            />
           </div>
         </div>
       </div>
