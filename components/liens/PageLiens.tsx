@@ -1,8 +1,18 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
+
+// ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
+interface UnsavedGuardApi {
+  setHasUnsaved: (v: boolean) => void;
+  guard: (action: () => void) => void;
+}
+const UnsavedGuardContext = createContext<UnsavedGuardApi | null>(null);
+function useUnsavedGuard() {
+  return useContext(UnsavedGuardContext);
+}
 
 // ─── Design tokens (alignés sur globals.css) ──────────────────────────────────
 const INK = 'var(--ink)';
@@ -882,6 +892,16 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
 
   const [dm1Error, setDm1Error] = useState<string | null>(null);
   const [dm2Error, setDm2Error] = useState<string | null>(null);
+
+  // Signale au parent (guard de navigation) qu'il y a des changements non sauvegardés dans la séquence DM
+  const unsavedGuard = useUnsavedGuard();
+  useEffect(() => {
+    unsavedGuard?.setHasUnsaved(!dm1Saved || !dm2Saved || !buttonSaved);
+  }, [dm1Saved, dm2Saved, buttonSaved, unsavedGuard]);
+  useEffect(() => {
+    return () => { unsavedGuard?.setHasUnsaved(false); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [post.id]);
   const [buttonError, setButtonError] = useState<string | null>(null);
 
   const saveDm1 = async (msg: string) => {
@@ -1260,6 +1280,7 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
   const domain = domains[0]?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const [activeTab, setActiveTab] = useState<'desc' | 'lm'>('desc');
+  const unsavedGuard = useUnsavedGuard();
 
   useEffect(() => { setActiveTab('desc'); }, [post.id]);
 
@@ -1298,7 +1319,7 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG }}>
         {tabs.map(tab => (
-          <button key={tab.key} onClick={() => setActiveTab(tab.key as 'desc' | 'lm')} style={{
+          <button key={tab.key} onClick={() => unsavedGuard?.guard(() => setActiveTab(tab.key as 'desc' | 'lm'))} style={{
             flex: 1, padding: '11px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
             background: activeTab === tab.key ? SURFACE : 'transparent',
             color: activeTab === tab.key ? INK : MUTED,
@@ -1875,6 +1896,17 @@ export default function PageLiens() {
   const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all'); // 'all' = pas de filtre
   const [search, setSearch] = useState('');
 
+  // Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés
+  const hasUnsavedRef = useRef(false);
+  const [pendingLeaveAction, setPendingLeaveAction] = useState<(() => void) | null>(null);
+  const unsavedGuardApi = useMemo<UnsavedGuardApi>(() => ({
+    setHasUnsaved: (v: boolean) => { hasUnsavedRef.current = v; },
+    guard: (action: () => void) => {
+      if (hasUnsavedRef.current) setPendingLeaveAction(() => action);
+      else action();
+    },
+  }), []);
+
   // ── Mutations locales (optimistic UI sur les lead magnets) ────────────────
   const [lmOverrides, setLmOverrides] = useState<LeadMagnet[] | null>(null);
   const [calendlyOverride, setCalendlyOverride] = useState<string | null>(null);
@@ -2056,9 +2088,11 @@ export default function PageLiens() {
   }, []);
 
   const openMobileDetail = (view: RightView) => {
-    setRightView(view);
-    setDrawerClosing(false);
-    setMobileDetailOpen(true);
+    unsavedGuardApi.guard(() => {
+      setRightView(view);
+      setDrawerClosing(false);
+      setMobileDetailOpen(true);
+    });
   };
 
   const closeMobileDetail = () => {
@@ -2071,11 +2105,11 @@ export default function PageLiens() {
 
   const handleHeaderLmLibrary = () => {
     if (isMobile) openMobileDetail({ type: 'lm-library' });
-    else setRightView({ type: 'lm-library' });
+    else unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }));
   };
 
   return (
-    <>
+    <UnsavedGuardContext.Provider value={unsavedGuardApi}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       <style>{`
         @media (max-width: 767px) {
@@ -2252,7 +2286,7 @@ export default function PageLiens() {
 
             {/* Bouton Calendly prospect */}
             <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
-              <button onClick={() => setRightView({ type: 'prospect' })} style={{
+              <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'prospect' }))} style={{
                 width: '100%', padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
                 border: `1.5px solid ${rightView?.type === 'prospect' ? BLUE : BORDER}`,
                 background: rightView?.type === 'prospect' ? BLUE_SOFT : 'transparent',
@@ -2299,7 +2333,7 @@ export default function PageLiens() {
                 const hasDesc = !!post.hasDescLink;
                 const hasLm = !!post.hasLeadMagnet;
                 return (
-                  <div key={post.id} onClick={() => setRightView({ type: 'post', post })}
+                  <div key={post.id} onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'post', post }))}
                     style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, transition: 'all .1s' }}>
                     <div style={{ width: 36, height: 36, borderRadius: 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
                       {post.thumbnail
@@ -2365,6 +2399,28 @@ export default function PageLiens() {
           </div>
         </div>
       </div>
-    </>
+
+      {pendingLeaveAction && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={() => setPendingLeaveAction(null)}>
+          <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 12, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 10px 40px rgba(0,0,0,.2)' }}>
+            <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 8 }}>Modifications non sauvegardées</div>
+            <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5, marginBottom: 20 }}>
+              Tu as des changements dans la séquence de DM qui n'ont pas été enregistrés. Si tu quittes maintenant, ils seront perdus.
+            </div>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+              <button onClick={() => setPendingLeaveAction(null)}
+                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: 'pointer' }}>
+                Rester et sauvegarder
+              </button>
+              <button onClick={() => { const action = pendingLeaveAction; hasUnsavedRef.current = false; setPendingLeaveAction(null); action(); }}
+                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: RED, color: '#fff', cursor: 'pointer' }}>
+                Quitter sans sauvegarder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </UnsavedGuardContext.Provider>
   );
 }
