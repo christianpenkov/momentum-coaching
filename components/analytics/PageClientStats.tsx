@@ -4190,20 +4190,41 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   }
   const calendlyLinksSeries = dayRange.map(date => ({ date, v: calendlyLinksPerDay.get(date) ?? 0 }));
 
-  // 5. Taux d'activation DM — ratio clics/liens envoyés par jour (via first_click_at)
-  // 0% (pas de trou) pour les jours sans lien envoyé — priorité à la lisibilité
-  // d'une ligne continue plutôt qu'à des points isolés difficiles à lire sur 30 jours.
-  const activationClicsPerDay = new Map<string, number>();
-  for (const l of calendlyLinksSent) {
-    if (!l.first_click_at) continue;
-    const day = utcDateStr(new Date(l.first_click_at));
-    activationClicsPerDay.set(day, (activationClicsPerDay.get(day) ?? 0) + 1);
+  // 5. Taux d'activation DM — deux ratios par jour, comme la KPI card (LM et Calendly) :
+  // LM = clics lead magnet / LM envoyés (jour = commentedAt), Calendly = clics lien
+  // Calendly / liens Calendly envoyés (jour = calendly_link_sent_at ?? created_at).
+  // 0% (pas de trou) pour les jours sans envoi — priorité à la lisibilité d'une ligne
+  // continue plutôt qu'à des points isolés difficiles à lire sur 30 jours.
+  const lmEnvoyesPerDay = new Map<string, number>();
+  const lmClicsPerDay = new Map<string, number>();
+  for (const l of leadsInPeriod) {
+    if (!l.leadMagnetSent) continue;
+    const day = utcDateStr(new Date(l.commentedAt));
+    lmEnvoyesPerDay.set(day, (lmEnvoyesPerDay.get(day) ?? 0) + 1);
+    if (l.id && lmClickedByLeadId?.has(l.id)) lmClicsPerDay.set(day, (lmClicsPerDay.get(day) ?? 0) + 1);
   }
-  const activationSeries = dayRange.map(date => {
-    const sent = calendlyLinksPerDay.get(date) ?? 0;
-    const clicked = activationClicsPerDay.get(date) ?? 0;
+  const activationLmSeries = dayRange.map(date => {
+    const sent = lmEnvoyesPerDay.get(date) ?? 0;
+    const clicked = lmClicsPerDay.get(date) ?? 0;
     return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
   });
+
+  const calendlyClicsPerDay = new Map<string, number>();
+  for (const l of calendlyLinksSent) {
+    if (!l.first_click_at) continue;
+    const day = utcDateStr(new Date(l.calendly_link_sent_at ?? l.created_at));
+    calendlyClicsPerDay.set(day, (calendlyClicsPerDay.get(day) ?? 0) + 1);
+  }
+  const activationCalendlySeries = dayRange.map(date => {
+    const sent = calendlyLinksPerDay.get(date) ?? 0;
+    const clicked = calendlyClicsPerDay.get(date) ?? 0;
+    return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
+  });
+  const activationSeries = dayRange.map((date, i) => ({
+    date,
+    lm: activationLmSeries[i].v,
+    calendly: activationCalendlySeries[i].v,
+  }));
 
   // 6. Calls bookés — grouper callsInWindow par jour sur scheduled_at
   const callsPerDay = new Map<string, { booked: number; honored: number; closed: number; revenue: number }>();
@@ -4602,10 +4623,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[0, 100]} />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (
                   <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div>
-                    <div className="chart-tooltip-row"><strong>{payload[0].value}%</strong></div>
+                    {payload.map((p: any, i: number) => (
+                      <div key={i} className="chart-tooltip-row" style={{ color: p.color }}><span>{p.name}</span><strong style={{ marginLeft: 8 }}>{p.value}%</strong></div>
+                    ))}
                   </div>
                 )} />
-                <Area type="monotone" dataKey="v" stroke={BLUE} strokeWidth={2} fill="none" dot={{ r: 2 }} isAnimationActive={false} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Area type="monotone" dataKey="lm" name="LM" stroke={AMBER} strokeWidth={2} fill="none" dot={{ r: 2 }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="none" dot={{ r: 2 }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           </div>
