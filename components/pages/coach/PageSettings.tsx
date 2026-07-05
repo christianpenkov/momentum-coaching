@@ -415,7 +415,10 @@ export default function PageSettings() {
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Fermer la session sur cet appareil</div>
           </div>
           <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={async () => {
-            await createClient().auth.signOut();
+            // scope: 'local' — le scope par défaut de signOut() est 'global' et
+            // déconnecterait TOUS les appareils de ce compte, pas seulement celui-ci
+            // (contrairement à ce que le texte du bouton promet).
+            await createClient().auth.signOut({ scope: 'local' });
             window.location.href = '/login';
           }}>
             Se déconnecter
