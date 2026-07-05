@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 
@@ -2429,7 +2430,7 @@ export default function PageLiens() {
         </div>
       </div>
 
-      {pendingLeaveAction && (
+      {pendingLeaveAction && typeof document !== 'undefined' && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
           onClick={() => setPendingLeaveAction(null)}>
           <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 12, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 10px 40px rgba(0,0,0,.2)' }}>
@@ -2448,7 +2449,8 @@ export default function PageLiens() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </UnsavedGuardContext.Provider>
   );
