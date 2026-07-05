@@ -3869,7 +3869,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId, igLive, ytLive, shortioChartHistory }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId, igLive, ytLive, shortioChartHistory, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -3894,6 +3894,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   igLive?: IGStats | null;
   ytLive?: YTStats | null;
   shortioChartHistory?: { date: string; clicks: number }[];
+  // Remontés au composant parent (PageClientStats) : ce composant est démonté/remonté
+  // à chaque changement de période (loading passe par true le temps du refetch), donc
+  // un state local ici serait reset à 'clics' à chaque clic précédent/suivant.
+  selectedMetric: 'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls';
+  setSelectedMetric: (m: 'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls') => void;
+  chartFilter: 'all' | 'dm' | 'content' | 'bio';
+  setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const _pIdx = periodIndex ?? 0;
@@ -3904,11 +3911,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   periodEnd.setUTCDate(periodEnd.getUTCDate() - _pIdx * sPeriod);
   const periodStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
   periodStart.setUTCDate(today.getUTCDate() - (_pIdx + 1) * sPeriod + 1);
-  const [chartFilter, setChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
-  // 'clics' par défaut (jamais null) — persiste ensuite le dernier KPI sélectionné
-  // même en changeant de période, au lieu de retomber sur l'ancien toggle chartFilter
-  // qui dépend de shortioChartHistory (une source moins fiable en S-1+, cf. bug remonté).
-  const [selectedMetric, setSelectedMetric] = useState<'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls'>('clics');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
   const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string; calendly_link_sent: boolean | null; calendly_link_sent_at: string | null; first_click_at: string | null }[]>([]);
@@ -6426,6 +6428,11 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const [modalOpen, setModalOpen] = useState(false);
   const [stripeRefreshing, setStripeRefreshing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Remonté ici (au lieu d'un state local à TabShortioB) car ce composant est
+  // démonté/remonté à chaque changement de période (loading passe par true le
+  // temps du refetch) — un state local y serait reset à 'clics' à chaque fois.
+  const [shortioBMetric, setShortioBMetric] = useState<'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls'>('clics');
+  const [shortioBChartFilter, setShortioBChartFilter] = useState<'all' | 'dm' | 'content' | 'bio'>('all');
 
   const refreshKey = `analytics_${profileId || 'me'}`;
   const { inCooldown, startCooldown } = useRefreshCooldown(refreshKey);
@@ -6660,7 +6667,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={supaData?.shortioChartHistory} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={supaData?.shortioChartHistory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
