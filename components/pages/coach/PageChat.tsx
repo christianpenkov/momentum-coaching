@@ -7,6 +7,7 @@ import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
+import { clearAppBadge } from '@/lib/pwaBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -534,6 +535,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         if (unread.length > 0) {
           supabase.from('messages').update({ read_at: new Date().toISOString(), read: true }).in('id', unread).then(() => {
             setMessages(prev => prev.map(m => unread.includes(m.id) ? { ...m, read_at: new Date().toISOString() } : m));
+            clearAppBadge();
           });
         }
       });
@@ -557,6 +559,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           if (msg.sender_id !== userId) {
             await supabase.from('messages').update({ read_at: new Date().toISOString(), read: true }).eq('id', msg.id);
             setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, read_at: new Date().toISOString() } : m));
+            clearAppBadge();
             // Push géré par le trigger Supabase côté serveur
           }
         })

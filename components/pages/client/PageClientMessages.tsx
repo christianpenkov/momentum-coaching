@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
+import { clearAppBadge } from '@/lib/pwaBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -700,6 +701,7 @@ export default function PageClientMessages() {
           .eq('client_id', clientRow.id)
           .eq('sender_id', clientRow.coach_id)
           .is('read_at', null);
+        clearAppBadge();
       }
     }
     load();
@@ -733,7 +735,7 @@ export default function PageClientMessages() {
         // Marquer lu si message du coach et page visible
         if (incoming.sender_id === coachIdRef.current && document.visibilityState === 'visible') {
           supabase.from('messages').update({ read_at: new Date().toISOString() })
-            .eq('id', incoming.id).then(() => {});
+            .eq('id', incoming.id).then(() => { clearAppBadge(); });
         }
         // Push géré par le trigger Supabase côté serveur — pas de déclenchement client
       })

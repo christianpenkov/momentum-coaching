@@ -54,6 +54,21 @@ export async function POST(req: NextRequest) {
     const bodyText = record.type === 'audio' ? '🎤 Message vocal' : (record.text || 'Nouveau message');
     const url = record.sender_id === clientRow.profile_id ? '/messages' : '/client/messages';
 
+    // Badge PWA (pastille iOS avec chiffre) — compte tous les messages non lus adressés
+    // au destinataire, tous clients confondus (un coach a plusieurs élèves).
+    const { data: recipientClients } = await supabase
+      .from('clients').select('id').or(`coach_id.eq.${recipientUserId},profile_id.eq.${recipientUserId}`);
+    const clientIds = (recipientClients ?? []).map(c => c.id);
+    // read_at (pas read) est la vraie source de vérité — read n'est pas fiable,
+    // désynchronisé de read_at sur des messages déjà lus en base (vérifié).
+    const { count: unreadCount } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .in('client_id', clientIds)
+      .neq('sender_id', recipientUserId)
+      .is('read_at', null);
+    log(`[WEBHOOK] unreadCount: ${unreadCount}`);
+
     log(`[WEBHOOK] VAPID public: ${process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY?.slice(0, 20)}`);
     log(`[WEBHOOK] VAPID private: ${!!process.env.VAPID_PRIVATE_KEY}`);
     log(`[WEBHOOK] VAPID subject: ${process.env.VAPID_SUBJECT}`);
@@ -66,7 +81,7 @@ export async function POST(req: NextRequest) {
     );
     log('[WEBHOOK] VAPID ok');
 
-    const payload = JSON.stringify({ title, body: bodyText.substring(0, 100), url });
+    const payload = JSON.stringify({ title, body: bodyText.substring(0, 100), url, unreadCount: unreadCount ?? 1 });
 
     const results = await Promise.allSettled(
       subs.map(sub => webpush.sendNotification(

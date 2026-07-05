@@ -64,8 +64,18 @@ self.addEventListener('push', e => {
             renotify: true,
             data: { url: payload.url || '/' },
           }
-        ).then(() => {
+        ).then(async () => {
           swLog('push_notification_shown', 'success');
+          // Pastille sur l'icône de l'app (iOS 16.4+, PWA installée) — Android
+          // ignore setAppBadge et gère déjà un badge automatique via showNotification.
+          if ('setAppBadge' in self.navigator) {
+            try {
+              await self.navigator.setAppBadge(payload.unreadCount || 1);
+              swLog('badge_set', payload.unreadCount || 1);
+            } catch (err) {
+              swLog('badge_error', String(err));
+            }
+          }
         });
       })
       .catch(err => {
