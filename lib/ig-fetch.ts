@@ -195,7 +195,7 @@ export async function pollIgComments(
   // Lire les content_links avec keyword configuré (source de vérité)
   const { data: contentLinks } = await serviceSupabase
     .from('content_links')
-    .select('content_id, lm_keyword, lm_short_url, dm_opener_message, dm_lm_message')
+    .select('content_id, lm_keyword, lm_short_url, dm_opener_message, dm_lm_message, dm_button_text')
     .eq('profile_id', profileId)
     .not('lm_keyword', 'is', null)
     .not('lm_short_url', 'is', null);
@@ -285,18 +285,16 @@ export async function pollIgComments(
 
         // Envoyer DM LM (backup — le webhook l'a peut-être déjà envoyé)
         // DM1 : accroche SANS le lien + bouton Quick Reply
-        // DM2 stocké en pending_dm2, envoyé après clic du bouton
+        // DM2 (lien) et DM3 (ouverture) stockés en pending_dm2/pending_dm3, envoyés après clic du bouton
         if (cl.lm_short_url && cl.dm_lm_message) {
           const dm1Text = (cl.dm_lm_message || 'Clique sur le bouton pour recevoir le lien !')
             .replace(/\{\{lien_lm\}\}/gi, '')
             .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
             .replace(/\s{2,}/g, ' ')
             .trim();
-          const dm2Text = cl.dm_opener_message
-            ? (/\{\{lien_lm\}\}/i.test(cl.dm_opener_message)
-                ? cl.dm_opener_message.replace(/\{\{lien_lm\}\}/gi, cl.lm_short_url)
-                : `${cl.dm_opener_message}\n\n${cl.lm_short_url}`)
-            : `Voici le lien : ${cl.lm_short_url}`;
+          const dm2Text = cl.lm_short_url;
+          const dm3Text = (cl.dm_opener_message || '').replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`).trim();
+          const buttonText = (cl.dm_button_text || '🚀 Je veux le lien !').slice(0, 20);
           try {
             await fetch(
               `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
@@ -311,7 +309,7 @@ export async function pollIgComments(
                     quick_replies: [
                       {
                         content_type: 'text',
-                        title: '🚀 Je veux le lien !',
+                        title: buttonText,
                         payload: 'LM_LINK_CLICKED',
                       },
                     ],
@@ -320,10 +318,9 @@ export async function pollIgComments(
                 }),
               }
             );
-            // Mettre à jour pending_dm2 sur le lead déjà upsert
-            // (le cron a fait l'upsert juste avant — on update pour ajouter pending_dm2)
+            // Mettre à jour pending_dm2/pending_dm3 sur le lead déjà upsert
             await serviceSupabase.from('instagram_leads')
-              .update({ pending_dm2: dm2Text })
+              .update({ pending_dm2: dm2Text, pending_dm3: dm3Text || null })
               .eq('profile_id', profileId)
               .eq('ig_user_id', commenterId);
           } catch {}

@@ -246,12 +246,12 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Clic sur le bouton Quick Reply LM_LINK_CLICKED → envoyer DM2 maintenant
+      // Clic sur le bouton Quick Reply LM_LINK_CLICKED → envoyer DM2 (lien) puis DM3 (ouverture)
       const quickReplyPayload = messaging.message?.quick_reply?.payload;
       if (quickReplyPayload === 'LM_LINK_CLICKED' && senderId) {
         const { data: leadForDm2 } = await serviceSupabase
           .from('instagram_leads')
-          .select('id, ig_username, pending_dm2')
+          .select('id, ig_username, pending_dm2, pending_dm3')
           .eq('profile_id', pid)
           .eq('ig_user_id', senderId)
           .eq('lead_magnet_sent', true)
@@ -259,9 +259,9 @@ export async function POST(request: Request) {
           .limit(1)
           .maybeSingle();
 
-        if (leadForDm2?.pending_dm2 && resolvedMatch) {
+        if (leadForDm2 && resolvedMatch) {
           const { access_token: at } = resolvedMatch;
-          const dm2Res = await fetch(
+          const sendDm = (text: string) => fetch(
             `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
             {
               method: 'POST',
@@ -269,21 +269,35 @@ export async function POST(request: Request) {
               body: JSON.stringify({
                 recipient: { id: senderId },
                 messaging_type: 'RESPONSE',
-                message: { text: leadForDm2.pending_dm2 },
+                message: { text },
                 access_token: at,
               }),
             }
-          );
-          const dm2Data = await dm2Res.json();
-          if (dm2Data.error) {
-            console.error('[IG Webhook] Erreur DM2 après clic QR:', dm2Data.error);
-            pushEvent({ type: 'dm2_error', error: dm2Data.error });
-          } else {
-            console.log(`[IG Webhook] DM2 envoyé après clic QR — message_id: ${dm2Data.message_id}`);
-            pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id });
-            // Efface pending_dm2 — déjà envoyé
-            await serviceSupabase.from('instagram_leads').update({ pending_dm2: null }).eq('id', leadForDm2.id);
+          ).then(r => r.json());
+
+          if (leadForDm2.pending_dm2) {
+            const dm2Data = await sendDm(leadForDm2.pending_dm2);
+            if (dm2Data.error) {
+              console.error('[IG Webhook] Erreur DM2 (lien) après clic QR:', dm2Data.error);
+              pushEvent({ type: 'dm2_error', error: dm2Data.error });
+            } else {
+              console.log(`[IG Webhook] DM2 (lien) envoyé après clic QR — message_id: ${dm2Data.message_id}`);
+              pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id });
+            }
           }
+
+          if (leadForDm2.pending_dm3) {
+            const dm3Data = await sendDm(leadForDm2.pending_dm3);
+            if (dm3Data.error) {
+              console.error('[IG Webhook] Erreur DM3 (ouverture) après clic QR:', dm3Data.error);
+              pushEvent({ type: 'dm3_error', error: dm3Data.error });
+            } else {
+              console.log(`[IG Webhook] DM3 (ouverture) envoyé après clic QR — message_id: ${dm3Data.message_id}`);
+              pushEvent({ type: 'dm3_sent', message_id: dm3Data.message_id });
+            }
+          }
+
+          await serviceSupabase.from('instagram_leads').update({ pending_dm2: null, pending_dm3: null }).eq('id', leadForDm2.id);
         }
         continue;
       }
@@ -378,7 +392,7 @@ export async function POST(request: Request) {
 
       const { data: contentLinks } = await serviceSupabase
         .from('content_links')
-        .select('lm_keyword, lm_short_url, lm_url, dm_opener_message, dm_lm_message')
+        .select('lm_keyword, lm_short_url, lm_url, dm_opener_message, dm_lm_message, dm_button_text')
         .eq('profile_id', profile_id)
         .eq('content_id', mediaId)
         .not('lm_keyword', 'is', null)
@@ -482,17 +496,16 @@ export async function POST(request: Request) {
         .replace(/\s{2,}/g, ' ')
         .trim();
 
-      // DM2 : message avec le lien — stocké en DB, envoyé après clic Quick Reply
-      // Si dm_opener_message contient {{lien_lm}}, on remplace. Sinon on ajoute le lien à la fin.
-      const rawDm2Base = (cl.dm_opener_message || '').replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`).trim();
-      const dm2HasPlaceholder = /\{\{lien_lm\}\}/i.test(cl.dm_opener_message || '');
-      const dm2Text = dm2HasPlaceholder
-        ? rawDm2Base.replace(/\{\{lien_lm\}\}/gi, shortLink)
-        : rawDm2Base
-          ? `${rawDm2Base}\n\n${shortLink}`
-          : `Voici le lien : ${shortLink}`;
+      // DM2 : le lien seul — stocké en DB, envoyé après clic Quick Reply
+      const dm2Text = shortLink;
 
-      pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dm1Text, dm2Text, mediaId });
+      // DM3 : message d'ouverture de discussion — stocké en DB, envoyé juste après DM2
+      const dm3Text = (cl.dm_opener_message || '').replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`).trim();
+
+      // Texte du bouton Quick Reply — configurable par contenu
+      const buttonText = (cl.dm_button_text || '🚀 Je veux le lien !').slice(0, 20);
+
+      pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dm1Text, dm2Text, dm3Text, mediaId });
 
       // Envoie DM 1 via private reply sur le commentaire
       // Quick Reply : force l'utilisateur à cliquer pour ouvrir la fenêtre 24h Meta
@@ -510,7 +523,7 @@ export async function POST(request: Request) {
               quick_replies: [
                 {
                   content_type: 'text',
-                  title: '🚀 Je veux le lien !',
+                  title: buttonText,
                   payload: 'LM_LINK_CLICKED',
                 },
               ],
@@ -548,6 +561,7 @@ export async function POST(request: Request) {
           lead_magnet_sent: leadMagnetSent,
           tracking_link: shortLink || null,
           pending_dm2: dm2Text || null,
+          pending_dm3: dm3Text || null,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
         .select('id')
         .maybeSingle();

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 
@@ -48,6 +48,7 @@ interface Post {
   lmLmId?: string;
   dmOpenerMessage?: string;
   dmLmMessage?: string;
+  dmButtonText?: string;
 }
 
 interface ContentLink {
@@ -60,6 +61,7 @@ interface ContentLink {
   lm_keyword?: string | null;
   dm_opener_message?: string | null;
   dm_lm_message?: string | null;
+  dm_button_text?: string | null;
 }
 
 interface LeadMagnet {
@@ -699,6 +701,23 @@ function htmlToValue(el: HTMLDivElement): string {
   return result;
 }
 
+// Bulle de message façon Instagram DM — fond gris clair, coins arrondis, tag discret au-dessus
+function ChatBubble({ tag, tagLabel, children }: { tag: string; tagLabel: string; children: ReactNode }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', maxWidth: '78%' }}>
+      <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
+        DM {tag} <span style={{ fontWeight: 400, color: FAINT }}>· {tagLabel}</span>
+      </div>
+      <div style={{
+        background: '#efefef', color: '#000', borderRadius: '18px',
+        padding: '10px 14px', fontSize: 13, lineHeight: 1.45, width: '100%', boxSizing: 'border-box',
+      }}>
+        {children}
+      </div>
+    </div>
+  );
+}
+
 function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string;
@@ -918,10 +937,12 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     setKeyword(post.lmKeyword || '');
     setDmMessage(post.dmOpenerMessage || '');
     setResult(post.lmShortUrl || null);
-    setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
+    setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis !`);
     setDm1Saved(true);
     setDm2Text(post.dmOpenerMessage || '');
     setDm2Saved(true);
+    setButtonText(post.dmButtonText || '🚀 Je veux le lien !');
+    setButtonSaved(true);
   }, [post.id]);
 
   if (isYT) return (
@@ -976,12 +997,13 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
       // Sauvegarder dans content_links
       await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_url: lmUrl || null, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null }),
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_url: lmUrl || null, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null, dm_button_text: buttonText || null }),
       });
       setResult(shortUrl);
       setDm2Text(dmMessage || '');
       setDm2Saved(true);
-      onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl, dmOpenerMessage: dmMessage || undefined });
+      setButtonSaved(true);
+      onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl, dmOpenerMessage: dmMessage || undefined, dmButtonText: buttonText || undefined });
       setEditing(false);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -1015,15 +1037,19 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   const handleConfirmLeave = () => { setEditing(false); setDmMessage(savedDmMessage); setDmEdited(false); setConfirmLeave(false); };
 
   // États pour l'édition inline des DMs (sans passer par mode édition complet)
-  const [dm1Text, setDm1Text] = useState(post.dmLmMessage || `👋 Voici le lien comme promis ! {{lien_lm}}`);
+  const [dm1Text, setDm1Text] = useState(post.dmLmMessage || `👋 Voici le lien comme promis !`);
   const [dm1Saved, setDm1Saved] = useState(true);
   const [dm1Saving, setDm1Saving] = useState(false);
   const [dm2Text, setDm2Text] = useState(savedDmMessage);
   const [dm2Saved, setDm2Saved] = useState(true);
   const [dm2Saving, setDm2Saving] = useState(false);
+  const [buttonText, setButtonText] = useState(post.dmButtonText || '🚀 Je veux le lien !');
+  const [buttonSaved, setButtonSaved] = useState(true);
+  const [buttonSaving, setButtonSaving] = useState(false);
 
   const [dm1Error, setDm1Error] = useState<string | null>(null);
   const [dm2Error, setDm2Error] = useState<string | null>(null);
+  const [buttonError, setButtonError] = useState<string | null>(null);
 
   const saveDm1 = async (msg: string) => {
     setDm1Saving(true); setDm1Error(null);
@@ -1051,6 +1077,19 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
     } catch (e: any) { setDm2Error(e.message || 'Erreur'); } finally { setDm2Saving(false); }
   };
 
+  const saveButtonText = async (msg: string) => {
+    setButtonSaving(true); setButtonError(null);
+    try {
+      const res = await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_button_text: msg }),
+      });
+      if (!res.ok) throw new Error('Erreur sauvegarde');
+      onPostUpdated(post.id, { dmButtonText: msg });
+      setButtonSaved(true);
+    } catch (e: any) { setButtonError(e.message || 'Erreur'); } finally { setButtonSaving(false); }
+  };
+
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Statut LM */}
@@ -1066,51 +1105,73 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         </div>
       </div>
 
-      {/* DM 1 — avec le LM */}
-      {lmUrl && (
-        <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
-          <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <div>
-              <span style={{ fontSize: 12, fontWeight: 600, color: INK }}>DM 1</span>
-              <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyé avec le lead magnet</span>
-            </div>
-          </div>
-          <div style={{ padding: '12px 14px' }}>
+      {/* Séquence DM — maquette conversation Instagram */}
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>Séquence de messages automatique</span>
+          <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
+        </div>
+
+        <div style={{ padding: '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {/* Bulle DM1 — accroche */}
+          <ChatBubble tag="1" tagLabel="envoyé avec le commentaire">
             <Dm1Editor
               value={dm1Text}
               onChange={v => { setDm1Text(v); setDm1Saved(false); }}
               saved={dm1Saved}
               blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
             />
-            {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm1Error}</div>}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
-              <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
-                style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
-                {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
-              </button>
-            </div>
+          </ChatBubble>
+          {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8 }}>{dm1Error}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2, marginBottom: 4 }}>
+            <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
+              style={{ padding: '3px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+              {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
+            </button>
           </div>
-        </div>
-      )}
 
-      {/* DM 2 — message d'ouverture */}
-      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 8, overflow: 'hidden' }}>
-        <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: INK }}>DM 2</span>
-          <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>message d'ouverture — envoyé juste après</span>
-        </div>
-        <div style={{ padding: '12px 14px' }}>
-          <textarea
-            value={dm2Text}
-            onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
-            placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
-            rows={3}
-            style={{ width: '100%', padding: '9px 11px', fontSize: 12, borderRadius: 7, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
-          />
-          {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginTop: 6 }}>{dm2Error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+          {/* Bouton Quick Reply — rendu comme sur Instagram, sous la bulle DM1 */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2, marginBottom: 10 }}>
+            <input
+              value={buttonText}
+              onChange={e => { setButtonText(e.target.value.slice(0, 20)); setButtonSaved(false); }}
+              onBlur={() => { if (!buttonSaved) saveButtonText(buttonText); }}
+              maxLength={20}
+              placeholder="🚀 Je veux le lien !"
+              style={{
+                alignSelf: 'flex-start', padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                borderRadius: 18, border: `1.5px solid ${buttonSaved ? '#6b7cde55' : AMBER}`,
+                background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
+                width: `${Math.max(buttonText.length, 10) + 4}ch`, maxWidth: '100%',
+              }}
+            />
+            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4 }}>
+              Texte du bouton — max 20 caractères · {buttonSaving ? 'sauvegarde...' : buttonSaved ? '✓ sauvegardé' : 'modifié, clique en dehors pour sauvegarder'}
+            </div>
+            {buttonError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px' }}>{buttonError}</div>}
+          </div>
+
+          {/* Bulle DM2 — le lien, envoyé après le clic */}
+          <ChatBubble tag="2" tagLabel="envoyé quand le prospect clique le bouton">
+            <div style={{ fontSize: 13, color: INK, wordBreak: 'break-all' }}>{lmUrl || '(lien généré après association du lead magnet)'}</div>
+          </ChatBubble>
+
+          {/* Bulle DM3 — message d'ouverture, envoyé juste après */}
+          <div style={{ marginTop: 4 }}>
+            <ChatBubble tag="3" tagLabel="envoyé juste après, à la suite">
+              <textarea
+                value={dm2Text}
+                onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
+                placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
+                rows={2}
+                style={{ width: '100%', padding: 0, fontSize: 13, border: 'none', background: 'transparent', color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.45, fontFamily: 'inherit' }}
+              />
+            </ChatBubble>
+          </div>
+          {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dm2Error}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
             <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
-              style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+              style={{ padding: '3px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
               {dm2Saving ? '...' : dm2Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
             </button>
           </div>
@@ -1133,7 +1194,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
           ✏️ Modifier / Régénérer le Lead Magnet
         </button>
         <div style={{ marginLeft: 'auto' }}>
-          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} onDissociated={() => { setResult(null); setEditing(false); setKeyword(''); setSelectedLmId(''); setDm1Text(`👋 Voici le lien comme promis ! {{lien_lm}}`); setDm1Saved(true); setDm2Text(''); setDm2Saved(true); }} />
+          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} onDissociated={() => { setResult(null); setEditing(false); setKeyword(''); setSelectedLmId(''); setDm1Text(`👋 Voici le lien comme promis !`); setDm1Saved(true); setDm2Text(''); setDm2Saved(true); setButtonText('🚀 Je veux le lien !'); setButtonSaved(true); }} />
         </div>
       </div>
     </div>
@@ -1215,30 +1276,54 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot, il reçoit le LM en DM automatiquement.</div>
       </div>
 
-      {/* DM 1 — éditable dès l'association */}
-      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 6 }}>DM 1 — envoyé avec le Lead Magnet</div>
-        <Dm1Editor
-          value={dm1Text}
-          onChange={v => setDm1Text(v)}
-          saved={true}
-          blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
-        />
-      </div>
-
-      {/* Message d'ouverture */}
-      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 10, padding: '12px 14px' }}>
-        <div style={{ fontSize: 11, fontWeight: 700, color: INK, marginBottom: 4 }}>Message d'ouverture de discussion</div>
-        <div style={{ fontSize: 11, color: MUTED, marginBottom: 8, lineHeight: 1.5 }}>
-          Ce message est envoyé automatiquement en DM juste après l'envoi du LM. Il s'envoie sans que tu n'aies rien à faire.
+      {/* Séquence DM — maquette conversation Instagram */}
+      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
+        <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>Séquence de messages automatique</span>
+          <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
         </div>
-        <textarea
-          value={dmMessage}
-          onChange={e => handleDmChange(e.target.value)}
-          placeholder={`Ex : "Salut ! Tu as bien reçu le guide ? Si tu as des questions je suis là 😊"`}
-          rows={3}
-          style={{ width: '100%', padding: '10px 12px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.5, fontFamily: 'inherit' }}
-        />
+        <div style={{ padding: '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+          <ChatBubble tag="1" tagLabel="envoyé avec le commentaire">
+            <Dm1Editor
+              value={dm1Text}
+              onChange={v => setDm1Text(v)}
+              saved={true}
+              blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
+            />
+          </ChatBubble>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2, marginBottom: 10 }}>
+            <input
+              value={buttonText}
+              onChange={e => setButtonText(e.target.value.slice(0, 20))}
+              maxLength={20}
+              placeholder="🚀 Je veux le lien !"
+              style={{
+                alignSelf: 'flex-start', padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                borderRadius: 18, border: '1.5px solid #6b7cde55',
+                background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
+                width: `${Math.max(buttonText.length, 10) + 4}ch`, maxWidth: '100%',
+              }}
+            />
+            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4 }}>Texte du bouton — max 20 caractères</div>
+          </div>
+
+          <ChatBubble tag="2" tagLabel="envoyé quand le prospect clique le bouton">
+            <div style={{ fontSize: 13, color: MUTED, fontStyle: 'italic' }}>Le lien du lead magnet, généré à l'étape suivante</div>
+          </ChatBubble>
+
+          <div style={{ marginTop: 4 }}>
+            <ChatBubble tag="3" tagLabel="envoyé juste après, à la suite">
+              <textarea
+                value={dmMessage}
+                onChange={e => handleDmChange(e.target.value)}
+                placeholder={`Ex : "Salut ! Tu as bien reçu le guide ? Si tu as des questions je suis là 😊"`}
+                rows={2}
+                style={{ width: '100%', padding: 0, fontSize: 13, border: 'none', background: 'transparent', color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.45, fontFamily: 'inherit' }}
+              />
+            </ChatBubble>
+          </div>
+        </div>
       </div>
 
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
@@ -2073,6 +2158,7 @@ export default function PageLiens() {
         lmLmId: cl.lm_id || undefined,
         dmOpenerMessage: cl.dm_opener_message || undefined,
         dmLmMessage: cl.dm_lm_message || undefined,
+        dmButtonText: cl.dm_button_text || undefined,
       };
     });
 
