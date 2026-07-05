@@ -4613,7 +4613,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         {selectedMetric === 'calls' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={180}>
-              <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }} barCategoryGap="0%" barGap={1}>
+              <ComposedChart data={callsSeries} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
                 <YAxis yAxisId="left" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} />
@@ -4624,10 +4624,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </div>
                 )} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Bar yAxisId="left" dataKey="booked" name="Bookés" fill={BLUE} radius={[2,2,0,0]} barSize={7} />
-                <Bar yAxisId="left" dataKey="honored" name="Honorés" fill={GREEN} radius={[2,2,0,0]} opacity={0.75} barSize={7} />
-                <Bar yAxisId="left" dataKey="closed" name="Closés" fill={AMBER} radius={[2,2,0,0]} opacity={0.75} barSize={7} />
-                <Line yAxisId="right" type="monotone" dataKey="revenue" name="Revenu" stroke={RED} strokeWidth={2} dot={false} />
+                <Line yAxisId="left" type="monotone" dataKey="booked" name="Bookés" stroke={BLUE} strokeWidth={2} dot={{ r: 3 }} />
+                <Line yAxisId="left" type="monotone" dataKey="honored" name="Honorés" stroke={GREEN} strokeWidth={2} dot={{ r: 3 }} />
+                <Line yAxisId="left" type="monotone" dataKey="closed" name="Closés" stroke={AMBER} strokeWidth={2} dot={{ r: 3 }} />
+                <Line yAxisId="right" type="monotone" dataKey="revenue" name="Revenu" stroke={RED} strokeWidth={2} dot={false} strokeDasharray="4 3" />
               </ComposedChart>
             </ResponsiveContainer>
           </div>
