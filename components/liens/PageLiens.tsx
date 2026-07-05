@@ -657,50 +657,6 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   );
 }
 
-const TOKEN = '{{lien_lm}}';
-
-// Insère le token avec espaces garantis autour
-function insertTokenAt(text: string, pos: number): string {
-  const before = text.slice(0, pos);
-  const after = text.slice(pos);
-  const needSpaceBefore = before.length > 0 && !before.endsWith(' ');
-  const needSpaceAfter = after.length > 0 && !after.startsWith(' ');
-  return before
-    + (needSpaceBefore ? ' ' : '')
-    + TOKEN
-    + (needSpaceAfter ? ' ' : '')
-    + after;
-}
-
-// ─── Dm1Editor : contentEditable avec badge inline draggable ─────────────────
-
-// Convertit la valeur string → HTML pour l'affichage ({{lien_lm}} → badge span)
-function valueToHtml(text: string, blue: string, blueSoft: string): string {
-  const escaped = text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-  return escaped.replace(
-    /\{\{lien_lm\}\}/g,
-    `<span class="dm1-token" contenteditable="false" draggable="true" data-token="{{lien_lm}}" style="display:inline-flex;align-items:center;background:${blueSoft};border:1px solid ${blue};border-radius:5px;padding:2px 8px;color:${blue};font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.04em;user-select:none;cursor:grab;vertical-align:middle;line-height:1.4">Lien LM</span>`
-  );
-}
-
-// Extrait la valeur string depuis le innerHTML du contentEditable
-function htmlToValue(el: HTMLDivElement): string {
-  let result = '';
-  for (const node of Array.from(el.childNodes)) {
-    if (node.nodeType === Node.TEXT_NODE) {
-      result += node.textContent ?? '';
-    } else if (node instanceof HTMLElement && node.dataset.token) {
-      result += node.dataset.token;
-    } else if (node instanceof HTMLElement) {
-      result += node.textContent ?? '';
-    }
-  }
-  return result;
-}
-
 // Bulle de message façon Instagram DM — fond gris clair, coins arrondis, tag discret au-dessus
 function ChatBubble({ tag, tagLabel, children }: { tag: string; tagLabel: string; children: ReactNode }) {
   return (
@@ -718,147 +674,23 @@ function ChatBubble({ tag, tagLabel, children }: { tag: string; tagLabel: string
   );
 }
 
-function Dm1Editor({ value, onChange, saved, blue, blueSoft, border, amber, bg, ink }: {
+// DM1 = accroche seule, pas de lien dedans — simple textarea sans token
+function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string;
 }) {
-  const editorRef = useRef<HTMLDivElement>(null);
-  // Pour éviter la boucle onChange → re-render → perte de curseur
-  const isComposing = useRef(false);
-  const lastValue = useRef(value);
-
-  // Sync HTML quand la valeur change depuis l'extérieur (ex: changement de post)
-  useEffect(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    if (lastValue.current === value) return;
-    lastValue.current = value;
-    const html = valueToHtml(value, blue, blueSoft);
-    el.innerHTML = html || '';
-    // Réattacher les listeners dragstart aux badges après re-render
-    attachBadgeDragListeners(el);
-  }, [value, blue, blueSoft]);
-
-  // Attacher dragstart sur les badges du contentEditable
-  function attachBadgeDragListeners(el: HTMLDivElement) {
-    el.querySelectorAll('[data-token]').forEach(span => {
-      (span as HTMLElement).ondragstart = (e: DragEvent) => {
-        e.dataTransfer?.setData('text/plain', TOKEN);
-      };
-    });
-  }
-
-  // Init au montage
-  useEffect(() => {
-    const el = editorRef.current;
-    if (!el) return;
-    el.innerHTML = valueToHtml(value, blue, blueSoft);
-    attachBadgeDragListeners(el);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleInput = useCallback(() => {
-    if (isComposing.current) return;
-    const el = editorRef.current;
-    if (!el) return;
-    let extracted = htmlToValue(el);
-    // Le token est obligatoire — si l'utilisateur l'a supprimé, on le remet à la fin
-    if (!extracted.includes(TOKEN)) {
-      extracted = extracted.trimEnd() + (extracted.trimEnd().length > 0 ? ' ' : '') + TOKEN;
-      lastValue.current = extracted;
-      el.innerHTML = valueToHtml(extracted, blue, blueSoft);
-      attachBadgeDragListeners(el);
-      // Placer le curseur avant le badge
-      const sel = window.getSelection();
-      if (sel) {
-        const range = document.createRange();
-        const lastTextNode = Array.from(el.childNodes).reverse().find(n => n.nodeType === Node.TEXT_NODE);
-        if (lastTextNode) { range.setStartAfter(lastTextNode); } else { range.setStart(el, el.childNodes.length - 1); }
-        range.collapse(true);
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    } else {
-      // Garantir qu'il y a toujours un espace avant le token (évite "mot{{lien_lm}}")
-      const fixed = extracted.replace(/([\S])(\{\{lien_lm\}\})/g, '$1 $2');
-      if (fixed !== extracted) {
-        lastValue.current = fixed;
-        el.innerHTML = valueToHtml(fixed, blue, blueSoft);
-        attachBadgeDragListeners(el);
-        onChange(fixed);
-        return;
-      }
-      lastValue.current = extracted;
-    }
-    onChange(extracted);
-    attachBadgeDragListeners(el);
-  }, [onChange, blue, blueSoft]);
-
-  // Drop du badge dans le contentEditable
-  const handleDrop = useCallback((e: React.DragEvent<HTMLDivElement>) => {
-    if (e.dataTransfer.getData('text/plain') !== TOKEN) return;
-    e.preventDefault();
-    // Obtenir la position du drop dans le texte
-    let dropPos: number;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const caretData = (document as any).caretRangeFromPoint?.(e.clientX, e.clientY)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ?? (document as any).caretPositionFromPoint?.(e.clientX, e.clientY);
-    const withoutToken = value.replace(TOKEN, '').replace(/  +/g, ' ');
-    if (caretData) {
-      // Calculer l'offset texte brut jusqu'au point de drop
-      const el = editorRef.current;
-      if (el) {
-        const tempRange = document.createRange();
-        if ('startContainer' in caretData) {
-          tempRange.setStart(caretData.startContainer, caretData.startOffset);
-        } else {
-          tempRange.setStart(caretData.offsetNode, caretData.offset);
-        }
-        tempRange.collapse(true);
-        const rangeFromStart = document.createRange();
-        rangeFromStart.setStart(el, 0);
-        rangeFromStart.setEnd(tempRange.startContainer, tempRange.startOffset);
-        // Compter les chars texte brut avant le drop (hors badges)
-        let count = 0;
-        const iter = document.createNodeIterator(el, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
-        let n: Node | null;
-        while ((n = iter.nextNode())) {
-          if (n === tempRange.startContainer) { count += tempRange.startOffset; break; }
-          if (n.nodeType === Node.TEXT_NODE) count += (n.textContent ?? '').length;
-          else if (n instanceof HTMLElement && n.dataset.token) count += n.dataset.token.length;
-        }
-        dropPos = count;
-      } else { dropPos = withoutToken.length; }
-    } else { dropPos = withoutToken.length; }
-    const next = insertTokenAt(withoutToken, dropPos);
-    lastValue.current = next;
-    onChange(next);
-    // Mettre à jour le HTML
-    const el = editorRef.current;
-    if (el) { el.innerHTML = valueToHtml(next, blue, blueSoft); attachBadgeDragListeners(el); }
-  }, [value, onChange, blue, blueSoft]);
-
   return (
-    <div style={{ borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg }}>
-      <div
-        ref={editorRef}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={handleInput}
-        onCompositionStart={() => { isComposing.current = true; }}
-        onCompositionEnd={() => { isComposing.current = false; handleInput(); }}
-        onDrop={handleDrop}
-        onDragOver={e => e.preventDefault()}
-        data-placeholder="Ex : 👋 Voici le lien comme promis !"
-        style={{
-          minHeight: 72, padding: '10px 12px',
-          fontSize: 12, lineHeight: 1.8, fontFamily: 'inherit',
-          color: ink, background: 'transparent',
-          outline: 'none', wordBreak: 'break-word', whiteSpace: 'pre-wrap',
-        }}
-      />
-    </div>
+    <textarea
+      value={value}
+      onChange={e => onChange(e.target.value)}
+      placeholder="Ex : 👋 Voici le lien comme promis !"
+      rows={3}
+      style={{
+        width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8,
+        borderRadius: 8, border: `1px solid ${saved ? border : amber}`, background: bg,
+        color: ink, outline: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit',
+      }}
+    />
   );
 }
 
@@ -1132,39 +964,46 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
 
           {/* Bouton Quick Reply — rendu comme sur Instagram, sous la bulle DM1 */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2, marginBottom: 10 }}>
-            <input
-              value={buttonText}
-              onChange={e => { setButtonText(e.target.value.slice(0, 20)); setButtonSaved(false); }}
-              onBlur={() => { if (!buttonSaved) saveButtonText(buttonText); }}
-              maxLength={20}
-              placeholder="🚀 Je veux le lien !"
-              style={{
-                alignSelf: 'flex-start', padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                borderRadius: 18, border: `1.5px solid ${buttonSaved ? '#6b7cde55' : AMBER}`,
-                background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
-                width: `${Math.max(buttonText.length, 10) + 4}ch`, maxWidth: '100%',
-              }}
-            />
-            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4 }}>
-              Texte du bouton — max 20 caractères · {buttonSaving ? 'sauvegarde...' : buttonSaved ? '✓ sauvegardé' : 'modifié, clique en dehors pour sauvegarder'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <input
+                value={buttonText}
+                onChange={e => { setButtonText(e.target.value.slice(0, 20)); setButtonSaved(false); }}
+                maxLength={20}
+                placeholder="🚀 Je veux le lien !"
+                style={{
+                  padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                  borderRadius: 18, border: `1.5px solid ${buttonSaved ? '#6b7cde55' : AMBER}`,
+                  background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
+                  width: `${Math.max(buttonText.length, 10) + 4}ch`, maxWidth: '100%',
+                }}
+              />
+              <button onClick={() => saveButtonText(buttonText)} disabled={buttonSaving || buttonSaved}
+                style={{ padding: '3px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: buttonSaved ? 'var(--green)' : BLUE, color: '#fff', cursor: buttonSaved ? 'default' : 'pointer', transition: 'background .2s' }}>
+                {buttonSaving ? '...' : buttonSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
+              </button>
             </div>
+            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4 }}>Texte du bouton — max 20 caractères</div>
             {buttonError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px' }}>{buttonError}</div>}
           </div>
 
-          {/* Bulle DM2 — le lien, envoyé après le clic */}
+          {/* Bulle DM2 — le lien, envoyé après le clic. Non modifiable : dérivé automatiquement du LM associé */}
           <ChatBubble tag="2" tagLabel="envoyé quand le prospect clique le bouton">
-            <div style={{ fontSize: 13, color: INK, wordBreak: 'break-all' }}>{lmUrl || '(lien généré après association du lead magnet)'}</div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.55 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              <div style={{ fontSize: 13, color: '#000', wordBreak: 'break-all' }}>{lmUrl || '(lien généré après association du lead magnet)'}</div>
+            </div>
           </ChatBubble>
+          <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 8, marginTop: 2, marginBottom: 4 }}>Non modifiable — généré automatiquement depuis le lead magnet associé</div>
 
           {/* Bulle DM3 — message d'ouverture, envoyé juste après */}
-          <div style={{ marginTop: 4 }}>
+          <div style={{ marginTop: 2 }}>
             <ChatBubble tag="3" tagLabel="envoyé juste après, à la suite">
               <textarea
                 value={dm2Text}
                 onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
                 placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
                 rows={2}
-                style={{ width: '100%', padding: 0, fontSize: 13, border: 'none', background: 'transparent', color: INK, outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.45, fontFamily: 'inherit' }}
+                style={{ width: '100%', padding: 0, fontSize: 13, border: 'none', background: 'transparent', color: '#000', outline: 'none', resize: 'vertical', boxSizing: 'border-box', lineHeight: 1.45, fontFamily: 'inherit' }}
               />
             </ChatBubble>
           </div>
