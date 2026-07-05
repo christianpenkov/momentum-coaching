@@ -483,11 +483,14 @@ export async function POST(request: Request) {
         .trim();
 
       // DM2 : message avec le lien — stocké en DB, envoyé après clic Quick Reply
-      const rawDm2 = cl.dm_opener_message || `👋 Voici le lien comme promis ! ${shortLink}`;
-      const dm2Text = rawDm2
-        .replace(/\{\{lien_lm\}\}/gi, shortLink)
-        .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
-        .trim();
+      // Si dm_opener_message contient {{lien_lm}}, on remplace. Sinon on ajoute le lien à la fin.
+      const rawDm2Base = (cl.dm_opener_message || '').replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`).trim();
+      const dm2HasPlaceholder = /\{\{lien_lm\}\}/i.test(cl.dm_opener_message || '');
+      const dm2Text = dm2HasPlaceholder
+        ? rawDm2Base.replace(/\{\{lien_lm\}\}/gi, shortLink)
+        : rawDm2Base
+          ? `${rawDm2Base}\n\n${shortLink}`
+          : `Voici le lien : ${shortLink}`;
 
       pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dm1Text, dm2Text, mediaId });
 

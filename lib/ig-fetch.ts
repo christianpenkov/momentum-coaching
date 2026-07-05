@@ -292,7 +292,11 @@ export async function pollIgComments(
             .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
             .replace(/\s{2,}/g, ' ')
             .trim();
-          const dm2Text = `${cl.lm_short_url}`;
+          const dm2Text = cl.dm_opener_message
+            ? (/\{\{lien_lm\}\}/i.test(cl.dm_opener_message)
+                ? cl.dm_opener_message.replace(/\{\{lien_lm\}\}/gi, cl.lm_short_url)
+                : `${cl.dm_opener_message}\n\n${cl.lm_short_url}`)
+            : `Voici le lien : ${cl.lm_short_url}`;
           try {
             await fetch(
               `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
