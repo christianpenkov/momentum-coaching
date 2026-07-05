@@ -4063,21 +4063,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     ? (shortio.humanClicks30d ?? 0)
     : (shortio.chartData ?? []).slice(-sPeriod).reduce((s: number, d: any) => s + (d.clicks || 0), 0);
 
-  // Filtre leads par période (fenêtre [periodStart, periodEnd])
+  // Filtre par période (fenêtre [periodStart, periodEnd]) — fonction unique réutilisée
+  // partout dans ce composant, pour ne pas dupliquer la logique de bornage _pIdx.
   const periodCutoff = periodStart.getTime();
   const periodEndMs = periodEnd.getTime();
-  const leadsInPeriod = leads.filter(l => {
-    const t = new Date(l.commentedAt).getTime();
-    return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
-  });
-
-  // ── Section 0 : KPIs ──
-  // Clics totaux : bio Calendly + description (Calendly + LM) + clics DM/LM (prospect_links cliqués)
-  const inPeriodWindow = (ts: string | null | undefined) => {
+  const isInPeriod = (ts: string | null | undefined) => {
     if (!ts) return false;
     const t = new Date(ts).getTime();
     return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
   };
+  const leadsInPeriod = leads.filter(l => isInPeriod(l.commentedAt));
+
+  // ── Section 0 : KPIs ──
+  // Clics totaux : bio Calendly + description (Calendly + LM) + clics DM/LM (prospect_links cliqués)
   // Clics totaux : toutes catégories business connues (bio + desc + lm_dm_auto + calendly_dm_prospect)
   // En S-0 : businessClicsFromDb couvre déjà toutes les BUSINESS_CATEGORIES
   // En S-1+ : sommer tous les clics de clicksByUrl (snapshots DB filtrés sur la fenêtre)
@@ -4121,18 +4119,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // Fallback sur created_at si calendly_link_sent_at est null (anciens liens)
   const calendlyLinksSent = prospectLinksDb.filter(l => {
     if (!l.calendly_link_sent) return false;
-    const ts = l.calendly_link_sent_at ?? l.created_at;
-    if (!ts) return false;
-    const t = new Date(ts).getTime();
-    return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+    return isInPeriod(l.calendly_link_sent_at ?? l.created_at);
   });
   const lmCalendlyLinks = calendlyLinksSent.length;
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
   // calls filtrés par la fenêtre de période (en S-0, callsEff n'a pas de borne haute)
-  const callsInWindow = (calls ?? []).filter(c => {
-    const t = new Date(c.scheduled_at).getTime();
-    return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
-  });
+  const callsInWindow = (calls ?? []).filter(c => isInPeriod(c.scheduled_at));
   const callsBooked = callsInWindow.filter(c => c.status === 'active').length;
   const callsFromLM = callsInWindow.filter(c => c.status === 'active' && c.ig_lead_id).length;
   const tauxLMCalendly = lmEnvoyes > 0 ? Math.round((lmCalendlyLinks / lmEnvoyes) * 100) : 0;
@@ -4193,8 +4185,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       .map((l: any) => l.postId + '|' + (l.postPlatform || (isValidYtVideoId(l.postId) ? 'YT' : 'IG'))),
     ...leads.filter(lead => {
       if (!lead.leadMagnetSent || !isValidPostId(lead.postId, lead.postType)) return false;
-      const t = new Date(lead.commentedAt).getTime();
-      return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+      return isInPeriod(lead.commentedAt);
     }).map(lead => lead.postId + '|' + lead.postType),
   ]));
 
@@ -4227,10 +4218,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;
 
     const clicsDesc = linkClics(descLink) || 0;
-    const postLeadsInPeriod = postLeads.filter(l => {
-      const t = new Date(l.commentedAt).getTime();
-      return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
-    });
+    const postLeadsInPeriod = postLeads.filter(l => isInPeriod(l.commentedAt));
     const lmDetectes = postLeadsInPeriod.length;
     const lmSent = postLeadsInPeriod.filter((l: MockLead) => l.leadMagnetSent).length;
     const lmClics = postLeadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
@@ -4243,8 +4231,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
       ? calls.filter(c => {
           const matchesContent = c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === postId : c.utm_content === postId;
           if (!matchesContent) return false;
-          const t = new Date(c.scheduled_at).getTime();
-          return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+          return isInPeriod(c.scheduled_at);
         })
       : [];
     const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
@@ -4540,10 +4527,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // Cold DM = coach a initié (dmType === 'cold') ou non détecté (null) parmi les DM directs
           const dmLinkSentInPeriod = (l: any) => {
             if (!l.calendly_link_sent) return false;
-            const ts = l.calendly_link_sent_at ?? l.created_at;
-            if (!ts) return false;
-            const t = new Date(ts).getTime();
-            return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+            return isInPeriod(l.calendly_link_sent_at ?? l.created_at);
           };
           const coldDMLinks = dmDirectLinks.filter((l: any) => (l.dmType === 'cold' || l.dmType == null) && dmLinkSentInPeriod(l));
           const organicDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'organic' && dmLinkSentInPeriod(l));
@@ -4565,10 +4549,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
             if (!lead?.leadMagnetSent) return false;
             if (!pl.calendly_link_sent) return false;
-            const ts = pl.calendly_link_sent_at ?? pl.created_at;
-            if (!ts) return false;
-            const t = new Date(ts).getTime();
-            return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
+            return isInPeriod(pl.calendly_link_sent_at ?? pl.created_at);
           });
           const lmBooked = lmProspectLinksDb.filter((l: any) => l.callBooked).length;
           const lmHonored = lmBooked;
