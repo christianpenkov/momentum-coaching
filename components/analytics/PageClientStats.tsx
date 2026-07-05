@@ -6211,9 +6211,14 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     if (!row.date || !row.link_category || !CHART_BUSINESS_CATS.has(row.link_category)) continue;
     chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + (row.human_clicks ?? 0));
   }
-  const shortioChartHistory: { date: string; clicks: number }[] = Array.from(chartByDate.entries())
-    .sort((a, b) => a[0].localeCompare(b[0]))
-    .map(([date, clicks]) => ({ date, clicks }));
+  // Comble les jours sans clic à 0 — sinon le graphique n'affiche qu'un point isolé par jour avec clics
+  const shortioChartHistory: { date: string; clicks: number }[] = [];
+  for (let i = period - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    shortioChartHistory.push({ date: dateStr, clicks: chartByDate.get(dateStr) ?? 0 });
+  }
 
   return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory };
   } catch { return null; }
