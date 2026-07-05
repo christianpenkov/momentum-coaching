@@ -1047,7 +1047,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
     'Vues profil': { data: mockFromTotal(period === 30 ? ig.profileViews30d : Math.round(ig.profileViews30d * ratio), 6), color: BLUE },
     "Taux d'engagement": { data: mockFromTotal(Math.round(engRate * 10) / 10, 7), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Followers reach rate': { data: mockFromTotal(Math.round(reachRate * 10) / 10, 8), color: ACCENT, unit: '%' },
-    'Viralité': { data: mockFromTotal(viralPct ? Math.round(viralPct * 10) / 10 : 0, 9), color: viralPct && viralPct > 50 ? GREEN : AMBER, unit: '%' },
+    'Reach Non-Followers': { data: mockFromTotal(viralPct ? Math.round(viralPct * 10) / 10 : 0, 9), color: viralPct && viralPct > 50 ? GREEN : AMBER, unit: '%' },
   };
 
   const openStatModal = (label: string, value: string) => {
@@ -1100,7 +1100,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
           { label: 'Abonnés nets', value: `${follows_p >= 0 ? '+' : ''}${fmt(follows_p)}`, sub: `${period}j`, color: follows_p >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Followers reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Followers reach rate' },
-          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : '—', sub: 'vues non-abonnés', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--muted)', key: 'Viralité' },
+          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : '—', sub: 'vues non-abonnés', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--muted)', key: 'Reach Non-Followers' },
         ].map(s => (
           <div key={s.key} onClick={() => openStatModal(s.key, s.value)} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }}
             onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}

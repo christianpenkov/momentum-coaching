@@ -1190,12 +1190,20 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
     'Reach': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
-    'Abonnés nets': { data: igDays.map((d, i, arr) => {
-      // Delta jour J vs J-1 — peut être négatif (désabonnement net)
-      const prev = arr[i - 1]?.followerCount ?? d.followerCount ?? 0;
-      const curr = d.followerCount ?? prev;
-      return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
-    }), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
+    'Abonnés nets': { data: (() => {
+      // Delta brut jour J vs J-1 — très bruyant sur un petit compte (±1-2/jour)
+      const rawDeltas = igDays.map((d, i, arr) => {
+        const prev = arr[i - 1]?.followerCount ?? d.followerCount ?? 0;
+        const curr = d.followerCount ?? prev;
+        return i === 0 ? 0 : (curr - (prev ?? curr));
+      });
+      // Moyenne mobile 3 jours pour lisser le bruit et montrer la tendance réelle
+      return igDays.map((d, i) => {
+        const window = rawDeltas.slice(Math.max(0, i - 2), i + 1);
+        const avg = window.reduce((a, b) => a + b, 0) / window.length;
+        return { date: d.date, v: Math.round(avg * 10) / 10 };
+      });
+    })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Followers reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
@@ -1252,7 +1260,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Followers reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Followers reach rate', tooltip: 'Quel pourcentage de tes abonnés est touché par tes contenus. 100% = tous tes abonnés ont été atteints par toutes tes publications.' },
-          { label: 'Viralité', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null, tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
+          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null, tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}

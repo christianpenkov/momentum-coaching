@@ -743,7 +743,7 @@ function TabInstagram({ ig, period }: { ig: IGStats | null; period: Period }) {
         <Stat label="Clics site web 30j" value={fmt(ig.websiteClicks30d)} />
         <Stat label="Taux d'engagement" value={fmtPct(engRate)} color={engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED} sub="interactions / reach" />
         <Stat label="Followers reach rate" value={fmtPct(reachRate)} sub="reach / abonnés" />
-        {viralPct !== null && <Stat label="Viralité" value={fmtPct(viralPct)} sub="vues non-abonnés" color={viralPct > 50 ? GREEN : AMBER} />}
+        {viralPct !== null && <Stat label="Reach Non-Followers" value={fmtPct(viralPct)} sub="vues non-abonnés" color={viralPct > 50 ? GREEN : AMBER} />}
       </StatGrid>
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>

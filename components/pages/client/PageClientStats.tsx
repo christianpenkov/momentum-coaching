@@ -765,7 +765,7 @@ export default function PageClientStats() {
               const viralPct = total > 0 ? Math.round((bd.nonFollower / total) * 100) : 0;
               return (
                 <div className="card" style={{ marginBottom: 20, padding: '16px 20px' }}>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Viralité organique — vues par type d'audience</div>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Reach Non-Followers — vues par type d'audience</div>
                   <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
                     <div style={{ flex: 1, minWidth: 120, background: 'var(--surface-2)', borderRadius: 10, padding: '12px 16px', border: '1px solid var(--border)' }}>
                       <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>Non-abonnés</div>
