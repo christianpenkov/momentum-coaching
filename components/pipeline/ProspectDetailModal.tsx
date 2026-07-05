@@ -46,6 +46,11 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
     else if (e.event_type === 'lm_clicked') label = 'Lead magnet ouvert';
     else if (e.event_type === 'calendly_link_sent') label = 'Lien Calendly envoyé';
     else if (e.event_type === 'link_clicked') label = 'Lien Calendly cliqué';
+    else if (e.event_type === 'call_booked') label = 'Call booké';
+    else if (e.event_type === 'no_show') label = 'No-show';
+    else if (e.event_type === 'rescheduled') label = 'Call reporté';
+    else if (e.event_type === 'showed_up') label = 'Call honoré';
+    else if (e.event_type === 'closed') label = 'Deal closé';
     events.push({ id: e.id, type: e.event_type, occurredAt: e.occurred_at, source: 'event', label });
   }
 
@@ -62,14 +67,19 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
 
   for (const call of ctx.calls) {
     const bookedAt = call.scheduled_at ?? call.created_at;
-    events.push({
-      id: `${call.id}-booked`,
-      type: 'call_booked',
-      occurredAt: call.created_at ?? bookedAt,
-      source: 'event',
-      label: 'Call booké',
-      detail: call.scheduled_at ? `Prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : undefined,
-    });
+    // "Call booké" n'est ajouté que s'il n'existe pas déjà en tant que prospect_event réel
+    // pour ce call précis (event_type call_booked + call_id) — évite le doublon visuel.
+    const hasRealBookedEvent = ctx.events.some(e => e.event_type === 'call_booked' && e.call_id === call.id);
+    if (!hasRealBookedEvent) {
+      events.push({
+        id: `${call.id}-booked`,
+        type: 'call_booked',
+        occurredAt: call.created_at ?? bookedAt,
+        source: 'derived',
+        label: 'Call booké',
+        detail: call.scheduled_at ? `Prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : undefined,
+      });
+    }
 
     if (call.no_show === true) {
       events.push({
@@ -97,24 +107,30 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
         detail: call.cancellation_reason ?? undefined,
       });
     } else if (call.outcome === 'showed_up' || call.outcome === 'second_call' || call.deal_closed) {
-      events.push({
-        id: `${call.id}-showed-up`,
-        type: 'showed_up',
-        occurredAt: call.scheduled_at ?? call.created_at,
-        source: 'derived',
-        label: 'Call honoré',
-      });
+      const hasRealShowedUpEvent = ctx.events.some(e => e.event_type === 'showed_up' && e.call_id === call.id);
+      if (!hasRealShowedUpEvent) {
+        events.push({
+          id: `${call.id}-showed-up`,
+          type: 'showed_up',
+          occurredAt: call.scheduled_at ?? call.created_at,
+          source: 'derived',
+          label: 'Call honoré',
+        });
+      }
     }
 
     if (call.deal_closed) {
-      events.push({
-        id: `${call.id}-closed`,
-        type: 'closed',
-        occurredAt: call.scheduled_at ?? call.created_at,
-        source: 'derived',
-        label: 'Deal closé',
-        detail: call.revenue ? `${call.revenue.toLocaleString('fr-FR')} €` : undefined,
-      });
+      const hasRealClosedEvent = ctx.events.some(e => e.event_type === 'closed' && e.call_id === call.id);
+      if (!hasRealClosedEvent) {
+        events.push({
+          id: `${call.id}-closed`,
+          type: 'closed',
+          occurredAt: call.scheduled_at ?? call.created_at,
+          source: 'derived',
+          label: 'Deal closé',
+          detail: call.revenue ? `${call.revenue.toLocaleString('fr-FR')} €` : undefined,
+        });
+      }
     }
   }
 
@@ -149,12 +165,6 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
             <div style={{ paddingBottom: 20, minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{ev.label}</span>
-                {ev.source === 'derived' && (
-                  <span title="Date déduite du call, pas enregistrée exactement" style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--muted)' }}>
-                    <Icon name="info" size={11} color="var(--muted)" />
-                    estimé
-                  </span>
-                )}
               </div>
               {isClosedHighlight && ev.detail ? (
                 <div style={{ fontSize: 20, fontWeight: 800, color: '#3f8a52', marginTop: 4 }}>{ev.detail}</div>
