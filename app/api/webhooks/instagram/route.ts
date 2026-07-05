@@ -246,6 +246,48 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // Clic sur le bouton Quick Reply LM_LINK_CLICKED → envoyer DM2 maintenant
+      const quickReplyPayload = messaging.message?.quick_reply?.payload;
+      if (quickReplyPayload === 'LM_LINK_CLICKED' && senderId) {
+        const { data: leadForDm2 } = await serviceSupabase
+          .from('instagram_leads')
+          .select('id, ig_username, pending_dm2')
+          .eq('profile_id', pid)
+          .eq('ig_user_id', senderId)
+          .eq('lead_magnet_sent', true)
+          .order('detected_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (leadForDm2?.pending_dm2 && resolvedMatch) {
+          const { access_token: at } = resolvedMatch;
+          const dm2Res = await fetch(
+            `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipient: { id: senderId },
+                messaging_type: 'RESPONSE',
+                message: { text: leadForDm2.pending_dm2 },
+                access_token: at,
+              }),
+            }
+          );
+          const dm2Data = await dm2Res.json();
+          if (dm2Data.error) {
+            console.error('[IG Webhook] Erreur DM2 après clic QR:', dm2Data.error);
+            pushEvent({ type: 'dm2_error', error: dm2Data.error });
+          } else {
+            console.log(`[IG Webhook] DM2 envoyé après clic QR — message_id: ${dm2Data.message_id}`);
+            pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id });
+            // Efface pending_dm2 — déjà envoyé
+            await serviceSupabase.from('instagram_leads').update({ pending_dm2: null }).eq('id', leadForDm2.id);
+          }
+        }
+        continue;
+      }
+
       // On ne traite que les messages REÇUS (pas nos propres envois)
       if (!senderId || !msgText) continue;
 
@@ -272,12 +314,11 @@ export async function POST(request: Request) {
           .update({
             hook_replied: true,
             hook_reply_text: msgText.slice(0, 500),
-            hook_replied_at: hookRepliedAt, // toujours mis à jour → trace le dernier message
+            hook_replied_at: hookRepliedAt,
           })
           .eq('id', leadToUpdate.id);
 
         if (leadToUpdate.ig_username) {
-          // Insère un event hook_replied à chaque message (pas de dédup ici — chaque message compte)
           serviceSupabase.from('prospect_events').insert({
             profile_id:  pid,
             prospect_key: leadToUpdate.ig_username.toLowerCase(),
@@ -433,13 +474,20 @@ export async function POST(request: Request) {
         }
       }
 
-      // Construit le DM 1 : remplace {{lien_lm}} par le lien, ou utilise le message par défaut
-      const rawDm1 = cl.dm_lm_message || `👋 Voici le lien comme promis ! {{lien_lm}}`;
-      const dm1Text = rawDm1.replace(/\{\{lien_lm\}\}/gi, shortLink).replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`);
+      // DM1 : accroche SANS le lien — on retire {{lien_lm}} et on nettoie les espaces doubles
+      const rawDm1 = cl.dm_lm_message || `👋 Clique sur le bouton pour recevoir le lien !`;
+      const dm1Text = rawDm1
+        .replace(/\{\{lien_lm\}\}/gi, '')
+        .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
+        .replace(/\s{2,}/g, ' ')
+        .trim();
 
-      // Construit le DM 2
-      const rawDm2 = cl.dm_opener_message || '';
-      const dm2Text = rawDm2.replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`).trim();
+      // DM2 : message avec le lien — stocké en DB, envoyé après clic Quick Reply
+      const rawDm2 = cl.dm_opener_message || `👋 Voici le lien comme promis ! ${shortLink}`;
+      const dm2Text = rawDm2
+        .replace(/\{\{lien_lm\}\}/gi, shortLink)
+        .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
+        .trim();
 
       pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dm1Text, dm2Text, mediaId });
 
@@ -475,32 +523,9 @@ export async function POST(request: Request) {
         pushEvent({ type: 'dm1_error', error: dm1Data.error, commenterUsername });
       } else {
         leadMagnetSent = true;
-        console.log(`[IG Webhook] DM1 envoyé — message_id: ${dm1Data.message_id}`);
-        pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername, shortLink });
-
-        // Envoie DM 2 seulement s'il y a un message d'ouverture configuré
-        if (commenterId && dm2Text) {
-          const dm2Res = await fetch(
-            `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
-            {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                recipient: { id: commenterId },
-                message: { text: dm2Text },
-                access_token,
-              }),
-            }
-          );
-          const dm2Data = await dm2Res.json();
-          if (dm2Data.error) {
-            console.error(`[IG Webhook] Erreur DM2 :`, dm2Data.error);
-            pushEvent({ type: 'dm2_error', error: dm2Data.error, commenterUsername });
-          } else {
-            console.log(`[IG Webhook] DM2 envoyé — message_id: ${dm2Data.message_id}`);
-            pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, commenterUsername, text: dm2Text });
-          }
-        }
+        console.log(`[IG Webhook] DM1 envoyé (avec QR button) — message_id: ${dm1Data.message_id}`);
+        pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, commenterUsername });
+        // DM2 sera envoyé quand l'utilisateur clique le bouton Quick Reply (LM_LINK_CLICKED)
       }
 
       // Upsert lead — 1 seule row par prospect (profile_id, ig_user_id)
@@ -519,6 +544,7 @@ export async function POST(request: Request) {
           detected_at: timestamp,
           lead_magnet_sent: leadMagnetSent,
           tracking_link: shortLink || null,
+          pending_dm2: dm2Text || null,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
         .select('id')
         .maybeSingle();

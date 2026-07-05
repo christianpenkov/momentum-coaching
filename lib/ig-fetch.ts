@@ -284,9 +284,15 @@ export async function pollIgComments(
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
 
         // Envoyer DM LM (backup — le webhook l'a peut-être déjà envoyé)
-        // On essaie quand même ; si déjà reçu, le lead ne verra qu'un doublon de DM (acceptable)
+        // DM1 : accroche SANS le lien + bouton Quick Reply
+        // DM2 stocké en pending_dm2, envoyé après clic du bouton
         if (cl.lm_short_url && cl.dm_lm_message) {
-          const dm1Text = (cl.dm_lm_message || '').replace(/\{\{lien_lm\}\}/gi, cl.lm_short_url).replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`);
+          const dm1Text = (cl.dm_lm_message || 'Clique sur le bouton pour recevoir le lien !')
+            .replace(/\{\{lien_lm\}\}/gi, '')
+            .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
+            .replace(/\s{2,}/g, ' ')
+            .trim();
+          const dm2Text = `${cl.lm_short_url}`;
           try {
             await fetch(
               `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
@@ -310,6 +316,12 @@ export async function pollIgComments(
                 }),
               }
             );
+            // Mettre à jour pending_dm2 sur le lead déjà upsert
+            // (le cron a fait l'upsert juste avant — on update pour ajouter pending_dm2)
+            await serviceSupabase.from('instagram_leads')
+              .update({ pending_dm2: dm2Text })
+              .eq('profile_id', profileId)
+              .eq('ig_user_id', commenterId);
           } catch {}
         }
       }
