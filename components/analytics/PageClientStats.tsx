@@ -5918,12 +5918,17 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  // Fenêtre temporelle en dates locales — exactement `period` jours inclus, sans chevauchement entre périodes
+  // Fenêtre temporelle en UTC strict — même calcul que isInPeriod/dayRange dans
+  // TabShortioB (Date.UTC, pas new Date() local). Avant ce fix, un call à 23h20 UTC
+  // (1h20 le lendemain en heure de Paris) pouvait tomber sur un jour différent ici
+  // vs dans TabShortioB, qui utilise l'heure locale du navigateur pour le calcul —
+  // un même call apparaissait alors "le 15 juin" en vue live (S-0) mais pas en
+  // naviguant vers cette même date via periodIndex>0 (cf. bug remonté 2026-07-06).
   const todaySnap = new Date();
-  const periodEnd = new Date(todaySnap);
-  periodEnd.setDate(todaySnap.getDate() - periodIndex * period);
-  const periodStart = new Date(todaySnap);
-  periodStart.setDate(todaySnap.getDate() - (periodIndex + 1) * period + 1);
+  const periodEnd = new Date(Date.UTC(todaySnap.getUTCFullYear(), todaySnap.getUTCMonth(), todaySnap.getUTCDate(), 23, 59, 59));
+  periodEnd.setUTCDate(periodEnd.getUTCDate() - periodIndex * period);
+  const periodStart = new Date(Date.UTC(todaySnap.getUTCFullYear(), todaySnap.getUTCMonth(), todaySnap.getUTCDate(), 0, 0, 0));
+  periodStart.setUTCDate(todaySnap.getUTCDate() - (periodIndex + 1) * period + 1);
 
   const startDateStr = periodStart.toISOString().split('T')[0];
   const endDateStr   = periodEnd.toISOString().split('T')[0];
