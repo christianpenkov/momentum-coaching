@@ -2,9 +2,11 @@
 import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { useLongPress } from '@/lib/useLongPress';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -19,7 +21,11 @@ interface Msg {
   duration_s?: number;
   read_at?: string | null;
   read?: boolean;
+  edited_at?: string | null;
 }
+
+const EDIT_WINDOW_MS = 15 * 60 * 1000;
+const DELETE_WINDOW_MS = 60 * 60 * 1000;
 
 // ─── Audio context — un seul player actif à la fois ──────────────────────────
 
@@ -40,6 +46,7 @@ function formatDate(dateStr: string) {
 }
 function isSameDay(a: string, b: string) { return new Date(a).toDateString() === new Date(b).toDateString(); }
 function formatDuration(s: number) { const m = Math.floor(s/60); const sec = Math.floor(s%60); return `${m}:${sec.toString().padStart(2,'0')}`; }
+function getFileExt(name: string) { return (name.split('.').pop() || '').toUpperCase(); }
 
 const WAVEFORM = [3,5,8,6,10,14,9,12,16,11,8,14,18,12,9,16,13,10,7,12,15,10,8,11,14,9,6,10,7,4];
 
@@ -99,7 +106,7 @@ function AudioBubble({ id, url, duration, isMe }: { id: string; url: string; dur
         width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0,
         background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-        transition: 'transform 80ms ease-out',
+        transition: 'transform 80ms ease-out, opacity 80ms',
       }}>
         {playing
           ? <svg width="13" height="13" viewBox="0 0 24 24" fill={iconColor}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
@@ -113,6 +120,9 @@ function AudioBubble({ id, url, duration, isMe }: { id: string; url: string; dur
               height: Math.round((h/18)*28),
               background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
               transition: 'background 0.1s',
+              transform: playing && Math.abs(i - progressIdx) <= 1 ? 'scaleY(1.15)' : 'scaleY(1)',
+              transformOrigin: 'center',
+              transitionDuration: playing ? '0.08s' : '0.1s',
             }} />
           ))}
         </div>
@@ -234,6 +244,190 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
   );
 }
 
+// ─── MessageContextMenu — clic droit desktop / appui long mobile ─────────────
+
+function MessageContextMenu({ x, y, canEdit, canDelete, onEdit, onDelete, onClose }: {
+  x: number; y: number; canEdit: boolean; canDelete: boolean;
+  onEdit: () => void; onDelete: () => void; onClose: () => void;
+}) {
+  if (typeof document === 'undefined') return null;
+  return createPortal(
+    <>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }} onMouseDown={onClose} onTouchStart={onClose} />
+      <div style={{
+        position: 'fixed', left: x, top: y, zIndex: 10000,
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+        minWidth: 160, overflow: 'hidden', fontSize: 13,
+      }}>
+        {canEdit && (
+          <button onMouseDown={() => { onEdit(); onClose(); }} style={{
+            display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
+            border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink)',
+          }}>
+            Modifier
+          </button>
+        )}
+        {canDelete && (
+          <button onMouseDown={() => { onDelete(); onClose(); }} style={{
+            display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
+            border: 'none', background: 'none', cursor: 'pointer', color: 'var(--red)',
+          }}>
+            Supprimer
+          </button>
+        )}
+        {!canEdit && !canDelete && (
+          <div style={{ padding: '10px 14px', color: 'var(--faint)' }}>Délai dépassé</div>
+        )}
+      </div>
+    </>,
+    document.body
+  );
+}
+
+// ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
+
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox }: {
+  msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
+  isEditing: boolean; editText: string; setEditText: (v: string) => void;
+  onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
+  canEdit: boolean; canDelete: boolean;
+  onOpenCtxMenu: (x: number, y: number) => void;
+  onOpenLightbox: (url: string) => void;
+}) {
+  const isMe = msg.sender_id === userId;
+  const isAudio = msg.type === 'audio';
+  const isImage = msg.type === 'image';
+  const isDocument = msg.type === 'document';
+  const longPress = useLongPress(e => {
+    const touch = e.touches[0] ?? e.changedTouches?.[0];
+    if (isMe && (canEdit || canDelete)) onOpenCtxMenu(touch?.clientX ?? 0, touch?.clientY ?? 0);
+  });
+
+  return (
+    <div className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
+      <div
+        onContextMenu={e => {
+          if (!isMe || (!canEdit && !canDelete)) return;
+          e.preventDefault();
+          onOpenCtxMenu(e.clientX, e.clientY);
+        }}
+        {...(isMe ? longPress : {})}
+        style={{
+          background: isMe ? 'var(--ink)' : 'var(--surface)',
+          color: isMe ? '#fff' : 'var(--ink)',
+          borderRadius: isMe
+            ? (isContinued ? '18px 4px 4px 18px' : isLast ? '18px 4px 18px 18px' : '18px 4px 4px 18px')
+            : (isContinued ? '4px 18px 18px 4px' : isLast ? '4px 18px 18px 18px' : '4px 18px 18px 4px'),
+          padding: isAudio ? '10px 12px 8px 12px' : isImage ? '4px' : '9px 12px',
+          border: isMe ? 'none' : '1px solid var(--border)',
+          boxShadow: isMe ? 'none' : 'var(--shadow-item)',
+          position: 'relative',
+        }}>
+        {isEditing ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <textarea
+              autoFocus
+              value={editText}
+              onChange={e => setEditText(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); }
+                if (e.key === 'Escape') onCancelEdit();
+              }}
+              rows={2}
+              style={{
+                fontSize: 14, lineHeight: 1.5, fontFamily: 'inherit', resize: 'none',
+                background: 'transparent', color: isMe ? '#fff' : 'var(--ink)',
+                border: `1px solid ${isMe ? 'rgba(255,255,255,0.3)' : 'var(--border)'}`,
+                borderRadius: 8, padding: '6px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+              <button onClick={onCancelEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)', cursor: 'pointer' }}>Annuler</button>
+              <button onClick={onSaveEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--ink)', color: '#fff', cursor: 'pointer' }}>Enregistrer</button>
+            </div>
+          </div>
+        ) : isAudio && msg.audio_url ? (
+          <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} />
+        ) : isImage && msg.audio_url ? (
+          <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+            onClick={() => onOpenLightbox(msg.audio_url!)}
+          >
+            <img
+              src={msg.audio_url} alt=""
+              style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 12, display: 'block' }}
+            />
+            <div style={{
+              position: 'absolute', inset: 0, borderRadius: 12,
+              background: 'rgba(0,0,0,0)', display: 'flex',
+              alignItems: 'center', justifyContent: 'center',
+              transition: 'background 180ms',
+            }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.18)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0)')}
+            >
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                style={{ opacity: 0, transition: 'opacity 180ms', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }}
+                onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+              >
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+              </svg>
+            </div>
+          </div>
+        ) : isDocument && msg.audio_url ? (
+          <a href={msg.audio_url} target="_blank" rel="noopener noreferrer"
+            style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
+              background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)',
+              borderRadius: 10, padding: '10px 12px', minWidth: 200, maxWidth: 280 }}>
+            <div style={{
+              width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+              background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.85)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+              </svg>
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {msg.text || 'Document'}
+              </div>
+              <div style={{ fontSize: 11, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
+                {getFileExt(msg.text || '')}
+              </div>
+            </div>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+        ) : (
+          <div style={{ fontSize: 14, lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
+        )}
+        {!isEditing && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            gap: 3, marginTop: isImage ? 0 : 4,
+            ...(isImage ? {
+              position: 'absolute', bottom: 6, right: 8,
+              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+              borderRadius: 6, padding: '2px 5px',
+            } : {}),
+          }}>
+            {msg.edited_at && (
+              <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.7)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)') }}>modifié ·</span>
+            )}
+            <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.9)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)') }}>{formatTime(msg.created_at)}</span>
+            <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Zone de conversation ─────────────────────────────────────────────────────
 
 function ConversationThread({ clientId, userId, clientName, clientInitials, isOnline, supabase, presenceCh }: {
@@ -250,6 +444,14 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
   const [showScrollArrow, setShowScrollArrow] = useState(false);
+  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
+  const [isSendingFile, setIsSendingFile] = useState(false);
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; msgId: string } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editText, setEditText] = useState('');
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [, forceTick] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
   const chatZoneRef = useRef<HTMLDivElement>(null);
@@ -262,9 +464,17 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const recordingStartRef = useRef<number>(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
+  const lastTypingSentRef = useRef<number>(0);
 
   useEffect(() => {
     try { if (typeof window !== 'undefined' && window.MediaRecorder) setMediaRecorderSupported(true); } catch {}
+  }, []);
+
+  // Force un re-render toutes les minutes pour que les boutons Modifier/Supprimer
+  // disparaissent au bon moment même si personne n'interagit avec la page.
+  useEffect(() => {
+    const t = setInterval(() => forceTick(n => n + 1), 60000);
+    return () => clearInterval(t);
   }, []);
 
   // Charge messages
@@ -272,7 +482,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     setLoading(true);
     setMessages([]);
     supabase.from('messages')
-      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read')
+      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, edited_at')
       .eq('client_id', clientId)
       .order('created_at', { ascending: true })
       .then(({ data }) => {
@@ -313,6 +523,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         (payload) => {
           const updated = payload.new as Msg;
           setMessages(prev => prev.map(m => m.id === updated.id ? { ...m, ...updated } : m));
+        })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'messages', filter: `client_id=eq.${clientId}` },
+        (payload) => {
+          const deletedId = (payload.old as Msg).id;
+          setMessages(prev => prev.filter(m => m.id !== deletedId));
         })
       .subscribe();
     return () => { supabase.removeChannel(ch); };
@@ -362,6 +577,29 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
   }
 
+  // Édition / suppression — la policy RLS reste la seule vraie garantie de sécurité,
+  // ces vérifications côté client ne sont qu'un affichage cohérent avec les permissions.
+  function canEditMsg(msg: Msg) {
+    return msg.sender_id === userId && Date.now() - new Date(msg.created_at).getTime() < EDIT_WINDOW_MS;
+  }
+  function canDeleteMsg(msg: Msg) {
+    return msg.sender_id === userId && Date.now() - new Date(msg.created_at).getTime() < DELETE_WINDOW_MS;
+  }
+  async function editMessage(msgId: string, newText: string) {
+    if (!newText.trim()) return;
+    const editedAt = new Date().toISOString();
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, text: newText.trim(), edited_at: editedAt } : m));
+    const { error } = await supabase.from('messages')
+      .update({ text: newText.trim(), edited_at: editedAt }).eq('id', msgId);
+    if (error) setActionError('Trop tard pour modifier ce message');
+  }
+  async function deleteMessage(msgId: string) {
+    const backup = messages;
+    setMessages(prev => prev.filter(m => m.id !== msgId));
+    const { error } = await supabase.from('messages').delete().eq('id', msgId);
+    if (error) { setMessages(backup); setActionError('Trop tard pour supprimer ce message'); }
+  }
+
   // Envoi vocal
   async function sendAudioMessage(blob: Blob, durationS: number) {
     const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
@@ -382,17 +620,26 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     } catch { setMessages(prev => prev.filter(m => m.id !== optimisticId)); URL.revokeObjectURL(localUrl); }
   }
 
-  // Envoi fichier
+  // Envoi fichier — preview + confirmation avant envoi, comme côté élève
   async function sendFile(file: File) {
     const isImage = file.type.startsWith('image/');
     const type: 'image' | 'document' = isImage ? 'image' : 'document';
-    if (file.size > (isImage ? 5*1024*1024 : 20*1024*1024)) return;
+    if (file.size > (isImage ? 5*1024*1024 : 20*1024*1024)) { setIsSendingFile(false); return; }
+    setIsSendingFile(true);
     const ext = file.name.split('.').pop() || 'bin';
     const fileName = `${clientId}/${Date.now()}.${ext}`;
     const { error } = await supabase.storage.from('chat-medias').upload(fileName, file, { contentType: file.type });
-    if (error) return;
+    if (error) { setIsSendingFile(false); return; }
     const { data: urlData } = supabase.storage.from('chat-medias').getPublicUrl(fileName);
     await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: file.name, type, audio_url: urlData.publicUrl, read: false });
+    setIsSendingFile(false);
+    setPendingFile(prev => { if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl); return null; });
+  }
+
+  function formatFileSize(bytes: number) {
+    if (bytes < 1024) return `${bytes} o`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
   }
 
   // Enregistrement
@@ -458,8 +705,8 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
 
         {/* Header */}
-        <div style={{ padding: '12px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)' }}>
-          <div style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, position: 'relative', flexShrink: 0 }}>
+        <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)' }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, position: 'relative', flexShrink: 0 }}>
             {clientInitials}
             <div style={{ position: 'absolute', bottom: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
           </div>
@@ -472,7 +719,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         </div>
 
         {/* Messages */}
-        <div ref={chatZoneRef} onScroll={handleChatScroll} className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 20px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        <div ref={chatZoneRef} onScroll={handleChatScroll} className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
           {loading ? (
             <InlineLoader />
           ) : messages.length === 0 ? (
@@ -489,44 +736,28 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
                 </span>
               </div>
               {group.msgs.map((msg, msgIdx) => {
-                const isMe = msg.sender_id === userId;
-                const isAudio = msg.type === 'audio';
-                const isImage = msg.type === 'image';
-                const isDocument = msg.type === 'document';
                 const prevMsg = group.msgs[msgIdx-1];
                 const nextMsg = group.msgs[msgIdx+1];
                 const isContinued = prevMsg && prevMsg.sender_id === msg.sender_id;
                 const isLast = !nextMsg || nextMsg.sender_id !== msg.sender_id;
                 return (
-                  <div key={msg.id} className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '72%', marginTop: isContinued ? 2 : 8 }}>
-                    <div style={{
-                      background: isMe ? 'var(--ink)' : 'var(--surface)',
-                      color: isMe ? '#fff' : 'var(--ink)',
-                      borderRadius: isMe
-                        ? (isContinued ? '18px 4px 4px 18px' : isLast ? '18px 4px 18px 18px' : '18px 4px 4px 18px')
-                        : (isContinued ? '4px 18px 18px 4px' : isLast ? '4px 18px 18px 18px' : '4px 18px 18px 4px'),
-                      padding: isAudio ? '10px 12px 8px 12px' : isImage ? '4px' : '9px 12px',
-                      border: isMe ? 'none' : '1px solid var(--border)',
-                      boxShadow: isMe ? 'none' : 'var(--shadow-item)',
-                    }}>
-                      {isAudio && msg.audio_url ? (
-                        <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} />
-                      ) : isImage && msg.audio_url ? (
-                        <img src={msg.audio_url} alt="" style={{ maxWidth: '100%', maxHeight: 220, borderRadius: 10, display: 'block', cursor: 'pointer' }} onClick={() => window.open(msg.audio_url, '_blank')} />
-                      ) : isDocument && msg.audio_url ? (
-                        <a href={msg.audio_url} target="_blank" rel="noopener noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, textDecoration: 'none', color: isMe ? '#fff' : 'var(--ink)' }}>
-                          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                          <span style={{ fontSize: 13, wordBreak: 'break-all' }}>{msg.text || 'Document'}</span>
-                        </a>
-                      ) : (
-                        <div style={{ fontSize: 14, lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
-                      )}
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: 3, marginTop: isImage ? 0 : 4 }}>
-                        <span style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)' }}>{formatTime(msg.created_at)}</span>
-                        <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} />
-                      </div>
-                    </div>
-                  </div>
+                  <MessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    userId={userId}
+                    isContinued={!!isContinued}
+                    isLast={isLast}
+                    isEditing={editingId === msg.id}
+                    editText={editText}
+                    setEditText={setEditText}
+                    onStartEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
+                    onCancelEdit={() => setEditingId(null)}
+                    onSaveEdit={() => { editMessage(msg.id, editText); setEditingId(null); }}
+                    canEdit={canEditMsg(msg)}
+                    canDelete={canDeleteMsg(msg)}
+                    onOpenCtxMenu={(x, y) => setCtxMenu({ x, y, msgId: msg.id })}
+                    onOpenLightbox={setLightboxUrl}
+                  />
                 );
               })}
             </div>
@@ -559,7 +790,88 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
 
         {/* Input file */}
         <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.doc,.docx" style={{ display: 'none' }}
-          onChange={e => { const f = e.target.files?.[0]; if (f) sendFile(f); e.target.value = ''; }} />
+          onChange={e => {
+            const f = e.target.files?.[0];
+            if (!f) return;
+            const isImg = f.type.startsWith('image/');
+            const previewUrl = isImg ? URL.createObjectURL(f) : undefined;
+            setPendingFile({ file: f, previewUrl, type: isImg ? 'image' : 'document' });
+            e.target.value = '';
+          }} />
+
+        {/* Preview fichier en attente — même pattern que côté élève */}
+        {pendingFile && (
+          <div style={{
+            padding: '10px 12px', background: 'var(--surface)',
+            borderTop: '1px solid var(--border)',
+            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+            animation: 'slideUp 180ms ease-out',
+          }}>
+            {pendingFile.type === 'image' && pendingFile.previewUrl ? (
+              <img src={pendingFile.previewUrl} alt=""
+                style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
+            ) : (
+              <div style={{
+                width: 56, height: 56, borderRadius: 8, flexShrink: 0,
+                background: 'var(--surface-2)', border: '1px solid var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+            )}
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)',
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {pendingFile.file.name}
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                {formatFileSize(pendingFile.file.size)}
+              </div>
+            </div>
+            <button type="button"
+              onClick={() => {
+                if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
+                setPendingFile(null);
+              }}
+              style={{
+                width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border)',
+                background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
+                justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+              }}>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+            <button type="button"
+              disabled={isSendingFile}
+              onClick={() => sendFile(pendingFile.file)}
+              className="btn-primary"
+              style={{
+                height: 36, padding: '0 16px', borderRadius: 18, fontSize: 13, fontWeight: 600,
+                display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                opacity: isSendingFile ? 0.6 : 1,
+              }}>
+              {isSendingFile ? (
+                <>
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                    style={{ animation: 'spin 0.8s linear infinite' }}>
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                  </svg>
+                  Envoi…
+                </>
+              ) : (
+                <>
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                  </svg>
+                  Envoyer
+                </>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Panneau enregistrement */}
         {isRecording && (
@@ -569,7 +881,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         )}
 
         {/* Input bar */}
-        {!isRecording && (
+        {!isRecording && !pendingFile && (
           <div className="chat-input-bar" style={{ padding: '8px 12px', background: 'var(--surface)', borderTop: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'flex-end', flexShrink: 0 }}>
             <button type="button" onClick={() => fileInputRef.current?.click()} style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
@@ -579,14 +891,19 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
               value={input}
               onChange={e => {
                 setInput(e.target.value);
+                // Throttle — évite de spammer le canal realtime à chaque frappe
                 if (presenceCh) {
-                  presenceCh.send({ type: 'broadcast', event: 'typing', payload: { role: 'coach' } });
+                  const now = Date.now();
+                  if (now - lastTypingSentRef.current > 2500) {
+                    lastTypingSentRef.current = now;
+                    presenceCh.send({ type: 'broadcast', event: 'typing', payload: { role: 'coach' } });
+                  }
                 }
               }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
               placeholder={`Écrire à ${clientName}…`}
               autoComplete="off" autoCorrect="off" autoCapitalize="sentences"
-              spellCheck={false} inputMode="text"
+              spellCheck={false} inputMode="text" name="chat-momentum-coach-x7k"
               style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 22, padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', lineHeight: 1.5, outline: 'none', background: 'var(--surface-2)', color: 'var(--ink)', minHeight: 42, maxHeight: 120 }}
               rows={1}
             />
@@ -603,6 +920,83 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           </div>
         )}
       </div>
+
+      {actionError && (
+        <div style={{
+          position: 'absolute', bottom: 90, left: '50%', transform: 'translateX(-50%)',
+          background: 'var(--ink)', color: '#fff', fontSize: 12, padding: '8px 14px',
+          borderRadius: 20, zIndex: 20, animation: 'fadeIn 150ms ease-out',
+        }}
+          ref={el => { if (el) setTimeout(() => setActionError(null), 2500); }}
+        >
+          {actionError}
+        </div>
+      )}
+
+      {ctxMenu && (() => {
+        const msg = messages.find(m => m.id === ctxMenu.msgId);
+        if (!msg) return null;
+        return (
+          <MessageContextMenu
+            x={ctxMenu.x} y={ctxMenu.y}
+            canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
+            onEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
+            onDelete={() => deleteMessage(msg.id)}
+            onClose={() => setCtxMenu(null)}
+          />
+        );
+      })()}
+
+      {lightboxUrl && typeof document !== 'undefined' && createPortal(
+        <div
+          onClick={() => setLightboxUrl(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.88)', backdropFilter: 'blur(8px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            animation: 'fadeIn 200ms ease-out',
+          }}
+        >
+          <img
+            src={lightboxUrl} alt=""
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: 'min(90vw, 900px)', maxHeight: '85vh',
+              objectFit: 'contain', borderRadius: 12,
+              animation: 'scaleIn 200ms ease-out',
+              boxShadow: '0 24px 80px rgba(0,0,0,0.5)',
+            }}
+          />
+          <button
+            onClick={() => setLightboxUrl(null)}
+            style={{
+              position: 'absolute', top: 16, right: 16,
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.12)', border: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: '#fff',
+            }}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+          </button>
+          <a
+            href={lightboxUrl} target="_blank" rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'absolute', top: 16, right: 68,
+              width: 44, height: 44, borderRadius: '50%',
+              background: 'rgba(255,255,255,0.12)', border: 'none',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', color: '#fff', textDecoration: 'none',
+            }}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+            </svg>
+          </a>
+        </div>,
+        document.body
+      )}
     </AudioContext.Provider>
   );
 }
