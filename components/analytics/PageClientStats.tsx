@@ -1216,11 +1216,14 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
     'Followers reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
     // Reach non-abonnés % par jour — historique disponible seulement depuis la mise en
     // place de la collecte quotidienne (ig_reach_follower/non_follower), pas rétroactif.
-    // null (pas 0) quand la donnée n'a pas encore été collectée ce jour-là.
+    // null (vrai trou) seulement quand la donnée n'a JAMAIS été collectée ce jour-là
+    // (f/nf absents). Si collectée mais reach nul ce jour (f=0 et nf=0), c'est un vrai
+    // 0% — pas un trou, la donnée existe et dit "aucune vue ce jour-là".
     'Reach Non-Followers': { data: igDays.map(d => {
       const f = d.reachFollower, nf = d.reachNonFollower;
-      const total = (f ?? 0) + (nf ?? 0);
-      return { date: d.date, v: (f === null || nf === null || total === 0) ? (null as any) : Math.round((nf! / total) * 100 * 10) / 10 };
+      if (f === null || f === undefined || nf === null || nf === undefined) return { date: d.date, v: null as any };
+      const total = f + nf;
+      return { date: d.date, v: total === 0 ? 0 : Math.round((nf / total) * 100 * 10) / 10 };
     }), color: ACCENT, unit: '%' },
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
   };
