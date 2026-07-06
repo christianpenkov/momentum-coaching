@@ -74,7 +74,10 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
       events.push({
         id: `${call.id}-booked`,
         type: 'call_booked',
-        occurredAt: call.created_at ?? bookedAt,
+        // Même base que "Call honoré"/"Deal closé" (scheduled_at en priorité) — sinon
+        // un call créé juste après l'heure prévue du call pouvait apparaître dans la
+        // timeline APRÈS son propre honoré/closé (les deux basés sur scheduled_at).
+        occurredAt: bookedAt,
         source: 'derived',
         label: 'Call booké',
         detail: call.scheduled_at ? `Prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : undefined,
