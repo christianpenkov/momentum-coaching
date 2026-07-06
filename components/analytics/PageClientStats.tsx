@@ -1208,8 +1208,12 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
       ? pct(ig.viewsFollowerBreakdown.nonFollower, ig.viewsFollowerBreakdown.follower + ig.viewsFollowerBreakdown.nonFollower)
       : null);
 
-  const igDays = ig.chartData.slice(-period);
-  const cutoffIg = new Date(Date.now() - period * 86400000);
+  // Filtre par vraie date calendaire (igPeriodStart/igPeriodEnd déjà calculés
+  // ci-dessus), pas .slice(-N) qui suppose chartData aligné sur aujourd'hui, ni un
+  // cutoff en ms qui suppose un compte de jours fixe (incohérent avec un mois
+  // calendaire de longueur variable).
+  const igDays = igDaysSlice;
+  const cutoffIg = igPeriodStart;
 
   // Publications par jour depuis les vrais timestamps des posts
   const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= cutoffIg).length;
@@ -1563,7 +1567,13 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
 
   if (!yt) return <Empty msg={periodIndex && periodIndex > 0 ? "Pas de données YouTube pour cette période." : "Connecte ton compte YouTube pour voir les stats."} />;
 
-  const ytDays = yt.chartData.slice(-period);
+  // Filtre par vraie date calendaire (pas .slice(-N), qui suppose chartData aligné
+  // sur aujourd'hui).
+  const { periodStart: ytPeriodStart, periodEnd: ytPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
+  const ytDays = yt.chartData.filter(d => {
+    const t = new Date(d.date + 'T12:00:00Z').getTime();
+    return t >= ytPeriodStart.getTime() && t <= ytPeriodEnd.getTime();
+  });
   // Valeurs sur la période sélectionnée depuis chartData
   const ytViewsP = ytDays.reduce((s, d) => s + d.views, 0);
   const ytWatchTimeP = ytDays.reduce((s, d) => s + d.watchTime, 0);
@@ -2180,7 +2190,11 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // Ne s'applique PAS aux calls (indépendants des stats IG/YT)
   const noData = periodIndex > 0 && !ig && !yt;
 
-  const igReachD  = noData ? 0 : (ig ? ig.chartData.slice(-period).reduce((s, d) => s + d.reach, 0) : 0);
+  const inFunnelDateWindow = (dateStr: string) => {
+    const t = new Date(dateStr + 'T12:00:00Z').getTime();
+    return t >= periodStart.getTime() && t <= periodEnd.getTime();
+  };
+  const igReachD  = noData ? 0 : (ig ? ig.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + d.reach, 0) : 0);
   const igLeadsD  = noData ? 0 : (msgs?.leadCount || 0);
   const igBookes  = igCallsLive.bookes;
   const igHonores = igCallsLive.honores;
@@ -2188,7 +2202,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const igRev     = igCallsLive.rev;
   const igNoShows = igCallsLive.noShows;
 
-  const ytViewsD  = noData ? 0 : (yt ? yt.chartData.slice(-period).reduce((s, d) => s + d.views, 0) : 0);
+  const ytViewsD  = noData ? 0 : (yt ? yt.chartData.filter(d => inFunnelDateWindow(d.date)).reduce((s, d) => s + d.views, 0) : 0);
   const ytBookes  = ytCallsLive.bookes;
   const ytHonores = ytCallsLive.honores;
   const ytCloses  = ytCallsLive.closes;
@@ -4149,14 +4163,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // S-0 : DB prioritaire ; fallback API seulement si aucun snapshot en DB (undefined)
     if (dbClics !== undefined) return dbClics;
     if (sPeriod === 30) return l.humanClicks30d || 0;
-    const pts: { clicks: number }[] = l.chartData || [];
-    return pts.slice(-sPeriod).reduce((s, p) => s + (p.clicks || 0), 0);
+    const pts: { date?: string; clicks: number }[] = l.chartData || [];
+    return pts.filter(p => p.date && new Date(p.date).getTime() >= periodStart.getTime() && new Date(p.date).getTime() <= periodEnd.getTime())
+      .reduce((s, p) => s + (p.clicks || 0), 0);
   };
 
   // Helper : clics agrégés domaine pour la période
   const domainClicsPeriod = sPeriod === 30
     ? (shortio.humanClicks30d ?? 0)
-    : (shortio.chartData ?? []).slice(-sPeriod).reduce((s: number, d: any) => s + (d.clicks || 0), 0);
+    : (shortio.chartData ?? []).filter((d: any) => d.date && new Date(d.date).getTime() >= periodStart.getTime() && new Date(d.date).getTime() <= periodEnd.getTime())
+        .reduce((s: number, d: any) => s + (d.clicks || 0), 0);
 
   // Filtre par période (fenêtre [periodStart, periodEnd]) — fonction unique réutilisée
   // partout dans ce composant, pour ne pas dupliquer la logique de bornage _pIdx.
@@ -6327,9 +6343,14 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at').eq('profile_id', targetId).maybeSingle();
   const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
 
-  const _sinceDate = new Date();
-  _sinceDate.setUTCDate(_sinceDate.getUTCDate() - period);
-  const since30d = _sinceDate.toISOString().slice(0, 10);
+  // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) — même
+  // source que fetchSnapshot/TabShortioB, pour que "Bio IG" et le reste du
+  // breakdown Business micro suivent la même semaine/mois que tous les autres
+  // graphiques plutôt qu'une fenêtre glissante indépendante (cf. bug remonté
+  // "bio calendly ig" 2026-07-06).
+  const { periodStart: _periodStart, periodEnd: _periodEnd } = getPeriodWindow(0, period === 7 ? 'week' : 'month');
+  const since30d = _periodStart.toISOString().slice(0, 10);
+  const until30d = _periodEnd.toISOString().slice(0, 10);
 
   const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes, shortioChartHistoryRes] = await Promise.all([
     supabase.from('instagram_leads')
@@ -6353,7 +6374,8 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     supabase.from('shortio_link_daily_snapshots')
       .select('short_url, human_clicks, path, link_category')
       .eq('profile_id', targetId)
-      .gte('date', since30d),
+      .gte('date', since30d)
+      .lte('date', until30d),
     // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
     supabase.from('content_links')
       .select('lm_id, lm_keyword')
