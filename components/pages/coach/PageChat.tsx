@@ -1140,10 +1140,12 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
             html={ctxMenu.html}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
             onEdit={() => {
-              setEditingId(msg.id);
-              setEditText(msg.text);
+              // Mesurer AVANT isEditing=true : une fois vrai, le contenu texte de
+              // la bulle est vidé (rendu null) et son rect s'effondre au padding seul.
               const el = bubbleRefsMap.current.get(msg.id);
               setEditRect(el ? el.getBoundingClientRect() : ctxMenu.rect);
+              setEditingId(msg.id);
+              setEditText(msg.text);
             }}
             onDelete={() => setConfirmDeleteId(msg.id)}
             onClose={() => setCtxMenu(null)}

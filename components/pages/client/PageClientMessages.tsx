@@ -1520,15 +1520,16 @@ export default function PageClientMessages() {
             html={ctxMenu.html}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
             onEdit={() => {
-              setEditingId(msg.id);
-              setEditText(msg.text);
               // Remesure au clic (pas ctxMenu.rect figé au long-press) — la page
               // a pu scroller ou recevoir de nouveaux messages entre l'ouverture
-              // du menu et ce clic.
+              // du menu et ce clic. Mesurer AVANT de passer isEditing=true : une
+              // fois isEditing vrai, le contenu texte de la bulle est vidé (rendu
+              // null) et son rect s'effondre à la taille du padding seul.
               const el = bubbleRefsMap.current.get(msg.id);
               const measured = el ? el.getBoundingClientRect() : ctxMenu.rect;
-              console.log('[EDIT-DEBUG] el found:', !!el, 'rect:', measured.width, measured.height, measured.left, measured.top);
               setEditRect(measured);
+              setEditingId(msg.id);
+              setEditText(msg.text);
             }}
             onDelete={() => setConfirmDeleteId(msg.id)}
             onClose={() => setCtxMenu(null)}
