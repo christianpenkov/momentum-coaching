@@ -1216,6 +1216,14 @@ a { color: inherit; text-decoration: none; }
   50% { opacity: 1; transform: scale(1); }
 }
 
+/* Point "aujourd'hui" des graphiques — transform-origin est fixé inline (centre
+   exact du cercle SVG) pour que scale() ne dérive pas en diagonal comme avec
+   l'origine SVG par défaut (coin haut-gauche du système de coordonnées). */
+@keyframes today-dot-pulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50% { opacity: 0.05; transform: scale(1.8); }
+}
+
 @keyframes slideIn {
   from { opacity: 0; transform: translateX(20px); }
   to   { opacity: 1; transform: translateX(0); }

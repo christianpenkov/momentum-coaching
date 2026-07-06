@@ -39,7 +39,7 @@ export function todayDotFactory(color: string, xKey: string) {
     }
     return (
       <g key={props.key}>
-        <circle cx={cx} cy={cy} r={6} fill={color} opacity={0.35} style={{ animation: 'pulse 1.6s ease-in-out infinite' }} />
+        <circle cx={cx} cy={cy} r={6} fill={color} opacity={0.35} style={{ animation: 'today-dot-pulse 1.6s ease-in-out infinite', transformOrigin: `${cx}px ${cy}px` }} />
         <circle cx={cx} cy={cy} r={3.5} fill={color} stroke="none" />
       </g>
     );
