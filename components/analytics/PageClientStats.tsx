@@ -4811,9 +4811,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             ...bioIGCalls.map(c => c.id), ...bioYTCalls.map(c => c.id),
             ...igRows.flatMap(r => r.postCallsDesc?.map((c: any) => c.id) ?? []),
             ...ytRows.flatMap(r => r.postCallsDesc?.map((c: any) => c.id) ?? []),
-            ...lmProspectLinksDb.flatMap((l: any) => l.callId ? [l.callId] : []),
-            ...coldDMLinks.flatMap((l: any) => l.callId ? [l.callId] : []),
-            ...organicDMLinks.flatMap((l: any) => l.callId ? [l.callId] : []),
+            ...lmCalls.map(c => c.id),
+            ...coldCalls.map(c => c.id),
+            ...organicCalls.map(c => c.id),
           ]);
           const otherCalls = callsInWindow.filter(c => !categorizedCallIds.has(c.id));
           const otherBooked = otherCalls.filter(c => c.status === 'active').length;
@@ -4848,6 +4848,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinksDb.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length, booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
             { label: 'Cold DM', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (sortant <ArrowOut />)</span>, badge: 'DM', badgeColor: BLUE, liens: coldDMLinks.length, liensLabel: 'liens envoyés', clics: coldDMLinks.length > 0 ? coldClics : null, booked: coldBooked, honored: coldHonored, closed: coldClosed, revenue: coldRevenue, isContentType: false },
             { label: 'DM organique', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (entrant <ArrowIn />)</span>, badge: 'DM', badgeColor: '#10B981', liens: organicDMLinks.length, liensLabel: 'conversations', clics: organicDMLinks.length > 0 ? organicClics : null, booked: organicBooked, honored: organicHonored, closed: organicClosed, revenue: organicRevenue, isContentType: false },
+            ...(otherCalls.length > 0 ? [{ label: 'Autre / non catégorisé', badge: '?', badgeColor: 'var(--muted)', liens: null, liensLabel: null, clics: null, booked: otherBooked, honored: otherHonored, closed: otherClosed, revenue: otherRevenue, isContentType: false }] : []),
           ];
 
           const totBooked = rows.reduce((s, r) => s + r.booked, 0);
