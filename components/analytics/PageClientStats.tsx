@@ -46,7 +46,7 @@ function Portal({ children }: { children: React.ReactNode }) {
 interface IGStats {
   username: string; name: string; profilePicture: string | null;
   followers: number; following: number; mediaCount: number; biography: string;
-  reach30d: number; accountsEngaged30d: number; totalInteractions30d: number;
+  reach30d: number; reach28dDedup?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
@@ -1162,7 +1162,12 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
 
 
   const engRate = igReachP > 0 ? pct(igEngagedP, igReachP) : 0;
-  const reachRate = pct(igReachP, ig.followers);
+  // Reach dédupliqué réel (chaque abonné compté une seule fois sur la fenêtre), pas la
+  // somme des reach quotidiens (igReachP) qui recompte un même abonné touché plusieurs
+  // jours différents — confirmé via test direct API Meta : period=days_28 +
+  // metric_type=total_value renvoie un vrai total dédupliqué. Fallback sur l'ancien
+  // calcul (somme) si la donnée n'est pas disponible (ex: vue historique sans ce champ).
+  const reachRate = ig.reach28dDedup != null ? pct(ig.reach28dDedup, ig.followers) : pct(igReachP, ig.followers);
   const viralPct = ig.viewsFollowerBreakdown
     ? pct(ig.viewsFollowerBreakdown.nonFollower, ig.viewsFollowerBreakdown.follower + ig.viewsFollowerBreakdown.nonFollower)
     : null;
@@ -1263,7 +1268,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         {[
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Followers reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Followers reach rate', tooltip: 'Quel pourcentage de tes abonnés est touché par tes contenus. 100% = tous tes abonnés ont été atteints par toutes tes publications.' },
+          { label: 'Followers reach rate', value: fmtPct(reachRate), sub: ig.reach28dDedup != null ? 'reach unique 28j / abonnés' : 'reach / abonnés', color: 'var(--ink)', key: 'Followers reach rate', tooltip: 'Quel pourcentage de tes abonnés uniques a été touché au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, même touché plusieurs jours). 100% = tous tes abonnés ont été atteints.' },
           { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Reach Non-Followers', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
         ].map(s => (
           <div key={s.label}

@@ -77,7 +77,7 @@ export async function GET(request: Request) {
 
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  const [accountRes, mediaRes, insightsRes, engagedRes, demoRes, onlineFollowersRes, viewsBreakdownRes] = await Promise.all([
+  const [accountRes, mediaRes, insightsRes, engagedRes, demoRes, onlineFollowersRes, viewsBreakdownRes, reachDedupRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,is_shared_to_feed,video_duration&limit=100&access_token=${token}`),
     // reach, follower_count, website_clicks fonctionnent en period=day
@@ -87,10 +87,16 @@ export async function GET(request: Request) {
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=lifetime&since=${ofSince}&until=${ofUntil}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&metric_type=total_value&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`),
+    // Reach RÉELLEMENT dédupliqué sur la fenêtre (pas une somme de valeurs quotidiennes,
+    // qui recompte un même abonné touché sur plusieurs jours) — confirmé en testant l'API
+    // réelle : period=days_28 + metric_type=total_value renvoie un seul total agrégé par
+    // Meta côté serveur. Fenêtre fixe 28j (pas de since/until arbitraire possible pour
+    // reach en mode dédupliqué, contrairement à views).
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=days_28&metric_type=total_value&access_token=${token}`),
   ]);
 
-  const [accountData, mediaData, insightsData, engagedData, demoData, onlineFollowersData, viewsBreakdownData] = await Promise.all([
-    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(engagedRes), safeJson(demoRes), safeJson(onlineFollowersRes), safeJson(viewsBreakdownRes),
+  const [accountData, mediaData, insightsData, engagedData, demoData, onlineFollowersData, viewsBreakdownData, reachDedupData] = await Promise.all([
+    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(engagedRes), safeJson(demoRes), safeJson(onlineFollowersRes), safeJson(viewsBreakdownRes), safeJson(reachDedupRes),
   ]);
 
   if (accountData.error) {
@@ -110,6 +116,16 @@ export async function GET(request: Request) {
   const sum = (arr: number[]) => (arr || []).reduce((a, b) => a + b, 0);
 
   const reach30d = sum(insightMap['reach'] || []);
+  // Reach dédupliqué réel sur ~28j (total_value Meta, pas une somme de reach quotidien
+  // qui recompte un même abonné touché plusieurs jours) — utilisé pour "Followers reach
+  // rate" uniquement ; reach30d (somme quotidienne) reste utilisé pour le KPI "Reach ·
+  // personnes" et le graphique jour par jour, qui ne sont pas concernés par ce biais.
+  const reach28dDedup: number | null = (() => {
+    for (const metric of reachDedupData?.data || []) {
+      if (metric.name === 'reach' && typeof metric.total_value?.value === 'number') return metric.total_value.value;
+    }
+    return null;
+  })();
   // accounts_engaged/total_interactions via total_value sont non fiables (> reach, inclut stories/DMs)
   // On calcule les vraies interactions depuis les posts individuels après leur fetch (voir plus bas)
   const accountsEngaged30d = 0; // remplacé par postInteractions30d calculé depuis les posts
@@ -383,6 +399,7 @@ export async function GET(request: Request) {
     mediaCount: accountData.media_count || 0,
     biography: accountData.biography || '',
     reach30d,
+    reach28dDedup,
     accountsEngaged30d: postInteractions30d,
     totalInteractions30d: postInteractions30d,
     followsUnfollows30d,
