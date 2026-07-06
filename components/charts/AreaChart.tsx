@@ -17,6 +17,10 @@ interface AreaChartProps {
   xKey: string;
   height?: number;
   formatter?: (value: number) => string;
+  // Affiche le jour de semaine ("lun. 7") au lieu du format compact ("7 juil.") —
+  // à activer seulement quand le graphique montre 7 points ou moins (vue semaine),
+  // sinon les ticks se chevauchent sur une vue mois (jusqu'à 31 points).
+  showWeekday?: boolean;
 }
 
 const COLORS = ['var(--accent)', '#3f8a52', '#b58025'];
@@ -37,7 +41,7 @@ const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean
   );
 };
 
-export default function AreaChart({ data, areas, xKey, height = 220, formatter }: AreaChartProps) {
+export default function AreaChart({ data, areas, xKey, height = 220, formatter, showWeekday }: AreaChartProps) {
   return (
     <div className="chart-wrapper" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -54,7 +58,13 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter }
             })}
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-          <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => { const d = new Date(v); return isNaN(d.getTime()) ? v : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', ''); }} interval="preserveStartEnd" />
+          <XAxis dataKey={xKey} tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={(v: string) => {
+            const d = new Date(v);
+            if (isNaN(d.getTime())) return v;
+            return showWeekday
+              ? d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })
+              : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
+          }} interval={showWeekday ? 0 : 'preserveStartEnd'} />
           <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}

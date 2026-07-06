@@ -1319,7 +1319,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${period} jours`}>
-          <AreaChart data={igDays} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} />
+          <AreaChart data={igDays} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} showWeekday={period === 7} />
         </Card>
         <Card title="Abonnés / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={200}>
@@ -3144,8 +3144,12 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
 
   // Nombre réel de jours dans la période (7 pour une semaine, 28-31 pour un mois
-  // calendaire variable) — pas une longueur fixe supposée depuis `period`.
-  const periodDaysCount = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1;
+  // calendaire variable) — pas une longueur fixe supposée depuis `period`. Plafonné à
+  // aujourd'hui : en milieu de semaine/mois, periodEnd peut être dans le futur, ce qui
+  // afficherait sinon des jours à 0€ qui n'ont pas encore eu lieu.
+  const todayUTCRev = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+  const effectivePeriodEnd = periodEnd.getTime() > todayUTCRev.getTime() ? todayUTCRev : periodEnd;
+  const periodDaysCount = Math.round((effectivePeriodEnd.getTime() - periodStart.getTime()) / 86400000) + 1;
   const revenueByDay: { date: string; ca: number; contracte: number }[] = Array.from({ length: periodDaysCount }, (_, i) => {
     const d = new Date(periodStart);
     d.setUTCDate(d.getUTCDate() + i);
@@ -4220,7 +4224,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const dayRange: string[] = (() => {
     const days: string[] = [];
     const d = new Date(periodStart);
-    while (d.getTime() <= periodEnd.getTime()) {
+    // Ne jamais dépasser aujourd'hui : en milieu de semaine/mois calendaire, periodEnd
+    // peut être dans le futur (ex: dimanche à venir) — sans ce plafond, la courbe
+    // afficherait des 0 pour des jours qui n'ont pas encore eu lieu, donnant une
+    // fausse impression de chute d'activité plutôt que "pas encore de donnée".
+    const todayUTC = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
+    const effectiveEnd = periodEnd.getTime() > todayUTC.getTime() ? todayUTC : periodEnd;
+    while (d.getTime() <= effectiveEnd.getTime()) {
       days.push(utcDateStr(d));
       d.setUTCDate(d.getUTCDate() + 1);
     }
@@ -4593,7 +4603,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           {chartFilter === 'all' ? (
             clicsSeriesHasData || clicsSeries.some(d => d.v > 0) ? (
               <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: BLUE }]} xKey="date" height={160} />
+                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: BLUE }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
               </div>
             ) : (
               <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
@@ -4673,17 +4683,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         )}
         {selectedMetric === 'leads' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <AreaChart data={leadsSeries} areas={[{ key: 'v', label: 'Leads', color: AMBER }]} xKey="date" height={160} />
+            <AreaChart data={leadsSeries} areas={[{ key: 'v', label: 'Leads', color: AMBER }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
           </div>
         )}
         {selectedMetric === 'hookReply' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <AreaChart data={hookReplySeries} areas={[{ key: 'v', label: 'Réponses', color: GREEN }]} xKey="date" height={160} />
+            <AreaChart data={hookReplySeries} areas={[{ key: 'v', label: 'Réponses', color: GREEN }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
           </div>
         )}
         {selectedMetric === 'calendlyLinks' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-            <AreaChart data={calendlyLinksSeries} areas={[{ key: 'v', label: 'Liens envoyés', color: BLUE }]} xKey="date" height={160} />
+            <AreaChart data={calendlyLinksSeries} areas={[{ key: 'v', label: 'Liens envoyés', color: BLUE }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
           </div>
         )}
         {selectedMetric === 'activation' && (
