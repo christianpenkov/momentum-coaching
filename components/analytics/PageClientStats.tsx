@@ -952,9 +952,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   });
   const visibleContent = showAllContent ? sortedContent : sortedContent.slice(0, 5);
 
-  const cutoffOv = new Date(Date.now() - period * 86400000);
-  const igPostsInPeriod = ig?.posts.filter(p => new Date(p.timestamp) >= cutoffOv).length || 0;
-  const ytVideosInPeriodOv = yt?.videos.filter(v => new Date(v.publishedAt) >= cutoffOv).length || 0;
+  const igPostsInPeriod = ig?.posts.filter(p => { const t = new Date(p.timestamp).getTime(); return t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime()); }).length || 0;
+  const ytVideosInPeriodOv = yt?.videos.filter(v => { const t = new Date(v.publishedAt).getTime(); return t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime()); }).length || 0;
   const totalPosts = igPostsInPeriod + ytVideosInPeriodOv;
 
   return (
@@ -1600,8 +1599,10 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
     return ytDays.map((d, i) => ({ date: d.date, v: vals[i] }));
   };
 
-  const cutoffYt = new Date(Date.now() - period * 86400000);
-  const videosInPeriod = yt.videos.filter(v => new Date(v.publishedAt) >= cutoffYt);
+  const videosInPeriod = yt.videos.filter(v => {
+    const t = new Date(v.publishedAt).getTime();
+    return t >= ytPeriodStart.getTime() && t <= ytPeriodEnd.getTime();
+  });
   const ytShortsCount = videosInPeriod.filter(v => v.isShort).length;
   const ytLongCount = videosInPeriod.filter(v => !v.isShort).length;
   const ytVideosInPeriodCount = videosInPeriod.length;
@@ -2232,7 +2233,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     l.linkCategory === 'calendly_desc_ig'
     || (!l.linkCategory && l.linkType === 'description' && l.postPlatform === 'IG' && isCalendlyUrl(l))
   ).reduce((s: number, l: any) => s + resolveClics(l), 0) : 0);
-  const periodCutoffFunnel = Date.now() - period * 24 * 60 * 60 * 1000;
+  const isTsInFunnelWindow = (ts: string) => {
+    const t = new Date(ts).getTime();
+    return t >= periodStart.getTime() && t <= periodEnd.getTime();
+  };
   const igProspectClics = noData ? 0 : (() => {
     if (!prospectLinksData || !linkClickedByLeadId) return 0;
     const isLMPl = (pl: any) => {
@@ -2243,7 +2247,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     const dmClics = (prospectLinksData as any[]).filter((pl: any) => {
       if (!pl.calendly_link_sent) return false;
       const ts = pl.calendly_link_sent_at ?? pl.created_at;
-      if (!ts || new Date(ts).getTime() < periodCutoffFunnel) return false;
+      if (!ts || !isTsInFunnelWindow(ts)) return false;
       if (isLMPl(pl)) return false;
       return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
     }).length;
@@ -2251,7 +2255,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     const lmClics = (prospectLinksData as any[]).filter((pl: any) => {
       if (!pl.calendly_link_sent) return false;
       const ts = pl.calendly_link_sent_at ?? pl.created_at;
-      if (!ts || new Date(ts).getTime() < periodCutoffFunnel) return false;
+      if (!ts || !isTsInFunnelWindow(ts)) return false;
       if (!isLMPl(pl)) return false;
       return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
     }).length;
@@ -2283,9 +2287,13 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   // Données jour par jour pour les modals d'efficacité par plateforme
   function buildEffDayData(platformCalls: CallRecord[], metricIdx: number): { date: string; v: number }[] {
-    return Array.from({ length: period }, (_, i) => {
-      const d = new Date(now); d.setDate(d.getDate() - (period - 1 - i));
-      const iso = d.toISOString().split('T')[0];
+    const days: string[] = [];
+    const d = new Date(periodStart);
+    while (d.getTime() <= periodEnd.getTime()) {
+      days.push(d.toISOString().split('T')[0]);
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return days.map(iso => {
       const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
       const booked = cs.filter(c => c.status === 'active').length;
       const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
@@ -2348,12 +2356,15 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         const revPerCall = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
 
         // Hero chart data — réel depuis calls agrégés par jour
-        const n = period;
         const callsP = callsInWindow;
         function buildDay2(filterFn: (c: CallRecord) => boolean, valFn: (cs: CallRecord[]) => number) {
-          return Array.from({ length: n }, (_, i) => {
-            const d = new Date(now); d.setDate(d.getDate() - (n - 1 - i));
-            const iso = d.toISOString().split('T')[0];
+          const days: string[] = [];
+          const d = new Date(periodStart);
+          while (d.getTime() <= periodEnd.getTime()) {
+            days.push(d.toISOString().split('T')[0]);
+            d.setUTCDate(d.getUTCDate() + 1);
+          }
+          return days.map(iso => {
             const cs = callsP.filter(c => c.scheduled_at?.startsWith(iso) && filterFn(c));
             return { date: iso, v: valFn(cs) };
           });
@@ -2420,8 +2431,6 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   onClick={e => e.stopPropagation()}
                 >
                   {(() => {
-                    const mn = period;
-
                     const totalBookes7 = igBookes + ytBookes;
                     const totalHonores7 = igHonores + ytHonores;
                     const totalCloses7 = igCloses + ytCloses;
@@ -2440,10 +2449,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     const ytChartSlice = yt?.chartData.filter(d => inFunnelWindow(d.date)) || [];
 
                     const toCallsData = (subset: CallRecord[], key: 'booked' | 'honored' | 'closed' | 'rev') => {
-                      const dates2 = Array.from({ length: mn }, (_, i) => {
-                        const d = new Date(); d.setDate(d.getDate() - (mn - 1 - i));
-                        return d.toISOString().split('T')[0];
-                      });
+                      const dates2: string[] = [];
+                      const d2 = new Date(periodStart);
+                      while (d2.getTime() <= periodEnd.getTime()) {
+                        dates2.push(d2.toISOString().split('T')[0]);
+                        d2.setUTCDate(d2.getUTCDate() + 1);
+                      }
                       return dates2.map(date => {
                         const dayStart = new Date(date).getTime();
                         const dayEnd = dayStart + 86400000;
