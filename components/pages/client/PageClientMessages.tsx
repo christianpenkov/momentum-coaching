@@ -1526,7 +1526,9 @@ export default function PageClientMessages() {
               // a pu scroller ou recevoir de nouveaux messages entre l'ouverture
               // du menu et ce clic.
               const el = bubbleRefsMap.current.get(msg.id);
-              setEditRect(el ? el.getBoundingClientRect() : ctxMenu.rect);
+              const measured = el ? el.getBoundingClientRect() : ctxMenu.rect;
+              console.log('[EDIT-DEBUG] el found:', !!el, 'rect:', measured.width, measured.height, measured.left, measured.top);
+              setEditRect(measured);
             }}
             onDelete={() => setConfirmDeleteId(msg.id)}
             onClose={() => setCtxMenu(null)}
