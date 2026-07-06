@@ -1,40 +1,90 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useEffect, useCallback } from 'react';
 
 // Appui long tactile (mobile) — ouvre le menu contextuel des messages, équivalent
 // du clic droit desktop. ~500ms de maintien, annulé si le doigt bouge (scroll).
-// Le retour haptique (vibration) n'est pas géré ici : sur iOS, il ne peut être
-// déclenché que par le vrai tap physique de l'utilisateur (cf. hapticTrigger de
-// la lib ios-haptics, superposé directement sur la bulle) — un .click() JS
-// différé dans ce setTimeout ne fonctionne pas (règles de "user activation" iOS).
-export function useLongPress(onLongPress: (e: React.TouchEvent) => void, delay = 500) {
+//
+// Le retour haptique iOS (cf. lib ios-haptics) nécessite un <input type="checkbox"
+// switch"> superposé en position:absolute;inset:0 par-dessus la zone tactile — le
+// haptique natif WebKit ne se déclenche que sur un vrai tap physique dessus, jamais
+// sur un .click() JS différé. Mais un switch superposé en plein cadre devient la
+// cible réelle de TOUS les events (touch ET clic droit desktop), donc les listeners
+// attachés au wrapper/enfants en dessous ne les reçoivent jamais. Solution : ce hook
+// crée et gère lui-même ce switch, et attache tous les listeners (tactile + clic
+// droit) DIRECTEMENT dessus — le natif (haptique) et notre JS (détection long-press
+// / menu contextuel) tournent sur le même élément, sans conflit d'event target.
+export function useLongPress(
+  onTrigger: (x: number, y: number) => void,
+  enabled: boolean,
+  delay = 500,
+) {
+  const containerRef = useRef<HTMLElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
+  const onTriggerRef = useRef(onTrigger);
+  onTriggerRef.current = onTrigger;
 
   const clear = useCallback(() => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
   }, []);
 
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    const touch = e.touches[0];
-    startPos.current = { x: touch.clientX, y: touch.clientY };
-    movedRef.current = false;
-    timerRef.current = setTimeout(() => {
-      if (!movedRef.current) {
-        onLongPress(e);
-      }
-    }, delay);
-  }, [onLongPress, delay]);
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !enabled || typeof document === 'undefined') return;
 
-  const onTouchMove = useCallback((e: React.TouchEvent) => {
-    if (!startPos.current) return;
-    const touch = e.touches[0];
-    const dx = Math.abs(touch.clientX - startPos.current.x);
-    const dy = Math.abs(touch.clientY - startPos.current.y);
-    if (dx > 10 || dy > 10) { movedRef.current = true; clear(); }
-  }, [clear]);
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.setAttribute('switch', '');
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+    Object.assign(input.style, {
+      position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+      margin: '0', opacity: '0', cursor: 'pointer',
+      clipPath: 'inset(0 round 999px)', touchAction: 'manipulation',
+    });
+    input.style.setProperty('-webkit-tap-highlight-color', 'transparent');
+    container.style.position = 'relative';
 
-  const onTouchEnd = useCallback(() => { clear(); }, [clear]);
+    const onTouchStart = (e: TouchEvent) => {
+      const touch = e.touches[0];
+      startPos.current = { x: touch.clientX, y: touch.clientY };
+      movedRef.current = false;
+      timerRef.current = setTimeout(() => {
+        if (!movedRef.current) onTriggerRef.current(touch.clientX, touch.clientY);
+      }, delay);
+    };
 
-  return { onTouchStart, onTouchMove, onTouchEnd, onTouchCancel: onTouchEnd };
+    const onTouchMove = (e: TouchEvent) => {
+      if (!startPos.current) return;
+      const touch = e.touches[0];
+      const dx = Math.abs(touch.clientX - startPos.current.x);
+      const dy = Math.abs(touch.clientY - startPos.current.y);
+      if (dx > 10 || dy > 10) { movedRef.current = true; clear(); }
+    };
+
+    const onTouchEnd = () => clear();
+
+    const onContextMenu = (e: MouseEvent) => {
+      e.preventDefault();
+      onTriggerRef.current(e.clientX, e.clientY);
+    };
+
+    input.addEventListener('touchstart', onTouchStart, { passive: true });
+    input.addEventListener('touchmove', onTouchMove, { passive: true });
+    input.addEventListener('touchend', onTouchEnd);
+    input.addEventListener('touchcancel', onTouchEnd);
+    input.addEventListener('contextmenu', onContextMenu);
+    // Empêche le comportement natif de toggle/focus visuel du checkbox de
+    // perturber l'UI (on ne veut que le côté effet haptique du switch).
+    input.addEventListener('click', e => e.preventDefault());
+
+    container.insertAdjacentElement('beforeend', input);
+
+    return () => {
+      clear();
+      input.remove();
+    };
+  }, [delay, clear, enabled]);
+
+  return { ref: containerRef as React.RefObject<HTMLDivElement> };
 }

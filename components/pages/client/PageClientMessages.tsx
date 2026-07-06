@@ -7,7 +7,6 @@ import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
-import { hapticTrigger } from 'ios-haptics';
 import { clearAppBadge } from '@/lib/pwaBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -521,25 +520,15 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const isImage = msg.type === 'image';
   const isDocument = msg.type === 'document';
   const bubbleRef = useRef<HTMLDivElement>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
   const openMenu = () => {
     if (!bubbleRef.current) return;
     onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
   };
-  const longPress = useLongPress(() => {
-    if (isMe && (canEdit || canDelete)) openMenu();
-  });
-
-  // Retour haptique iOS (Safari 17.4-26.4, patché par Apple en 26.5+) : un vrai
-  // <input type="checkbox" switch> superposé à la bulle, activé par le tap physique
-  // réel de l'utilisateur — un .click() JS différé (ex: dans le setTimeout du
-  // long-press) ne fonctionne PAS, iOS exige que le geste tactile déclenche
-  // lui-même le toggle en direct pour autoriser le haptique système.
-  useEffect(() => {
-    if (isMe && (canEdit || canDelete) && wrapperRef.current) {
-      hapticTrigger(wrapperRef.current);
-    }
-  }, [isMe, canEdit, canDelete]);
+  // Long-press + clic droit + retour haptique iOS combinés dans un seul hook —
+  // voir lib/useLongPress.ts pour l'explication complète de pourquoi les trois
+  // doivent être gérés sur le même élément DOM injecté (le switch haptique).
+  const canOpenMenu = isMe && (canEdit || canDelete);
+  const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
   // viewport visible (scroll) — pas juste "la conversation est ouverte quelque
@@ -591,12 +580,6 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
     <div ref={wrapperRef} className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
       <div
         ref={bubbleRef}
-        onContextMenu={e => {
-          if (!isMe || (!canEdit && !canDelete)) return;
-          e.preventDefault();
-          openMenu();
-        }}
-        {...(isMe ? longPress : {})}
         style={{
           background: isMe ? 'var(--ink)' : 'var(--surface)',
           color: isMe ? '#fff' : 'var(--ink)',
