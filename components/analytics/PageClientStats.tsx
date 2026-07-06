@@ -4221,26 +4221,25 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // ── Séries jour-par-jour pour les KPI cliquables ──
   // Génère chaque date UTC de periodStart à periodEnd inclus, pour combler les jours
   // sans donnée à 0 (sinon Recharts trace un point isolé au lieu d'une ligne continue).
+  // Tous les jours de la période restent sur l'axe (même les jours futurs d'une
+  // semaine/mois en cours) — c'est chaque SÉRIE (v: null au lieu de 0) qui décide où
+  // la ligne s'arrête visuellement, pas l'axe lui-même.
   const dayRange: string[] = (() => {
     const days: string[] = [];
     const d = new Date(periodStart);
-    // Ne jamais dépasser aujourd'hui : en milieu de semaine/mois calendaire, periodEnd
-    // peut être dans le futur (ex: dimanche à venir) — sans ce plafond, la courbe
-    // afficherait des 0 pour des jours qui n'ont pas encore eu lieu, donnant une
-    // fausse impression de chute d'activité plutôt que "pas encore de donnée".
-    const todayUTC = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
-    const effectiveEnd = periodEnd.getTime() > todayUTC.getTime() ? todayUTC : periodEnd;
-    while (d.getTime() <= effectiveEnd.getTime()) {
+    while (d.getTime() <= periodEnd.getTime()) {
       days.push(utcDateStr(d));
       d.setUTCDate(d.getUTCDate() + 1);
     }
     return days;
   })();
+  const todayUTCStr = utcDateStr(new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())));
+  const isFutureDay = (date: string) => date > todayUTCStr;
 
   // 1. Clics totaux — déjà par jour dans shortioChartHistory, filtrer sur la fenêtre
   const clicsSeries = dayRange.map(date => ({
     date,
-    v: (shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0,
+    v: isFutureDay(date) ? null : ((shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0),
   }));
   const clicsSeriesHasData = (shortioChartHistory ?? []).length > 0;
 
@@ -4250,7 +4249,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(l.commentedAt));
     leadsPerDay.set(day, (leadsPerDay.get(day) ?? 0) + 1);
   }
-  const leadsSeries = dayRange.map(date => ({ date, v: leadsPerDay.get(date) ?? 0 }));
+  const leadsSeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (leadsPerDay.get(date) ?? 0) }));
 
   // 3. Réponses accroche LM DM — vrai timestamp hook_replied_at (ajouté au select ci-dessus)
   const hookRepliesPerDay = new Map<string, number>();
@@ -4260,7 +4259,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(l.hookRepliedAt));
     hookRepliesPerDay.set(day, (hookRepliesPerDay.get(day) ?? 0) + 1);
   }
-  const hookReplySeries = dayRange.map(date => ({ date, v: hookRepliesPerDay.get(date) ?? 0 }));
+  const hookReplySeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (hookRepliesPerDay.get(date) ?? 0) }));
 
   // 4. Liens Calendly envoyés DM — calendly_link_sent_at ?? created_at, sur calendlyLinksSent (déjà filtré période)
   const calendlyLinksPerDay = new Map<string, number>();
@@ -4269,7 +4268,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(ts));
     calendlyLinksPerDay.set(day, (calendlyLinksPerDay.get(day) ?? 0) + 1);
   }
-  const calendlyLinksSeries = dayRange.map(date => ({ date, v: calendlyLinksPerDay.get(date) ?? 0 }));
+  const calendlyLinksSeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (calendlyLinksPerDay.get(date) ?? 0) }));
 
   // 5. Taux d'activation DM — deux ratios par jour, comme la KPI card (LM et Calendly) :
   // LM = clics lead magnet / LM envoyés (jour = commentedAt), Calendly = clics lien
@@ -4285,6 +4284,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (l.id && lmClickedByLeadId?.has(l.id)) lmClicsPerDay.set(day, (lmClicsPerDay.get(day) ?? 0) + 1);
   }
   const activationLmSeries = dayRange.map(date => {
+    if (isFutureDay(date)) return { date, v: null as any };
     const sent = lmEnvoyesPerDay.get(date) ?? 0;
     const clicked = lmClicsPerDay.get(date) ?? 0;
     return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
@@ -4297,6 +4297,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     calendlyClicsPerDay.set(day, (calendlyClicsPerDay.get(day) ?? 0) + 1);
   }
   const activationCalendlySeries = dayRange.map(date => {
+    if (isFutureDay(date)) return { date, v: null as any };
     const sent = calendlyLinksPerDay.get(date) ?? 0;
     const clicked = calendlyClicsPerDay.get(date) ?? 0;
     return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
@@ -4601,7 +4602,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             ))}
           </div>
           {chartFilter === 'all' ? (
-            clicsSeriesHasData || clicsSeries.some(d => d.v > 0) ? (
+            clicsSeriesHasData || clicsSeries.some(d => (d.v ?? 0) > 0) ? (
               <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
                 <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: BLUE }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
               </div>
