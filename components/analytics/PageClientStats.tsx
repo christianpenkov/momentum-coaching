@@ -819,15 +819,22 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   const mrr          = stripe?.mrr || 0;
 
   // ── Tendance reach (sparkline) ────────────────────────────────────────────
-  const igChartSlice  = ig?.chartData.slice(-period) || [];
-  const ytChartSlice  = yt?.chartData.slice(-period) || [];
+  // Filtre par vraie date calendaire (ovPeriodStart/ovPeriodEnd), pas par position
+  // dans le tableau (.slice(-N) suppose que chartData s'arrête pile aujourd'hui —
+  // faux si les dernières données connues datent d'avant, donne une fenêtre décalée).
+  const inOvWindow = (dateStr: string) => {
+    const t = new Date(dateStr + 'T12:00:00Z').getTime();
+    return t >= ovPeriodStart.getTime() && t <= ovPeriodEnd.getTime();
+  };
+  const igChartSlice  = ig?.chartData.filter(d => inOvWindow(d.date)) || [];
+  const ytChartSlice  = yt?.chartData.filter(d => inOvWindow(d.date)) || [];
   const igViewRatio   = ig && ig.reach30d > 0 ? (ig.views30d || 0) / ig.reach30d : 1;
 
   const igReach = period === 7
-    ? (ig?.chartData.slice(-7).reduce((s, d) => s + d.reach, 0) || 0)
+    ? igChartSlice.reduce((s, d) => s + d.reach, 0)
     : (ig?.reach30d || 0);
   const ytViews = period === 7
-    ? (yt?.chartData.slice(-7).reduce((s, d) => s + d.views, 0) || 0)
+    ? ytChartSlice.reduce((s, d) => s + d.views, 0)
     : (yt?.views30d || 0);
   // Clics lien = Calendly bio (IG+YT) + Calendly desc (IG+YT) [bruts DB] + DM prospects [1/lead]
   // S-0 : clics bio+desc depuis DB par link_category ; S-1+ : fallback clicksByUrl filtré
@@ -2393,8 +2400,14 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     const revPerCall7 = totalBookes7 > 0 ? Math.round(totalRev7 / totalBookes7) : 0;
 
                     // Pour les graphiques temporels, on utilise les vrais chartData quand disponibles
-                    const igChartSlice = ig?.chartData.slice(-mn) || [];
-                    const ytChartSlice = yt?.chartData.slice(-mn) || [];
+                    // Filtre par vraie date calendaire (periodStart/periodEnd déjà calculés plus
+                    // haut dans TabFunnel), pas par position dans le tableau.
+                    const inFunnelWindow = (dateStr: string) => {
+                      const t = new Date(dateStr + 'T12:00:00Z').getTime();
+                      return t >= periodStart.getTime() && t <= periodEnd.getTime();
+                    };
+                    const igChartSlice = ig?.chartData.filter(d => inFunnelWindow(d.date)) || [];
+                    const ytChartSlice = yt?.chartData.filter(d => inFunnelWindow(d.date)) || [];
 
                     const toCallsData = (subset: CallRecord[], key: 'booked' | 'honored' | 'closed' | 'rev') => {
                       const dates2 = Array.from({ length: mn }, (_, i) => {
