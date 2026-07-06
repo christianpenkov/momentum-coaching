@@ -758,8 +758,29 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
   // ci-dessus), pas .slice(-N) qui suppose chartData aligné sur aujourd'hui, ni un
   // cutoff en ms qui suppose un compte de jours fixe (incohérent avec un mois
   // calendaire de longueur variable).
-  const igDays = igDaysSlice;
   const cutoffIg = igPeriodStart;
+
+  // igDays : TOUS les jours calendaires de la période (lundi→dimanche / 1er→dernier
+  // jour du mois), pas seulement ceux ayant déjà une ligne en base — sinon en début de
+  // semaine (ex: lundi seul collecté), le graphique n'affiche qu'un point isolé au
+  // milieu au lieu de tous les jours de l'axe avec juste ce point rempli (même défaut
+  // déjà corrigé sur Business micro). igDaysSlice reste utilisé pour les totaux/sommes
+  // (igReachP, igEngagedP...), qui ne doivent pas compter de faux zéros sur les jours
+  // sans donnée.
+  const igDayByDate = new Map(igDaysSlice.map(d => [d.date, d]));
+  const igDaysNoDataSet = new Set<string>();
+  const igDays: typeof igDaysSlice = (() => {
+    const days: typeof igDaysSlice = [];
+    const d = new Date(igPeriodStart);
+    while (d.getTime() <= igPeriodEnd.getTime()) {
+      const iso = d.toISOString().split('T')[0];
+      const existing = igDayByDate.get(iso);
+      if (!existing) igDaysNoDataSet.add(iso);
+      days.push(existing ?? { date: iso, reach: 0, followerCount: null, accountsEngaged: 0, totalInteractions: 0, websiteClicks: 0, reachFollower: null, reachNonFollower: null } as any);
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return days;
+  })();
 
   // Publications par jour depuis les vrais timestamps des posts
   const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= cutoffIg).length;
@@ -776,13 +797,13 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
   // survenues ce jour précis".
   const interactionsByDay = igDays.map(d => ({
     date: d.date,
-    v: d.totalInteractions ?? 0,
+    v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.totalInteractions ?? 0),
   }));
 
   const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Publications': { data: pubsByDay, color: IG_COLOR },
-    'Reach': { data: igDays.map(d => ({ date: d.date, v: d.reach })), color: ACCENT },
-    'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: IG_COLOR },
+    'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: ACCENT },
+    'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? 0) })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
     'Abonnés nets': { data: (() => {
       // Delta brut jour J vs J-1 (nombre entier réel, pas de lissage) — très bruyant
@@ -794,22 +815,13 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
       });
     })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
-    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
+    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0) })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     // Pas d'entrée "Followers reach rate" ici : Meta n'expose aucun équivalent
     // dédupliqué PAR JOUR (seulement sur la fenêtre glissante totale de 28 jours) —
     // un calcul reach_du_jour/abonnés_totaux serait une approximation non fiable,
     // ce qu'on ne veut afficher nulle part sur ce KPI (cf. reachRate ci-dessus).
-    // Reach non-abonnés % par jour — historique disponible seulement depuis la mise en
-    // place de la collecte quotidienne (ig_reach_follower/non_follower), pas rétroactif.
-    // null (vrai trou) seulement quand la donnée n'a JAMAIS été collectée ce jour-là
-    // (f/nf absents). Si collectée mais reach nul ce jour (f=0 et nf=0), c'est un vrai
-    // 0% — pas un trou, la donnée existe et dit "aucune vue ce jour-là".
-    'Reach Non-Followers': { data: igDays.map(d => {
-      const f = d.reachFollower, nf = d.reachNonFollower;
-      if (f === null || f === undefined || nf === null || nf === undefined) return { date: d.date, v: null as any };
-      const total = f + nf;
-      return { date: d.date, v: total === 0 ? 0 : Math.round((nf / total) * 100 * 10) / 10 };
-    }), color: ACCENT, unit: '%' },
+    // Pas d'entrée "Reach Non-Followers" ici sur demande explicite : juste le chiffre
+    // du mois/semaine dans la carte KPI, pas de graphique jour par jour.
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
   };
 
@@ -864,7 +876,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés uniques touchés / total' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
-          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Reach Non-Followers', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
+          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
@@ -1004,7 +1016,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
                   }} />
-                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal)" dot={{ r: 3, strokeWidth: 0, fill: statModal.color }} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
                 </ReAreaChart>
               )}
             </ResponsiveContainer>
