@@ -512,6 +512,7 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
   if (typeof document === 'undefined') return null;
   const unchanged = editText.trim() === originalText.trim() || editText.trim().length === 0;
   const left = Math.min(Math.max(rect.left, 16), window.innerWidth - rect.width - 16);
+  console.log('[EDIT-DEBUG overlay-render]', rect.width, rect.height, rect.left, rect.top, '-> left:', left);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onCancel} />
@@ -585,7 +586,9 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   };
   const openMenu = () => {
     if (!bubbleRef.current) return;
-    onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
+    const r = bubbleRef.current.getBoundingClientRect();
+    console.log('[EDIT-DEBUG openMenu]', msg.id, r.width, r.height, r.left, r.top);
+    onOpenCtxMenu(r, bubbleRef.current.outerHTML);
   };
   // Long-press + clic droit combinés dans un seul hook (voir lib/useLongPress.ts).
   // Désactivé en mode édition et tant que le menu contextuel est ouvert sur cette
@@ -1527,6 +1530,7 @@ export default function PageClientMessages() {
               // null) et son rect s'effondre à la taille du padding seul.
               const el = bubbleRefsMap.current.get(msg.id);
               const measured = el ? el.getBoundingClientRect() : ctxMenu.rect;
+              console.log('[EDIT-DEBUG onEdit]', msg.id, 'elFound:', !!el, measured.width, measured.height, measured.left, measured.top, 'ctxMenu.rect:', ctxMenu.rect.width, ctxMenu.rect.height);
               setEditRect(measured);
               setEditingId(msg.id);
               setEditText(msg.text);
