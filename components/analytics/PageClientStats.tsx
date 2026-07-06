@@ -150,6 +150,14 @@ const fmtAxisDate = (iso: string) => {
   return d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
 };
 
+// Format axe X avec jour de semaine : "lun. 7" — réservé aux vues 7 jours (semaine
+// calendaire), où il n'y a que 7 points à afficher donc la place ne manque pas.
+// Sur les vues mois (jusqu'à 31 points), ce format ferait chevaucher les ticks.
+const fmtAxisDateWithDay = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' });
+};
+
 const ACCENT = 'var(--accent)';
 const GREEN = '#3f8a52';
 const AMBER = '#b58025';
@@ -1034,7 +1042,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
                     <stop offset="95%" stopColor={item.color} stopOpacity={0} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : 'preserveStartEnd'} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong></div></div>;
