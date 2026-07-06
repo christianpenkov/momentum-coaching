@@ -563,7 +563,7 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
@@ -572,12 +572,17 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   onOpenLightbox: (url: string) => void;
   isMenuTarget?: boolean;
   onEnterViewport?: (msgId: string) => void;
+  registerBubbleRef?: (msgId: string, el: HTMLDivElement | null) => void;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
   const isImage = msg.type === 'image';
   const isDocument = msg.type === 'document';
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const setBubbleRef = (el: HTMLDivElement | null) => {
+    bubbleRef.current = el;
+    registerBubbleRef?.(msg.id, el);
+  };
   const openMenu = () => {
     if (!bubbleRef.current) return;
     onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
@@ -642,7 +647,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   return (
     <div ref={wrapperRef} className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
       <div
-        ref={bubbleRef}
+        ref={setBubbleRef}
         style={{
           background: isMe ? 'var(--ink)' : 'var(--surface)',
           color: isMe ? '#fff' : 'var(--ink)',
@@ -777,6 +782,10 @@ export default function PageClientMessages() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRect, setEditRect] = useState<DOMRect | null>(null);
   const [editText, setEditText] = useState('');
+  // Refs stables vers le DOM node de chaque bulle — remesurées juste avant
+  // d'afficher l'édition (pas un rect figé au moment du long-press), pour rester
+  // à jour même si la liste a scrollé ou reçu de nouveaux messages entre-temps.
+  const bubbleRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [actionError, setActionError] = useState<string | null>(null);
   // Force un re-render périodique pour que les boutons Modifier/Supprimer
   // disparaissent au bon moment même si l'utilisateur reste immobile sur la page.
@@ -1276,6 +1285,10 @@ export default function PageClientMessages() {
                     onOpenLightbox={setLightboxUrl}
                     isMenuTarget={ctxMenu?.msgId === msg.id}
                     onEnterViewport={markMessageRead}
+                    registerBubbleRef={(id, el) => {
+                      if (el) bubbleRefsMap.current.set(id, el);
+                      else bubbleRefsMap.current.delete(id);
+                    }}
                   />
                 );
               })}
@@ -1506,7 +1519,15 @@ export default function PageClientMessages() {
             rect={ctxMenu.rect}
             html={ctxMenu.html}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
-            onEdit={() => { setEditingId(msg.id); setEditText(msg.text); setEditRect(ctxMenu.rect); }}
+            onEdit={() => {
+              setEditingId(msg.id);
+              setEditText(msg.text);
+              // Remesure au clic (pas ctxMenu.rect figé au long-press) — la page
+              // a pu scroller ou recevoir de nouveaux messages entre l'ouverture
+              // du menu et ce clic.
+              const el = bubbleRefsMap.current.get(msg.id);
+              setEditRect(el ? el.getBoundingClientRect() : ctxMenu.rect);
+            }}
             onDelete={() => setConfirmDeleteId(msg.id)}
             onClose={() => setCtxMenu(null)}
           />
