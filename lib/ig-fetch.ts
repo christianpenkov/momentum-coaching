@@ -103,9 +103,19 @@ export async function fetchIgDayMetrics(
   }
   const sum = (arr: number[]) => (arr || []).reduce((a, b) => a + b, 0);
 
-  const engagedTotal = (engagedData?.data || []).reduce((acc: number, m: any) => {
-    return acc + (m.total_value?.value || 0);
-  }, 0);
+  // engagedData contient 2 métriques distinctes dans le même appel (accounts_engaged
+  // ET total_interactions) — un .reduce() sur tout le tableau sans distinguer m.name
+  // additionnait les deux valeurs ensemble et assignait cette somme aux deux colonnes
+  // (bug trouvé le 2026-07-06 : taux d'engagement quotidien explosant à 400%+ sur les
+  // jours à faible reach, ig_accounts_engaged et ig_total_interactions identiques en DB
+  // alors que ce sont deux métriques Meta différentes par définition).
+  let accountsEngagedTotal = 0;
+  let totalInteractionsTotal = 0;
+  for (const m of (engagedData?.data || [])) {
+    const v = m.total_value?.value || 0;
+    if (m.name === 'accounts_engaged') accountsEngagedTotal += v;
+    else if (m.name === 'total_interactions') totalInteractionsTotal += v;
+  }
 
   let reachFollower: number | null = null;
   let reachNonFollower: number | null = null;
@@ -131,8 +141,8 @@ export async function fetchIgDayMetrics(
     ig_follows_unfollows:  sum(insightMap['follows_and_unfollows'] || []) || null,
     ig_profile_taps:       sum(insightMap['profile_links_taps'] || []) || null,
     ig_website_clicks:     sum(insightMap['website_clicks'] || []) || null,
-    ig_accounts_engaged:   engagedTotal || null,
-    ig_total_interactions: engagedTotal || null,
+    ig_accounts_engaged:   accountsEngagedTotal || null,
+    ig_total_interactions: totalInteractionsTotal || null,
     ig_lead_count:         null,
     ig_response_rate:      null,
     ig_reach_follower:     reachFollower,
