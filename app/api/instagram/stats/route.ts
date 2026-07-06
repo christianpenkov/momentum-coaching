@@ -124,19 +124,21 @@ export async function GET(request: Request) {
   // serveur. Utilisé pour "Followers reach rate" = abonnés uniques touchés / abonnés
   // total ; reach30d (somme quotidienne) reste utilisé pour le KPI "Reach · personnes"
   // et le graphique jour par jour, non concernés par ce biais.
-  const reach28dDedupFollowers: number | null = (() => {
-    for (const metric of reachDedupData?.data || []) {
-      if (metric.name === 'reach' && metric.total_value?.breakdowns) {
-        for (const bd of metric.total_value.breakdowns) {
-          for (const r of bd.results || []) {
-            if (r.dimension_values?.[0] === 'FOLLOWER') return r.value ?? 0;
-          }
+  let reach28dDedupFollowers: number | null = null;
+  let reach28dDedupNonFollowers: number | null = null;
+  for (const metric of reachDedupData?.data || []) {
+    if (metric.name === 'reach' && metric.total_value?.breakdowns) {
+      reach28dDedupFollowers = 0;
+      reach28dDedupNonFollowers = 0;
+      for (const bd of metric.total_value.breakdowns) {
+        for (const r of bd.results || []) {
+          const key = r.dimension_values?.[0];
+          if (key === 'FOLLOWER') reach28dDedupFollowers += r.value ?? 0;
+          else if (key === 'NON_FOLLOWER') reach28dDedupNonFollowers += r.value ?? 0;
         }
-        return 0; // breakdown présent mais aucun résultat FOLLOWER → 0 compte abonné touché
       }
     }
-    return null;
-  })();
+  }
   // accounts_engaged/total_interactions via total_value sont non fiables (> reach, inclut stories/DMs)
   // On calcule les vraies interactions depuis les posts individuels après leur fetch (voir plus bas)
   const accountsEngaged30d = 0; // remplacé par postInteractions30d calculé depuis les posts
@@ -411,6 +413,7 @@ export async function GET(request: Request) {
     biography: accountData.biography || '',
     reach30d,
     reach28dDedupFollowers,
+    reach28dDedupNonFollowers,
     accountsEngaged30d: postInteractions30d,
     totalInteractions30d: postInteractions30d,
     followsUnfollows30d,

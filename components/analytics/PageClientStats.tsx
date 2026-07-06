@@ -46,7 +46,7 @@ function Portal({ children }: { children: React.ReactNode }) {
 interface IGStats {
   username: string; name: string; profilePicture: string | null;
   followers: number; following: number; mediaCount: number; biography: string;
-  reach30d: number; reach28dDedupFollowers?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
+  reach30d: number; reach28dDedupFollowers?: number | null; reach28dDedupNonFollowers?: number | null; accountsEngaged30d: number; totalInteractions30d: number;
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
@@ -1169,9 +1169,15 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
   // l'ancien calcul (somme quotidienne, moins précis) si la donnée n'est pas disponible
   // (ex: vue historique sans ce champ).
   const reachRate = ig.reach28dDedupFollowers != null ? pct(ig.reach28dDedupFollowers, ig.followers) : pct(igReachP, ig.followers);
-  const viralPct = ig.viewsFollowerBreakdown
-    ? pct(ig.viewsFollowerBreakdown.nonFollower, ig.viewsFollowerBreakdown.follower + ig.viewsFollowerBreakdown.nonFollower)
-    : null;
+  // % de non-abonnés parmi le reach dédupliqué (comptes uniques), pas parmi les vues
+  // (viewsFollowerBreakdown compte les revisionnages, incohérent avec le graphique
+  // "Reach Non-Followers" juste en dessous qui utilise reach, pas views) — confirmé
+  // via test direct API : les deux métriques divergent fortement sur ce compte.
+  const viralPct = (ig.reach28dDedupFollowers != null && ig.reach28dDedupNonFollowers != null)
+    ? pct(ig.reach28dDedupNonFollowers, ig.reach28dDedupFollowers + ig.reach28dDedupNonFollowers)
+    : (ig.viewsFollowerBreakdown
+      ? pct(ig.viewsFollowerBreakdown.nonFollower, ig.viewsFollowerBreakdown.follower + ig.viewsFollowerBreakdown.nonFollower)
+      : null);
 
   const igDays = ig.chartData.slice(-period);
   const cutoffIg = new Date(Date.now() - period * 86400000);
