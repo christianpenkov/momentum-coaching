@@ -765,12 +765,15 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
     v: ig.posts.filter(p => p.timestamp.startsWith(d.date)).length,
   }));
 
-  // Interactions par jour = somme des totalInteractions des posts publiés ce jour-là (lifetime par post)
+  // Interactions par jour = vraie donnée quotidienne (ig_total_interactions en DB,
+  // même source que le total igEngTotal du haut). Auparavant reconstruit depuis les
+  // posts PUBLIÉS ce jour-là × leur totalInteractions lifetime — faux sur deux plans :
+  // ça ne capture que les jours de publication (graphique vide la plupart du temps)
+  // et confond "interactions cumulées du post depuis toujours" avec "interactions
+  // survenues ce jour précis".
   const interactionsByDay = igDays.map(d => ({
     date: d.date,
-    v: ig.posts
-      .filter(p => p.timestamp.startsWith(d.date))
-      .reduce((s, p) => s + (p.totalInteractions ?? 0), 0),
+    v: d.totalInteractions ?? 0,
   }));
 
   const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
@@ -788,7 +791,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
       });
     })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
-    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
+    "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Followers reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
     // Reach non-abonnés % par jour — historique disponible seulement depuis la mise en
     // place de la collecte quotidienne (ig_reach_follower/non_follower), pas rétroactif.
