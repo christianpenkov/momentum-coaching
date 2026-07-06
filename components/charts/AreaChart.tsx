@@ -79,7 +79,10 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
                 stroke={color}
                 strokeWidth={2}
                 fill={`url(#grad-${a.key})`}
-                dot={false}
+                // Point visible sur chaque valeur réelle (pas juste au survol) — sans ça,
+                // un seul point de donnée (ex: uniquement "aujourd'hui" en début de
+                // semaine calendaire) ne trace aucun segment et reste invisible.
+                dot={{ r: 3, strokeWidth: 0, fill: color }}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 animationDuration={400}
               />
