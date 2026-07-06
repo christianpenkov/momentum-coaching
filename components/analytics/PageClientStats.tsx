@@ -50,7 +50,7 @@ interface IGStats {
   followsUnfollows30d: number; profileLinksTaps30d: number; websiteClicks30d: number;
   views30d: number;
   viewsFollowerBreakdown: { follower: number; nonFollower: number } | null;
-  chartData: { date: string; reach: number; followerCount?: number | null; views?: number; accountsEngaged?: number; totalInteractions?: number; websiteClicks?: number }[];
+  chartData: { date: string; reach: number; followerCount?: number | null; views?: number; accountsEngaged?: number; totalInteractions?: number; websiteClicks?: number; reachFollower?: number | null; reachNonFollower?: number | null }[];
   posts: IGPost[]; demographics: Record<string, { label: string; value: number }[]>;
   onlineFollowers: any;
 }
@@ -1202,6 +1202,14 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
     })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
     'Followers reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
+    // Reach non-abonnés % par jour — historique disponible seulement depuis la mise en
+    // place de la collecte quotidienne (ig_reach_follower/non_follower), pas rétroactif.
+    // null (pas 0) quand la donnée n'a pas encore été collectée ce jour-là.
+    'Reach Non-Followers': { data: igDays.map(d => {
+      const f = d.reachFollower, nf = d.reachNonFollower;
+      const total = (f ?? 0) + (nf ?? 0);
+      return { date: d.date, v: (f === null || nf === null || total === 0) ? (null as any) : Math.round((nf! / total) * 100 * 10) / 10 };
+    }), color: ACCENT, unit: '%' },
     // Viralité et Clics lien bio : pas de série jour par jour disponible via Meta
   };
 
@@ -1256,7 +1264,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
           { label: 'Followers reach rate', value: fmtPct(reachRate), sub: 'reach / abonnés', color: 'var(--ink)', key: 'Followers reach rate', tooltip: 'Quel pourcentage de tes abonnés est touché par tes contenus. 100% = tous tes abonnés ont été atteints par toutes tes publications.' },
-          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: null, tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
+          { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Reach Non-Followers', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
         ].map(s => (
           <div key={s.label}
             onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined}
@@ -3105,12 +3113,13 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   const avgBasket = succeeded.length > 0 ? cashCollecte / succeeded.length : 0;
   const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
 
-  const revenueByDay: { date: string; ca: number }[] = Array.from({ length: period }, (_, i) => {
+  const revenueByDay: { date: string; ca: number; contracte: number }[] = Array.from({ length: period }, (_, i) => {
     const d = new Date(periodStart);
     d.setUTCDate(d.getUTCDate() + i);
     const iso = d.toISOString().split('T')[0];
     const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
-    return { date: iso, ca };
+    const contracte = dealsClosed.filter(c => c.scheduled_at.startsWith(iso)).reduce((s, c) => s + (c.revenue || 0), 0);
+    return { date: iso, ca, contracte };
   });
 
   return (
@@ -3144,8 +3153,8 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
         </div>
       </div>
 
-      <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · paiements Stripe` : `${periodLabel(period, periodIndex)} · paiements Stripe`}>
-        <BarChart data={revenueByDay} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(period / 7) - 1} />
+      <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · deals closés & paiements Stripe` : `${periodLabel(period, periodIndex)} · deals closés & paiements Stripe`}>
+        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--ink)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(period / 7) - 1} />
       </Card>
 
       <div className="card">
@@ -6136,6 +6145,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       accountsEngaged:   r.ig_accounts_engaged ?? 0,
       totalInteractions: r.ig_total_interactions ?? 0,
       websiteClicks:     r.ig_website_clicks ?? 0,
+      reachFollower:     r.ig_reach_follower ?? null,
+      reachNonFollower:  r.ig_reach_non_follower ?? null,
     })),
     posts: igPosts,
     demographics: lastSnap?.ig_demographics ?? {},
