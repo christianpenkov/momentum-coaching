@@ -378,6 +378,7 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 
 const CTX_MENU_WIDTH = 160;
 const CTX_MENU_HEIGHT = 90;
+const BUBBLE_SCALE = 1.5;
 
 function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, onClose }: {
   rect: DOMRect; html: string; canEdit: boolean; canDelete: boolean;
@@ -392,11 +393,16 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
 
   if (typeof document === 'undefined') return null;
   // Ancré sous la bulle agrandie (façon WhatsApp), pas aux coordonnées brutes du doigt.
-  // Bascule au-dessus si pas assez de place en dessous.
+  // Bascule au-dessus si pas assez de place en dessous. Le calcul tient compte de la
+  // hauteur réelle du clone une fois scale(1.5) appliqué (BUBBLE_SCALE), pas de la
+  // taille d'origine — sinon le menu chevaucherait le bas du clone agrandi.
   const GAP = 8;
-  const spaceBelow = window.innerHeight - rect.bottom;
+  const scaledHeight = rect.height * BUBBLE_SCALE;
+  const scaledBottom = rect.top + (rect.height - scaledHeight) / 2 + scaledHeight;
+  const scaledTop = rect.top - (scaledHeight - rect.height) / 2;
+  const spaceBelow = window.innerHeight - scaledBottom;
   const openUpward = spaceBelow < CTX_MENU_HEIGHT + GAP + 16;
-  const top = openUpward ? rect.top - CTX_MENU_HEIGHT - GAP : rect.bottom + GAP;
+  const top = openUpward ? scaledTop - CTX_MENU_HEIGHT - GAP : scaledBottom + GAP;
   const left = Math.min(Math.max(rect.left, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
@@ -409,7 +415,7 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
         ref={cloneRef}
         style={{
           position: 'fixed', left: rect.left, top: rect.top, width: rect.width, height: rect.height,
-          zIndex: 10000, transform: 'scale(1.06)', transformOrigin: 'center center',
+          zIndex: 10000, transform: `scale(${BUBBLE_SCALE})`, transformOrigin: 'center center',
           animation: 'ctxBubbleIn 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
           pointerEvents: 'none',
         }}
