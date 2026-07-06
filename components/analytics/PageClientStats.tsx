@@ -6,7 +6,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
-import AreaChart from '@/components/charts/AreaChart';
+import AreaChart, { todayDotFactory } from '@/components/charts/AreaChart';
 import BarChart from '@/components/charts/BarChart';
 import Heatmap from '@/components/charts/Heatmap';
 import {
@@ -4643,8 +4643,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     </div>
                   );
                 }} />
-                <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
-                <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={todayDotFactory('#F06292', 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory('#B91C1C', 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           ) : chartFilter === 'dm' ? (
@@ -4675,8 +4675,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     </div>
                   );
                 }} />
-                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={{ r: 3, strokeWidth: 0, fill: BLUE }} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
-                <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={{ r: 3, strokeWidth: 0, fill: AMBER }} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={todayDotFactory(BLUE, 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={todayDotFactory(AMBER, 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           ) : null}

@@ -25,6 +25,27 @@ interface AreaChartProps {
 
 const COLORS = ['var(--accent)', '#3f8a52', '#b58025'];
 
+// Point du jour (aujourd'hui) mis en évidence par une pulsation — pour le repérer
+// immédiatement quand il n'y a par exemple qu'un seul point réel visible (début de
+// semaine/mois calendaire, ex: lundi ou le 1er du mois).
+export function todayDotFactory(color: string, xKey: string) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  return (props: any) => {
+    const { cx, cy, payload } = props;
+    if (cx == null || cy == null) return <g key={props.key} />;
+    const isToday = payload?.[xKey] === todayStr;
+    if (!isToday) {
+      return <circle key={props.key} cx={cx} cy={cy} r={3} fill={color} stroke="none" />;
+    }
+    return (
+      <g key={props.key}>
+        <circle cx={cx} cy={cy} r={6} fill={color} opacity={0.35} style={{ animation: 'pulse 1.6s ease-in-out infinite' }} />
+        <circle cx={cx} cy={cy} r={3.5} fill={color} stroke="none" />
+      </g>
+    );
+  };
+}
+
 const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string; formatter?: (v: number) => string }) => {
   if (!active || !payload?.length) return null;
   return (
@@ -81,8 +102,9 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
                 fill={`url(#grad-${a.key})`}
                 // Point visible sur chaque valeur réelle (pas juste au survol) — sans ça,
                 // un seul point de donnée (ex: uniquement "aujourd'hui" en début de
-                // semaine calendaire) ne trace aucun segment et reste invisible.
-                dot={{ r: 3, strokeWidth: 0, fill: color }}
+                // semaine/mois calendaire) ne trace aucun segment et reste invisible.
+                // Le point du jour actuel pulse pour être repéré immédiatement.
+                dot={todayDotFactory(color, xKey)}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 animationDuration={400}
               />
