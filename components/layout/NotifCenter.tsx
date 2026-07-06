@@ -113,10 +113,11 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
   const isRapport = notif.type === 'rapport_call';
   const isCallRequest = notif.type === 'call_request';
   const isCanceled = notif.type === 'call_canceled';
+  const isRescheduled = notif.type === 'call_rescheduled';
   const isAccepted = notif.type === 'call_accepted';
   const isDeclined = notif.type === 'call_declined';
   const isCoachResponse = isAccepted || isDeclined;
-  const accentColor = isRapport ? '#f59e0b' : isCanceled ? '#ef4444' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
+  const accentColor = isRapport ? '#f59e0b' : isCanceled ? '#ef4444' : isRescheduled ? '#f59e0b' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
 
   async function handleAccept() {
     if (!notif.callId) return;

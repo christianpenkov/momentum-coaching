@@ -6,7 +6,7 @@ import { clearAppBadge } from '@/lib/pwaBadge';
 
 let instanceCounter = 0;
 
-export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled' | 'call_accepted' | 'call_declined';
+export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined';
 
 export interface AppNotif {
   id: string;
@@ -155,7 +155,29 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       dbId: row.id,
     }));
 
-    const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs];
+    // ── Calls reportés non lus (persistées en DB jusqu'au clic OK) ──
+    const { data: rescheduledRows } = await supabase
+      .from('client_notifications')
+      .select('id, payload, created_at, call_id')
+      .eq('type', 'call_rescheduled')
+      .is('read_at', null);
+
+    const callRescheduledNotifs: AppNotif[] = (rescheduledRows ?? []).map(row => {
+      const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;
+      const dateStr = d ? d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
+      const timeStr = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+      return {
+        id: `call_rescheduled_${row.id}`,
+        type: 'call_rescheduled' as NotifType,
+        title: `Call déplacé — ${coachNameRef.current || 'ton coach'}`,
+        body: d ? `Nouveau créneau : ${dateStr} à ${timeStr}` : (row.payload?.topic ?? 'Nouveau créneau proposé'),
+        callId: row.call_id ?? undefined,
+        scheduledAt: row.payload?.scheduled_at ?? null,
+        dbId: row.id,
+      };
+    });
+
+    const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs, ...callRescheduledNotifs];
     setNotifs(allNotifs);
     if (allNotifs.length === 0) clearAppBadge();
   }, [profileId, isClient]);

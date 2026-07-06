@@ -280,6 +280,19 @@ export async function updateGoogleCall(params: {
         `Nouveau créneau : ${dateStr} à ${timeStr}`,
         '/client/calls'
       );
+      // Notif persistante (comme call_canceled) — sans ça, cet événement pousse le
+      // badge natif de l'app mais n'a aucun moyen d'être jamais "résolu" (pas de
+      // read_at à marquer, pas de calcul live équivalent), le badge peut alors rester
+      // collé indéfiniment si c'est la dernière notif reçue.
+      await sb.from('client_notifications').insert({
+        profile_id: clientRes.data.profile_id,
+        type: 'call_rescheduled',
+        call_id: params.callId,
+        payload: {
+          topic: params.topic ?? null,
+          scheduled_at: params.startTime,
+        },
+      });
     }
   }
 
