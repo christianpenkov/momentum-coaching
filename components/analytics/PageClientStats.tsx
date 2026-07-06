@@ -3067,7 +3067,7 @@ function TabFunnelDetail({ msgs, calls, stripe, ig, yt, shortio, leads: leadsFro
   );
 }
 
-function TabRevenues({ stripe, period, onRefresh, refreshing }: { stripe: StripeStats | null; period: Period; onRefresh?: () => void; refreshing?: boolean }) {
+function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean }) {
   const [payFilter, setPayFilter] = useState<'all' | 'succeeded' | 'failed'>('all');
   if (!stripe) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
@@ -3082,19 +3082,32 @@ function TabRevenues({ stripe, period, onRefresh, refreshing }: { stripe: Stripe
     </div>
   );
 
-  const cutoff = new Date(Date.now() - period * 86400000);
-  const allInPeriod = stripe.recentPayments.filter(p => new Date(p.date) >= cutoff);
+  const today = new Date();
+  const periodEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59));
+  periodEnd.setUTCDate(periodEnd.getUTCDate() - periodIndex * period);
+  const periodStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
+  periodStart.setUTCDate(today.getUTCDate() - (periodIndex + 1) * period + 1);
+
+  const allInPeriod = stripe.recentPayments.filter(p => {
+    const d = new Date(p.date);
+    return d >= periodStart && d <= periodEnd;
+  });
   const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
-  const failed = allInPeriod.filter(p => p.status !== 'succeeded');
+
+  const callsInPeriod = calls.filter(c => {
+    const d = new Date(c.scheduled_at);
+    return d >= periodStart && d <= periodEnd;
+  });
+  const dealsClosed = callsInPeriod.filter(c => c.deal_closed);
+  const cashContracte = dealsClosed.reduce((s, c) => s + (c.revenue || 0), 0);
 
   const cashCollecte = succeeded.reduce((s, p) => s + p.amount, 0);
   const avgBasket = succeeded.length > 0 ? cashCollecte / succeeded.length : 0;
-  const failedPct = allInPeriod.length > 0 ? pct(failed.length, allInPeriod.length) : 0;
+  const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
 
-  const today = new Date();
   const revenueByDay: { date: string; ca: number }[] = Array.from({ length: period }, (_, i) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (period - 1 - i));
+    const d = new Date(periodStart);
+    d.setUTCDate(d.getUTCDate() + i);
     const iso = d.toISOString().split('T')[0];
     const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
     return { date: iso, ca };
@@ -3110,14 +3123,14 @@ function TabRevenues({ stripe, period, onRefresh, refreshing }: { stripe: Stripe
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashContracte)}</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals closés ({dealsClosed.length})</div>
+        </div>
+        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({succeeded.length})</div>
-        </div>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Solde disponible</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(stripe.availableBalance)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>sur le compte Stripe</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
@@ -3125,13 +3138,13 @@ function TabRevenues({ stripe, period, onRefresh, refreshing }: { stripe: Stripe
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>par paiement réussi</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d&apos;échec</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: failedPct > 10 ? RED : failedPct > 5 ? AMBER : GREEN, lineHeight: 1 }}>{failedPct}%</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{failed.length} paiement{failed.length !== 1 ? 's' : ''} échoué{failed.length !== 1 ? 's' : ''}</div>
+          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
+          <div style={{ fontSize: 22, fontWeight: 800, color: cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED, lineHeight: 1 }}>{cashCollectePct}%</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>collecté / contracté</div>
         </div>
       </div>
 
-      <Card title="Revenus / jour" sub={`${period} derniers jours · paiements Stripe`}>
+      <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · paiements Stripe` : `${periodLabel(period, periodIndex)} · paiements Stripe`}>
         <BarChart data={revenueByDay} bars={[{ key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(period / 7) - 1} />
       </Card>
 
@@ -4378,7 +4391,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, lmName };
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, lmName, postCallsDesc };
   }).sort((a, b) => b.views - a.views || b.revenue - a.revenue);
 
   // ── Section 3 : pipeline prospects ──
@@ -4728,29 +4741,54 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const coldDMLinks = dmDirectLinks.filter((l: any) => (l.dmType === 'cold' || l.dmType == null) && dmLinkSentInPeriod(l));
           const organicDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'organic' && dmLinkSentInPeriod(l));
 
-          const coldBooked = coldDMLinks.filter((l: any) => l.callBooked).length;
-          const coldHonored = coldBooked;
-          const coldClosed = coldDMLinks.filter((l: any) => l.dealClosed === true).length;
-          const coldRevenue = coldDMLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          // Calls bookés/honorés/closés comptés selon LEUR PROPRE date (scheduled_at dans
+          // la période), indépendamment de la date d'envoi du lien Calendly — convention
+          // standard des outils d'attribution (GA4, HubSpot, Mixpanel) : chaque métrique
+          // d'un rapport par période est bucketée sur sa propre date, pas sur celle d'un
+          // événement amont. Un lien envoyé avant le début de la période mais dont le call
+          // est bookés/closé dans la période doit compter ici, même si "liens envoyés"
+          // (basé sur calendly_link_sent_at) ne le compte pas dans cette même période.
+          const callByLeadInWindow = new Map<string, typeof callsInWindow[number]>();
+          for (const c of callsInWindow) {
+            if (c.ig_lead_id && !callByLeadInWindow.has(c.ig_lead_id)) callByLeadInWindow.set(c.ig_lead_id, c);
+          }
+          const callForLink = (l: any) => l.ig_lead_id ? callByLeadInWindow.get(l.ig_lead_id) : undefined;
+
+          const coldCalls = coldDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
+          const coldBooked = coldCalls.filter(c => c.status === 'active').length;
+          const coldHonored = coldCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const coldClosed = coldCalls.filter(c => c.deal_closed === true).length;
+          const coldRevenue = coldCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const coldClics = coldDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
-          const organicBooked = organicDMLinks.filter((l: any) => l.callBooked).length;
-          const organicHonored = organicBooked;
-          const organicClosed = organicDMLinks.filter((l: any) => l.dealClosed === true).length;
-          const organicRevenue = organicDMLinks.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          const organicCalls = organicDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
+          const organicBooked = organicCalls.filter(c => c.status === 'active').length;
+          const organicHonored = organicCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const organicClosed = organicCalls.filter(c => c.deal_closed === true).length;
+          const organicRevenue = organicCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const organicClics = organicDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
-          // LM : depuis prospectLinksData (Supabase), même logique que Performance LM
+          // LM : liens envoyés = filtrés sur calendly_link_sent_at (comme avant) pour le
+          // KPI "liens Calendly envoyés", mais calls booked/honored/closed = tout lead LM
+          // dont un call tombe dans la période, même si le lien avait été envoyé avant.
           const lmProspectLinksDb = (prospectLinksData ?? []).filter((pl: any) => {
             const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
             if (!lead?.leadMagnetSent) return false;
             if (!pl.calendly_link_sent) return false;
             return isInPeriod(pl.calendly_link_sent_at ?? pl.created_at);
           });
-          const lmBooked = lmProspectLinksDb.filter((l: any) => l.callBooked).length;
-          const lmHonored = lmBooked;
-          const lmClosed = lmProspectLinksDb.filter((l: any) => l.dealClosed === true).length;
-          const lmRevenue = lmProspectLinksDb.reduce((s: number, l: any) => s + (l.revenue || 0), 0);
+          const lmLeadIds = new Set(
+            (prospectLinksData ?? [])
+              .filter((pl: any) => leads.find((ml: any) => ml.id === pl.ig_lead_id)?.leadMagnetSent)
+              .map((pl: any) => pl.ig_lead_id)
+          );
+          const lmCalls = [...callByLeadInWindow.entries()]
+            .filter(([leadId]) => lmLeadIds.has(leadId))
+            .map(([, c]) => c);
+          const lmBooked = lmCalls.filter(c => c.status === 'active').length;
+          const lmHonored = lmCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const lmClosed = lmCalls.filter(c => c.deal_closed === true).length;
+          const lmRevenue = lmCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
           const igContentClics = igContentLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
           const igContentBooked = igRows.reduce((s, r) => s + (r.callsBookedDesc ?? 0), 0);
@@ -4763,6 +4801,25 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const ytContentHonored = ytRows.reduce((s, r) => s + (r.callsHonoredDesc ?? 0), 0);
           const ytContentClosed = ytRows.reduce((s, r) => s + (r.closedDesc ?? 0), 0);
           const ytContentRevenue = ytRows.reduce((s, r) => s + (r.revenueDesc ?? 0), 0);
+
+          // "Autre / non catégorisé" — filet de sécurité : un call peut ne matcher
+          // aucune catégorie ci-dessus si son post source n'est plus dans la liste des
+          // posts connus (contenu ancien, hors des ~100 derniers posts récupérés via
+          // l'API, ou supprimé) — sinon il reste compté dans le total global (KPI
+          // "activité commerciale brute") mais disparaît silencieusement du détail.
+          const categorizedCallIds = new Set<string>([
+            ...bioIGCalls.map(c => c.id), ...bioYTCalls.map(c => c.id),
+            ...igRows.flatMap(r => r.postCallsDesc?.map((c: any) => c.id) ?? []),
+            ...ytRows.flatMap(r => r.postCallsDesc?.map((c: any) => c.id) ?? []),
+            ...lmProspectLinksDb.flatMap((l: any) => l.callId ? [l.callId] : []),
+            ...coldDMLinks.flatMap((l: any) => l.callId ? [l.callId] : []),
+            ...organicDMLinks.flatMap((l: any) => l.callId ? [l.callId] : []),
+          ]);
+          const otherCalls = callsInWindow.filter(c => !categorizedCallIds.has(c.id));
+          const otherBooked = otherCalls.filter(c => c.status === 'active').length;
+          const otherHonored = otherCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const otherClosed = otherCalls.filter(c => c.deal_closed === true).length;
+          const otherRevenue = otherCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
           type SourceRow = {
             label: string; labelSuffix?: React.ReactNode; badge: string; badgeColor: string;
@@ -6717,7 +6774,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={supaData?.shortioChartHistory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} period={period} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
     </div>
