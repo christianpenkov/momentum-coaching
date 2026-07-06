@@ -4665,7 +4665,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     avgWatchTimeMs: row.avg_watch_time_ms ?? null,
     totalWatchTimeMs: row.total_watch_time_ms ?? null,
     skipRate: row.skip_rate ?? null,
-  }));
+  // Trié explicitement par date de publication décroissante — l'ordre du Map
+  // (insertion = ordre de igPostsRows, trié par snapshot_date pas published_at)
+  // ne coïncide avec l'ordre de publication qu'en période actuelle (tous les
+  // posts partagent le même dernier snapshot_date, et l'API media renvoie déjà
+  // les posts triés par date de publication) — en historique cette coïncidence
+  // disparaît et l'ordre affiché devient arbitraire.
+  })).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   const igHist = snaps.length > 0 ? {
     reach30d:             igReachTotal,
