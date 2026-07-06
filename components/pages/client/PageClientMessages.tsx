@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
+import { hapticTrigger } from 'ios-haptics';
 import { clearAppBadge } from '@/lib/pwaBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -520,6 +521,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const isImage = msg.type === 'image';
   const isDocument = msg.type === 'document';
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const openMenu = () => {
     if (!bubbleRef.current) return;
     onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
@@ -527,6 +529,17 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const longPress = useLongPress(() => {
     if (isMe && (canEdit || canDelete)) openMenu();
   });
+
+  // Retour haptique iOS (Safari 17.4-26.4, patché par Apple en 26.5+) : un vrai
+  // <input type="checkbox" switch> superposé à la bulle, activé par le tap physique
+  // réel de l'utilisateur — un .click() JS différé (ex: dans le setTimeout du
+  // long-press) ne fonctionne PAS, iOS exige que le geste tactile déclenche
+  // lui-même le toggle en direct pour autoriser le haptique système.
+  useEffect(() => {
+    if (isMe && (canEdit || canDelete) && wrapperRef.current) {
+      hapticTrigger(wrapperRef.current);
+    }
+  }, [isMe, canEdit, canDelete]);
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
   // viewport visible (scroll) — pas juste "la conversation est ouverte quelque
@@ -575,7 +588,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   }, [onEnterViewport, isMe, msg.id]);
 
   return (
-    <div className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
+    <div ref={wrapperRef} className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
       <div
         ref={bubbleRef}
         onContextMenu={e => {

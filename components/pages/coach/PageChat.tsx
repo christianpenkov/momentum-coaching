@@ -7,6 +7,7 @@ import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
+import { hapticTrigger } from 'ios-haptics';
 import { clearAppBadge } from '@/lib/pwaBadge';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -383,6 +384,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const isImage = msg.type === 'image';
   const isDocument = msg.type === 'document';
   const bubbleRef = useRef<HTMLDivElement>(null);
+  const wrapperRef = useRef<HTMLDivElement>(null);
   const openMenu = () => {
     if (!bubbleRef.current) return;
     onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
@@ -390,6 +392,13 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   const longPress = useLongPress(() => {
     if (isMe && (canEdit || canDelete)) openMenu();
   });
+
+  // Retour haptique iOS — voir PageClientMessages.tsx pour l'explication complète.
+  useEffect(() => {
+    if (isMe && (canEdit || canDelete) && wrapperRef.current) {
+      hapticTrigger(wrapperRef.current);
+    }
+  }, [isMe, canEdit, canDelete]);
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
   // viewport visible (scroll) — pas juste "la conversation est ouverte".
@@ -435,7 +444,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   }, [onEnterViewport, isMe, msg.id]);
 
   return (
-    <div className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
+    <div ref={wrapperRef} className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
       <div
         ref={bubbleRef}
         onContextMenu={e => {

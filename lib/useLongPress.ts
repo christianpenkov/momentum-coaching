@@ -1,8 +1,11 @@
 import { useRef, useCallback } from 'react';
-import { hapticFeedback } from '@/lib/haptics';
 
 // Appui long tactile (mobile) — ouvre le menu contextuel des messages, équivalent
 // du clic droit desktop. ~500ms de maintien, annulé si le doigt bouge (scroll).
+// Le retour haptique (vibration) n'est pas géré ici : sur iOS, il ne peut être
+// déclenché que par le vrai tap physique de l'utilisateur (cf. hapticTrigger de
+// la lib ios-haptics, superposé directement sur la bulle) — un .click() JS
+// différé dans ce setTimeout ne fonctionne pas (règles de "user activation" iOS).
 export function useLongPress(onLongPress: (e: React.TouchEvent) => void, delay = 500) {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPos = useRef<{ x: number; y: number } | null>(null);
@@ -18,7 +21,6 @@ export function useLongPress(onLongPress: (e: React.TouchEvent) => void, delay =
     movedRef.current = false;
     timerRef.current = setTimeout(() => {
       if (!movedRef.current) {
-        hapticFeedback();
         onLongPress(e);
       }
     }, delay);
