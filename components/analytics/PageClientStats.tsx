@@ -1191,17 +1191,13 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: d.followerCount ?? 0 })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
     'Abonnés nets': { data: (() => {
-      // Delta brut jour J vs J-1 — très bruyant sur un petit compte (±1-2/jour)
-      const rawDeltas = igDays.map((d, i, arr) => {
+      // Delta brut jour J vs J-1 (nombre entier réel, pas de lissage) — très bruyant
+      // sur un petit compte (±1-2/jour), affiché en barres plutôt qu'une ligne pour
+      // rester honnête sur le fait que chaque jour est une valeur indépendante.
+      return igDays.map((d, i, arr) => {
         const prev = arr[i - 1]?.followerCount ?? d.followerCount ?? 0;
         const curr = d.followerCount ?? prev;
-        return i === 0 ? 0 : (curr - (prev ?? curr));
-      });
-      // Moyenne mobile 3 jours pour lisser le bruit et montrer la tendance réelle
-      return igDays.map((d, i) => {
-        const window = rawDeltas.slice(Math.max(0, i - 2), i + 1);
-        const avg = window.reduce((a, b) => a + b, 0) / window.length;
-        return { date: d.date, v: Math.round(avg * 10) / 10 };
+        return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
       });
     })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round(interactionsByDay.find(x => x.date === d.date)?.v ?? 0 / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
@@ -1361,21 +1357,38 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
             </div>
             <div style={{ fontSize: 36, fontWeight: 800, color: statModal.color, marginBottom: 20 }}>{statModal.value}</div>
             <ResponsiveContainer width="100%" height={220}>
-              <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="grad-ig-stat-modal" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
-                    <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={['auto', 'auto']} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
-                <Tooltip content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
-                }} />
-                <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
-              </ReAreaChart>
+              {statModal.label === 'Abonnés nets' ? (
+                <ComposedChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} allowDecimals={false} />
+                  <Tooltip content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    const v = payload[0].value as number;
+                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{v >= 0 ? '+' : ''}{v}</strong></div></div>;
+                  }} />
+                  <Bar dataKey="v" radius={[2, 2, 2, 2]} isAnimationActive={false}>
+                    {statModal.data.map((d, i) => (
+                      <Cell key={i} fill={d.v >= 0 ? GREEN : RED} />
+                    ))}
+                  </Bar>
+                </ComposedChart>
+              ) : (
+                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="grad-ig-stat-modal" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
+                      <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={fmtAxisDate} interval="preserveStartEnd" />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={['auto', 'auto']} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
+                  <Tooltip content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
+                  }} />
+                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
+                </ReAreaChart>
+              )}
             </ResponsiveContainer>
           </div>
         </ModalOverlay>
