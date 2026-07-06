@@ -39,7 +39,7 @@ export async function POST(request: Request) {
   if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
   const days: string[] = [];
-  for (let i = 1; i <= 30; i++) {
+  for (let i = 1; i <= 60; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
     days.push(d.toISOString().split('T')[0]);
