@@ -419,7 +419,7 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
   const left = Math.min(Math.max(cloneLeft, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
       {/* Clone visuel de la bulle — la vraie bulle (dans la zone de scroll clippée)
           reste masquée (visibility:hidden) tant que ce menu est ouvert. Ce clone,
           rendu ici dans le portail, n'a pas de conteneur overflow au-dessus de lui
@@ -503,6 +503,64 @@ function DeleteMessageConfirm({ onConfirm, onCancel }: { onConfirm: () => void; 
   );
 }
 
+// ─── EditBubbleOverlay — mode édition en portail, fond assombri/flouté façon menu ──
+
+function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, onSave, onCancel }: {
+  rect: DOMRect; isMe: boolean; editText: string; setEditText: (v: string) => void;
+  originalText: string; onSave: () => void; onCancel: () => void;
+}) {
+  if (typeof document === 'undefined') return null;
+  const unchanged = editText.trim() === originalText.trim() || editText.trim().length === 0;
+  const left = Math.min(Math.max(rect.left, 16), window.innerWidth - rect.width - 16);
+  return createPortal(
+    <>
+      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onCancel} />
+      <div style={{
+        position: 'fixed', left, top: rect.top, width: rect.width, zIndex: 10000,
+        background: isMe ? 'var(--ink)' : 'var(--surface)',
+        color: isMe ? '#fff' : 'var(--ink)',
+        border: isMe ? 'none' : '1px solid var(--border)',
+        borderRadius: 14, padding: '9px 12px', boxShadow: '0 8px 32px rgba(0,0,0,.25)',
+        display: 'flex', flexDirection: 'column', gap: 6,
+        animation: 'scaleIn 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+      }}>
+        <textarea
+          autoFocus
+          value={editText}
+          onChange={e => setEditText(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!unchanged) onSave(); }
+            if (e.key === 'Escape') onCancel();
+          }}
+          rows={3}
+          style={{
+            fontSize: 14, lineHeight: 1.5, fontFamily: 'inherit', resize: 'none',
+            background: 'transparent', color: isMe ? '#fff' : 'var(--ink)',
+            border: `1px solid ${isMe ? 'rgba(255,255,255,0.3)' : 'var(--border)'}`,
+            borderRadius: 8, padding: '6px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
+          }}
+        />
+        <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
+          <button className="msg-edit-btn" onClick={onCancel} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)', cursor: 'pointer' }}>Annuler</button>
+          <button
+            className="msg-edit-btn"
+            onClick={onSave}
+            disabled={unchanged}
+            style={{
+              fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none',
+              background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--ink)', color: '#fff',
+              cursor: unchanged ? 'not-allowed' : 'pointer', opacity: unchanged ? 0.4 : 1,
+            }}
+          >
+            Enregistrer
+          </button>
+        </div>
+      </div>
+    </>,
+    document.body
+  );
+}
+
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
 function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport }: {
@@ -524,17 +582,19 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
     if (!bubbleRef.current) return;
     onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
   };
-  // Long-press + clic droit + retour haptique iOS combinés dans un seul hook —
-  // voir lib/useLongPress.ts pour l'explication complète de pourquoi les trois
-  // doivent être gérés sur le même élément DOM injecté (le switch haptique).
-  // Désactivé en mode édition (isEditing) : le switch superposé en plein cadre
-  // bloquerait sinon le tap sur le textarea, empêchant le clavier d'apparaître.
-  // Désactivé aussi tant que le menu contextuel est ouvert sur cette bulle
-  // (isMenuTarget) : la bulle originale reste dans le DOM (visibility:hidden)
-  // pendant que le menu/clone est affiché par-dessus — sans ça, son switch
-  // haptique reste actif et peut se redéclencher sur un tap qui ferme le menu.
+  // Long-press + clic droit combinés dans un seul hook (voir lib/useLongPress.ts).
+  // Désactivé en mode édition et tant que le menu contextuel est ouvert sur cette
+  // bulle (la bulle reste dans le DOM en visibility:hidden pendant ce temps).
   const canOpenMenu = isMe && (canEdit || canDelete) && !isEditing && !isMenuTarget;
   const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
+
+  // Capture le rect de la bulle au moment où l'édition démarre — utilisé pour
+  // positionner EditBubbleOverlay (portail) au même endroit que la bulle réelle,
+  // qui elle-même passe en visibility:hidden pendant ce temps.
+  const [editRect, setEditRect] = useState<DOMRect | null>(null);
+  useEffect(() => {
+    if (isEditing && bubbleRef.current) setEditRect(bubbleRef.current.getBoundingClientRect());
+  }, [isEditing]);
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
   // viewport visible (scroll) — pas juste "la conversation est ouverte quelque
@@ -596,56 +656,14 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
-          // La bulle originale est masquée pendant que le menu est ouvert — un clone
-          // visuel est affiché dans le même portail que le menu (voir MessageContextMenu),
-          // car un transform:scale() ici resterait clippé par overflow:auto de la zone
-          // de scroll parente, peu importe le z-index (piège CSS classique).
-          visibility: isMenuTarget ? 'hidden' : 'visible',
+          // La bulle originale est masquée pendant que le menu OU l'édition est ouvert —
+          // un clone/overlay visuel est affiché dans un portail séparé (voir
+          // MessageContextMenu / EditBubbleOverlay), car un transform:scale() ici
+          // resterait clippé par overflow:auto de la zone de scroll parente, peu
+          // importe le z-index (piège CSS classique).
+          visibility: (isMenuTarget || isEditing) ? 'hidden' : 'visible',
         }}>
-        {isEditing ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <textarea
-              autoFocus
-              value={editText}
-              onChange={e => setEditText(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  const unchanged = editText.trim() === msg.text.trim() || editText.trim().length === 0;
-                  if (!unchanged) onSaveEdit();
-                }
-                if (e.key === 'Escape') onCancelEdit();
-              }}
-              rows={2}
-              style={{
-                fontSize: 14, lineHeight: 1.5, fontFamily: 'inherit', resize: 'none',
-                background: 'transparent', color: isMe ? '#fff' : 'var(--ink)',
-                border: `1px solid ${isMe ? 'rgba(255,255,255,0.3)' : 'var(--border)'}`,
-                borderRadius: 8, padding: '6px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
-              }}
-            />
-            <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
-              <button className="msg-edit-btn" onClick={onCancelEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)', cursor: 'pointer' }}>Annuler</button>
-              {(() => {
-                const unchanged = editText.trim() === msg.text.trim() || editText.trim().length === 0;
-                return (
-                  <button
-                    className="msg-edit-btn"
-                    onClick={onSaveEdit}
-                    disabled={unchanged}
-                    style={{
-                      fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none',
-                      background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--ink)', color: '#fff',
-                      cursor: unchanged ? 'not-allowed' : 'pointer', opacity: unchanged ? 0.4 : 1,
-                    }}
-                  >
-                    Enregistrer
-                  </button>
-                );
-              })()}
-            </div>
-          </div>
-        ) : isAudio && msg.audio_url ? (
+        {isEditing ? null : isAudio && msg.audio_url ? (
           <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} />
         ) : isImage && msg.audio_url ? (
           <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
@@ -722,6 +740,17 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
           </div>
         )}
       </div>
+      {isEditing && editRect && (
+        <EditBubbleOverlay
+          rect={editRect}
+          isMe={isMe}
+          editText={editText}
+          setEditText={setEditText}
+          originalText={msg.text}
+          onSave={onSaveEdit}
+          onCancel={onCancelEdit}
+        />
+      )}
     </div>
   );
 }
