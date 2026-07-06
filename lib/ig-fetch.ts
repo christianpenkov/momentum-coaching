@@ -23,6 +23,8 @@ export interface IgDaySnapshot {
   ig_total_interactions: number | null;
   ig_lead_count: number | null;
   ig_response_rate: number | null;
+  ig_reach_follower: number | null;
+  ig_reach_non_follower: number | null;
 }
 
 // ── Token ─────────────────────────────────────────────────────────────────────
@@ -81,14 +83,18 @@ export async function fetchIgDayMetrics(
     try { return await res.json(); } catch { return {}; }
   };
 
-  const [accountRes, insightsRes, engagedRes] = await Promise.all([
+  const [accountRes, insightsRes, engagedRes, reachBreakdownRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count,follows_count&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,follows_and_unfollows,profile_links_taps,website_clicks,views&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
+    // reach + breakdown follow_type ne renvoie un vrai détail (pas un agrégat collapsé)
+    // que sur une fenêtre d'UN jour — confirmé en testant l'API réelle. C'est pour ça
+    // que ce breakdown est fetché ici (jour par jour) et pas dans la vue live 30j.
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`),
   ]);
 
-  const [accountData, insightsData, engagedData] = await Promise.all([
-    safeJson(accountRes), safeJson(insightsRes), safeJson(engagedRes),
+  const [accountData, insightsData, engagedData, reachBreakdownData] = await Promise.all([
+    safeJson(accountRes), safeJson(insightsRes), safeJson(engagedRes), safeJson(reachBreakdownRes),
   ]);
 
   const insightMap: Record<string, number[]> = {};
@@ -100,6 +106,22 @@ export async function fetchIgDayMetrics(
   const engagedTotal = (engagedData?.data || []).reduce((acc: number, m: any) => {
     return acc + (m.total_value?.value || 0);
   }, 0);
+
+  let reachFollower: number | null = null;
+  let reachNonFollower: number | null = null;
+  for (const metric of reachBreakdownData?.data || []) {
+    if (metric.name === 'reach' && metric.total_value?.breakdowns) {
+      let follower = 0, nonFollower = 0, found = false;
+      for (const bd of metric.total_value.breakdowns) {
+        for (const r of bd.results || []) {
+          const key = r.dimension_values?.[0];
+          if (key === 'FOLLOWER') { follower += r.value || 0; found = true; }
+          else if (key === 'NON_FOLLOWER') { nonFollower += r.value || 0; found = true; }
+        }
+      }
+      if (found) { reachFollower = follower; reachNonFollower = nonFollower; }
+    }
+  }
 
   return {
     ig_reach:              sum(insightMap['reach'] || []) || null,
@@ -113,6 +135,8 @@ export async function fetchIgDayMetrics(
     ig_total_interactions: engagedTotal || null,
     ig_lead_count:         null,
     ig_response_rate:      null,
+    ig_reach_follower:     reachFollower,
+    ig_reach_non_follower: reachNonFollower,
   };
 }
 
@@ -177,6 +201,11 @@ export async function fetchIgBackfill30d(
       ig_total_interactions: null,
       ig_lead_count:         null,
       ig_response_rate:      null,
+      // Non backfillable rétroactivement en un seul appel (le breakdown follow_type sur
+      // reach ne renvoie un vrai détail que sur une fenêtre d'un jour, cf. fetchIgDayMetrics)
+      // — l'historique de cette métrique ne démarre qu'à partir du prochain cron/refresh.
+      ig_reach_follower:     null,
+      ig_reach_non_follower: null,
     }));
 }
 
@@ -432,6 +461,8 @@ export async function upsertIgSnapshot(
       ig_total_interactions: snapshot.ig_total_interactions,
       ig_lead_count:         snapshot.ig_lead_count,
       ig_response_rate:      snapshot.ig_response_rate,
+      ig_reach_follower:     snapshot.ig_reach_follower,
+      ig_reach_non_follower: snapshot.ig_reach_non_follower,
       backfill_source:       source,
     }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
 
