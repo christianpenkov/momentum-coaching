@@ -101,9 +101,17 @@ export function useLongPress(
       input.addEventListener('touchend', onTouchEnd);
       input.addEventListener('touchcancel', onTouchEnd);
       input.addEventListener('contextmenu', onContextMenu);
-      // Empêche le comportement natif de toggle/focus visuel du checkbox de
-      // perturber l'UI (on ne veut que le côté effet haptique du switch).
-      input.addEventListener('click', e => e.preventDefault());
+      // Pas de preventDefault() sur 'click' ici : ça perturbait le timing exact
+      // du haptique natif WebKit (observé : vibration différée au tap suivant,
+      // ou totalement absente de façon aléatoire). Le switch est invisible
+      // (opacity:0), son focus/style natif ne se voit de toute façon jamais.
+      // On réinitialise `checked` juste après le toggle (au tick suivant, pour
+      // laisser le haptique natif se jouer) — sinon le switch alterne
+      // coché/décoché à chaque tap, et WebKit ne semble déclencher le haptique
+      // fiablement que dans un seul sens du toggle.
+      input.addEventListener('click', () => {
+        setTimeout(() => { if (input) input.checked = false; }, 0);
+      });
 
       container.insertAdjacentElement('beforeend', input);
     });

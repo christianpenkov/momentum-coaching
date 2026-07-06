@@ -529,7 +529,11 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   // doivent être gérés sur le même élément DOM injecté (le switch haptique).
   // Désactivé en mode édition (isEditing) : le switch superposé en plein cadre
   // bloquerait sinon le tap sur le textarea, empêchant le clavier d'apparaître.
-  const canOpenMenu = isMe && (canEdit || canDelete) && !isEditing;
+  // Désactivé aussi tant que le menu contextuel est ouvert sur cette bulle
+  // (isMenuTarget) : la bulle originale reste dans le DOM (visibility:hidden)
+  // pendant que le menu/clone est affiché par-dessus — sans ça, son switch
+  // haptique reste actif et peut se redéclencher sur un tap qui ferme le menu.
+  const canOpenMenu = isMe && (canEdit || canDelete) && !isEditing && !isMenuTarget;
   const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
