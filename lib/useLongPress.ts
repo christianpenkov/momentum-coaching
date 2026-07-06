@@ -32,57 +32,72 @@ export function useLongPress(
     const container = containerRef.current;
     if (!container || !enabled || typeof document === 'undefined') return;
 
-    const input = document.createElement('input');
-    input.type = 'checkbox';
-    input.setAttribute('switch', '');
-    input.tabIndex = -1;
-    input.setAttribute('aria-hidden', 'true');
-    Object.assign(input.style, {
-      position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
-      margin: '0', opacity: '0', cursor: 'pointer',
-      clipPath: 'inset(0 round 999px)', touchAction: 'manipulation',
+    let input: HTMLInputElement | null = null;
+    let cancelled = false;
+
+    // Insertion différée d'une frame : le switch (position:absolute;width/height:100%)
+    // doit être ajouté après que le layout du message (dimensions réelles de la bulle,
+    // qui dépendent de son contenu texte/image) soit stabilisé — sinon son hit-test
+    // peut se retrouver décalé par rapport à la bulle affichée à l'écran (observé :
+    // seul le dernier message, monté après stabilisation du scroll, vibrait de façon
+    // fiable ; les messages plus anciens, montés puis re-layoutés, non).
+    const raf = requestAnimationFrame(() => {
+      if (cancelled) return;
+
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.setAttribute('switch', '');
+      input.tabIndex = -1;
+      input.setAttribute('aria-hidden', 'true');
+      Object.assign(input.style, {
+        position: 'absolute', top: '0', left: '0', width: '100%', height: '100%',
+        margin: '0', opacity: '0', cursor: 'pointer',
+        clipPath: 'inset(0 round 999px)', touchAction: 'manipulation',
+      });
+      input.style.setProperty('-webkit-tap-highlight-color', 'transparent');
+      container.style.position = 'relative';
+
+      const onTouchStart = (e: TouchEvent) => {
+        const touch = e.touches[0];
+        startPos.current = { x: touch.clientX, y: touch.clientY };
+        movedRef.current = false;
+        timerRef.current = setTimeout(() => {
+          if (!movedRef.current) onTriggerRef.current(touch.clientX, touch.clientY);
+        }, delay);
+      };
+
+      const onTouchMove = (e: TouchEvent) => {
+        if (!startPos.current) return;
+        const touch = e.touches[0];
+        const dx = Math.abs(touch.clientX - startPos.current.x);
+        const dy = Math.abs(touch.clientY - startPos.current.y);
+        if (dx > 10 || dy > 10) { movedRef.current = true; clear(); }
+      };
+
+      const onTouchEnd = () => clear();
+
+      const onContextMenu = (e: MouseEvent) => {
+        e.preventDefault();
+        onTriggerRef.current(e.clientX, e.clientY);
+      };
+
+      input.addEventListener('touchstart', onTouchStart, { passive: true });
+      input.addEventListener('touchmove', onTouchMove, { passive: true });
+      input.addEventListener('touchend', onTouchEnd);
+      input.addEventListener('touchcancel', onTouchEnd);
+      input.addEventListener('contextmenu', onContextMenu);
+      // Empêche le comportement natif de toggle/focus visuel du checkbox de
+      // perturber l'UI (on ne veut que le côté effet haptique du switch).
+      input.addEventListener('click', e => e.preventDefault());
+
+      container.insertAdjacentElement('beforeend', input);
     });
-    input.style.setProperty('-webkit-tap-highlight-color', 'transparent');
-    container.style.position = 'relative';
-
-    const onTouchStart = (e: TouchEvent) => {
-      const touch = e.touches[0];
-      startPos.current = { x: touch.clientX, y: touch.clientY };
-      movedRef.current = false;
-      timerRef.current = setTimeout(() => {
-        if (!movedRef.current) onTriggerRef.current(touch.clientX, touch.clientY);
-      }, delay);
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (!startPos.current) return;
-      const touch = e.touches[0];
-      const dx = Math.abs(touch.clientX - startPos.current.x);
-      const dy = Math.abs(touch.clientY - startPos.current.y);
-      if (dx > 10 || dy > 10) { movedRef.current = true; clear(); }
-    };
-
-    const onTouchEnd = () => clear();
-
-    const onContextMenu = (e: MouseEvent) => {
-      e.preventDefault();
-      onTriggerRef.current(e.clientX, e.clientY);
-    };
-
-    input.addEventListener('touchstart', onTouchStart, { passive: true });
-    input.addEventListener('touchmove', onTouchMove, { passive: true });
-    input.addEventListener('touchend', onTouchEnd);
-    input.addEventListener('touchcancel', onTouchEnd);
-    input.addEventListener('contextmenu', onContextMenu);
-    // Empêche le comportement natif de toggle/focus visuel du checkbox de
-    // perturber l'UI (on ne veut que le côté effet haptique du switch).
-    input.addEventListener('click', e => e.preventDefault());
-
-    container.insertAdjacentElement('beforeend', input);
 
     return () => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
       clear();
-      input.remove();
+      input?.remove();
     };
   }, [delay, clear, enabled]);
 

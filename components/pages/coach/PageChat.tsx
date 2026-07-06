@@ -388,8 +388,9 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
     onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
   };
   // Long-press + clic droit + retour haptique iOS combinés — voir
-  // lib/useLongPress.ts pour l'explication complète.
-  const canOpenMenu = isMe && (canEdit || canDelete);
+  // lib/useLongPress.ts pour l'explication complète. Désactivé en mode édition
+  // (isEditing) : le switch superposé bloquerait sinon le tap sur le textarea.
+  const canOpenMenu = isMe && (canEdit || canDelete) && !isEditing;
   const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le

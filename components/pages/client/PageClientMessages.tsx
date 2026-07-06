@@ -527,7 +527,9 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   // Long-press + clic droit + retour haptique iOS combinés dans un seul hook —
   // voir lib/useLongPress.ts pour l'explication complète de pourquoi les trois
   // doivent être gérés sur le même élément DOM injecté (le switch haptique).
-  const canOpenMenu = isMe && (canEdit || canDelete);
+  // Désactivé en mode édition (isEditing) : le switch superposé en plein cadre
+  // bloquerait sinon le tap sur le textarea, empêchant le clavier d'apparaître.
+  const canOpenMenu = isMe && (canEdit || canDelete) && !isEditing;
   const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
