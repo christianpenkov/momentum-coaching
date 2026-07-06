@@ -511,13 +511,16 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 }) {
   if (typeof document === 'undefined') return null;
   const unchanged = editText.trim() === originalText.trim() || editText.trim().length === 0;
-  const left = Math.min(Math.max(rect.left, 16), window.innerWidth - rect.width - 16);
-  console.log('[EDIT-DEBUG overlay-render]', rect.width, rect.height, rect.left, rect.top, '-> left:', left);
+  // La bulle d'origine peut être très étroite (message court, ex: "ok") — la zone
+  // d'édition a besoin d'une largeur confortable pour taper, pas la largeur exacte
+  // du texte affiché. On part du rect réel mais avec un plancher, plafonné à l'écran.
+  const width = Math.min(Math.max(rect.width, 220), window.innerWidth - 32);
+  const left = Math.min(Math.max(rect.left, 16), window.innerWidth - width - 16);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onCancel} />
       <div style={{
-        position: 'fixed', left, top: rect.top, width: rect.width, zIndex: 10000,
+        position: 'fixed', left, top: rect.top, width, zIndex: 10000,
         background: isMe ? 'var(--ink)' : 'var(--surface)',
         color: isMe ? '#fff' : 'var(--ink)',
         border: isMe ? 'none' : '1px solid var(--border)',
@@ -586,9 +589,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   };
   const openMenu = () => {
     if (!bubbleRef.current) return;
-    const r = bubbleRef.current.getBoundingClientRect();
-    console.log('[EDIT-DEBUG openMenu]', msg.id, r.width, r.height, r.left, r.top);
-    onOpenCtxMenu(r, bubbleRef.current.outerHTML);
+    onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
   };
   // Long-press + clic droit combinés dans un seul hook (voir lib/useLongPress.ts).
   // Désactivé en mode édition et tant que le menu contextuel est ouvert sur cette
@@ -1530,7 +1531,6 @@ export default function PageClientMessages() {
               // null) et son rect s'effondre à la taille du padding seul.
               const el = bubbleRefsMap.current.get(msg.id);
               const measured = el ? el.getBoundingClientRect() : ctxMenu.rect;
-              console.log('[EDIT-DEBUG onEdit]', msg.id, 'elFound:', !!el, measured.width, measured.height, measured.left, measured.top, 'ctxMenu.rect:', ctxMenu.rect.width, ctxMenu.rect.height);
               setEditRect(measured);
               setEditingId(msg.id);
               setEditText(msg.text);

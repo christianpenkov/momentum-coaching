@@ -374,12 +374,16 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 }) {
   if (typeof document === 'undefined') return null;
   const unchanged = editText.trim() === originalText.trim() || editText.trim().length === 0;
-  const left = Math.min(Math.max(rect.left, 16), window.innerWidth - rect.width - 16);
+  // La bulle d'origine peut être très étroite (message court, ex: "ok") — la zone
+  // d'édition a besoin d'une largeur confortable pour taper, pas la largeur exacte
+  // du texte affiché. On part du rect réel mais avec un plancher, plafonné à l'écran.
+  const width = Math.min(Math.max(rect.width, 220), window.innerWidth - 32);
+  const left = Math.min(Math.max(rect.left, 16), window.innerWidth - width - 16);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onCancel} />
       <div style={{
-        position: 'fixed', left, top: rect.top, width: rect.width, zIndex: 10000,
+        position: 'fixed', left, top: rect.top, width, zIndex: 10000,
         background: isMe ? 'var(--ink)' : 'var(--surface)',
         color: isMe ? '#fff' : 'var(--ink)',
         border: isMe ? 'none' : '1px solid var(--border)',
