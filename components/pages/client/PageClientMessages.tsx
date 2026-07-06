@@ -398,29 +398,24 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
   }, [html]);
 
   if (typeof document === 'undefined') return null;
-  // Ancré sous la bulle agrandie (façon WhatsApp), pas aux coordonnées brutes du doigt.
-  // Bascule au-dessus si pas assez de place en dessous.
-  // Le clone est repositionné en left/top/width/height cibles (pas un scale() CSS pur
-  // depuis le centre) pour rester dans l'écran : une bulle collée à un bord ne peut
-  // pas grossir symétriquement des deux côtés sans déborder — on la recentre donc
-  // horizontalement dans la largeur disponible avec une marge de sécurité.
+  // Le clone visuel grossit toujours symétriquement depuis la bulle réelle (effet
+  // WhatsApp), mais le MENU s'ancre sur la bulle réelle (rect), pas sur le clone
+  // agrandi — pour un message long qui occupe presque tout l'écran, ancrer sur le
+  // clone poussait le menu très loin (parfois tout en bas). Règle simple et
+  // prévisible : juste au-dessus si assez de place, sinon juste en-dessous.
   const GAP = 8;
   const SCREEN_MARGIN = 16;
-  // Pour un message long, la bulle agrandie (×1.3) peut dépasser l'écran en hauteur —
-  // on plafonne la hauteur disponible pour laisser systématiquement de la place au
-  // menu (au-dessus ou en-dessous), plutôt que de laisser le clone déborder.
-  const maxCloneHeight = window.innerHeight - SCREEN_MARGIN * 2 - CTX_MENU_HEIGHT - GAP;
   const scaledWidth = rect.width * BUBBLE_SCALE;
-  const scaledHeight = Math.min(rect.height * BUBBLE_SCALE, Math.max(maxCloneHeight, rect.height));
+  const scaledHeight = rect.height * BUBBLE_SCALE;
   const idealLeft = rect.left - (scaledWidth - rect.width) / 2;
   const cloneLeft = Math.min(Math.max(idealLeft, SCREEN_MARGIN), window.innerWidth - scaledWidth - SCREEN_MARGIN);
   const idealTop = rect.top - (scaledHeight - rect.height) / 2;
-  const cloneTop = Math.min(Math.max(idealTop, SCREEN_MARGIN), window.innerHeight - scaledHeight - SCREEN_MARGIN);
-  const cloneBottom = cloneTop + scaledHeight;
-  const spaceBelow = window.innerHeight - cloneBottom;
-  const openUpward = spaceBelow < CTX_MENU_HEIGHT + GAP + 16;
-  const top = openUpward ? Math.max(cloneTop - CTX_MENU_HEIGHT - GAP, SCREEN_MARGIN) : cloneBottom + GAP;
-  const left = Math.min(Math.max(cloneLeft, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
+  const cloneTop = Math.max(idealTop, SCREEN_MARGIN);
+  const spaceAbove = rect.top - SCREEN_MARGIN;
+  const openUpward = spaceAbove >= CTX_MENU_HEIGHT + GAP;
+  const rawTop = openUpward ? rect.top - CTX_MENU_HEIGHT - GAP : rect.bottom + GAP;
+  const top = Math.min(Math.max(rawTop, SCREEN_MARGIN), window.innerHeight - CTX_MENU_HEIGHT - SCREEN_MARGIN);
+  const left = Math.min(Math.max(rect.left, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
@@ -442,7 +437,7 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
         }}
       />
       <div style={{
-        position: 'fixed', left, top: Math.max(top, 8), zIndex: 10000,
+        position: 'fixed', left, top, zIndex: 10000,
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
         minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 13,
