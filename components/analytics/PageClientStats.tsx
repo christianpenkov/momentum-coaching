@@ -737,10 +737,13 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
   // Nombre RÉEL de comptes abonnés uniques touchés (pas un ratio recalculé depuis un
   // total de reach mêlé abonnés+non-abonnés) — confirmé via test direct API Meta :
   // period=days_28 + metric_type=total_value + breakdown=follow_type renvoie le vrai
-  // décompte de comptes abonnés distincts touchés sur toute la fenêtre. Fallback sur
-  // l'ancien calcul (somme quotidienne, moins précis) si la donnée n'est pas disponible
-  // (ex: vue historique sans ce champ).
-  const reachRate = ig.reach28dDedupFollowers != null ? pct(ig.reach28dDedupFollowers, ig.followers) : pct(igReachP, ig.followers);
+  // décompte de comptes abonnés distincts touchés sur toute la fenêtre. Pas de
+  // fallback approximatif (somme quotidienne du reach / abonnés) : cette approximation
+  // double-compte les abonnés vus plusieurs jours et affichait des valeurs trompeuses
+  // en period historique (ex: 79% en juin alors que la vraie donnée dédupliquée
+  // n'existe que pour la fenêtre glissante actuelle) — null (N/D) explicite plutôt
+  // qu'un chiffre qui a l'air fiable mais ne l'est pas.
+  const reachRate = ig.reach28dDedupFollowers != null ? pct(ig.reach28dDedupFollowers, ig.followers) : null;
   // % de non-abonnés parmi le reach dédupliqué (comptes uniques), pas parmi les vues
   // (viewsFollowerBreakdown compte les revisionnages, incohérent avec le graphique
   // "Reach Non-Followers" juste en dessous qui utilise reach, pas views) — confirmé
@@ -792,7 +795,10 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
       });
     })(), color: ig.followsUnfollows30d >= 0 ? GREEN : RED },
     "Taux d'engagement": { data: igDays.map(d => ({ date: d.date, v: d.reach > 0 ? Math.round((d.totalInteractions ?? 0) / d.reach * 100 * 10) / 10 : 0 })), color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, unit: '%' },
-    'Followers reach rate': { data: igDays.map(d => ({ date: d.date, v: ig.followers > 0 ? Math.round(d.reach / ig.followers * 100 * 10) / 10 : 0 })), color: ACCENT, unit: '%' },
+    // Pas d'entrée "Followers reach rate" ici : Meta n'expose aucun équivalent
+    // dédupliqué PAR JOUR (seulement sur la fenêtre glissante totale de 28 jours) —
+    // un calcul reach_du_jour/abonnés_totaux serait une approximation non fiable,
+    // ce qu'on ne veut afficher nulle part sur ce KPI (cf. reachRate ci-dessus).
     // Reach non-abonnés % par jour — historique disponible seulement depuis la mise en
     // place de la collecte quotidienne (ig_reach_follower/non_follower), pas rétroactif.
     // null (vrai trou) seulement quand la donnée n'a JAMAIS été collectée ce jour-là
@@ -857,7 +863,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         {[
           { label: 'Abonnés nets', value: `${igFollowerDeltaP >= 0 ? '+' : ''}${fmt(igFollowerDeltaP)}`, sub: `${period}j`, color: igFollowerDeltaP >= 0 ? GREEN : RED, key: 'Abonnés nets' },
           { label: "Taux d'engagement", value: fmtPct(engRate), sub: 'interactions / reach', color: engRate > 5 ? GREEN : engRate > 2 ? AMBER : RED, key: "Taux d'engagement" },
-          { label: 'Followers reach rate', value: fmtPct(reachRate), sub: ig.reach28dDedupFollowers != null ? 'abonnés uniques touchés / total' : 'reach / abonnés', color: 'var(--ink)', key: 'Followers reach rate', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints.' },
+          { label: 'Followers reach rate', value: reachRate !== null ? fmtPct(reachRate) : 'N/D', sub: reachRate !== null ? 'abonnés uniques touchés / total' : 'seuil Meta non atteint', color: reachRate !== null ? 'var(--ink)' : 'var(--faint)', tooltip: 'Nombre réel de tes abonnés distincts touchés au moins une fois par tes contenus sur les 28 derniers jours (chaque abonné compté une seule fois, jamais deux fois même s\'il a vu plusieurs posts), rapporté à ton nombre total d\'abonnés. 100% = tous tes abonnés ont été atteints. Pas de détail jour par jour disponible (Meta ne fournit pas cette déduplication par jour, seulement sur la fenêtre totale).' },
           { label: 'Reach Non-Followers', value: viralPct !== null ? fmtPct(viralPct) : 'N/D', sub: viralPct !== null ? 'vues non-abonnés / total' : 'seuil Meta non atteint', color: viralPct !== null ? (viralPct > 50 ? GREEN : AMBER) : 'var(--faint)', key: 'Reach Non-Followers', tooltip: 'Part des vues venant de personnes qui ne te suivent pas encore. Plus c\'est élevé, plus ton contenu est découvert par de nouvelles personnes.' },
         ].map(s => (
           <div key={s.label}

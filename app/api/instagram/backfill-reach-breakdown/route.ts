@@ -10,13 +10,16 @@ const serviceSupabase = createClient(
 
 // POST /api/instagram/backfill-reach-breakdown
 // Body: { profile_id: string }
-// Rattrapage manuel, à déclencher une seule fois : remplit rétroactivement les 30
+// Rattrapage manuel, à déclencher une seule fois : remplit rétroactivement les 60
 // derniers jours de analytics_daily_snapshots avec le breakdown reach follower/
 // non-follower (ig_reach_follower/ig_reach_non_follower), absent avant la mise en
 // place de la collecte quotidienne. Un appel Meta par jour (fenêtre 1 jour requise
 // pour obtenir un vrai détail, pas un agrégat collapsé), en parallèle via
-// fetchIgDayMetrics (qui refetch aussi les autres métriques du jour au passage —
-// sans impact, upsert écrase avec les mêmes valeurs si déjà présentes).
+// fetchIgDayMetrics (qui refetch aussi les autres métriques du jour au passage).
+// upsertIgSnapshot ignore ig_followers/ig_following pour source='backfill' (ces
+// deux champs viennent du endpoint compte, qui reflète l'état ACTUEL, jamais une
+// vraie valeur historique — les écrire ici écraserait l'historique réel avec le
+// nombre d'abonnés d'aujourd'hui sur toutes les dates rejouées).
 export async function POST(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();

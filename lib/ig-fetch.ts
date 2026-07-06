@@ -455,26 +455,39 @@ export async function upsertIgSnapshot(
   snapshot: IgDaySnapshot,
   source: 'backfill' | 'cron' | 'refresh_partial'
 ): Promise<string | null> {
+  // ig_followers/ig_following viennent du endpoint compte (followers_count), qui
+  // reflète toujours l'état ACTUEL du compte, jamais une valeur historique pour la
+  // date demandée — contrairement à reach/accounts_engaged/total_interactions qui
+  // sont de vraies métriques period=day. Un backfill/refresh rétroactif écraserait
+  // sinon l'historique réel (déjà collecté par le vrai cron J-1) avec le nombre
+  // d'abonnés d'AUJOURD'HUI sur toutes les dates rejouées (bug survenu le 2026-07-06,
+  // 60 jours d'historique aplatis à la même valeur avant d'être restaurés à la main).
+  // Seul le cron J-1 (qui interroge un jour réellement récent) est autorisé à écrire
+  // ces deux colonnes.
+  const row: Record<string, any> = {
+    profile_id: profileId,
+    date: snapshot.date,
+    ig_reach:              snapshot.ig_reach,
+    ig_views:              snapshot.ig_views,
+    ig_follows_unfollows:  snapshot.ig_follows_unfollows,
+    ig_profile_taps:       snapshot.ig_profile_taps,
+    ig_website_clicks:     snapshot.ig_website_clicks,
+    ig_accounts_engaged:   snapshot.ig_accounts_engaged,
+    ig_total_interactions: snapshot.ig_total_interactions,
+    ig_lead_count:         snapshot.ig_lead_count,
+    ig_response_rate:      snapshot.ig_response_rate,
+    ig_reach_follower:     snapshot.ig_reach_follower,
+    ig_reach_non_follower: snapshot.ig_reach_non_follower,
+    backfill_source:       source,
+  };
+  if (source !== 'backfill') {
+    row.ig_followers = snapshot.ig_followers;
+    row.ig_following = snapshot.ig_following;
+  }
+
   const { error } = await serviceSupabase
     .from('analytics_daily_snapshots')
-    .upsert({
-      profile_id: profileId,
-      date: snapshot.date,
-      ig_reach:              snapshot.ig_reach,
-      ig_followers:          snapshot.ig_followers,
-      ig_following:          snapshot.ig_following,
-      ig_views:              snapshot.ig_views,
-      ig_follows_unfollows:  snapshot.ig_follows_unfollows,
-      ig_profile_taps:       snapshot.ig_profile_taps,
-      ig_website_clicks:     snapshot.ig_website_clicks,
-      ig_accounts_engaged:   snapshot.ig_accounts_engaged,
-      ig_total_interactions: snapshot.ig_total_interactions,
-      ig_lead_count:         snapshot.ig_lead_count,
-      ig_response_rate:      snapshot.ig_response_rate,
-      ig_reach_follower:     snapshot.ig_reach_follower,
-      ig_reach_non_follower: snapshot.ig_reach_non_follower,
-      backfill_source:       source,
-    }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+    .upsert(row, { onConflict: 'profile_id,date', ignoreDuplicates: false });
 
   return error?.message ?? null;
 }
