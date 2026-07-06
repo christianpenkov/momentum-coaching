@@ -4786,11 +4786,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             if (!pl.calendly_link_sent) return false;
             return isInPeriod(pl.calendly_link_sent_at ?? pl.created_at);
           });
-          const lmLeadIds = new Set(
-            (prospectLinksData ?? [])
-              .filter((pl: any) => leads.find((ml: any) => ml.id === pl.ig_lead_id)?.leadMagnetSent)
-              .map((pl: any) => pl.ig_lead_id)
-          );
+          // Scopé sur lmProspectLinksDb (déjà filtré par période), pas tout
+          // prospectLinksData — sinon un lead ayant reçu un LM à n'importe quel moment
+          // (même hors période) faisait fuiter ses calls dans le compte de cette période,
+          // créant des incohérences du type "1 lien Calendly mais 2 calls bookés".
+          const lmLeadIds = new Set(lmProspectLinksDb.map((pl: any) => pl.ig_lead_id));
           const lmCalls = [...callByLeadInWindow.entries()]
             .filter(([leadId]) => lmLeadIds.has(leadId))
             .map(([, c]) => c);
@@ -4864,6 +4864,32 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const totHonored = rows.reduce((s, r) => s + r.honored, 0);
           const totClosed = rows.reduce((s, r) => s + r.closed, 0);
           const totRevenue = rows.reduce((s, r) => s + r.revenue, 0);
+
+          // Délai moyen lien→call bookés→closé (90 derniers jours glissants, toutes
+          // sources confondues, indépendant de la période affichée) — donne du contexte
+          // sur le décalage naturel entre étapes du funnel, pattern "sales velocity"
+          // des CRM pro (HubSpot/PostHog), pour éviter de croire à une incohérence
+          // quand les colonnes d'une même semaine ne s'alignent pas parfaitement.
+          const avgDelayDays = (() => {
+            const since90 = Date.now() - 90 * 24 * 60 * 60 * 1000;
+            const callByLead90 = new Map<string, NonNullable<typeof calls>[number]>();
+            for (const c of (calls ?? [])) {
+              if (c.ig_lead_id && new Date(c.scheduled_at).getTime() >= since90 && !callByLead90.has(c.ig_lead_id)) {
+                callByLead90.set(c.ig_lead_id, c);
+              }
+            }
+            const linkToCallDays: number[] = [];
+            for (const pl of (prospectLinksData ?? [])) {
+              if (!pl.ig_lead_id || !pl.calendly_link_sent_at) continue;
+              const call = callByLead90.get(pl.ig_lead_id);
+              if (!call) continue;
+              const sentAt = new Date(pl.calendly_link_sent_at).getTime();
+              const bookedAt = new Date(call.scheduled_at).getTime();
+              if (bookedAt >= sentAt) linkToCallDays.push((bookedAt - sentAt) / 86400000);
+            }
+            const avg = (arr: number[]) => arr.length > 0 ? Math.round(arr.reduce((a, b) => a + b, 0) / arr.length) : null;
+            return { linkToCall: avg(linkToCallDays) };
+          })();
 
           const tauxBadge = (num: number, den: number, isContent: boolean) => {
             if (den === 0) return null;
@@ -5044,6 +5070,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </tr>
                 </tbody>
               </table>
+              {avgDelayDays.linkToCall !== null && (
+                <div style={{ padding: '8px 14px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)' }}>
+                  ⏱ Délai moyen lien envoyé → call booké : <strong style={{ color: 'var(--ink)' }}>{avgDelayDays.linkToCall} jour{avgDelayDays.linkToCall > 1 ? 's' : ''}</strong> (90 derniers jours, toutes sources) — un lien envoyé une semaine peut donc logiquement donner un call bookés la semaine suivante, chaque colonne comptant midi à sa porte.
+                </div>
+              )}
             </div>
           );
         })()}
