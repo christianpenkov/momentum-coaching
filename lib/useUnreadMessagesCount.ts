@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useUser } from '@/lib/UserContext';
+import { clearAppBadge } from '@/lib/pwaBadge';
 
 let channelSeq = 0;
 
@@ -28,7 +29,14 @@ export function useUnreadMessagesCount(): number {
         .in('client_id', clientIds)
         .neq('sender_id', user!.id)
         .is('read_at', null);
-      if (!cancelledRef.current) setCount(c ?? 0);
+      if (cancelledRef.current) return;
+      const n = c ?? 0;
+      setCount(n);
+      // Le badge natif de l'icône PWA n'est sinon effacé que quand un message précis
+      // est marqué lu (markMessageRead) — s'il n'y a déjà plus aucun message non lu
+      // (app jamais rouverte depuis la notif, ou tout déjà lu ailleurs), rien ne le
+      // déclenche jamais et le badge reste collé indéfiniment.
+      if (n === 0) clearAppBadge();
     }
 
     // Nom de canal unique par montage — deux Sidebar/BottomNav montés simultanément

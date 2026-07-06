@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { clearAppBadge } from '@/lib/pwaBadge';
 
 let instanceCounter = 0;
 
@@ -69,6 +70,11 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       });
 
       setNotifs(coachNotifs);
+      // Le badge natif de l'icône PWA n'était sinon jamais effacé pour ce type de
+      // notification (call accepté/refusé, rapport en attente) — seul le compteur
+      // de messages non lus le déclenchait. S'il n'y a plus rien en attente ici NON
+      // PLUS, le badge peut enfin être effacé (voir aussi la branche élève ci-dessous).
+      if (coachNotifs.length === 0) clearAppBadge();
       return;
     }
     const supabase = createClient();
@@ -149,7 +155,9 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       dbId: row.id,
     }));
 
-    setNotifs([...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs]);
+    const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs];
+    setNotifs(allNotifs);
+    if (allNotifs.length === 0) clearAppBadge();
   }, [profileId, isClient]);
 
   const refreshRef = useRef(refresh);
