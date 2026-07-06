@@ -509,6 +509,27 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
   rect: DOMRect; isMe: boolean; editText: string; setEditText: (v: string) => void;
   originalText: string; onSave: () => void; onCancel: () => void;
 }) {
+  // Sur mobile, l'ouverture du clavier virtuel réduit la zone réellement visible
+  // sans changer window.innerHeight — sans ça, la boîte reste positionnée comme si
+  // tout l'écran était visible et se retrouve masquée derrière le clavier. On suit
+  // window.visualViewport (hauteur + décalage) pour recalculer en direct.
+  const [viewport, setViewport] = useState(() => ({
+    height: typeof window !== 'undefined' ? (window.visualViewport?.height ?? window.innerHeight) : 0,
+    offsetTop: typeof window !== 'undefined' ? (window.visualViewport?.offsetTop ?? 0) : 0,
+  }));
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => setViewport({ height: vv.height, offsetTop: vv.offsetTop });
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    update();
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
   if (typeof document === 'undefined') return null;
   const unchanged = editText.trim() === originalText.trim() || editText.trim().length === 0;
   // La bulle d'origine peut être très étroite (message court, ex: "ok") — la zone
@@ -516,14 +537,17 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
   // du texte affiché. On part du rect réel mais avec un plancher, plafonné à l'écran.
   const width = Math.min(Math.max(rect.width, 220), window.innerWidth - 32);
   const left = Math.min(Math.max(rect.left, 16), window.innerWidth - width - 16);
-  // Boîte d'édition plafonnée à l'espace vertical dispo (marge 16px en haut/bas).
-  // Le textarea reprend la hauteur réelle de la bulle d'origine (petit message →
-  // petite boîte, long message → grande boîte), avec un plancher pour rester
-  // confortable et un plafond pour les messages très longs (scroll interne au-delà).
-  const maxBoxHeight = window.innerHeight - 32;
+  // Boîte d'édition plafonnée à l'espace vertical réellement visible (viewport visuel,
+  // pas window.innerHeight qui ignore le clavier). Le textarea reprend la hauteur
+  // réelle de la bulle d'origine (petit message → petite boîte, long message →
+  // grande boîte), avec un plancher confortable et un plafond pour les très longs
+  // messages (scroll interne au-delà).
+  const visibleTop = viewport.offsetTop;
+  const visibleHeight = viewport.height;
+  const maxBoxHeight = visibleHeight - 32;
   const textareaHeight = Math.min(Math.max(rect.height, 60), Math.min(maxBoxHeight - 70, 400));
   const boxHeight = Math.min(textareaHeight + 70, maxBoxHeight);
-  const top = Math.min(Math.max(rect.top, 16), window.innerHeight - boxHeight - 16);
+  const top = Math.min(Math.max(rect.top, visibleTop + 16), visibleTop + visibleHeight - boxHeight - 16);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onCancel} />
