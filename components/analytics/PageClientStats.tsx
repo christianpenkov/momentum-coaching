@@ -14,6 +14,7 @@ import {
   ResponsiveContainer, Legend, PieChart, Pie, Cell,
   AreaChart as ReAreaChart, Area,
 } from 'recharts';
+import { getPeriodWindow } from '@/lib/period';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
 function usePortalMounted() {
@@ -327,6 +328,11 @@ function ChartTooltip({ active, payload, label, fmtFn }: any) {
 
 type ContentSortKey = 'views' | 'watchTime' | 'calls' | 'revenue';
 type Period = 7 | 30;
+// TODO (chantier futur, voir plan) : passer Period en granularité calendaire
+// (semaine lundi-dimanche / mois calendaire) via lib/period.ts. Reporté après
+// découverte que 15+ sites font de l'arithmétique littérale avec 7/30 (pas
+// seulement des libellés) — refactor plus large que prévu, à faire dans une
+// session dédiée avec le vrai périmètre connu dès le départ.
 
 function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; shortio: ShortioStats | null; msgs: IGMessages | null; calls: CallRecord[]; period: Period }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
@@ -789,11 +795,11 @@ function TabOverview_UNUSED({ ig, yt, stripe, shortio, msgs, calls, period }: { 
 function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
-  const now = new Date();
   const _ovPIdx = periodIndex ?? 0;
-  // En S-0 : periodEnd = now. En S-1+ : periodEnd = now - N*period jours
-  const ovPeriodEnd = new Date(now.getTime() - _ovPIdx * period * 86400000);
-  const ovPeriodStart = new Date(ovPeriodEnd.getTime() - period * 86400000);
+  // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) via
+  // lib/period.ts — remplace l'ancien calcul en heure locale du navigateur (pas UTC
+  // strict), source potentielle de décalage d'un jour vs les autres composants.
+  const { periodStart: ovPeriodStart, periodEnd: ovPeriodEnd } = getPeriodWindow(_ovPIdx, period === 7 ? 'week' : 'month');
   const cutoff = ovPeriodStart;
 
   // ── Métriques business ─────────────────────────────────────────────────────
@@ -854,7 +860,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   const shortioClicks = shortioCalendlyClics + prospectCalendlyClics;
 
   // ── Prochain call ─────────────────────────────────────────────────────────
-  const nextCall = calls.filter(c => new Date(c.scheduled_at) > now).sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0];
+  const nextCall = calls.filter(c => new Date(c.scheduled_at) > new Date()).sort((a, b) => new Date(a.scheduled_at).getTime() - new Date(b.scheduled_at).getTime())[0];
 
   // ── Signaux ────────────────────────────────────────────────────────────────
   const signalData: { type: SignalType; text: string }[] = [];
@@ -2095,16 +2101,12 @@ function FunnelHorizontal({ platform, color, steps }: {
 
 
 function periodLabel(period: number, index: number): string {
-  // Même calcul que periodStart/periodEnd de TabShortioB (alignement UTC minuit + le +1
-  // qui rend la fenêtre inclusive des deux bords) — sinon le header affiche une fenêtre
-  // décalée d'un jour par rapport au graphique jour par jour réellement affiché.
-  const today = new Date();
-  const end = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
-  end.setUTCDate(end.getUTCDate() - index * period);
-  const start = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
-  start.setUTCDate(today.getUTCDate() - (index + 1) * period + 1);
+  // Bornes calendaires réelles (semaine lundi-dimanche si period=7, mois calendaire
+  // sinon) via lib/period.ts — même source que tous les autres calculateurs de bornes
+  // du fichier, élimine la classe de bug "décalage d'un jour entre deux endroits".
+  const { periodStart, periodEnd } = getPeriodWindow(index, period === 7 ? 'week' : 'month');
   const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
-  return `${fmt2(start)} – ${fmt2(end)}`;
+  return `${fmt2(periodStart)} – ${fmt2(periodEnd)}`;
 }
 
 function delta(current: number, previous: number): { value: number; label: string; color: string } {
@@ -2128,12 +2130,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const now = new Date();
   const mrr = stripe?.mrr || 0;
 
-  // ── Fenêtre temporelle de la période sélectionnée (bornes en début/fin de journée UTC) ──
-  const _todayUTC = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 23, 59, 59));
-  const periodEnd   = new Date(_todayUTC);
-  periodEnd.setUTCDate(_todayUTC.getUTCDate() - periodIndex * period);
-  const periodStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
-  periodStart.setUTCDate(now.getUTCDate() - periodIndex * period - period + 1);
+  // ── Fenêtre temporelle de la période sélectionnée (bornes calendaires réelles) ──
+  const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
   const callsInWindow = calls.filter(c => {
     const t = new Date(c.scheduled_at).getTime();
     return t >= periodStart.getTime() && t <= periodEnd.getTime();
@@ -3105,11 +3103,7 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
     </div>
   );
 
-  const today = new Date();
-  const periodEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59));
-  periodEnd.setUTCDate(periodEnd.getUTCDate() - periodIndex * period);
-  const periodStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
-  periodStart.setUTCDate(today.getUTCDate() - (periodIndex + 1) * period + 1);
+  const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
   const allInPeriod = stripe.recentPayments.filter(p => {
     const d = new Date(p.date);
@@ -3128,7 +3122,10 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   const avgBasket = succeeded.length > 0 ? cashCollecte / succeeded.length : 0;
   const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
 
-  const revenueByDay: { date: string; ca: number; contracte: number }[] = Array.from({ length: period }, (_, i) => {
+  // Nombre réel de jours dans la période (7 pour une semaine, 28-31 pour un mois
+  // calendaire variable) — pas une longueur fixe supposée depuis `period`.
+  const periodDaysCount = Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1;
+  const revenueByDay: { date: string; ca: number; contracte: number }[] = Array.from({ length: periodDaysCount }, (_, i) => {
     const d = new Date(periodStart);
     d.setUTCDate(d.getUTCDate() + i);
     const iso = d.toISOString().split('T')[0];
@@ -3169,7 +3166,7 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       </div>
 
       <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · deals closés & paiements Stripe` : `${periodLabel(period, periodIndex)} · deals closés & paiements Stripe`}>
-        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--ink)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(period / 7) - 1} />
+        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--ink)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(periodDaysCount / 7) - 1} />
       </Card>
 
       <div className="card">
@@ -3960,12 +3957,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const _pIdx = periodIndex ?? 0;
   const utcDateStr = (d: Date) => d.toISOString().split('T')[0];
-  const today = new Date();
-  // periodEnd/periodStart alignés sur aujourd'hui UTC, cohérents avec fetchSnapshot
-  const periodEnd = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 23, 59, 59));
-  periodEnd.setUTCDate(periodEnd.getUTCDate() - _pIdx * sPeriod);
-  const periodStart = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate(), 0, 0, 0));
-  periodStart.setUTCDate(today.getUTCDate() - (_pIdx + 1) * sPeriod + 1);
+  // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) via
+  // lib/period.ts, cohérent avec fetchSnapshot et tous les autres calculateurs de
+  // bornes du fichier.
+  const { periodStart, periodEnd } = getPeriodWindow(_pIdx, sPeriod === 7 ? 'week' : 'month');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
   const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string; calendly_link_sent: boolean | null; calendly_link_sent_at: string | null; first_click_at: string | null }[]>([]);
@@ -6001,17 +5996,11 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  // Fenêtre temporelle en UTC strict — même calcul que isInPeriod/dayRange dans
-  // TabShortioB (Date.UTC, pas new Date() local). Avant ce fix, un call à 23h20 UTC
-  // (1h20 le lendemain en heure de Paris) pouvait tomber sur un jour différent ici
-  // vs dans TabShortioB, qui utilise l'heure locale du navigateur pour le calcul —
-  // un même call apparaissait alors "le 15 juin" en vue live (S-0) mais pas en
-  // naviguant vers cette même date via periodIndex>0 (cf. bug remonté 2026-07-06).
-  const todaySnap = new Date();
-  const periodEnd = new Date(Date.UTC(todaySnap.getUTCFullYear(), todaySnap.getUTCMonth(), todaySnap.getUTCDate(), 23, 59, 59));
-  periodEnd.setUTCDate(periodEnd.getUTCDate() - periodIndex * period);
-  const periodStart = new Date(Date.UTC(todaySnap.getUTCFullYear(), todaySnap.getUTCMonth(), todaySnap.getUTCDate(), 0, 0, 0));
-  periodStart.setUTCDate(todaySnap.getUTCDate() - (periodIndex + 1) * period + 1);
+  // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) via
+  // lib/period.ts — même source que TabShortioB et tous les autres calculateurs de
+  // bornes du fichier, élimine la classe de bug de décalage entre deux endroits déjà
+  // rencontrée par le passé (cf. bug remonté 2026-07-06).
+  const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
   const startDateStr = periodStart.toISOString().split('T')[0];
   const endDateStr   = periodEnd.toISOString().split('T')[0];
