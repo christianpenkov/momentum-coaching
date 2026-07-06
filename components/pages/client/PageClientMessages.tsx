@@ -406,16 +406,20 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
   // horizontalement dans la largeur disponible avec une marge de sécurité.
   const GAP = 8;
   const SCREEN_MARGIN = 16;
+  // Pour un message long, la bulle agrandie (×1.3) peut dépasser l'écran en hauteur —
+  // on plafonne la hauteur disponible pour laisser systématiquement de la place au
+  // menu (au-dessus ou en-dessous), plutôt que de laisser le clone déborder.
+  const maxCloneHeight = window.innerHeight - SCREEN_MARGIN * 2 - CTX_MENU_HEIGHT - GAP;
   const scaledWidth = rect.width * BUBBLE_SCALE;
-  const scaledHeight = rect.height * BUBBLE_SCALE;
+  const scaledHeight = Math.min(rect.height * BUBBLE_SCALE, Math.max(maxCloneHeight, rect.height));
   const idealLeft = rect.left - (scaledWidth - rect.width) / 2;
   const cloneLeft = Math.min(Math.max(idealLeft, SCREEN_MARGIN), window.innerWidth - scaledWidth - SCREEN_MARGIN);
   const idealTop = rect.top - (scaledHeight - rect.height) / 2;
-  const cloneTop = Math.max(idealTop, SCREEN_MARGIN);
+  const cloneTop = Math.min(Math.max(idealTop, SCREEN_MARGIN), window.innerHeight - scaledHeight - SCREEN_MARGIN);
   const cloneBottom = cloneTop + scaledHeight;
   const spaceBelow = window.innerHeight - cloneBottom;
   const openUpward = spaceBelow < CTX_MENU_HEIGHT + GAP + 16;
-  const top = openUpward ? cloneTop - CTX_MENU_HEIGHT - GAP : cloneBottom + GAP;
+  const top = openUpward ? Math.max(cloneTop - CTX_MENU_HEIGHT - GAP, SCREEN_MARGIN) : cloneBottom + GAP;
   const left = Math.min(Math.max(cloneLeft, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
@@ -516,11 +520,17 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
   // du texte affiché. On part du rect réel mais avec un plancher, plafonné à l'écran.
   const width = Math.min(Math.max(rect.width, 220), window.innerWidth - 32);
   const left = Math.min(Math.max(rect.left, 16), window.innerWidth - width - 16);
+  // Boîte d'édition plafonnée à l'espace vertical dispo (marge 16px en haut/bas) —
+  // le textarea grandit avec le message (plus de lignes visibles qu'avant, fixé à
+  // 3 lignes), avec un scroll interne + un léger dégradé en bas pour signaler qu'il
+  // y a du texte à faire défiler quand le message est très long.
+  const maxBoxHeight = window.innerHeight - 32;
+  const top = Math.min(Math.max(rect.top, 16), window.innerHeight - Math.min(maxBoxHeight, 260) - 16);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onCancel} />
       <div style={{
-        position: 'fixed', left, top: rect.top, width, zIndex: 10000,
+        position: 'fixed', left, top, width, maxHeight: maxBoxHeight, zIndex: 10000,
         background: isMe ? 'var(--ink)' : 'var(--surface)',
         color: isMe ? '#fff' : 'var(--ink)',
         border: isMe ? 'none' : '1px solid var(--border)',
@@ -536,12 +546,13 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!unchanged) onSave(); }
             if (e.key === 'Escape') onCancel();
           }}
-          rows={3}
+          rows={6}
           style={{
             fontSize: 14, lineHeight: 1.5, fontFamily: 'inherit', resize: 'none',
             background: 'transparent', color: isMe ? '#fff' : 'var(--ink)',
             border: `1px solid ${isMe ? 'rgba(255,255,255,0.3)' : 'var(--border)'}`,
             borderRadius: 8, padding: '6px 8px', outline: 'none', width: '100%', boxSizing: 'border-box',
+            minHeight: 60, maxHeight: Math.max(maxBoxHeight - 70, 60), overflowY: 'auto',
           }}
         />
         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
