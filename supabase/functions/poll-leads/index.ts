@@ -664,6 +664,41 @@ async function syncLmClickStream(profileId: string, creds: { apiKey: string; dom
 // Posts IG individuels — snapshot quotidien
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Pérennise le thumbnail d'un post dans un bucket Storage permanent au lieu de
+// garder l'URL Meta signée (expire ~24-48h) — sans ça, naviguer vers une période
+// passée (S-2+) affiche une image cassée dès que l'URL stockée a expiré, même si
+// le post lui-même existe toujours. Un seul téléchargement par post (jamais
+// re-téléchargé si déjà en cache, le thumbnail d'un post ne change pas dans le
+// temps), pas un par snapshot quotidien.
+const permanentThumbnailCache = new Map<string, string | null>();
+async function getPermanentThumbnail(postId: string, metaUrl: string | null): Promise<string | null> {
+  if (!metaUrl) return null;
+  if (permanentThumbnailCache.has(postId)) return permanentThumbnailCache.get(postId)!;
+
+  const path = `${postId}.jpg`;
+  const { data: existing } = await supa.storage.from('instagram-post-thumbnails').list('', { search: path });
+  if (existing?.some(f => f.name === path)) {
+    const { data: { publicUrl } } = supa.storage.from('instagram-post-thumbnails').getPublicUrl(path);
+    permanentThumbnailCache.set(postId, publicUrl);
+    return publicUrl;
+  }
+
+  try {
+    const imgRes = await fetch(metaUrl);
+    if (!imgRes.ok) { permanentThumbnailCache.set(postId, null); return null; }
+    const buf = await imgRes.arrayBuffer();
+    const { error } = await supa.storage.from('instagram-post-thumbnails')
+      .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
+    if (error) { permanentThumbnailCache.set(postId, null); return null; }
+    const { data: { publicUrl } } = supa.storage.from('instagram-post-thumbnails').getPublicUrl(path);
+    permanentThumbnailCache.set(postId, publicUrl);
+    return publicUrl;
+  } catch {
+    permanentThumbnailCache.set(postId, null);
+    return null;
+  }
+}
+
 async function snapshotIgPosts(profileId: string, token: string, igAccountId: string, yesterday: string): Promise<string[]> {
   const errors: string[] = [];
   try {
@@ -708,13 +743,18 @@ async function snapshotIgPosts(profileId: string, token: string, igAccountId: st
           Object.assign(m, await safeInsights(post.id, 'follows,profile_visits'));
         }
 
+        const metaThumbnailUrl = post.thumbnail_url || post.media_url || null;
+        const permanentThumbnail = await getPermanentThumbnail(post.id, metaThumbnailUrl);
+
         const row: Record<string, any> = {
           profile_id: profileId,
           post_id: post.id,
           post_type: post.media_product_type || post.media_type || 'IMAGE',
           caption: (post.caption || '').slice(0, 500),
           permalink: post.permalink || null,
-          thumbnail: post.thumbnail_url || post.media_url || null,
+          // URL permanente (Storage) en priorité — jamais l'URL Meta brute, qui expire
+          // ~24-48h et casse dès qu'on navigue vers une période passée (S-2+).
+          thumbnail: permanentThumbnail || metaThumbnailUrl,
           published_at: post.timestamp ? new Date(post.timestamp).toISOString() : null,
           reach: m['reach'] ?? null,
           views: m['views'] ?? null,
