@@ -12,8 +12,9 @@ function ensureHapticSwitch(): HTMLLabelElement | null {
 
   const input = document.createElement('input');
   input.type = 'checkbox';
-  // @ts-expect-error — attribut non standard (WebKit), pas dans les types DOM TS
-  input.switch = true;
+  // setAttribute (pas input.switch = true) — 'switch' n'est pas une propriété IDL
+  // reconnue par le DOM, seul le vrai attribut HTML est lu par WebKit.
+  input.setAttribute('switch', '');
   input.id = 'haptic-trigger';
   input.style.cssText = 'position:fixed;opacity:0;pointer-events:none;width:1px;height:1px;';
   input.tabIndex = -1;

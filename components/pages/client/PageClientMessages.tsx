@@ -378,45 +378,62 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 
 const CTX_MENU_WIDTH = 160;
 const CTX_MENU_HEIGHT = 90;
-const BUBBLE_SCALE = 1.5;
+const BUBBLE_SCALE = 1.3;
 
 function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, onClose }: {
   rect: DOMRect; html: string; canEdit: boolean; canDelete: boolean;
   onEdit: () => void; onDelete: () => void; onClose: () => void;
 }) {
   const cloneRef = useRef<HTMLDivElement>(null);
+  const [grown, setGrown] = useState(false);
   useEffect(() => {
     // Injecté après montage (pas via dangerouslySetInnerHTML) pour éviter tout
     // souci de sanitization React sur du HTML déjà rendu par nos soins.
     if (cloneRef.current) cloneRef.current.innerHTML = html;
+    // Monté à la taille d'origine puis transitionné vers la taille cible juste après
+    // (au lieu d'une keyframe CSS avec facteur fixe) — permet un left/top/width/height
+    // cible calculé dynamiquement selon la position réelle de la bulle à l'écran.
+    const raf = requestAnimationFrame(() => setGrown(true));
+    return () => cancelAnimationFrame(raf);
   }, [html]);
 
   if (typeof document === 'undefined') return null;
   // Ancré sous la bulle agrandie (façon WhatsApp), pas aux coordonnées brutes du doigt.
-  // Bascule au-dessus si pas assez de place en dessous. Le calcul tient compte de la
-  // hauteur réelle du clone une fois scale(1.5) appliqué (BUBBLE_SCALE), pas de la
-  // taille d'origine — sinon le menu chevaucherait le bas du clone agrandi.
+  // Bascule au-dessus si pas assez de place en dessous.
+  // Le clone est repositionné en left/top/width/height cibles (pas un scale() CSS pur
+  // depuis le centre) pour rester dans l'écran : une bulle collée à un bord ne peut
+  // pas grossir symétriquement des deux côtés sans déborder — on la recentre donc
+  // horizontalement dans la largeur disponible avec une marge de sécurité.
   const GAP = 8;
+  const SCREEN_MARGIN = 16;
+  const scaledWidth = rect.width * BUBBLE_SCALE;
   const scaledHeight = rect.height * BUBBLE_SCALE;
-  const scaledBottom = rect.top + (rect.height - scaledHeight) / 2 + scaledHeight;
-  const scaledTop = rect.top - (scaledHeight - rect.height) / 2;
-  const spaceBelow = window.innerHeight - scaledBottom;
+  const idealLeft = rect.left - (scaledWidth - rect.width) / 2;
+  const cloneLeft = Math.min(Math.max(idealLeft, SCREEN_MARGIN), window.innerWidth - scaledWidth - SCREEN_MARGIN);
+  const idealTop = rect.top - (scaledHeight - rect.height) / 2;
+  const cloneTop = Math.max(idealTop, SCREEN_MARGIN);
+  const cloneBottom = cloneTop + scaledHeight;
+  const spaceBelow = window.innerHeight - cloneBottom;
   const openUpward = spaceBelow < CTX_MENU_HEIGHT + GAP + 16;
-  const top = openUpward ? scaledTop - CTX_MENU_HEIGHT - GAP : scaledBottom + GAP;
-  const left = Math.min(Math.max(rect.left, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
+  const top = openUpward ? cloneTop - CTX_MENU_HEIGHT - GAP : cloneBottom + GAP;
+  const left = Math.min(Math.max(cloneLeft, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
       {/* Clone visuel de la bulle — la vraie bulle (dans la zone de scroll clippée)
           reste masquée (visibility:hidden) tant que ce menu est ouvert. Ce clone,
           rendu ici dans le portail, n'a pas de conteneur overflow au-dessus de lui
-          donc le scale() reste pleinement visible, façon WhatsApp/iOS. */}
+          donc l'agrandissement reste pleinement visible, façon WhatsApp/iOS. */}
       <div
         ref={cloneRef}
         style={{
-          position: 'fixed', left: rect.left, top: rect.top, width: rect.width, height: rect.height,
-          zIndex: 10000, transform: `scale(${BUBBLE_SCALE})`, transformOrigin: 'center center',
-          animation: 'ctxBubbleIn 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
+          position: 'fixed',
+          left: grown ? cloneLeft : rect.left,
+          top: grown ? cloneTop : rect.top,
+          width: grown ? scaledWidth : rect.width,
+          height: grown ? scaledHeight : rect.height,
+          zIndex: 10000,
+          transition: 'left 160ms cubic-bezier(0.34, 1.56, 0.64, 1), top 160ms cubic-bezier(0.34, 1.56, 0.64, 1), width 160ms cubic-bezier(0.34, 1.56, 0.64, 1), height 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
           pointerEvents: 'none',
         }}
       />
