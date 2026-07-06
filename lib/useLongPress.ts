@@ -57,12 +57,24 @@ export function useLongPress(
       input.style.setProperty('-webkit-tap-highlight-color', 'transparent');
       container.style.position = 'relative';
 
+      // Le haptique iOS du switch se déclenche sur l'event `click` natif, qui suit
+      // `touchend` — pas sur `touchstart`. Tant que le minuteur de long-press n'a
+      // pas expiré, on considère le geste comme "pas encore un long-press" et on
+      // annule ce click natif (touchend -> preventDefault) : le toggle n'a jamais
+      // lieu, donc pas de haptique sur un simple tap. Dès que le délai est atteint
+      // (longPressReachedRef=true), le prochain click est laissé passer normalement.
+      const longPressReachedRef = { current: false };
+
       const onTouchStart = (e: TouchEvent) => {
         const touch = e.touches[0];
         startPos.current = { x: touch.clientX, y: touch.clientY };
         movedRef.current = false;
+        longPressReachedRef.current = false;
         timerRef.current = setTimeout(() => {
-          if (!movedRef.current) onTriggerRef.current(touch.clientX, touch.clientY);
+          if (!movedRef.current) {
+            longPressReachedRef.current = true;
+            onTriggerRef.current(touch.clientX, touch.clientY);
+          }
         }, delay);
       };
 
@@ -74,7 +86,10 @@ export function useLongPress(
         if (dx > 10 || dy > 10) { movedRef.current = true; clear(); }
       };
 
-      const onTouchEnd = () => clear();
+      const onTouchEnd = (e: TouchEvent) => {
+        if (!longPressReachedRef.current) e.preventDefault();
+        clear();
+      };
 
       const onContextMenu = (e: MouseEvent) => {
         e.preventDefault();
