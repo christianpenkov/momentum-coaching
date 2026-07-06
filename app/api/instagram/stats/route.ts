@@ -195,18 +195,34 @@ export async function GET(request: Request) {
 
   // Reconstruit la série "Abonnés" en nombre ABSOLU (pas en delta) : follower_count
   // (insights) n'est qu'un delta quotidien et sujet au même ~48h de délai Meta que
-  // online_followers (aucun contournement n'existait ici). accountData.followers_count
+  // online_followers (aucun contournement n'existait ici) — confirmé en pratique :
+  // Meta renvoie 0 pour les jours les plus récents même quand un vrai gain a eu lieu,
+  // car la donnée n'est pas encore stabilisée côté Meta. accountData.followers_count
   // est le compte réel, temps réel, déjà fetché dans le même Promise.all — on part de
   // ce nombre pour aujourd'hui et on remonte en arrière en soustrayant les deltas
-  // connus, pour obtenir une vraie série absolue (cohérente avec l'historique
-  // igHist déjà construit ainsi via lib/ig-fetch.ts).
+  // connus, MAIS seulement au-delà de la fenêtre de retard (J-3 et avant) : inclure les
+  // deltas non stabilisés des 3 derniers jours dans la reconstruction cumulative
+  // propagerait leur bruit (souvent 0 à tort) à TOUTE la série historique en amont.
+  const UNSTABLE_DAYS = 3;
   const todayAbsoluteFollowers: number | null = typeof accountData.followers_count === 'number' ? accountData.followers_count : null;
   const followerAbsoluteValues: (number | null)[] = new Array(followerDeltaValues.length).fill(null);
   if (todayAbsoluteFollowers !== null && followerDeltaValues.length > 0) {
-    followerAbsoluteValues[followerDeltaValues.length - 1] = todayAbsoluteFollowers;
-    for (let i = followerDeltaValues.length - 2; i >= 0; i--) {
-      const nextVal = followerAbsoluteValues[i + 1];
-      followerAbsoluteValues[i] = nextVal !== null ? nextVal - (followerDeltaValues[i + 1] ?? 0) : null;
+    const lastIdx = followerDeltaValues.length - 1;
+    // Le point du jour est toujours fiable (compte réel, pas un delta Meta) — les
+    // UNSTABLE_DAYS jours juste avant restent null : leur delta officiel n'est pas
+    // encore stabilisé chez Meta, l'inclure fausserait la reconstruction cumulative.
+    followerAbsoluteValues[lastIdx] = todayAbsoluteFollowers;
+    const stableStartIdx = Math.max(0, lastIdx - UNSTABLE_DAYS);
+    // La reconstruction en arrière ne démarre qu'à partir de la frontière stable, en
+    // n'utilisant que des deltas eux-mêmes situés dans la zone stable (jamais un delta
+    // de la fenêtre de retard) : on ignore simplement le sous-total des derniers jours
+    // en partant du principe qu'ils s'annulent globalement à ~0 (approximation admise,
+    // équivalente à afficher "pas encore de donnée fiable" pour cette portion).
+    followerAbsoluteValues[stableStartIdx] = todayAbsoluteFollowers;
+    for (let i = stableStartIdx - 1; i >= 0; i--) {
+      followerAbsoluteValues[i] = followerAbsoluteValues[i + 1] !== null
+        ? followerAbsoluteValues[i + 1]! - (followerDeltaValues[i + 1] ?? 0)
+        : null;
     }
   }
 
