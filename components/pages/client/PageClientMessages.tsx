@@ -563,9 +563,9 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
-  isEditing: boolean; editText: string; setEditText: (v: string) => void;
+  isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
   onOpenCtxMenu: (rect: DOMRect, html: string) => void;
@@ -587,14 +587,11 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
   // bulle (la bulle reste dans le DOM en visibility:hidden pendant ce temps).
   const canOpenMenu = isMe && (canEdit || canDelete) && !isEditing && !isMenuTarget;
   const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
-
-  // Capture le rect de la bulle au moment où l'édition démarre — utilisé pour
-  // positionner EditBubbleOverlay (portail) au même endroit que la bulle réelle,
-  // qui elle-même passe en visibility:hidden pendant ce temps.
-  const [editRect, setEditRect] = useState<DOMRect | null>(null);
-  useEffect(() => {
-    if (isEditing && bubbleRef.current) setEditRect(bubbleRef.current.getBoundingClientRect());
-  }, [isEditing]);
+  // editRect est capturé par le composant parent au moment du clic sur "Modifier"
+  // dans le menu contextuel (réutilise ctxMenu.rect, déjà mesuré au long-press) —
+  // pas ici via un useEffect réagissant à isEditing, qui mesurerait la bulle une
+  // fois son contenu déjà remplacé par null (isEditing ? null : ...), donnant une
+  // largeur quasi nulle (juste le padding, sans texte).
 
   // Marque le message lu seulement quand sa bulle entre réellement dans le
   // viewport visible (scroll) — pas juste "la conversation est ouverte quelque
@@ -778,6 +775,7 @@ export default function PageClientMessages() {
   const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; html: string; msgId: string } | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editRect, setEditRect] = useState<DOMRect | null>(null);
   const [editText, setEditText] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
   // Force un re-render périodique pour que les boutons Modifier/Supprimer
@@ -1266,6 +1264,7 @@ export default function PageClientMessages() {
                     isContinued={!!isContinued}
                     isLast={isLast}
                     isEditing={editingId === msg.id}
+                    editRect={editingId === msg.id ? editRect : null}
                     editText={editText}
                     setEditText={setEditText}
                     onStartEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
@@ -1507,7 +1506,7 @@ export default function PageClientMessages() {
             rect={ctxMenu.rect}
             html={ctxMenu.html}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
-            onEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
+            onEdit={() => { setEditingId(msg.id); setEditText(msg.text); setEditRect(ctxMenu.rect); }}
             onDelete={() => setConfirmDeleteId(msg.id)}
             onClose={() => setCtxMenu(null)}
           />
