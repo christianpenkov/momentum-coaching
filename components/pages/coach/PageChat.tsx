@@ -463,7 +463,11 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
               value={editText}
               onChange={e => setEditText(e.target.value)}
               onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(); }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  const unchanged = editText.trim() === msg.text.trim() || editText.trim().length === 0;
+                  if (!unchanged) onSaveEdit();
+                }
                 if (e.key === 'Escape') onCancelEdit();
               }}
               rows={2}
@@ -476,7 +480,23 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editText, 
             />
             <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end' }}>
               <button className="msg-edit-btn" onClick={onCancelEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: 'transparent', color: isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)', cursor: 'pointer' }}>Annuler</button>
-              <button className="msg-edit-btn" onClick={onSaveEdit} style={{ fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none', background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--ink)', color: '#fff', cursor: 'pointer' }}>Enregistrer</button>
+              {(() => {
+                const unchanged = editText.trim() === msg.text.trim() || editText.trim().length === 0;
+                return (
+                  <button
+                    className="msg-edit-btn"
+                    onClick={onSaveEdit}
+                    disabled={unchanged}
+                    style={{
+                      fontSize: 11, padding: '3px 8px', borderRadius: 6, border: 'none',
+                      background: isMe ? 'rgba(255,255,255,0.2)' : 'var(--ink)', color: '#fff',
+                      cursor: unchanged ? 'not-allowed' : 'pointer', opacity: unchanged ? 0.4 : 1,
+                    }}
+                  >
+                    Enregistrer
+                  </button>
+                );
+              })()}
             </div>
           </div>
         ) : isAudio && msg.audio_url ? (
