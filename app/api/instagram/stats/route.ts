@@ -227,18 +227,53 @@ export async function GET(request: Request) {
   }
 
   const today = new Date();
+
+  // Breakdown reach follower/non-follower JOUR PAR JOUR — Meta ne renvoie un vrai
+  // détail (pas un agrégat collapsé sur toute la fenêtre) que sur une requête à
+  // fenêtre d'UN jour (confirmé en testant l'API réelle) — même contrainte que
+  // lib/ig-fetch.ts (fetchIgDayMetrics), un appel par jour affiché, en parallèle.
+  const reachBreakdownByDate = new Map<string, { follower: number; nonFollower: number }>();
+  await Promise.all(
+    reachValues.map(async (_val: number, i: number) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (reachValues.length - 1 - i));
+      const dayStart = Math.floor(new Date(d.toISOString().split('T')[0] + 'T00:00:00Z').getTime() / 1000);
+      const dayEnd = dayStart + 86400;
+      try {
+        const res = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=day&since=${dayStart}&until=${dayEnd}&access_token=${token}`);
+        const data = await safeJson(res);
+        for (const metric of data?.data || []) {
+          if (metric.name === 'reach' && metric.total_value?.breakdowns) {
+            let follower = 0, nonFollower = 0, found = false;
+            for (const bd of metric.total_value.breakdowns) {
+              for (const r of bd.results || []) {
+                const key = r.dimension_values?.[0];
+                if (key === 'FOLLOWER') { follower += r.value || 0; found = true; }
+                else if (key === 'NON_FOLLOWER') { nonFollower += r.value || 0; found = true; }
+              }
+            }
+            if (found) reachBreakdownByDate.set(d.toISOString().split('T')[0], { follower, nonFollower });
+          }
+        }
+      } catch { /* jour ignoré si l'appel échoue — pas bloquant pour le reste */ }
+    })
+  );
+
   const chartData = reachValues.map((val: number, i: number) => {
     const d = new Date(today);
     d.setDate(d.getDate() - (reachValues.length - 1 - i));
+    const dateStr = d.toISOString().split('T')[0];
+    const bd = reachBreakdownByDate.get(dateStr);
     return {
-      date: d.toISOString().split('T')[0],
+      date: dateStr,
       reach: val,
       followerCount: followerAbsoluteValues[i] ?? null,
       views: viewsValues[i] ?? 0,
       accountsEngaged: engagedValues[i] ?? 0,
       totalInteractions: interactionsValues[i] ?? 0,
       websiteClicks: websiteClicksValues[i] ?? 0,
-
+      reachFollower: bd?.follower ?? null,
+      reachNonFollower: bd?.nonFollower ?? null,
     };
   });
 
