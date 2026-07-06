@@ -111,7 +111,18 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     insightMap[metric.name] = (metric.values || []).map((v: any) => v.value || 0);
   }
   const sum = (arr: number[]) => (arr || []).reduce((a: number, b: number) => a + b, 0);
-  const engagedTotal = (engagedData?.data || []).reduce((acc: number, m: any) => acc + (m.total_value?.value || 0), 0);
+  // engagedData contient 2 métriques distinctes (accounts_engaged ET total_interactions)
+  // dans le même appel — un .reduce() sur tout le tableau sans distinguer m.name
+  // additionnait les deux valeurs ensemble et assignait cette somme aux deux colonnes
+  // (même bug déjà corrigé dans lib/ig-fetch.ts le 2026-07-06 — cette Edge Function
+  // a sa propre copie dupliquée de la logique, jamais mise à jour à ce moment-là).
+  let accountsEngagedTotal = 0;
+  let totalInteractionsTotal = 0;
+  for (const m of (engagedData?.data || [])) {
+    const v = m.total_value?.value || 0;
+    if (m.name === 'accounts_engaged') accountsEngagedTotal += v;
+    else if (m.name === 'total_interactions') totalInteractionsTotal += v;
+  }
 
   return {
     ig_reach:              sum(insightMap['reach'] || []) || null,
@@ -121,8 +132,8 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_follows_unfollows:  sum(insightMap['follows_and_unfollows'] || []) || null,
     ig_profile_taps:       sum(insightMap['profile_links_taps'] || []) || null,
     ig_website_clicks:     sum(insightMap['website_clicks'] || []) || null,
-    ig_accounts_engaged:   engagedTotal || null,
-    ig_total_interactions: engagedTotal || null,
+    ig_accounts_engaged:   accountsEngagedTotal || null,
+    ig_total_interactions: totalInteractionsTotal || null,
     ig_lead_count:         null,
     ig_response_rate:      null,
   };
