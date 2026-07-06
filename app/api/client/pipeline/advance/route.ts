@@ -34,10 +34,26 @@ export async function POST(request: Request) {
   // Récupérer lead + prospect_link en parallèle
   const [{ data: lead }, { data: pl }] = await Promise.all([
     supa.from('instagram_leads').select('id').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
-    supa.from('prospect_links').select('id, short_url, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
+    supa.from('prospect_links').select('id, short_url, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached').eq('profile_id', user.id).eq('ig_username', username).maybeSingle(),
   ]);
 
   const ops: PromiseLike<any>[] = [];
+
+  // ── Plancher : mémorise l'étape confirmée manuellement pour empêcher un signal
+  // auto re-déclenché (ex: nouveau commentaire) de faire reculer la carte plus tard —
+  // seulement si strictement plus avancée que le plancher déjà stocké.
+  if (pl) {
+    const floorIdx = pl.min_stage_reached ? IG_PRE_CALL.indexOf(pl.min_stage_reached as IgPreCallStage) : -1;
+    if (targetIdx > floorIdx) {
+      ops.push(
+        supa.from('prospect_links')
+          .update({ min_stage_reached: target_stage })
+          .eq('profile_id', user.id)
+          .eq('ig_username', username)
+          .then()
+      );
+    }
+  }
 
   // ── in_convo : hook_replied (seulement si on vient de lm_sent) ────────────
   if (currentIdx < IG_PRE_CALL.indexOf('in_convo') && targetIdx >= IG_PRE_CALL.indexOf('in_convo')) {

@@ -545,7 +545,19 @@ export async function POST(request: Request) {
       }
 
       // Upsert lead — 1 seule row par prospect (profile_id, ig_user_id)
-      // On met à jour le keyword/media/lm si le prospect revient pour un autre LM
+      // On met à jour le keyword/media/lm si le prospect revient pour un autre LM, mais
+      // detected_at ne doit JAMAIS être réécrit sur un lead existant : c'est la date de
+      // première détection utilisée pour dériver l'étape du pipeline (natural) et pour
+      // classer le lead au bon jour dans les stats — un commentaire répété (même mot-clé,
+      // autre post) ne doit ni faire reculer le pipeline ni reclasser le lead à aujourd'hui.
+      // Les commentaires répétés restent tracés via instagram_lead_lm_history plus bas.
+      const { data: existingLead } = await serviceSupabase
+        .from('instagram_leads')
+        .select('id, detected_at')
+        .eq('profile_id', profile_id)
+        .eq('ig_user_id', commenterId)
+        .maybeSingle();
+
       const { data: upsertedLead } = await serviceSupabase
         .from('instagram_leads')
         .upsert({
@@ -557,7 +569,7 @@ export async function POST(request: Request) {
           media_id: mediaId || commentId,
           media_permalink: mediaPermalink,
           keyword_matched: matchedKeyword,
-          detected_at: timestamp,
+          detected_at: existingLead?.detected_at ?? timestamp,
           lead_magnet_sent: leadMagnetSent,
           tracking_link: shortLink || null,
           pending_dm2: dm2Text || null,

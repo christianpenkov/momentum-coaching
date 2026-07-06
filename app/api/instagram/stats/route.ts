@@ -193,6 +193,23 @@ export async function GET(request: Request) {
   const interactionsValues = insightMap['total_interactions'] || [];
   const websiteClicksValues = insightMap['website_clicks'] || [];
 
+  // Reconstruit la série "Abonnés" en nombre ABSOLU (pas en delta) : follower_count
+  // (insights) n'est qu'un delta quotidien et sujet au même ~48h de délai Meta que
+  // online_followers (aucun contournement n'existait ici). accountData.followers_count
+  // est le compte réel, temps réel, déjà fetché dans le même Promise.all — on part de
+  // ce nombre pour aujourd'hui et on remonte en arrière en soustrayant les deltas
+  // connus, pour obtenir une vraie série absolue (cohérente avec l'historique
+  // igHist déjà construit ainsi via lib/ig-fetch.ts).
+  const todayAbsoluteFollowers: number | null = typeof accountData.followers_count === 'number' ? accountData.followers_count : null;
+  const followerAbsoluteValues: (number | null)[] = new Array(followerDeltaValues.length).fill(null);
+  if (todayAbsoluteFollowers !== null && followerDeltaValues.length > 0) {
+    followerAbsoluteValues[followerDeltaValues.length - 1] = todayAbsoluteFollowers;
+    for (let i = followerDeltaValues.length - 2; i >= 0; i--) {
+      const nextVal = followerAbsoluteValues[i + 1];
+      followerAbsoluteValues[i] = nextVal !== null ? nextVal - (followerDeltaValues[i + 1] ?? 0) : null;
+    }
+  }
+
   const today = new Date();
   const chartData = reachValues.map((val: number, i: number) => {
     const d = new Date(today);
@@ -200,7 +217,7 @@ export async function GET(request: Request) {
     return {
       date: d.toISOString().split('T')[0],
       reach: val,
-      followerCount: followerDeltaValues[i] ?? null,
+      followerCount: followerAbsoluteValues[i] ?? null,
       views: viewsValues[i] ?? 0,
       accountsEngaged: engagedValues[i] ?? 0,
       totalInteractions: interactionsValues[i] ?? 0,

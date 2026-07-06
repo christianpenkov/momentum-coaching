@@ -40,7 +40,7 @@ export async function GET() {
       .eq('profile_id', user.id)
       .order('detected_at', { ascending: false }),
     supa.from('prospect_links')
-      .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at')
+      .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached')
       .eq('profile_id', user.id)
       .order('created_at', { ascending: false }),
     supa.from('prospects')

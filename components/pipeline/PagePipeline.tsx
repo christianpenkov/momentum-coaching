@@ -35,6 +35,7 @@ interface ProspectLink {
   calendly_link_sent_at: string | null;       // premier envoi (figé — guard linkClickedValid)
   last_calendly_link_sent_at: string | null;  // dernier envoi (mis à jour à chaque renvoi)
   first_click_at: string | null;
+  min_stage_reached: string | null;  // plancher IG_STAGES — jamais reculer en dessous, même si un signal auto plus faible se re-déclenche
 }
 
 interface Call {
@@ -1123,6 +1124,15 @@ export default function PagePipeline() {
       if (lead?.hook_replied) { natural = 'in_convo'; }
       if (calendlySentValid) { natural = 'calendly_sent'; }
       if (linkClickedValid)  { natural = 'link_clicked'; }
+
+      // Plancher : un signal auto qui se re-déclenche (ex: nouveau commentaire du même
+      // lead) ne doit jamais faire reculer la carte en dessous de l'étape déjà atteinte
+      // (auto ou confirmée manuellement) — seule une vraie progression peut la dépasser.
+      if (prospect?.min_stage_reached) {
+        const floorIdx = IG_STAGES.findIndex(s => s.key === prospect.min_stage_reached);
+        const naturalIdx = IG_STAGES.findIndex(s => s.key === natural);
+        if (floorIdx > naturalIdx) natural = prospect.min_stage_reached as IgStageKey;
+      }
 
       const prospectPath = prospect?.short_url
         ? (() => { try { return new URL(prospect.short_url).pathname.slice(1); } catch { return null; } })()
