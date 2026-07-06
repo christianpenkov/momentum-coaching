@@ -1830,7 +1830,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const ytNoShowRate = ytBookes > 0 ? pct(ytNoShows, ytBookes) : 0;
 
   // Données jour par jour pour les modals d'efficacité par plateforme
-  function buildEffDayData(platformCalls: CallRecord[], metricIdx: number, reachByDate?: Map<string, number>): { date: string; v: number }[] {
+  function buildEffDayData(platformCalls: CallRecord[], metricIdx: number): { date: string; v: number }[] {
     const days: string[] = [];
     const d = new Date(periodStart);
     while (d.getTime() <= periodEnd.getTime()) {
@@ -1844,27 +1844,21 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       const closed = cs.filter(c => c.deal_closed).length;
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
       const noShows = cs.filter(c => c.no_show).length;
-      // metricIdx correspond à l'index dans row.metrics : 0=reach/vues pour 1 call, 1=bookés,
-      // 2=no-show, 3=close rate, 4=rev/call booké, 5=revenue total.
       let v = 0;
-      if (metricIdx === 0) v = booked > 0 ? Math.round((reachByDate?.get(iso) ?? 0) / booked) : 0;
-      else if (metricIdx === 1) v = booked;
-      else if (metricIdx === 2) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
-      else if (metricIdx === 3) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
-      else if (metricIdx === 4) v = booked > 0 ? Math.round(rev / booked) : 0;
-      else if (metricIdx === 5) v = rev;
+      if (metricIdx === 1) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
+      else if (metricIdx === 2) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
+      else if (metricIdx === 3) v = booked > 0 ? Math.round(rev / booked) : 0;
+      else if (metricIdx === 4) v = rev;
       return { date: iso, v };
     });
   }
 
   type EffMetric = { label: string; value: string; prevValue: string | null; delta: { value: number; label: string; color: string } | null; lowerIsBetter: boolean };
-  type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[]; reachByDate: Map<string, number> };
-  const igReachByDate = new Map<string, number>((ig?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.reach]));
-  const ytReachByDate = new Map<string, number>((yt?.chartData ?? []).filter(dd => inFunnelDateWindow(dd.date)).map(dd => [dd.date, dd.views]));
+  type EffRow = { platform: string; color: string; metrics: EffMetric[]; platformCalls: CallRecord[] };
   // ── Efficacité par plateforme (données réelles, pas de comparaison historique) ──
   const effRows: EffRow[] = [
     {
-      platform: 'Instagram', color: IG_COLOR, platformCalls: callsIG, reachByDate: igReachByDate,
+      platform: 'Instagram', color: IG_COLOR, platformCalls: callsIG,
       metrics: [
         { label: 'Reach pour 1 call', value: igBookes > 0 ? fmt(Math.round(igReachD / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(igBookes), prevValue: null, delta: null, lowerIsBetter: false },
@@ -1875,7 +1869,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       ],
     },
     {
-      platform: 'YouTube', color: YT_COLOR, platformCalls: callsYT, reachByDate: ytReachByDate,
+      platform: 'YouTube', color: YT_COLOR, platformCalls: callsYT,
       metrics: [
         { label: 'Vues pour 1 call', value: ytBookes > 0 ? fmt(Math.round(ytViewsD / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Calls bookés', value: fmt(ytBookes), prevValue: null, delta: null, lowerIsBetter: false },
@@ -1904,6 +1898,31 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       {(() => {
         const noShowCount = callsInWindow.filter(c => c.no_show).length;
         const revPerCall = totalBookes > 0 ? Math.round(totalRev / totalBookes) : 0;
+
+        // Hero chart data — réel depuis calls agrégés par jour
+        const callsP = callsInWindow;
+        function buildDay2(filterFn: (c: CallRecord) => boolean, valFn: (cs: CallRecord[]) => number) {
+          const days: string[] = [];
+          const d = new Date(periodStart);
+          while (d.getTime() <= periodEnd.getTime()) {
+            days.push(d.toISOString().split('T')[0]);
+            d.setUTCDate(d.getUTCDate() + 1);
+          }
+          return days.map(iso => {
+            const cs = callsP.filter(c => c.scheduled_at?.startsWith(iso) && filterFn(c));
+            return { date: iso, v: valFn(cs) };
+          });
+        }
+        const heroCharts: { data: { date: string; v: number }[]; color: string; unit: string; fmtV: (v: number) => string }[] = [
+          { color: 'var(--ink)', unit: 'calls', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.status === 'active').length) },
+          { color: AMBER, unit: 'honorés', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length) },
+          { color: GREEN, unit: 'closés', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.deal_closed).length) },
+          { color: GREEN, unit: '€', fmtV: (v) => `${v} €`, data: buildDay2(() => true, cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
+          { color: GREEN, unit: '€/call', fmtV: (v) => `${v} €`, data: buildDay2(c => !!(c.deal_closed && c.revenue), cs => cs.reduce((s, c) => s + (c.revenue || 0), 0)) },
+          { color: RED, unit: 'no-shows', fmtV: String, data: buildDay2(() => true, cs => cs.filter(c => c.no_show).length) },
+          { color: IG_COLOR, unit: 'calls IG', fmtV: String, data: buildDay2(isIGCall, cs => cs.filter(c => c.status === 'active').length) },
+          { color: YT_COLOR, unit: 'calls YT', fmtV: String, data: buildDay2(isYTCall, cs => cs.filter(c => c.status === 'active').length) },
+        ];
 
         const heroItems = [
           { label: 'Calls bookés',  value: fmt(totalBookes),   sub: 'toutes sources' },
@@ -1996,26 +2015,23 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                       });
                     };
 
-                    // L'ordre DOIT correspondre exactement à heroItems (même index cliqué
-                    // via expandedHero) : 0=bookés, 1=calls IG, 2=calls YT, 3=honorés,
-                    // 4=no-show, 5=closés, 6=revenue total, 7=rev/call.
                     const modalCharts: { data: { date: string; v: number }[]; color: string; fmtV: (v: number) => string }[] = [
                       // 0 Calls bookés
                       { color: 'var(--ink)', fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'booked') },
-                      // 1 Calls IG
-                      { color: IG_COLOR, fmtV: String, data: toCallsData(callsIG, 'booked') },
-                      // 2 Calls YT
-                      { color: YT_COLOR, fmtV: String, data: toCallsData(callsYT, 'booked') },
-                      // 3 Calls honorés
+                      // 1 Calls honorés
                       { color: AMBER, fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'honored') },
-                      // 4 No-show
-                      { color: RED, fmtV: String, data: toCallsData([...callsIG, ...callsYT].filter(c => c.no_show), 'booked') },
-                      // 5 Deals closés
+                      // 2 Deals closés
                       { color: GREEN, fmtV: String, data: toCallsData([...callsIG, ...callsYT], 'closed') },
-                      // 6 Revenue total
+                      // 3 Revenue total
                       { color: GREEN, fmtV: (v) => `${v} €`, data: toCallsData([...callsIG, ...callsYT], 'rev') },
-                      // 7 Rev / call — moyenne sur la période
+                      // 4 Rev / call — moyenne sur la période
                       { color: GREEN, fmtV: (v) => `${Math.round(v)} €`, data: toCallsData([...callsIG, ...callsYT], 'honored').map(pt => ({ date: pt.date, v: pt.v > 0 ? revPerCall7 : 0 })) },
+                      // 5 No-show
+                      { color: RED, fmtV: String, data: toCallsData([...callsIG, ...callsYT].filter(c => c.no_show), 'booked') },
+                      // 6 Calls IG
+                      { color: IG_COLOR, fmtV: String, data: toCallsData(callsIG, 'booked') },
+                      // 7 Calls YT
+                      { color: YT_COLOR, fmtV: String, data: toCallsData(callsYT, 'booked') },
                     ];
                     const chart = modalCharts[expandedHero!];
                     return (<>
@@ -2085,7 +2101,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     ? `hsl(142, ${Math.round(50 + greenIntensity * 50)}%, ${Math.round(38 - greenIntensity * 8)}%)`
                     : undefined;
                   const deltaColor = d ? (isGood ? greenColor! : isBad ? RED : 'var(--muted)') : 'var(--muted)';
-                  const effData = buildEffDayData(row.platformCalls, mi, row.reachByDate);
+                  const effData = buildEffDayData(row.platformCalls, mi);
                   return (
                     <div key={mi}
                       onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: effData }); onModalChange?.(true); }}
@@ -4985,17 +5001,13 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     if (!row.date || !row.link_category || !CHART_BUSINESS_CATS.has(row.link_category)) continue;
     chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + (row.human_clicks ?? 0));
   }
-  // Comble les jours sans clic à 0 — sinon le graphique n'affiche qu'un point isolé par jour avec clics.
-  // Bornes calendaires réelles (mêmes _periodStart/_periodEnd que le reste de la fonction),
-  // pas une fenêtre glissante indépendante (cf. bug remonté "clics totaux à 0" 2026-07-06).
+  // Comble les jours sans clic à 0 — sinon le graphique n'affiche qu'un point isolé par jour avec clics
   const shortioChartHistory: { date: string; clicks: number }[] = [];
-  {
-    const d = new Date(_periodStart);
-    while (d.getTime() <= _periodEnd.getTime()) {
-      const dateStr = d.toISOString().slice(0, 10);
-      shortioChartHistory.push({ date: dateStr, clicks: chartByDate.get(dateStr) ?? 0 });
-      d.setUTCDate(d.getUTCDate() + 1);
-    }
+  for (let i = period - 1; i >= 0; i--) {
+    const d = new Date();
+    d.setUTCDate(d.getUTCDate() - i);
+    const dateStr = d.toISOString().slice(0, 10);
+    shortioChartHistory.push({ date: dateStr, clicks: chartByDate.get(dateStr) ?? 0 });
   }
 
   return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory };
