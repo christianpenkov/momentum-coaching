@@ -721,7 +721,14 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       });
   }, [clientId, userId, supabase]);
 
+  // Tant que le calcul du premier non-lu (voir useLayoutEffect de scroll plus bas) n'a pas eu
+  // lieu pour cette ouverture de conversation, on refuse tout marquage "lu" automatique — même
+  // si l'IntersectionObserver d'une bulle se déclenche. Sans ce garde : un message reçu pendant
+  // que l'app est en arrière-plan pouvait être marqué lu automatiquement au retour, AVANT que
+  // l'utilisateur n'ait eu la moindre chance de le voir — et donc jamais compté comme non-lu.
+  const suppressAutoReadRef = useRef(true);
   const markMessageRead = useCallback((msgId: string) => {
+    if (suppressAutoReadRef.current) return;
     setMessages(prev => {
       const msg = prev.find(m => m.id === msgId);
       if (!msg || msg.read_at) return prev;
@@ -775,7 +782,13 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       }
     };
     presenceCh.on('broadcast', { event: 'typing' }, handler);
-    return () => { if (typingTimerRef.current) clearTimeout(typingTimerRef.current); };
+    return () => {
+      // Annuler le timer sans réinitialiser clientTyping laissait l'indicateur "en train
+      // d'écrire" bloqué indéfiniment si le canal était recréé entre le setClientTyping(true)
+      // et l'expiration du timer de 3s — plus rien ne repassait alors clientTyping à false.
+      if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+      setClientTyping(false);
+    };
   }, [presenceCh]);
 
   const initialScrollDone = useRef(false);
@@ -842,6 +855,10 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       settlingRef.current = true;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       setContentReady(true);
+      // Le calcul du premier non-lu (firstUnread) est fait — on peut désormais laisser
+      // l'IntersectionObserver de chaque bulle marquer les messages lus normalement au fil du
+      // scroll, sans risquer d'avoir marqué prématurément un message reçu pendant l'absence.
+      suppressAutoReadRef.current = false;
       // BUG CRITIQUE CORRIGÉ : ce setTimeout était posé DANS ce useLayoutEffect (dépendances
       // [messages, ...]) avec un cleanup `return () => clearTimeout(t)`. React exécute ce
       // cleanup à CHAQUE redéclenchement de l'effet (donc à chaque nouveau message) — mais un
