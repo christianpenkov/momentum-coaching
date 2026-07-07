@@ -847,8 +847,15 @@ export default function PageClientMessages() {
   const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const isSubscribedRef = useRef(false);
   const lastTypingSentRef = useRef<number>(0);
+  // Dernier online_at connu du coach — permet un TTL local indépendant de l'état du canal
+  // WebSocket (voir useEffect de présence plus bas pour le détail du pattern).
+  const lastCoachSeenRef = useRef<number | null>(null);
 
-  const supabase = useRef(createClient()).current;
+  // worker: true déporte le heartbeat WebSocket Realtime dans un Web Worker — insensible au
+  // throttling de timers que les navigateurs appliquent aux onglets en arrière-plan, cause
+  // principale des faux "hors ligne"/"en ligne" figés observés en prod (canal resté ouvert
+  // des heures sans que le heartbeat parte, donc sans que le serveur détecte la coupure).
+  const supabase = useRef(createClient({ worker: true, heartbeatIntervalMs: 15_000 })).current;
 
   useEffect(() => {
     try { if (typeof window !== 'undefined' && window.MediaRecorder) setMediaRecorderSupported(true); }
@@ -959,11 +966,16 @@ export default function PageClientMessages() {
     return () => { supabase.removeChannel(channel); };
   }, [clientId, supabase]);
 
-  // ── Presence : écoute coach + typing (canal messagerie uniquement pour broadcast)
-  // presenceRetryKey force la recréation complète du canal — nécessaire quand le WebSocket
-  // meurt silencieusement (veille OS, coupure réseau) sans que visibilitychange se déclenche :
-  // le dernier état "sync" connu reste figé indéfiniment sinon (ex: coach vu "en ligne" des
-  // heures après sa vraie déconnexion, jusqu'au prochain hard refresh).
+  // ── Presence : écoute coach + typing (canal messagerie uniquement pour broadcast) ──────
+  // Pattern robuste inspiré de Slack/Discord — on ne fait JAMAIS confiance à la seule
+  // présence du peer dans presenceState() : le join/leave du canal peut rester bloqué des
+  // heures si le WebSocket meurt silencieusement, sans jamais déclencher de "leave" côté
+  // serveur (cause du bug "en ligne" figé constaté en prod). Trois protections combinées :
+  //  1. Heartbeat applicatif (heartbeatRef) : re-track() toutes les 20s avec online_at frais.
+  //  2. TTL local (staleCheck) : le coach n'est "en ligne" que si son dernier online_at a
+  //     moins de PRESENCE_STALE_MS — vérifié indépendamment de l'état du canal WebSocket.
+  //  3. presenceRetryKey force la recréation du canal sur retour réseau ou erreur
+  //     (CHANNEL_ERROR/TIMED_OUT/CLOSED), au lieu d'attendre un hard refresh.
   const [presenceRetryKey, setPresenceRetryKey] = useState(0);
   useEffect(() => {
     const onOnline = () => setPresenceRetryKey(k => k + 1);
@@ -982,13 +994,22 @@ export default function PageClientMessages() {
     // pour que le broadcast typing soit disponible dès la première frappe
     presenceChRef.current = ch;
 
+    const track = () => ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
+
     ch.on('presence', { event: 'sync' }, () => {
         const state = ch.presenceState();
-        const coachOnline = Object.entries(state).some(([key, entries]) =>
+        const coachEntry = Object.entries(state).find(([key, entries]) =>
           key !== userId &&
           (entries as Array<Record<string, unknown>>).some(e => e.role === 'coach')
         );
-        setIsCoachOnline(coachOnline);
+        if (coachEntry) {
+          const entry = (coachEntry[1] as Array<Record<string, unknown>>).find(e => e.role === 'coach');
+          lastCoachSeenRef.current = entry?.online_at ? new Date(entry.online_at as string).getTime() : Date.now();
+          setIsCoachOnline(true);
+        } else {
+          lastCoachSeenRef.current = null;
+          setIsCoachOnline(false);
+        }
       })
       .on('broadcast', { event: 'typing' }, (payload) => {
         if (payload.payload?.role === 'coach') {
@@ -997,12 +1018,10 @@ export default function PageClientMessages() {
           typingTimerRef.current = setTimeout(() => setCoachTyping(false), 3000);
         }
       })
-      .subscribe(async (status) => {
+      .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           isSubscribedRef.current = true;
-          if (document.visibilityState === 'visible') {
-            await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
-          }
+          if (document.visibilityState === 'visible') track();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
           // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
@@ -1011,19 +1030,37 @@ export default function PageClientMessages() {
         }
       });
 
+    // Heartbeat applicatif — re-track périodique pour garder online_at frais côté coach,
+    // indépendamment du heartbeat bas niveau du WebSocket (qui peut être throttlé en tab
+    // background sans worker: true, mais on garde ce filet applicatif en plus par robustesse).
+    const heartbeatId = setInterval(() => {
+      if (isSubscribedRef.current && document.visibilityState === 'visible') track();
+    }, 20_000);
+
+    // TTL local — le coach n'est plus "en ligne" si son dernier online_at dépasse 50s, même
+    // si le canal ne l'a jamais formellement retiré du presenceState() (WebSocket mort sans
+    // "leave" propagé). Vérifié toutes les 5s, indépendamment de tout événement du canal.
+    const staleCheckId = setInterval(() => {
+      if (lastCoachSeenRef.current !== null && Date.now() - lastCoachSeenRef.current > 50_000) {
+        setIsCoachOnline(false);
+      }
+    }, 5_000);
+
     // Gérer verrouillage écran : untrack quand caché, retrack quand visible
-    const handleVisibility = async () => {
+    const handleVisibility = () => {
       if (!presenceChRef.current || !isSubscribedRef.current) return;
       if (document.visibilityState === 'hidden') {
-        await presenceChRef.current.untrack();
+        presenceChRef.current.untrack();
       } else {
-        await presenceChRef.current.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
+        track();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       isSubscribedRef.current = false;
+      clearInterval(heartbeatId);
+      clearInterval(staleCheckId);
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
       presenceChRef.current = null;
@@ -1049,6 +1086,11 @@ export default function PageClientMessages() {
   // des images/audio finissent de charger après coup et changent la hauteur du contenu
   // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
   const stickToBottomRef = useRef(true);
+  // Ancrage sur le séparateur "Nouveaux messages" (cas landedOnUnread) — protège la position
+  // pendant la stabilisation exactement comme stickToBottomRef protège le bas absolu. Sans ça,
+  // le reflow post-paint (constaté : léger recul de quelques messages au-dessus du divider)
+  // n'était corrigé nulle part, car la boucle rAF de stabilisation ne recollait qu'au bas.
+  const stickToDividerRef = useRef(false);
   // Pendant la phase de stabilisation (hard refresh : viewport mobile qui rétrécit quand la
   // barre d'adresse se replie, fonts qui swap, hydration) le navigateur peut émettre un event
   // "scroll" natif alors que l'utilisateur n'a rien touché — on ignore onScroll pendant cette
@@ -1086,7 +1128,9 @@ export default function PageClientMessages() {
       initialScrollDone.current = true;
       // Ancrage bas désactivé si on a atterri sur un message non lu au milieu de l'historique —
       // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
+      // On protège alors la position du divider à la place (stickToDividerRef).
       stickToBottomRef.current = !target;
+      stickToDividerRef.current = !!target;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       const t = setTimeout(() => {
         settlingRef.current = false;
@@ -1106,21 +1150,30 @@ export default function PageClientMessages() {
   // Un seul scrollTo() par notification ResizeObserver s'est révélé insuffisant en pratique
   // (constaté : écart de plusieurs messages malgré des logs indiquant gap:0 juste avant — le
   // contenu continue de grandir entre deux notifications regroupées par le navigateur). Cette
-  // boucle vérifie et corrige à CHAQUE frame tant qu'on est en phase de stabilisation et
-  // ancré en bas, donc aucune fenêtre de croissance non détectée n'est possible.
+  // boucle vérifie et corrige à CHAQUE frame tant qu'on est en phase de stabilisation, ancré
+  // en bas OU ancré sur le divider "Nouveaux messages" (cas landedOnUnread), donc aucune
+  // fenêtre de croissance non détectée n'est possible dans les deux cas.
   useEffect(() => {
     if (loading || !settlingRef.current) return;
     let rafId: number | null = null;
     const tick = () => {
       const c = chatZoneRef.current;
-      if (!c || !stickToBottomRef.current || !settlingRef.current) { rafId = null; return; }
-      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      if (!c || !settlingRef.current) { rafId = null; return; }
+      if (stickToBottomRef.current) {
+        const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+        if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      } else if (stickToDividerRef.current) {
+        const target = document.getElementById(`unread-divider-${clientId}`);
+        if (target) target.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
+      } else {
+        rafId = null;
+        return;
+      }
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
-  }, [loading, messages]);
+  }, [loading, messages, clientId]);
 
   // Après la fenêtre de stabilisation (images/audio qui chargent encore plus tard), le
   // ResizeObserver reste le filet de sécurité classique — moins critique une fois le layout

@@ -793,6 +793,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   // des images/audio finissent de charger après coup et changent la hauteur du contenu
   // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
   const stickToBottomRef = useRef(true);
+  // Ancrage sur le séparateur "Nouveaux messages" (cas landedOnUnread) — protège la position
+  // pendant la stabilisation exactement comme stickToBottomRef protège le bas absolu.
+  const stickToDividerRef = useRef(false);
   // Pendant la phase de stabilisation (hard refresh : viewport mobile qui rétrécit quand la
   // barre d'adresse se replie, fonts qui swap, hydration) le navigateur peut émettre un event
   // "scroll" natif alors que l'utilisateur n'a rien touché — on ignore onScroll pendant cette
@@ -826,7 +829,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       initialScrollDone.current = true;
       // Ancrage bas désactivé si on a atterri sur un message non lu au milieu de l'historique —
       // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
+      // On protège alors la position du divider à la place (stickToDividerRef).
       stickToBottomRef.current = !target;
+      stickToDividerRef.current = !!target;
       settlingRef.current = true;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       const t = setTimeout(() => { settlingRef.current = false; }, 2500);
@@ -848,14 +853,22 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     let rafId: number | null = null;
     const tick = () => {
       const c = chatZoneRef.current;
-      if (!c || !stickToBottomRef.current || !settlingRef.current) { rafId = null; return; }
-      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      if (!c || !settlingRef.current) { rafId = null; return; }
+      if (stickToBottomRef.current) {
+        const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+        if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      } else if (stickToDividerRef.current) {
+        const target = document.getElementById(`unread-divider-${clientId}`);
+        if (target) target.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
+      } else {
+        rafId = null;
+        return;
+      }
       rafId = requestAnimationFrame(tick);
     };
     rafId = requestAnimationFrame(tick);
     return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
-  }, [loading, messages]);
+  }, [loading, messages, clientId]);
 
   // Après la fenêtre de stabilisation (images/audio qui chargent encore plus tard), le
   // ResizeObserver reste le filet de sécurité classique.
@@ -1394,9 +1407,15 @@ export default function PageChat() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [onlineClients, setOnlineClients] = useState<Set<string>>(new Set());
-  const supabase = useRef(createClient()).current;
+  // worker: true déporte le heartbeat WebSocket Realtime dans un Web Worker — insensible au
+  // throttling de timers que les navigateurs appliquent aux onglets en arrière-plan, cause
+  // principale des faux "hors ligne"/"en ligne" figés observés en prod.
+  const supabase = useRef(createClient({ worker: true, heartbeatIntervalMs: 15_000 })).current;
   const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [presenceCh, setPresenceCh] = useState<ReturnType<typeof supabase.channel> | null>(null);
+  // Dernier online_at connu du client actif — TTL local indépendant de l'état du canal
+  // WebSocket (voir le useEffect de présence plus bas pour le détail du pattern).
+  const lastClientSeenRef = useRef<number | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
@@ -1418,26 +1437,36 @@ export default function PageChat() {
   }, []);
 
   // Presence coach : écoute présence client sur les deux canaux (messagerie + global)
+  // Pattern robuste inspiré de Slack/Discord — voir commentaire détaillé dans
+  // PageClientMessages.tsx (même logique, symétrique).
   useEffect(() => {
     if (!userId || !activeId) return;
 
     const ch = supabase.channel(`presence-chat-${activeId}`, {
       config: { presence: { key: userId } },
     });
+    const track = () => ch.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
+
     ch.on('presence', { event: 'sync' }, () => {
         const state = ch.presenceState();
-        const isOnline = Object.entries(state).some(([key, entries]) =>
+        const clientEntry = Object.entries(state).find(([key, entries]) =>
           key !== userId && (entries as Array<Record<string, unknown>>).some(e => e.role === 'client')
         );
+        if (clientEntry) {
+          const entry = (clientEntry[1] as Array<Record<string, unknown>>).find(e => e.role === 'client');
+          lastClientSeenRef.current = entry?.online_at ? new Date(entry.online_at as string).getTime() : Date.now();
+        } else {
+          lastClientSeenRef.current = null;
+        }
         setOnlineClients(prev => {
           const next = new Set(prev);
-          if (isOnline) next.add(activeId); else next.delete(activeId);
+          if (clientEntry) next.add(activeId); else next.delete(activeId);
           return next;
         });
       })
-      .subscribe(async (status) => {
-        if (status === 'SUBSCRIBED' && document.visibilityState === 'visible') {
-          await ch.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          if (document.visibilityState === 'visible') track();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
           // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
@@ -1447,17 +1476,38 @@ export default function PageChat() {
     presenceChRef.current = ch;
     setPresenceCh(ch);
 
-    const handleVisibility = async () => {
+    // Heartbeat applicatif — re-track périodique pour garder online_at frais côté client.
+    const heartbeatId = setInterval(() => {
+      if (document.visibilityState === 'visible') track();
+    }, 20_000);
+
+    // TTL local — le client n'est plus "en ligne" si son dernier online_at dépasse 50s, même
+    // si le canal ne l'a jamais formellement retiré du presenceState() (WebSocket mort sans
+    // "leave" propagé).
+    const staleCheckId = setInterval(() => {
+      if (lastClientSeenRef.current !== null && Date.now() - lastClientSeenRef.current > 50_000) {
+        lastClientSeenRef.current = null;
+        setOnlineClients(prev => {
+          const next = new Set(prev);
+          next.delete(activeId);
+          return next;
+        });
+      }
+    }, 5_000);
+
+    const handleVisibility = () => {
       if (!presenceChRef.current) return;
       if (document.visibilityState === 'hidden') {
-        await presenceChRef.current.untrack();
+        presenceChRef.current.untrack();
       } else {
-        await presenceChRef.current.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
+        track();
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      clearInterval(heartbeatId);
+      clearInterval(staleCheckId);
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
       presenceChRef.current = null;
