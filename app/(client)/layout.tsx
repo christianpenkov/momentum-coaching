@@ -9,6 +9,7 @@ import { UserProvider, useUser } from '@/lib/UserContext';
 import { GlobalPresenceClientProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
+import PushPermissionGate from '@/components/PushPermissionGate';
 
 function ClientLayoutInner({ children, shellRef, navRef }: {
   children: React.ReactNode;
@@ -19,6 +20,7 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   usePushNotifications(user?.id ?? null);
   return (
     <div ref={shellRef} className="app-shell-pwa">
+      <PushPermissionGate userId={user?.id ?? null} />
       <TopBar />
       <div className="app-body-pwa">
         <SidebarClient />
