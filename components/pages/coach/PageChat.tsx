@@ -780,6 +780,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   // des images/audio finissent de charger après coup et changent la hauteur du contenu
   // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
   const stickToBottomRef = useRef(true);
+  // Pendant la phase de stabilisation (hard refresh : viewport mobile qui rétrécit quand la
+  // barre d'adresse se replie, fonts qui swap, hydration) le navigateur peut émettre un event
+  // "scroll" natif alors que l'utilisateur n'a rien touché — on ignore onScroll pendant cette
+  // fenêtre pour ne pas désarmer stickToBottomRef par erreur.
+  const settlingRef = useRef(true);
   useEffect(() => {
     if (loading) return;
     const container = chatZoneRef.current;
@@ -790,6 +795,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
       initialScrollDone.current = true;
       stickToBottomRef.current = true;
+      settlingRef.current = true;
+      const t = setTimeout(() => { settlingRef.current = false; }, 1200);
+      return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
@@ -930,7 +938,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     const el = e.currentTarget;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollArrow(distanceFromBottom > 120);
-    stickToBottomRef.current = distanceFromBottom < 40;
+    // Pendant la stabilisation (settlingRef), un "scroll" natif peut venir du navigateur
+    // lui-même (reflow viewport/fonts), pas de l'utilisateur — on ne désarme pas l'ancrage bas.
+    if (!settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
     const el = chatZoneRef.current;
