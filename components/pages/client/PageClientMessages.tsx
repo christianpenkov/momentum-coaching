@@ -8,6 +8,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
+import DebugScrollOverlay from './DebugScrollOverlay';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1052,6 +1053,8 @@ export default function PageClientMessages() {
       // "Nouveaux messages" doit être monté dans le DOM avant qu'on puisse scroller dessus).
       firstUnreadComputedRef.current = true;
       const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
+      // eslint-disable-next-line no-console
+      console.log('[chat-scroll] firstUnread computed', { found: !!firstUnread, id: firstUnread?.id, totalMsgs: messages.length });
       if (firstUnread) { setFirstUnreadId(firstUnread.id); return; }
     }
     if (!initialScrollDone.current) {
@@ -1070,7 +1073,7 @@ export default function PageClientMessages() {
       // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
       stickToBottomRef.current = !target;
       // eslint-disable-next-line no-console
-      console.log('[chat-scroll] initial scroll', { landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
+      console.log('[chat-scroll] initial scroll', { firstUnreadId, landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       const t = setTimeout(() => {
         settlingRef.current = false;
         const c = chatZoneRef.current;
@@ -1734,6 +1737,7 @@ export default function PageClientMessages() {
         </div>,
         document.body
       )}
+      <DebugScrollOverlay />
     </AudioContext.Provider>
   );
 }
