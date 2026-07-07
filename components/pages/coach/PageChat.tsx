@@ -830,6 +830,14 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   // côté élève, même bug attendu ici). On refait le reset sur un retour au premier plan après
   // une absence significative (seuil 5s pour ignorer les micro-blur/focus).
   const hiddenAtRef = useRef<number | null>(null);
+  // Compteur incrémenté à CHAQUE reset (pas un booléen/valeur qui peut retomber sur elle-même) —
+  // ajouté aux dépendances du useLayoutEffect juste en dessous pour GARANTIR sa ré-exécution.
+  // Bug corrigé : setFirstUnreadId(null) seul ne redéclenche l'effet que si firstUnreadId était
+  // déjà non-null — s'il était déjà null, React bail-out (Object.is égal) et ne re-render pas,
+  // donc l'effet ne se redéclenche JAMAIS, donc contentReady reste bloqué à false pour toujours
+  // → container en visibility:hidden en permanence → scroll bloqué (constaté PC ET mobile, dès
+  // 1-2 minutes de verrouillage/changement d'onglet).
+  const [resetTick, setResetTick] = useState(0);
   useEffect(() => {
     const handleBackgroundReturn = () => {
       if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return; }
@@ -844,6 +852,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       setFirstUnreadId(null);
       setContentReady(false);
       suppressAutoReadRef.current = true;
+      setResetTick(t => t + 1);
     };
     document.addEventListener('visibilitychange', handleBackgroundReturn);
     return () => document.removeEventListener('visibilitychange', handleBackgroundReturn);
@@ -902,7 +911,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, clientTyping, loading, firstUnreadId, clientId, userId]);
+  }, [messages, clientTyping, loading, firstUnreadId, clientId, userId, resetTick]);
 
   // Timer de fin de fenêtre de stabilisation — posé UNE SEULE FOIS quand initialScrollDone
   // passe à true, indépendant des re-déclenchements de l'effet de scroll ci-dessus (voir

@@ -99,8 +99,19 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
 
     const handleVisibility = () => {
       if (!isSubscribedRef.current) return;
-      if (document.visibilityState === 'hidden') ch.untrack();
-      else track();
+      if (document.visibilityState === 'hidden') {
+        ch.untrack();
+      } else {
+        track();
+        // Check TTL synchrone immédiat au retour visible — le setInterval staleCheckId peut
+        // avoir été complètement gelé par l'OS pendant une mise en arrière-plan profonde
+        // (écran verrouillé, pas juste onglet caché), donc ne pas attendre son prochain tick
+        // programmé pour rattraper un statut périmé (constaté : présence figée sur "en ligne"
+        // au réveil malgré un TTL de 150s, largement dépassé en horloge murale).
+        if (lastCoachSeenRef.current !== null && Date.now() - lastCoachSeenRef.current > STALE_TTL_MS) {
+          setCoachOnline(false);
+        }
+      }
     };
     document.addEventListener('visibilitychange', handleVisibility);
 
@@ -192,8 +203,16 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
 
       const handleVisibility = () => {
         if (!isSubscribedRef.current) return;
-        if (document.visibilityState === 'hidden') ch.untrack();
-        else track();
+        if (document.visibilityState === 'hidden') {
+          ch.untrack();
+        } else {
+          track();
+          // Check TTL synchrone immédiat au retour visible — voir commentaire détaillé dans
+          // GlobalPresenceClientProvider (même fix, symétrique).
+          if (lastSeenRef.current !== null && Date.now() - lastSeenRef.current > STALE_TTL_MS) {
+            setOnlineMap(prev => ({ ...prev, [clientId]: false }));
+          }
+        }
       };
       document.addEventListener('visibilitychange', handleVisibility);
 

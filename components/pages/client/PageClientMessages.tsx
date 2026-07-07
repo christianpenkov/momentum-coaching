@@ -1099,6 +1099,16 @@ export default function PageClientMessages() {
   // absence significative (seuil de 5s pour ignorer les micro-blur/focus, ex: notification
   // rapide, changement d'app puis retour immédiat).
   const hiddenAtRef = useRef<number | null>(null);
+  // Compteur incrémenté à CHAQUE reset (pas un booléen/valeur qui peut retomber sur elle-même) —
+  // ajouté aux dépendances du useLayoutEffect juste en dessous pour GARANTIR sa ré-exécution.
+  // Bug corrigé : setFirstUnreadId(null) seul ne redéclenche l'effet que si firstUnreadId était
+  // déjà non-null — s'il était déjà null (cas fréquent : pas de non-lu à l'ouverture), React
+  // bail-out (Object.is égal) et ne re-render pas, donc l'effet ne se redéclenche JAMAIS, donc
+  // contentReady reste bloqué à false pour toujours → container en visibility:hidden en
+  // permanence → scroll tactile bloqué par le navigateur sur un élément invisible (constaté :
+  // plus aucun scroll possible après un simple changement d'onglet/verrouillage, PC ET mobile,
+  // y compris après seulement 1-2 minutes) + boucle rAF de stabilisation jamais désarmée.
+  const [resetTick, setResetTick] = useState(0);
   useEffect(() => {
     const handleBackgroundReturn = () => {
       if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return; }
@@ -1114,6 +1124,7 @@ export default function PageClientMessages() {
       setFirstUnreadId(null);
       setContentReady(false);
       suppressAutoReadRef.current = true;
+      setResetTick(t => t + 1);
     };
     document.addEventListener('visibilitychange', handleBackgroundReturn);
     return () => document.removeEventListener('visibilitychange', handleBackgroundReturn);
@@ -1180,7 +1191,7 @@ export default function PageClientMessages() {
     } else {
       logChatScroll('new message, NOT sticking (user scrolled up)', { messageCount: messages.length });
     }
-  }, [messages, coachTyping, loading, firstUnreadId, clientId, userId]);
+  }, [messages, coachTyping, loading, firstUnreadId, clientId, userId, resetTick]);
 
   // Timer de fin de fenêtre de stabilisation — posé UNE SEULE FOIS quand contentReady passe à
   // true, indépendant des re-déclenchements de l'effet de scroll ci-dessus (voir commentaire
