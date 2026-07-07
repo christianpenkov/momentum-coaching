@@ -1025,9 +1025,11 @@ export default function PageClientMessages() {
     const container = chatZoneRef.current;
     if (!container) return;
     if (!initialScrollDone.current) {
-      container.scrollTop = container.scrollHeight;
+      // behavior: 'instant' outrepasse scroll-behavior:smooth (CSS) sur .chat-messages-zone —
+      // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
+      container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
       const t = setTimeout(() => {
-        if (chatZoneRef.current) chatZoneRef.current.scrollTop = chatZoneRef.current.scrollHeight;
+        if (chatZoneRef.current) chatZoneRef.current.scrollTo({ top: chatZoneRef.current.scrollHeight, behavior: 'instant' as ScrollBehavior });
       }, 60);
       initialScrollDone.current = true;
       return () => clearTimeout(t);
