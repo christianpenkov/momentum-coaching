@@ -1551,7 +1551,7 @@ export default function PageClientMessages() {
               transition: 'background 0.4s ease',
             }} />
           </div>
-          <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)', lineHeight: 1.2 }}>{coachName}</div>
             <div style={{
               fontSize: 11, color: isCoachOnline ? 'var(--green)' : 'var(--muted)',

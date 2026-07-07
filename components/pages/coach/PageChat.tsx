@@ -1143,7 +1143,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
             {clientInitials}
             <div style={{ position: 'absolute', bottom: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
           </div>
-          <div>
+          <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0 }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>{clientName}</div>
             <div style={{ fontSize: 11, color: isOnline ? 'var(--green)' : 'var(--muted)', transition: 'color 0.4s' }}>
               {clientTyping ? 'En train d\'écrire…' : isOnline ? 'En ligne' : 'Hors ligne'}
