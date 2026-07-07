@@ -184,9 +184,10 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
             <polygon points="6 3 20 12 6 21 6 3"/>
           </svg>
         )}
-        {/* Pastille "non écouté" — comme WhatsApp, disparaît une fois le vocal réellement
-            lancé (voir onPlay dans le useEffect plus haut). Uniquement sur les messages
-            reçus (onListened défini seulement pour !isMe côté appelant). */}
+        {/* Pastille "non écouté" — rappel visuel personnel sur les vocaux REÇUS pas encore
+            écoutés (disparaît une fois le vocal réellement lancé, voir onPlay plus haut).
+            Distinct des coches MessageStatus, qui informent l'EXPÉDITEUR si le destinataire
+            a écouté SES propres vocaux envoyés. */}
         {onListened && !listened && (
           <span style={{
             position: 'absolute', top: -1, right: -1, width: 9, height: 9,
@@ -236,9 +237,16 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
 
 // ─── Coches de statut ────────────────────────────────────────────────────────
 
-function MessageStatus({ isMe, msgId, readAt }: { isMe: boolean; msgId: string; readAt?: string | null }) {
+function MessageStatus({ isMe, msgId, readAt, isAudio, listenedAt }: {
+  isMe: boolean; msgId: string; readAt?: string | null;
+  isAudio?: boolean; listenedAt?: string | null;
+}) {
   if (!isMe) return null;
-  const isRead = !!readAt;
+  // Pour un vocal : "lu" (double coche pleine) signifie réellement ÉCOUTÉ par le
+  // destinataire (play + 1.5s ou durée totale si plus court — voir AudioBubble), pas juste
+  // "la bulle est passée dans son viewport". C'est ce que l'expéditeur veut savoir : est-ce
+  // que la personne a vraiment écouté mon message, pas juste vu qu'il existe.
+  const isRead = isAudio ? !!listenedAt : !!readAt;
   const isOptimistic = msgId.startsWith('opt-');
 
   if (isOptimistic) {
@@ -812,7 +820,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
               <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.7)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)') }}>modifié ·</span>
             )}
             <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.9)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)') }}>{formatTime(msg.created_at)}</span>
-            <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} />
+            <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} isAudio={isAudio} listenedAt={msg.listened_at} />
           </div>
         )}
       </div>

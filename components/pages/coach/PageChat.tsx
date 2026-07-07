@@ -174,9 +174,14 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
 
 // ─── Coches de statut ─────────────────────────────────────────────────────────
 
-function MessageStatus({ isMe, msgId, readAt }: { isMe: boolean; msgId: string; readAt?: string | null }) {
+function MessageStatus({ isMe, msgId, readAt, isAudio, listenedAt }: {
+  isMe: boolean; msgId: string; readAt?: string | null;
+  isAudio?: boolean; listenedAt?: string | null;
+}) {
   if (!isMe) return null;
-  const isRead = !!readAt;
+  // Pour un vocal : "lu" (double coche pleine) signifie réellement ÉCOUTÉ par le
+  // destinataire (play + 1.5s ou durée totale si plus court), pas juste "vu à l'écran".
+  const isRead = isAudio ? !!listenedAt : !!readAt;
   const isOptimistic = msgId.startsWith('opt-');
   if (isOptimistic) return (
     <svg width="16" height="11" viewBox="0 0 16 11" fill="none" style={{ flexShrink: 0, opacity: 0.65 }}>
@@ -667,7 +672,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
               <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.7)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)') }}>modifié ·</span>
             )}
             <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.9)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)') }}>{formatTime(msg.created_at)}</span>
-            <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} />
+            <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} isAudio={isAudio} listenedAt={msg.listened_at} />
           </div>
         )}
       </div>
