@@ -463,7 +463,7 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef, animate }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
@@ -473,6 +473,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   isMenuTarget?: boolean;
   onEnterViewport?: (msgId: string) => void;
   registerBubbleRef?: (msgId: string, el: HTMLDivElement | null) => void;
+  animate?: boolean;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
@@ -540,7 +541,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   }, [onEnterViewport, isMe, msg.id]);
 
   return (
-    <div ref={wrapperRef} className="msg-bubble-in" style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
+    <div ref={wrapperRef} className={animate ? 'msg-bubble-in' : undefined} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
       <div
         ref={setBubbleRef}
         style={{
@@ -776,6 +777,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   }, [presenceCh]);
 
   const initialScrollDone = useRef(false);
+  // IDs déjà présents au premier chargement de la conversation — ces messages ne jouent pas
+  // l'animation d'entrée (msg-bubble-in), sinon leur translateY/opacity donne l'impression
+  // d'un scroll même quand la position finale est déjà correcte. Seuls les messages qui
+  // arrivent APRÈS ce premier rendu (nouveaux messages en direct) sont animés.
+  const knownIdsRef = useRef<Set<string> | null>(null);
   // Tant que l'utilisateur n'a pas scrollé lui-même, on reste ancré en bas — y compris quand
   // des images/audio finissent de charger après coup et changent la hauteur du contenu
   // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
@@ -789,6 +795,8 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     if (loading) return;
     const container = chatZoneRef.current;
     if (!container) return;
+    if (!knownIdsRef.current) knownIdsRef.current = new Set(messages.map(m => m.id));
+    else messages.forEach(m => knownIdsRef.current!.add(m.id));
     if (!initialScrollDone.current) {
       // behavior: 'instant' outrepasse scroll-behavior:smooth (CSS) sur .chat-messages-zone —
       // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
@@ -1020,6 +1028,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
                       if (el) bubbleRefsMap.current.set(id, el);
                       else bubbleRefsMap.current.delete(id);
                     }}
+                    animate={knownIdsRef.current ? !knownIdsRef.current.has(msg.id) : false}
                   />
                 );
               })}
