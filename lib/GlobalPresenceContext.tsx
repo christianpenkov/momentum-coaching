@@ -18,19 +18,24 @@ const STALE_TTL_MS = 150_000;
 const STALE_CHECK_MS = 10_000;
 
 type PresenceEntry = { user_id: string; role: 'coach' | 'client'; online_at: string };
+type RealtimeChannel = ReturnType<ReturnType<typeof createClient>['channel']>;
 
-// Côté élève : un seul peer (le coach) → simple booléen.
-interface ClientPresenceValue { coachOnline: boolean }
-const ClientPresenceContext = createContext<ClientPresenceValue>({ coachOnline: false });
+// Côté élève : un seul peer (le coach) → simple booléen + le canal lui-même, pour que la
+// messagerie y attache son listener `typing` au lieu d'ouvrir un second canal (voir §4.7 —
+// deux canaux de présence actifs en parallèle doublait le volume d'events et déclenchait le
+// rate limit Supabase Realtime, causant un clignotement en ligne/hors ligne).
+interface ClientPresenceValue { coachOnline: boolean; channel: RealtimeChannel | null }
+const ClientPresenceContext = createContext<ClientPresenceValue>({ coachOnline: false, channel: null });
 
-// Côté coach : un peer par élève → Map clientId -> en ligne.
-interface CoachPresenceValue { isClientOnline: (clientId: string) => boolean }
-const CoachPresenceContext = createContext<CoachPresenceValue>({ isClientOnline: () => false });
+// Côté coach : un peer par élève → Map clientId -> en ligne + Map clientId -> canal.
+interface CoachPresenceValue { isClientOnline: (clientId: string) => boolean; getChannel: (clientId: string) => RealtimeChannel | null }
+const CoachPresenceContext = createContext<CoachPresenceValue>({ isClientOnline: () => false, getChannel: () => null });
 
 export function GlobalPresenceClientProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const [clientId, setClientId] = useState<string | null>(null);
   const [coachOnline, setCoachOnline] = useState(false);
+  const [channel, setChannel] = useState<RealtimeChannel | null>(null);
   const supabase = useRef(createClient({ worker: true, heartbeatIntervalMs: 15_000 })).current;
   const isSubscribedRef = useRef(false);
   const lastCoachSeenRef = useRef<number | null>(null);
@@ -77,8 +82,10 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
         isSubscribedRef.current = true;
         retryAttemptRef.current = 0;
         if (document.visibilityState === 'visible') track();
+        setChannel(ch);
       } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
         isSubscribedRef.current = false;
+        setChannel(null);
         if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
         const attempt = retryAttemptRef.current;
         const delay = Math.min(1000 * 2 ** attempt, 30_000);
@@ -117,6 +124,7 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
 
     return () => {
       isSubscribedRef.current = false;
+      setChannel(null);
       clearInterval(heartbeatId);
       clearInterval(staleCheckId);
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -125,13 +133,14 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
     };
   }, [user, clientId, supabase, retryKey]);
 
-  return <ClientPresenceContext.Provider value={{ coachOnline }}>{children}</ClientPresenceContext.Provider>;
+  return <ClientPresenceContext.Provider value={{ coachOnline, channel }}>{children}</ClientPresenceContext.Provider>;
 }
 
 export function GlobalPresenceCoachProvider({ children }: { children: ReactNode }) {
   const { user } = useUser();
   const [clientIds, setClientIds] = useState<string[]>([]);
   const [onlineMap, setOnlineMap] = useState<Record<string, boolean>>({});
+  const [channelMap, setChannelMap] = useState<Record<string, RealtimeChannel>>({});
   const supabase = useRef(createClient({ worker: true, heartbeatIntervalMs: 15_000 })).current;
   const [retryKey, setRetryKey] = useState(0);
 
@@ -181,8 +190,10 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
           isSubscribedRef.current = true;
           retryAttemptRef.current = 0;
           if (document.visibilityState === 'visible') track();
+          setChannelMap(prev => ({ ...prev, [clientId]: ch }));
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           isSubscribedRef.current = false;
+          setChannelMap(prev => { const next = { ...prev }; delete next[clientId]; return next; });
           if (retryTimer) clearTimeout(retryTimer);
           const attempt = retryAttemptRef.current;
           const delay = Math.min(1000 * 2 ** attempt, 30_000);
@@ -218,6 +229,7 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
 
       cleanups.push(() => {
         isSubscribedRef.current = false;
+        setChannelMap(prev => { const next = { ...prev }; delete next[clientId]; return next; });
         clearInterval(heartbeatId);
         clearInterval(staleCheckId);
         if (retryTimer) clearTimeout(retryTimer);
@@ -230,8 +242,9 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
   }, [user, clientIds, supabase, retryKey]);
 
   const isClientOnline = (clientId: string) => !!onlineMap[clientId];
+  const getChannel = (clientId: string) => channelMap[clientId] ?? null;
 
-  return <CoachPresenceContext.Provider value={{ isClientOnline }}>{children}</CoachPresenceContext.Provider>;
+  return <CoachPresenceContext.Provider value={{ isClientOnline, getChannel }}>{children}</CoachPresenceContext.Provider>;
 }
 
 export function useGlobalClientPresence() {

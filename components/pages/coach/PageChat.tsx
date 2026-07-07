@@ -690,7 +690,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const recordingStartRef = useRef<number>(0);
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const lastTypingSentRef = useRef<number>(0);
 
   useEffect(() => {
@@ -1499,10 +1498,13 @@ export default function PageChat() {
   const [userId, setUserId] = useState<string | null>(null);
   // En ligne/hors ligne = présence plateforme entière (voir lib/GlobalPresenceContext.tsx),
   // pas seulement "a la messagerie ouverte" — plus précis pour l'utilisateur.
-  const { isClientOnline } = useGlobalCoachPresence();
+  // Le broadcast "typing" utilise désormais le MÊME canal que la présence globale
+  // (global-presence-${activeId}) au lieu d'un canal presence-chat-* séparé — avoir deux
+  // canaux Realtime Presence actifs en parallèle par élève doublait le volume d'events
+  // track()/heartbeat, déclenchant le rate limit Supabase Realtime
+  // ("ClientPresenceRateLimitReached") et causant un clignotement en ligne/hors ligne.
+  const { isClientOnline, getChannel } = useGlobalCoachPresence();
   const supabase = useRef(createClient()).current;
-  const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
-  const [presenceCh, setPresenceCh] = useState<ReturnType<typeof supabase.channel> | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
@@ -1512,52 +1514,7 @@ export default function PageChat() {
     if (clients.length > 0 && !activeId) setActiveId(clients[0].id);
   }, [clients, activeId]);
 
-  const retryAttemptRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [presenceRetryKey, setPresenceRetryKey] = useState(0);
-  const scheduleRetry = () => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    const attempt = retryAttemptRef.current;
-    const delay = Math.min(1000 * 2 ** attempt, 30_000);
-    retryAttemptRef.current = attempt + 1;
-    retryTimerRef.current = setTimeout(() => setPresenceRetryKey(k => k + 1), delay);
-  };
-  const presenceIsSubscribedRef = useRef(false);
-  useEffect(() => {
-    const onOnline = () => { retryAttemptRef.current = 0; setPresenceRetryKey(k => k + 1); };
-    window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
-  }, []);
-
-  // Canal messagerie : broadcast typing uniquement — la présence en ligne/hors ligne vient
-  // désormais du contexte GlobalPresenceCoachProvider (lib/GlobalPresenceContext.tsx).
-  useEffect(() => {
-    if (!userId || !activeId) return;
-
-    const ch = supabase.channel(`presence-chat-${activeId}`, {
-      config: { presence: { key: userId } },
-    });
-
-    ch.subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          presenceIsSubscribedRef.current = true;
-          retryAttemptRef.current = 0;
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          presenceIsSubscribedRef.current = false;
-          scheduleRetry();
-        }
-      });
-    presenceChRef.current = ch;
-    setPresenceCh(ch);
-
-    return () => {
-      presenceIsSubscribedRef.current = false;
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      supabase.removeChannel(ch);
-      presenceChRef.current = null;
-      setPresenceCh(null);
-    };
-  }, [userId, activeId, supabase, presenceRetryKey]);
+  const presenceCh = activeId ? getChannel(activeId) : null;
 
   if (loading) return <InlineLoader fullPage />;
 

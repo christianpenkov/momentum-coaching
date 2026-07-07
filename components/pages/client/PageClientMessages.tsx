@@ -811,7 +811,7 @@ export default function PageClientMessages() {
   const [mediaRecorderSupported, setMediaRecorderSupported] = useState(false);
   // En ligne/hors ligne = présence plateforme entière (voir lib/GlobalPresenceContext.tsx),
   // pas seulement "a la messagerie ouverte" — plus précis pour l'utilisateur.
-  const { coachOnline: isCoachOnline } = useGlobalClientPresence();
+  const { coachOnline: isCoachOnline, channel: globalChannel } = useGlobalClientPresence();
   const [coachTyping, setCoachTyping] = useState(false);
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [showScrollArrow, setShowScrollArrow] = useState(false);
@@ -983,74 +983,39 @@ export default function PageClientMessages() {
   //     moins de PRESENCE_STALE_MS — vérifié indépendamment de l'état du canal WebSocket.
   //  3. presenceRetryKey force la recréation du canal sur retour réseau ou erreur
   //     (CHANNEL_ERROR/TIMED_OUT/CLOSED), au lieu d'attendre un hard refresh.
-  const [presenceRetryKey, setPresenceRetryKey] = useState(0);
-  // Backoff exponentiel sur les retries — sans ça, une erreur de canal (souvent causée par un
-  // rate limit Supabase Realtime sur les events de présence, confirmé en prod via les logs :
-  // "ClientPresenceRateLimitReached") déclenchait un retry immédiat → nouveau track() → risque
-  // de re-déclencher le même rate limit → boucle qui s'auto-alimente et ne se résout jamais
-  // (constaté : les deux appareils restaient "hors ligne" en permanence l'un pour l'autre).
-  const retryAttemptRef = useRef(0);
-  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const scheduleRetry = () => {
-    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-    const attempt = retryAttemptRef.current;
-    const delay = Math.min(1000 * 2 ** attempt, 30_000);
-    retryAttemptRef.current = attempt + 1;
-    retryTimerRef.current = setTimeout(() => setPresenceRetryKey(k => k + 1), delay);
-  };
+  // Le broadcast "typing" utilise désormais le MÊME canal que la présence globale
+  // (global-presence-${clientId}, exposé par GlobalPresenceClientProvider) au lieu d'un
+  // canal presence-chat-* séparé. Avoir deux canaux Realtime Presence actifs en parallèle par
+  // paire coach/élève doublait le volume d'events track()/heartbeat, ce qui déclenchait le
+  // rate limit Supabase Realtime ("ClientPresenceRateLimitReached") et causait un clignotement
+  // en ligne/hors ligne (constaté en prod : clignote uniquement quand le peer est en ligne —
+  // cohérent avec un rate limit qui ne se déclenche que sur des track() réussis en rafale).
   useEffect(() => {
-    const onOnline = () => { retryAttemptRef.current = 0; setPresenceRetryKey(k => k + 1); };
-    window.addEventListener('online', onOnline);
-    return () => window.removeEventListener('online', onOnline);
-  }, []);
-  useEffect(() => {
-    if (!clientId || !userId) return;
-    // Canal messagerie pour broadcast typing uniquement — la présence en ligne/hors ligne
-    // vient désormais du contexte GlobalPresenceClientProvider (lib/GlobalPresenceContext.tsx),
-    // actif sur toute la plateforme via le canal global-presence-${clientId} monté dans le
-    // layout, pas seulement quand la messagerie est ouverte (voir useGlobalClientPresence()).
-    const ch = supabase.channel(`presence-chat-${clientId}`, {
-      config: { presence: { key: userId } },
-    });
-    // Setter la ref immédiatement — pas dans le callback SUBSCRIBED
-    // pour que le broadcast typing soit disponible dès la première frappe
-    presenceChRef.current = ch;
+    if (!globalChannel) { presenceChRef.current = null; return; }
+    presenceChRef.current = globalChannel;
 
-    ch.on('broadcast', { event: 'typing' }, (payload) => {
-        if (payload.payload?.role === 'coach') {
-          setCoachTyping(true);
-          if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-          // 4s, nettement au-dessus de l'intervalle d'émission (2s côté émetteur) pour
-          // absorber la latence réseau variable (surtout mobile) — sinon l'indicateur
-          // s'éteint puis se rallume (clignote) entre deux broadcasts.
-          typingTimerRef.current = setTimeout(() => setCoachTyping(false), 4000);
-        }
-      })
-      .subscribe((status) => {
-        if (status === 'SUBSCRIBED') {
-          isSubscribedRef.current = true;
-          retryAttemptRef.current = 0;
-        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts.
-          isSubscribedRef.current = false;
-          scheduleRetry();
-        }
-      });
+    const handler = (payload: { payload?: { role?: string } }) => {
+      if (payload.payload?.role === 'coach') {
+        setCoachTyping(true);
+        if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+        // 4s, nettement au-dessus de l'intervalle d'émission (2s côté émetteur) pour
+        // absorber la latence réseau variable (surtout mobile) — sinon l'indicateur
+        // s'éteint puis se rallume (clignote) entre deux broadcasts.
+        typingTimerRef.current = setTimeout(() => setCoachTyping(false), 4000);
+      }
+    };
+    globalChannel.on('broadcast', { event: 'typing' }, handler);
+    isSubscribedRef.current = true;
 
     return () => {
       isSubscribedRef.current = false;
-      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      supabase.removeChannel(ch);
-      presenceChRef.current = null;
       // Annuler le timer sans réinitialiser coachTyping laissait l'indicateur "en train
-      // d'écrire" bloqué indéfiniment si le canal était recréé (retour d'arrière-plan,
-      // reconnexion) entre le setCoachTyping(true) et l'expiration du timer de 3s — plus rien
-      // ne repassait alors coachTyping à false. Constaté après un aller-retour PWA en arrière-
-      // plan avec messages reçus entre-temps.
+      // d'écrire" bloqué indéfiniment si le canal était recréé entre le setCoachTyping(true)
+      // et l'expiration du timer — plus rien ne repassait alors coachTyping à false.
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
       setCoachTyping(false);
     };
-  }, [clientId, userId, supabase, presenceRetryKey]);
+  }, [globalChannel]);
 
 
   // ── Scroll bas — instant au chargement, ancré tant que l'utilisateur ne scrolle pas ──
