@@ -223,35 +223,22 @@ export async function GET(request: Request) {
   const websiteClicksValues = insightMap['website_clicks'] || [];
 
   // Reconstruit la série "Abonnés" en nombre ABSOLU (pas en delta) : follower_count
-  // (insights) n'est qu'un delta quotidien et sujet au même ~48h de délai Meta que
-  // online_followers (aucun contournement n'existait ici) — confirmé en pratique :
-  // Meta renvoie 0 pour les jours les plus récents même quand un vrai gain a eu lieu,
-  // car la donnée n'est pas encore stabilisée côté Meta. accountData.followers_count
-  // est le compte réel, temps réel, déjà fetché dans le même Promise.all — on part de
-  // ce nombre pour aujourd'hui et on remonte en arrière en soustrayant les deltas
-  // connus, MAIS seulement au-delà de la fenêtre de retard (J-3 et avant) : inclure les
-  // deltas non stabilisés des 3 derniers jours dans la reconstruction cumulative
-  // propagerait leur bruit (souvent 0 à tort) à TOUTE la série historique en amont.
-  const UNSTABLE_DAYS = 3;
+  // (insights) n'est qu'un delta quotidien. accountData.followers_count est le compte
+  // réel, temps réel, déjà fetché dans le même Promise.all — on part de ce nombre pour
+  // aujourd'hui et on remonte en arrière en soustrayant les deltas connus.
+  // Ancienne version : gelait artificiellement les 3 derniers jours à la même valeur
+  // qu'aujourd'hui (hypothèse "delta pas encore stabilisé chez Meta, s'annule à ~0"),
+  // ce qui masquait systématiquement tout vrai gain/perte récent dans "Abonnés nets"
+  // (bug remonté 2026-07-07 : +1 abonné réel affiché comme +0). Reconstruction directe
+  // sans zone gelée — accepte un delta ponctuellement bruité sur les tout derniers
+  // jours plutôt que de cacher un vrai mouvement récent.
   const todayAbsoluteFollowers: number | null = typeof accountData.followers_count === 'number' ? accountData.followers_count : null;
   const followerAbsoluteValues: (number | null)[] = new Array(followerDeltaValues.length).fill(null);
   if (todayAbsoluteFollowers !== null && followerDeltaValues.length > 0) {
     const lastIdx = followerDeltaValues.length - 1;
-    // Le point du jour est toujours fiable (compte réel, pas un delta Meta) — les
-    // UNSTABLE_DAYS jours juste avant restent null : leur delta officiel n'est pas
-    // encore stabilisé chez Meta, l'inclure fausserait la reconstruction cumulative.
     followerAbsoluteValues[lastIdx] = todayAbsoluteFollowers;
-    const stableStartIdx = Math.max(0, lastIdx - UNSTABLE_DAYS);
-    // La reconstruction en arrière ne démarre qu'à partir de la frontière stable, en
-    // n'utilisant que des deltas eux-mêmes situés dans la zone stable (jamais un delta
-    // de la fenêtre de retard) : on ignore simplement le sous-total des derniers jours
-    // en partant du principe qu'ils s'annulent globalement à ~0 (approximation admise,
-    // équivalente à afficher "pas encore de donnée fiable" pour cette portion).
-    followerAbsoluteValues[stableStartIdx] = todayAbsoluteFollowers;
-    for (let i = stableStartIdx - 1; i >= 0; i--) {
-      followerAbsoluteValues[i] = followerAbsoluteValues[i + 1] !== null
-        ? followerAbsoluteValues[i + 1]! - (followerDeltaValues[i + 1] ?? 0)
-        : null;
+    for (let i = lastIdx - 1; i >= 0; i--) {
+      followerAbsoluteValues[i] = followerAbsoluteValues[i + 1]! - (followerDeltaValues[i + 1] ?? 0);
     }
   }
 
