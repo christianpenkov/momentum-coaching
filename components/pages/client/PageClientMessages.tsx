@@ -8,7 +8,6 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
-import DebugScrollOverlay from './DebugScrollOverlay';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1068,8 +1067,6 @@ export default function PageClientMessages() {
       // "Nouveaux messages" doit être monté dans le DOM avant qu'on puisse scroller dessus).
       firstUnreadComputedRef.current = true;
       const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
-      // eslint-disable-next-line no-console
-      console.log('[chat-scroll] firstUnread computed', { found: !!firstUnread, id: firstUnread?.id, totalMsgs: messages.length });
       if (firstUnread) { setFirstUnreadId(firstUnread.id); return; }
     }
     if (!initialScrollDone.current) {
@@ -1087,13 +1084,8 @@ export default function PageClientMessages() {
       // Ancrage bas désactivé si on a atterri sur un message non lu au milieu de l'historique —
       // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
       stickToBottomRef.current = !target;
-      // eslint-disable-next-line no-console
-      console.log('[chat-scroll] initial scroll', { firstUnreadId, landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       const t = setTimeout(() => {
         settlingRef.current = false;
-        const c = chatZoneRef.current;
-        // eslint-disable-next-line no-console
-        console.log('[chat-scroll] settling window ended', c ? { scrollHeight: c.scrollHeight, scrollTop: c.scrollTop, clientHeight: c.clientHeight, gap: c.scrollHeight - c.scrollTop - c.clientHeight } : null);
       }, 2500);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
@@ -1132,8 +1124,6 @@ export default function PageClientMessages() {
       const c = chatZoneRef.current;
       if (!c || !stickToBottomRef.current) return;
       const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      // eslint-disable-next-line no-console
-      console.log('[chat-scroll] ResizeObserver fired', { stickToBottom: stickToBottomRef.current, settling: settlingRef.current, gapBefore: gap });
       if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
     });
     ro.observe(container);
@@ -1149,15 +1139,24 @@ export default function PageClientMessages() {
     if (loading) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const onViewportResize = () => {
+    let rafId: number | null = null;
+    let stopAt = 0;
+    const tick = () => {
       const c = chatZoneRef.current;
-      if (!c || !stickToBottomRef.current) return;
-      c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      // eslint-disable-next-line no-console
-      console.log('[chat-scroll] visualViewport resize → rescroll', { vvHeight: vv.height });
+      if (!c || !stickToBottomRef.current || Date.now() > stopAt) { rafId = null; return; }
+      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+      if (gap !== 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      rafId = requestAnimationFrame(tick);
+    };
+    const onViewportResize = () => {
+      if (!stickToBottomRef.current) return;
+      // Le resize peut continuer sur quelques frames (clavier/barre d'adresse qui finit son
+      // animation) — on corrige en continu pendant 500ms au lieu d'une seule fois.
+      stopAt = Date.now() + 500;
+      if (rafId === null) rafId = requestAnimationFrame(tick);
     };
     vv.addEventListener('resize', onViewportResize);
-    return () => vv.removeEventListener('resize', onViewportResize);
+    return () => { vv.removeEventListener('resize', onViewportResize); if (rafId !== null) cancelAnimationFrame(rafId); };
   }, [loading]);
 
   // ── Envoi texte ────────────────────────────────────────────────────────────
@@ -1336,8 +1335,6 @@ export default function PageClientMessages() {
     setShowScrollArrow(distanceFromBottom > 120);
     // Pendant la stabilisation (settlingRef), un "scroll" natif peut venir du navigateur
     // lui-même (reflow viewport/fonts), pas de l'utilisateur — on ne désarme pas l'ancrage bas.
-    // eslint-disable-next-line no-console
-    console.log('[chat-scroll] onScroll event', { settling: settlingRef.current, distanceFromBottom, willDisarm: !settlingRef.current && distanceFromBottom >= 40 });
     if (!settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
@@ -1774,7 +1771,6 @@ export default function PageClientMessages() {
         </div>,
         document.body
       )}
-      <DebugScrollOverlay />
     </AudioContext.Provider>
   );
 }

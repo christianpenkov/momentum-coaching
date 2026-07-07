@@ -875,13 +875,24 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     if (loading) return;
     const vv = window.visualViewport;
     if (!vv) return;
-    const onViewportResize = () => {
+    let rafId: number | null = null;
+    let stopAt = 0;
+    const tick = () => {
       const c = chatZoneRef.current;
-      if (!c || !stickToBottomRef.current) return;
-      c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      if (!c || !stickToBottomRef.current || Date.now() > stopAt) { rafId = null; return; }
+      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+      if (gap !== 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      rafId = requestAnimationFrame(tick);
+    };
+    const onViewportResize = () => {
+      if (!stickToBottomRef.current) return;
+      // Le resize peut continuer sur quelques frames (clavier/barre d'adresse qui finit son
+      // animation) — on corrige en continu pendant 500ms au lieu d'une seule fois.
+      stopAt = Date.now() + 500;
+      if (rafId === null) rafId = requestAnimationFrame(tick);
     };
     vv.addEventListener('resize', onViewportResize);
-    return () => vv.removeEventListener('resize', onViewportResize);
+    return () => { vv.removeEventListener('resize', onViewportResize); if (rafId !== null) cancelAnimationFrame(rafId); };
   }, [loading]);
 
   // Envoi texte
