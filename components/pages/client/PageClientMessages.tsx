@@ -67,8 +67,8 @@ function getFileExt(name: string) {
   return (name.split('.').pop() || '').toUpperCase();
 }
 
-// Waveform statique — pics fins nombreux pleine hauteur, aspect "onde vocale" dense
-const WAVEFORM = [4,7,12,18,10,22,15,26,19,30,14,24,17,28,20,32,16,25,13,27,18,23,11,20,15,9,19,12,6,16,10,21,14,8,17,11,5,13,9,4];
+// Waveform statique — compacte, aspect "onde vocale" sans prendre trop de place dans la bulle
+const WAVEFORM = [4,8,14,9,18,12,20,15,22,11,17,13,21,10,16,8,19,12,6,14,9,17,11,5,7];
 
 // ─── AudioBubble — player custom coordonné ───────────────────────────────────
 
@@ -178,7 +178,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   const progressIdx = Math.round((progress / 100) * (WAVEFORM.length - 1));
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 210, maxWidth: 270 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 150, maxWidth: 190 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
 
       {/* Bouton play/pause */}
@@ -186,7 +186,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
         onClick={togglePlay}
         className="tap-scale"
         style={{
-          width: 34, height: 34, borderRadius: '50%', border: 'none', flexShrink: 0,
+          width: 28, height: 28, borderRadius: '50%', border: 'none', flexShrink: 0,
           background: isMe ? 'rgba(255,255,255,0.16)' : 'var(--ink)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer',
@@ -194,12 +194,12 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
         }}
       >
         {playing ? (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}>
             <rect x="6" y="4" width="4" height="16" rx="1"/>
             <rect x="14" y="4" width="4" height="16" rx="1"/>
           </svg>
         ) : (
-          <svg width="12" height="12" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'} style={{ marginLeft: 1 }}>
+          <svg width="10" height="10" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'} style={{ marginLeft: 1 }}>
             <polygon points="6 3 20 12 6 21 6 3"/>
           </svg>
         )}
@@ -209,26 +209,26 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
             a écouté SES propres vocaux envoyés. */}
         {onListened && !listened && (
           <span style={{
-            position: 'absolute', top: -1, right: -1, width: 9, height: 9,
+            position: 'absolute', top: -1, right: -1, width: 8, height: 8,
             borderRadius: '50%', background: 'var(--red)', border: '2px solid var(--surface)',
           }} />
         )}
       </button>
 
-      {/* Waveform pleine hauteur, cliquable */}
+      {/* Waveform compacte, cliquable */}
       <div
         onClick={seekTo}
-        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 2, height: 34, cursor: 'pointer' }}
+        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, height: 24, cursor: 'pointer' }}
       >
         {WAVEFORM.map((h, i) => {
           const isPlayed = i <= progressIdx && progress > 0;
-          const maxH = 32;
-          const barH = Math.max(3, Math.round((h / 32) * maxH));
+          const maxH = 22;
+          const barH = Math.max(3, Math.round((h / 22) * maxH));
           return (
             <div
               key={i}
               style={{
-                width: 2.5, borderRadius: 2, flexShrink: 0,
+                width: 2, borderRadius: 2, flexShrink: 0,
                 height: barH,
                 background: isPlayed ? fillColor : trackBg,
                 transition: 'background 0.1s',
@@ -743,7 +743,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   }, [onEnterViewport, isMe, msg.id]);
 
   return (
-    <div ref={wrapperRef} className={animate ? 'msg-bubble-in' : undefined} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
+    <div ref={wrapperRef} className={animate ? (isMe ? 'msg-bubble-sent' : 'msg-bubble-in') : undefined} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
       <div
         ref={setBubbleRef}
         style={{
@@ -763,23 +763,6 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           // importe le z-index (piège CSS classique).
           visibility: (isMenuTarget || isEditing) ? 'hidden' : 'visible',
         }}>
-        {/* Queue pointue style iMessage — uniquement sur la dernière bulle d'un groupe
-            consécutif du même expéditeur (isLast), jamais sur les bulles "continuées". */}
-        {isLast && !isMenuTarget && !isEditing && (
-          <svg
-            width="10" height="14" viewBox="0 0 10 14"
-            style={{
-              position: 'absolute', bottom: -1,
-              [isMe ? 'right' : 'left']: -6,
-              transform: isMe ? 'scaleX(-1)' : undefined,
-            } as React.CSSProperties}
-          >
-            <path
-              d="M10 0C10 6 6 11 0 14C5 13 10 9 10 3V0Z"
-              fill={isMe ? 'var(--ink)' : 'var(--surface)'}
-            />
-          </svg>
-        )}
         {isEditing ? null : isAudio && msg.audio_url ? (
           <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} listened={!!msg.listened_at} onListened={isMe ? undefined : onListened} />
         ) : isImage && msg.audio_url ? (
