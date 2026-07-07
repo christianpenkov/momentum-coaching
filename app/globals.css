@@ -1341,6 +1341,22 @@ a { color: inherit; text-decoration: none; }
   transform: scale(0.95);
 }
 
+/* Verrouillage orientation portrait — voir components/OrientationLockOverlay.tsx.
+   Masqué par défaut ; affiché uniquement sur petit écran (mobile, pas tablette/desktop en
+   paysage légitime) ET orientation paysage. max-width borne au form factor téléphone pour ne
+   pas bloquer un iPad ou une fenêtre desktop redimensionnée en paysage. */
+.orientation-lock-overlay {
+  display: none;
+}
+@media (orientation: landscape) and (max-width: 900px) {
+  .orientation-lock-overlay {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 999999;
+  }
+}
+
 /* Page layout helpers */
 .page-content { max-width: 1280px; }
 @media (min-width: 1440px) { .page-content { max-width: 1440px; } }

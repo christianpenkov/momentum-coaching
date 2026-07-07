@@ -9,12 +9,14 @@ import { GlobalPresenceCoachProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
 import PushPermissionGate from '@/components/PushPermissionGate';
+import OrientationLockOverlay from '@/components/OrientationLockOverlay';
 
 function CoachLayoutInner({ children, shellRef }: { children: React.ReactNode; shellRef: React.RefObject<HTMLDivElement | null> }) {
   const { user } = useUser();
   usePushNotifications(user?.id ?? null);
   return (
     <div ref={shellRef} className="app-shell">
+      <OrientationLockOverlay />
       <PushPermissionGate userId={user?.id ?? null} />
       <TopBar />
       <div className="app-body">
