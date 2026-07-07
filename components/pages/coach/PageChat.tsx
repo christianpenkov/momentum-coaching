@@ -69,6 +69,9 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   // garde anti-clic-accidentel. Seuil = MIN(1.5s, durée totale) pour ne jamais bloquer le
   // marquage sur les vocaux très courts (1-2s).
   const listenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Position de lecture persistée (localStorage) — survit au changement de page ET au refresh
+  // complet, contrairement à un simple state/ref React qui se réinitialise au démontage.
+  const positionKey = `audio-pos-${id}`;
 
   useEffect(() => {
     const el = audioRef.current;
@@ -79,9 +82,26 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    const onTime = () => { const dur = el.duration || currentDuration || 1; setProgress((el.currentTime/dur)*100); };
-    const onEnd = () => { setActive(null); setProgress(0); };
-    const onLoad = () => { if (el.duration && !isNaN(el.duration)) setCurrentDuration(el.duration); };
+    const onTime = () => {
+      const dur = el.duration || currentDuration || 1;
+      setProgress((el.currentTime/dur)*100);
+      try { localStorage.setItem(positionKey, String(el.currentTime)); } catch {}
+    };
+    const onEnd = () => {
+      setActive(null);
+      setProgress(0);
+      try { localStorage.removeItem(positionKey); } catch {}
+    };
+    const onLoad = () => {
+      if (el.duration && !isNaN(el.duration)) setCurrentDuration(el.duration);
+      try {
+        const saved = parseFloat(localStorage.getItem(positionKey) || '');
+        if (!isNaN(saved) && saved > 0 && saved < el.duration) {
+          el.currentTime = saved;
+          setProgress((saved / el.duration) * 100);
+        }
+      } catch {}
+    };
     const onPlay = () => {
       if (listened || !onListened) return;
       const dur = el.duration || currentDuration || 0;
@@ -91,6 +111,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
     };
     const onPause = () => {
       if (listenTimerRef.current) { clearTimeout(listenTimerRef.current); listenTimerRef.current = null; }
+      try { localStorage.setItem(positionKey, String(el.currentTime)); } catch {}
     };
     el.addEventListener('timeupdate', onTime);
     el.addEventListener('ended', onEnd);
@@ -781,11 +802,21 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   // Marquage "écouté" pour les messages vocaux — voir commentaire détaillé dans
   // PageClientMessages.tsx (même logique, symétrique).
   const markMessageListened = useCallback((msgId: string) => {
+    const ts = new Date().toISOString();
+    let shouldPersist = false;
     setMessages(prev => {
       const msg = prev.find(m => m.id === msgId);
       if (!msg || msg.listened_at) return prev;
-      supabase.from('messages').update({ listened_at: new Date().toISOString() }).eq('id', msgId);
-      return prev.map(m => m.id === msgId ? { ...m, listened_at: new Date().toISOString() } : m);
+      shouldPersist = true;
+      return prev.map(m => m.id === msgId ? { ...m, listened_at: ts } : m);
+    });
+    if (!shouldPersist) return;
+    // await explicite : sans lui, la requête peut être annulée en plein vol si l'utilisateur
+    // change de page dans la fraction de seconde qui suit — voir PageClientMessages.tsx.
+    supabase.from('messages').update({ listened_at: ts }).eq('id', msgId).then(({ error }) => {
+      if (error) {
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, listened_at: null } : m));
+      }
     });
   }, [supabase]);
 

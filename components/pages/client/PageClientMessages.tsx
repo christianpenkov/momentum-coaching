@@ -81,6 +81,9 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   const [progress, setProgress] = useState(0);
   const [currentDuration, setCurrentDuration] = useState(duration ?? 0);
   const playing = activeId === id;
+  // Position de lecture persistée (localStorage) — survit au changement de page ET au refresh
+  // complet, contrairement à un simple state/ref React qui se réinitialise au démontage.
+  const positionKey = `audio-pos-${id}`;
   // Marquage "écouté" — comme WhatsApp : play réellement enclenché suffit (pas besoin
   // d'aller jusqu'au bout), avec une petite garde anti-clic-accidentel. Le seuil est le MIN
   // entre 1.5s et la durée totale — sinon un vocal de 1-2s n'atteindrait jamais 1.5s de
@@ -102,9 +105,23 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
     const onTimeUpdate = () => {
       const dur = el.duration || currentDuration || 1;
       setProgress((el.currentTime / dur) * 100);
+      try { localStorage.setItem(positionKey, String(el.currentTime)); } catch {}
     };
-    const onEnded = () => { setActive(null); setProgress(0); };
-    const onLoaded = () => { if (el.duration && !isNaN(el.duration)) setCurrentDuration(el.duration); };
+    const onEnded = () => {
+      setActive(null);
+      setProgress(0);
+      try { localStorage.removeItem(positionKey); } catch {}
+    };
+    const onLoaded = () => {
+      if (el.duration && !isNaN(el.duration)) setCurrentDuration(el.duration);
+      try {
+        const saved = parseFloat(localStorage.getItem(positionKey) || '');
+        if (!isNaN(saved) && saved > 0 && saved < el.duration) {
+          el.currentTime = saved;
+          setProgress((saved / el.duration) * 100);
+        }
+      } catch {}
+    };
     const onPlay = () => {
       if (listened || !onListened) return;
       const dur = el.duration || currentDuration || 0;
@@ -114,6 +131,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
     };
     const onPause = () => {
       if (listenTimerRef.current) { clearTimeout(listenTimerRef.current); listenTimerRef.current = null; }
+      try { localStorage.setItem(positionKey, String(el.currentTime)); } catch {}
     };
     el.addEventListener('timeupdate', onTimeUpdate);
     el.addEventListener('ended', onEnded);
@@ -974,11 +992,24 @@ export default function PageClientMessages() {
   // détail du seuil (min 1.5s / durée totale). Colonne distincte de read_at : "vu" (la bulle
   // est passée dans le viewport) ne veut pas dire "écouté" (l'audio a été lancé).
   const markMessageListened = useCallback((msgId: string) => {
+    const ts = new Date().toISOString();
+    let shouldPersist = false;
     setMessages(prev => {
       const msg = prev.find(m => m.id === msgId);
       if (!msg || msg.listened_at) return prev;
-      supabase.from('messages').update({ listened_at: new Date().toISOString() }).eq('id', msgId);
-      return prev.map(m => m.id === msgId ? { ...m, listened_at: new Date().toISOString() } : m);
+      shouldPersist = true;
+      return prev.map(m => m.id === msgId ? { ...m, listened_at: ts } : m);
+    });
+    if (!shouldPersist) return;
+    // await explicite : sans lui, la requête peut être annulée en plein vol si l'utilisateur
+    // change de page dans la fraction de seconde qui suit (le fetch part mais n'aboutit jamais,
+    // le state local reste optimiste alors que la DB n'a rien — d'où la pastille qui "revient"
+    // et les coches qui ne passent jamais côté expéditeur après un refetch).
+    supabase.from('messages').update({ listened_at: ts }).eq('id', msgId).then(({ error }) => {
+      if (error) {
+        // Revert optimiste si la persistance a réellement échoué (RLS, réseau...)
+        setMessages(prev => prev.map(m => m.id === msgId ? { ...m, listened_at: null } : m));
+      }
     });
   }, [supabase]);
 
