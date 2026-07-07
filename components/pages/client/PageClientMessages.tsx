@@ -1014,11 +1014,15 @@ export default function PageClientMessages() {
   }, [clientId, userId, supabase]);
 
 
-  // ── Scroll bas — scrollTop direct pour iOS, smooth ensuite ────────────────
+  // ── Scroll bas — instant au chargement, ancré tant que l'utilisateur ne scrolle pas ──
   const initialScrollDone = useRef(false);
+  // Tant que l'utilisateur n'a pas scrollé lui-même, on reste ancré en bas — y compris quand
+  // des images/audio finissent de charger après coup et changent la hauteur du contenu
+  // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
+  const stickToBottomRef = useRef(true);
   // Réinitialiser à chaque nouveau chargement (retour sur la page en PWA)
   useEffect(() => {
-    if (loading) initialScrollDone.current = false;
+    if (loading) { initialScrollDone.current = false; stickToBottomRef.current = true; }
   }, [loading]);
   useEffect(() => {
     if (loading) return;
@@ -1028,15 +1032,23 @@ export default function PageClientMessages() {
       // behavior: 'instant' outrepasse scroll-behavior:smooth (CSS) sur .chat-messages-zone —
       // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
       container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      const t = setTimeout(() => {
-        if (chatZoneRef.current) chatZoneRef.current.scrollTo({ top: chatZoneRef.current.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      }, 60);
       initialScrollDone.current = true;
-      return () => clearTimeout(t);
-    } else {
+    } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, coachTyping, loading]);
+
+  useEffect(() => {
+    const container = chatZoneRef.current;
+    if (!container || loading) return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current && chatZoneRef.current) {
+        chatZoneRef.current.scrollTo({ top: chatZoneRef.current.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      }
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [loading]);
 
   // ── Envoi texte ────────────────────────────────────────────────────────────
   async function sendMessage(text: string) {
@@ -1210,11 +1222,14 @@ export default function PageClientMessages() {
   // ── Flèche scroll bas ──────────────────────────────────────────────────────
   function handleChatScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
-    setShowScrollArrow(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollArrow(distanceFromBottom > 120);
+    stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
     const el = chatZoneRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    stickToBottomRef.current = true;
   }
 
   // ── Groupes par jour ───────────────────────────────────────────────────────

@@ -776,6 +776,10 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   }, [presenceCh]);
 
   const initialScrollDone = useRef(false);
+  // Tant que l'utilisateur n'a pas scrollé lui-même, on reste ancré en bas — y compris quand
+  // des images/audio finissent de charger après coup et changent la hauteur du contenu
+  // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
+  const stickToBottomRef = useRef(true);
   useEffect(() => {
     if (loading) return;
     const container = chatZoneRef.current;
@@ -784,15 +788,24 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       // behavior: 'instant' outrepasse scroll-behavior:smooth (CSS) sur .chat-messages-zone —
       // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
       container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      const t = setTimeout(() => {
-        if (chatZoneRef.current) chatZoneRef.current.scrollTo({ top: chatZoneRef.current.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      }, 60);
       initialScrollDone.current = true;
-      return () => clearTimeout(t);
-    } else {
+      stickToBottomRef.current = true;
+    } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, clientTyping, loading]);
+
+  useEffect(() => {
+    const container = chatZoneRef.current;
+    if (!container || loading) return;
+    const ro = new ResizeObserver(() => {
+      if (stickToBottomRef.current && chatZoneRef.current) {
+        chatZoneRef.current.scrollTo({ top: chatZoneRef.current.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      }
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [loading]);
 
   // Envoi texte
   async function sendMessage(text: string) {
@@ -915,11 +928,14 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
 
   function handleChatScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
-    setShowScrollArrow(el.scrollHeight - el.scrollTop - el.clientHeight > 120);
+    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setShowScrollArrow(distanceFromBottom > 120);
+    stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
     const el = chatZoneRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    stickToBottomRef.current = true;
   }
 
   // Groupes
