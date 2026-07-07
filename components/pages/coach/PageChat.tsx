@@ -825,7 +825,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
       stickToBottomRef.current = !target;
       settlingRef.current = true;
-      const t = setTimeout(() => { settlingRef.current = false; }, 1200);
+      const t = setTimeout(() => { settlingRef.current = false; }, 2500);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
@@ -835,13 +835,28 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   useEffect(() => {
     const container = chatZoneRef.current;
     if (!container || loading) return;
+    // Pendant la stabilisation, le contenu peut grandir sur plusieurs frames d'affilée
+    // (images/police qui chargent en cascade) — ResizeObserver ne notifie qu'une fois par
+    // frame, donc un seul scrollTo() par callback peut rater la croissance suivante. On
+    // reste en rAF-loop de correction tant qu'un écart existe, pas juste "une fois au signal".
+    let rafId: number | null = null;
+    const correct = () => {
+      rafId = null;
+      const c = chatZoneRef.current;
+      if (!c || !stickToBottomRef.current) return;
+      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+      if (gap > 0) {
+        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+        rafId = requestAnimationFrame(correct);
+      }
+    };
     const ro = new ResizeObserver(() => {
-      if (stickToBottomRef.current && chatZoneRef.current) {
-        chatZoneRef.current.scrollTo({ top: chatZoneRef.current.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      if (stickToBottomRef.current && rafId === null) {
+        rafId = requestAnimationFrame(correct);
       }
     });
     ro.observe(container);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); if (rafId !== null) cancelAnimationFrame(rafId); };
   }, [loading]);
 
   // Le shell mobile (voir useViewportShellHeight) recalcule sa hauteur via visualViewport

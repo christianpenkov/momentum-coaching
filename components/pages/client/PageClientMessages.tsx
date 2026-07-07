@@ -1079,7 +1079,7 @@ export default function PageClientMessages() {
         const c = chatZoneRef.current;
         // eslint-disable-next-line no-console
         console.log('[chat-scroll] settling window ended', c ? { scrollHeight: c.scrollHeight, scrollTop: c.scrollTop, clientHeight: c.clientHeight, gap: c.scrollHeight - c.scrollTop - c.clientHeight } : null);
-      }, 1200);
+      }, 2500);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
@@ -1089,18 +1089,35 @@ export default function PageClientMessages() {
   useEffect(() => {
     const container = chatZoneRef.current;
     if (!container || loading) return;
+    // Pendant la stabilisation, le contenu peut grandir sur plusieurs frames d'affilée
+    // (images/police qui chargent en cascade) — ResizeObserver ne notifie qu'une fois par
+    // frame, donc un seul scrollTo() par callback peut rater la croissance suivante. On
+    // reste en rAF-loop de correction tant qu'un écart existe, pas juste "une fois au signal".
+    let rafId: number | null = null;
+    const correct = () => {
+      rafId = null;
+      const c = chatZoneRef.current;
+      if (!c || !stickToBottomRef.current) return;
+      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+      if (gap > 0) {
+        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+        // eslint-disable-next-line no-console
+        console.log('[chat-scroll] rAF correction', { gapBefore: gap, settling: settlingRef.current });
+        rafId = requestAnimationFrame(correct);
+      }
+    };
     const ro = new ResizeObserver(() => {
       const c = chatZoneRef.current;
       if (!c) return;
       const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
       // eslint-disable-next-line no-console
       console.log('[chat-scroll] ResizeObserver fired', { stickToBottom: stickToBottomRef.current, settling: settlingRef.current, gapBefore: gap });
-      if (stickToBottomRef.current) {
-        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      if (stickToBottomRef.current && rafId === null) {
+        rafId = requestAnimationFrame(correct);
       }
     });
     ro.observe(container);
-    return () => ro.disconnect();
+    return () => { ro.disconnect(); if (rafId !== null) cancelAnimationFrame(rafId); };
   }, [loading]);
 
   // Le shell mobile (voir useViewportShellHeight) recalcule sa hauteur via visualViewport
