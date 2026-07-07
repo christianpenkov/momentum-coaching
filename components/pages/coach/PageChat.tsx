@@ -1,7 +1,7 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
 
-import { useState, useRef, useEffect, useCallback, createContext, useContext } from 'react';
+import { useState, useRef, useEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
@@ -782,6 +782,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   // d'un scroll même quand la position finale est déjà correcte. Seuls les messages qui
   // arrivent APRÈS ce premier rendu (nouveaux messages en direct) sont animés.
   const knownIdsRef = useRef<Set<string> | null>(null);
+  // Premier message non lu (de l'élève) au moment du chargement initial — figé une fois
+  // pour toutes. Comme WhatsApp/Telegram : si des messages non lus existent, l'ouverture
+  // de la conversation atterrit dessus plutôt que tout en bas.
+  const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
+  const firstUnreadComputedRef = useRef(false);
   // Tant que l'utilisateur n'a pas scrollé lui-même, on reste ancré en bas — y compris quand
   // des images/audio finissent de charger après coup et changent la hauteur du contenu
   // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
@@ -797,19 +802,35 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     if (!container) return;
     if (!knownIdsRef.current) knownIdsRef.current = new Set(messages.map(m => m.id));
     else messages.forEach(m => knownIdsRef.current!.add(m.id));
+    if (!firstUnreadComputedRef.current) {
+      // On calcule le premier non-lu et on attend le re-render suivant (le séparateur
+      // "Nouveaux messages" doit être monté dans le DOM avant qu'on puisse scroller dessus).
+      firstUnreadComputedRef.current = true;
+      const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
+      if (firstUnread) { setFirstUnreadId(firstUnread.id); return; }
+    }
     if (!initialScrollDone.current) {
-      // behavior: 'instant' outrepasse scroll-behavior:smooth (CSS) sur .chat-messages-zone —
-      // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
-      container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      // Message non lu trouvé : on cible son séparateur "Nouveaux messages" plutôt que
+      // le tout-en-bas — comme WhatsApp/Telegram, pour ne rater aucun message précédent.
+      const target = firstUnreadId ? document.getElementById(`unread-divider-${clientId}`) : null;
+      if (target) {
+        target.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
+      } else {
+        // behavior: 'instant' outrepasse scroll-behavior:smooth (CSS) sur .chat-messages-zone —
+        // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
+        container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      }
       initialScrollDone.current = true;
-      stickToBottomRef.current = true;
+      // Ancrage bas désactivé si on a atterri sur un message non lu au milieu de l'historique —
+      // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
+      stickToBottomRef.current = !target;
       settlingRef.current = true;
       const t = setTimeout(() => { settlingRef.current = false; }, 1200);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
-  }, [messages, clientTyping, loading]);
+  }, [messages, clientTyping, loading, firstUnreadId, clientId, userId]);
 
   useEffect(() => {
     const container = chatZoneRef.current;
@@ -821,6 +842,22 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     });
     ro.observe(container);
     return () => ro.disconnect();
+  }, [loading]);
+
+  // Le shell mobile (voir useViewportShellHeight) recalcule sa hauteur via visualViewport
+  // APRÈS le premier paint — ce resize n'est jamais un geste utilisateur : on force le
+  // rescroll bas sans passer par settlingRef.
+  useEffect(() => {
+    if (loading) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onViewportResize = () => {
+      const c = chatZoneRef.current;
+      if (!c || !stickToBottomRef.current) return;
+      c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+    };
+    vv.addEventListener('resize', onViewportResize);
+    return () => vv.removeEventListener('resize', onViewportResize);
   }, [loading]);
 
   // Envoi texte
@@ -1005,31 +1042,41 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
                 const isContinued = prevMsg && prevMsg.sender_id === msg.sender_id;
                 const isLast = !nextMsg || nextMsg.sender_id !== msg.sender_id;
                 return (
-                  <MessageBubble
-                    key={msg.id}
-                    msg={msg}
-                    userId={userId}
-                    isContinued={!!isContinued}
-                    isLast={isLast}
-                    isEditing={editingId === msg.id}
-                    editRect={editingId === msg.id ? editRect : null}
-                    editText={editText}
-                    setEditText={setEditText}
-                    onStartEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
-                    onCancelEdit={() => setEditingId(null)}
-                    onSaveEdit={() => { editMessage(msg.id, editText); setEditingId(null); }}
-                    canEdit={canEditMsg(msg)}
-                    canDelete={canDeleteMsg(msg)}
-                    onOpenCtxMenu={(rect, html) => setCtxMenu({ rect, html, msgId: msg.id })}
-                    onOpenLightbox={setLightboxUrl}
-                    isMenuTarget={ctxMenu?.msgId === msg.id}
-                    onEnterViewport={markMessageRead}
-                    registerBubbleRef={(id, el) => {
-                      if (el) bubbleRefsMap.current.set(id, el);
-                      else bubbleRefsMap.current.delete(id);
-                    }}
-                    animate={knownIdsRef.current ? !knownIdsRef.current.has(msg.id) : false}
-                  />
+                  <Fragment key={msg.id}>
+                    {firstUnreadId === msg.id && (
+                      <div id={`unread-divider-${clientId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
+                        <div style={{ flex: 1, height: 1, background: 'var(--red-soft)' }} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', background: 'var(--red-soft)', padding: '3px 10px', borderRadius: 20 }}>
+                          Nouveaux messages
+                        </span>
+                        <div style={{ flex: 1, height: 1, background: 'var(--red-soft)' }} />
+                      </div>
+                    )}
+                    <MessageBubble
+                      msg={msg}
+                      userId={userId}
+                      isContinued={!!isContinued}
+                      isLast={isLast}
+                      isEditing={editingId === msg.id}
+                      editRect={editingId === msg.id ? editRect : null}
+                      editText={editText}
+                      setEditText={setEditText}
+                      onStartEdit={() => { setEditingId(msg.id); setEditText(msg.text); }}
+                      onCancelEdit={() => setEditingId(null)}
+                      onSaveEdit={() => { editMessage(msg.id, editText); setEditingId(null); }}
+                      canEdit={canEditMsg(msg)}
+                      canDelete={canDeleteMsg(msg)}
+                      onOpenCtxMenu={(rect, html) => setCtxMenu({ rect, html, msgId: msg.id })}
+                      onOpenLightbox={setLightboxUrl}
+                      isMenuTarget={ctxMenu?.msgId === msg.id}
+                      onEnterViewport={markMessageRead}
+                      registerBubbleRef={(id, el) => {
+                        if (el) bubbleRefsMap.current.set(id, el);
+                        else bubbleRefsMap.current.delete(id);
+                      }}
+                      animate={knownIdsRef.current ? !knownIdsRef.current.has(msg.id) : false}
+                    />
+                  </Fragment>
                 );
               })}
             </div>
