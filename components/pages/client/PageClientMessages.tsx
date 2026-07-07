@@ -1138,6 +1138,35 @@ export default function PageClientMessages() {
   useEffect(() => {
     if (loading) { initialScrollDone.current = false; stickToBottomRef.current = true; settlingRef.current = true; knownIdsRef.current = null; firstUnreadComputedRef.current = false; setFirstUnreadId(null); setContentReady(false); suppressAutoReadRef.current = true; }
   }, [loading]);
+  // Le reset ci-dessus ne se déclenche qu'au tout premier chargement (loading passe à true
+  // une seule fois par montage du composant) — si l'app PWA n'est jamais complètement fermée
+  // (mise en arrière-plan puis réouverte), `loading` reste `false` pour toujours et
+  // firstUnreadComputedRef.current reste bloqué à `true` depuis la première ouverture : le
+  // calcul du premier non-lu ne se refait jamais, même en revenant des heures plus tard avec
+  // plein de nouveaux messages (constaté : le séparateur "Nouveaux messages" n'apparaît jamais
+  // dans ce scénario). On refait donc le même reset sur un retour au premier plan après une
+  // absence significative (seuil de 5s pour ignorer les micro-blur/focus, ex: notification
+  // rapide, changement d'app puis retour immédiat).
+  const hiddenAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    const handleBackgroundReturn = () => {
+      if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return; }
+      // visible
+      const wasHiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+      hiddenAtRef.current = null;
+      if (wasHiddenFor < 5000) return;
+      initialScrollDone.current = false;
+      stickToBottomRef.current = true;
+      settlingRef.current = true;
+      knownIdsRef.current = null;
+      firstUnreadComputedRef.current = false;
+      setFirstUnreadId(null);
+      setContentReady(false);
+      suppressAutoReadRef.current = true;
+    };
+    document.addEventListener('visibilitychange', handleBackgroundReturn);
+    return () => document.removeEventListener('visibilitychange', handleBackgroundReturn);
+  }, []);
   // useLayoutEffect (pas useEffect) : s'exécute de façon SYNCHRONE avant que le navigateur
   // peigne le DOM. Avec useEffect, un premier paint pouvait survenir avec scrollTop:0 (haut
   // de la conversation) avant que le scroll ne soit corrigé — flash intermittent constaté en

@@ -819,6 +819,32 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   // "scroll" natif alors que l'utilisateur n'a rien touché — on ignore onScroll pendant cette
   // fenêtre pour ne pas désarmer stickToBottomRef par erreur.
   const settlingRef = useRef(true);
+  // ConversationThread est démonté/remonté à chaque changement de conversation (key={activeId}),
+  // donc le state initial suffit normalement à réinitialiser tout ça. MAIS si le coach reste sur
+  // la MÊME conversation en arrière-plan longtemps (app PWA jamais fermée), rien ne redéclenche
+  // ce cycle — firstUnreadComputedRef reste bloqué à `true` depuis la première ouverture, et le
+  // calcul du premier non-lu ne se refait jamais pour les messages arrivés entre-temps (constaté
+  // côté élève, même bug attendu ici). On refait le reset sur un retour au premier plan après
+  // une absence significative (seuil 5s pour ignorer les micro-blur/focus).
+  const hiddenAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    const handleBackgroundReturn = () => {
+      if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return; }
+      const wasHiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+      hiddenAtRef.current = null;
+      if (wasHiddenFor < 5000) return;
+      initialScrollDone.current = false;
+      stickToBottomRef.current = true;
+      settlingRef.current = true;
+      knownIdsRef.current = null;
+      firstUnreadComputedRef.current = false;
+      setFirstUnreadId(null);
+      setContentReady(false);
+      suppressAutoReadRef.current = true;
+    };
+    document.addEventListener('visibilitychange', handleBackgroundReturn);
+    return () => document.removeEventListener('visibilitychange', handleBackgroundReturn);
+  }, []);
   // useLayoutEffect (pas useEffect) : s'exécute de façon SYNCHRONE avant que le navigateur
   // peigne le DOM — élimine la fenêtre de flash "haut de conversation" au premier paint.
   useLayoutEffect(() => {
