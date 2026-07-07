@@ -1046,7 +1046,14 @@ export default function PageClientMessages() {
       // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
       container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
       initialScrollDone.current = true;
-      const t = setTimeout(() => { settlingRef.current = false; }, 1200);
+      // eslint-disable-next-line no-console
+      console.log('[chat-scroll] initial scroll', { scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
+      const t = setTimeout(() => {
+        settlingRef.current = false;
+        const c = chatZoneRef.current;
+        // eslint-disable-next-line no-console
+        console.log('[chat-scroll] settling window ended', c ? { scrollHeight: c.scrollHeight, scrollTop: c.scrollTop, clientHeight: c.clientHeight, gap: c.scrollHeight - c.scrollTop - c.clientHeight } : null);
+      }, 1200);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
@@ -1057,8 +1064,13 @@ export default function PageClientMessages() {
     const container = chatZoneRef.current;
     if (!container || loading) return;
     const ro = new ResizeObserver(() => {
-      if (stickToBottomRef.current && chatZoneRef.current) {
-        chatZoneRef.current.scrollTo({ top: chatZoneRef.current.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      const c = chatZoneRef.current;
+      if (!c) return;
+      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+      // eslint-disable-next-line no-console
+      console.log('[chat-scroll] ResizeObserver fired', { stickToBottom: stickToBottomRef.current, settling: settlingRef.current, gapBefore: gap });
+      if (stickToBottomRef.current) {
+        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
       }
     });
     ro.observe(container);
@@ -1241,6 +1253,8 @@ export default function PageClientMessages() {
     setShowScrollArrow(distanceFromBottom > 120);
     // Pendant la stabilisation (settlingRef), un "scroll" natif peut venir du navigateur
     // lui-même (reflow viewport/fonts), pas de l'utilisateur — on ne désarme pas l'ancrage bas.
+    // eslint-disable-next-line no-console
+    console.log('[chat-scroll] onScroll event', { settling: settlingRef.current, distanceFromBottom, willDisarm: !settlingRef.current && distanceFromBottom >= 40 });
     if (!settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
