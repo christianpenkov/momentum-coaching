@@ -23,6 +23,7 @@ interface Msg {
   audio_url?: string;
   duration_s?: number;
   read_at?: string | null;
+  listened_at?: string | null;
   edited_at?: string | null;
 }
 
@@ -71,12 +72,20 @@ const WAVEFORM = [3,5,8,6,10,14,9,12,16,11,8,14,18,12,9,16,13,10,7,12,15,10,8,11
 
 // ─── AudioBubble — player custom coordonné ───────────────────────────────────
 
-function AudioBubble({ id, url, duration, isMe }: { id: string; url: string; duration?: number; isMe: boolean }) {
+function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
+  id: string; url: string; duration?: number; isMe: boolean;
+  listened?: boolean; onListened?: (id: string) => void;
+}) {
   const { activeId, setActive } = useContext(AudioContext);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [progress, setProgress] = useState(0);
   const [currentDuration, setCurrentDuration] = useState(duration ?? 0);
   const playing = activeId === id;
+  // Marquage "écouté" — comme WhatsApp : play réellement enclenché suffit (pas besoin
+  // d'aller jusqu'au bout), avec une petite garde anti-clic-accidentel. Le seuil est le MIN
+  // entre 1.5s et la durée totale — sinon un vocal de 1-2s n'atteindrait jamais 1.5s de
+  // lecture continue et ne serait jamais marqué écouté.
+  const listenTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Pause quand un autre player devient actif
   useEffect(() => {
@@ -96,15 +105,30 @@ function AudioBubble({ id, url, duration, isMe }: { id: string; url: string; dur
     };
     const onEnded = () => { setActive(null); setProgress(0); };
     const onLoaded = () => { if (el.duration && !isNaN(el.duration)) setCurrentDuration(el.duration); };
+    const onPlay = () => {
+      if (listened || !onListened) return;
+      const dur = el.duration || currentDuration || 0;
+      const threshold = dur > 0 ? Math.min(1500, dur * 1000) : 1500;
+      if (listenTimerRef.current) clearTimeout(listenTimerRef.current);
+      listenTimerRef.current = setTimeout(() => onListened(id), threshold);
+    };
+    const onPause = () => {
+      if (listenTimerRef.current) { clearTimeout(listenTimerRef.current); listenTimerRef.current = null; }
+    };
     el.addEventListener('timeupdate', onTimeUpdate);
     el.addEventListener('ended', onEnded);
     el.addEventListener('loadedmetadata', onLoaded);
+    el.addEventListener('play', onPlay);
+    el.addEventListener('pause', onPause);
     return () => {
       el.removeEventListener('timeupdate', onTimeUpdate);
       el.removeEventListener('ended', onEnded);
       el.removeEventListener('loadedmetadata', onLoaded);
+      el.removeEventListener('play', onPlay);
+      el.removeEventListener('pause', onPause);
+      if (listenTimerRef.current) clearTimeout(listenTimerRef.current);
     };
-  }, [currentDuration, setActive]);
+  }, [currentDuration, setActive, listened, onListened, id]);
 
   const togglePlay = useCallback(async () => {
     const el = audioRef.current;
@@ -147,6 +171,7 @@ function AudioBubble({ id, url, duration, isMe }: { id: string; url: string; dur
           background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--surface-2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer', transition: 'transform 80ms ease-out, opacity 80ms',
+          position: 'relative',
         }}
       >
         {playing ? (
@@ -158,6 +183,15 @@ function AudioBubble({ id, url, duration, isMe }: { id: string; url: string; dur
           <svg width="13" height="13" viewBox="0 0 24 24" fill={iconColor}>
             <polygon points="6 3 20 12 6 21 6 3"/>
           </svg>
+        )}
+        {/* Pastille "non écouté" — comme WhatsApp, disparaît une fois le vocal réellement
+            lancé (voir onPlay dans le useEffect plus haut). Uniquement sur les messages
+            reçus (onListened défini seulement pour !isMe côté appelant). */}
+        {onListened && !listened && (
+          <span style={{
+            position: 'absolute', top: -1, right: -1, width: 9, height: 9,
+            borderRadius: '50%', background: 'var(--red)', border: '2px solid var(--surface)',
+          }} />
         )}
       </button>
 
@@ -601,7 +635,7 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef, animate }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef, animate, onListened }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
@@ -612,6 +646,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   onEnterViewport?: (msgId: string) => void;
   registerBubbleRef?: (msgId: string, el: HTMLDivElement | null) => void;
   animate?: boolean;
+  onListened?: (msgId: string) => void;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
@@ -705,7 +740,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           visibility: (isMenuTarget || isEditing) ? 'hidden' : 'visible',
         }}>
         {isEditing ? null : isAudio && msg.audio_url ? (
-          <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} />
+          <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} listened={!!msg.listened_at} onListened={isMe ? undefined : onListened} />
         ) : isImage && msg.audio_url ? (
           <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
             onClick={() => onOpenLightbox(msg.audio_url!)}
@@ -895,7 +930,7 @@ export default function PageClientMessages() {
 
       const { data, error } = await supabase
         .from('messages')
-        .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, edited_at')
+        .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at')
         .eq('client_id', clientRow.id)
         .order('created_at', { ascending: true });
       if (error) console.error('messages fetch error:', error.message);
@@ -923,6 +958,19 @@ export default function PageClientMessages() {
       supabase.from('messages').update({ read_at: new Date().toISOString() })
         .eq('id', msgId).then(() => { clearAppBadge(); });
       return prev.map(m => m.id === msgId ? { ...m, read_at: new Date().toISOString() } : m);
+    });
+  }, [supabase]);
+
+  // Marquage "écouté" pour les messages vocaux — signal binaire comme WhatsApp (play
+  // réellement enclenché suffit, pas besoin d'aller jusqu'au bout), voir AudioBubble pour le
+  // détail du seuil (min 1.5s / durée totale). Colonne distincte de read_at : "vu" (la bulle
+  // est passée dans le viewport) ne veut pas dire "écouté" (l'audio a été lancé).
+  const markMessageListened = useCallback((msgId: string) => {
+    setMessages(prev => {
+      const msg = prev.find(m => m.id === msgId);
+      if (!msg || msg.listened_at) return prev;
+      supabase.from('messages').update({ listened_at: new Date().toISOString() }).eq('id', msgId);
+      return prev.map(m => m.id === msgId ? { ...m, listened_at: new Date().toISOString() } : m);
     });
   }, [supabase]);
 
@@ -1258,7 +1306,7 @@ export default function PageClientMessages() {
     setMessages(prev => [...prev, optimistic]);
     const { data } = await supabase.from('messages').insert({
       client_id: clientId, sender_id: userId, text: text.trim(), type: 'text',
-    }).select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, edited_at').single();
+    }).select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at').single();
     if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
   }
 
@@ -1560,6 +1608,7 @@ export default function PageClientMessages() {
                       onOpenLightbox={setLightboxUrl}
                       isMenuTarget={ctxMenu?.msgId === msg.id}
                       onEnterViewport={markMessageRead}
+                      onListened={markMessageListened}
                       registerBubbleRef={(id, el) => {
                         if (el) bubbleRefsMap.current.set(id, el);
                         else bubbleRefsMap.current.delete(id);
