@@ -153,11 +153,11 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 210, maxWidth: 270 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
-      <button onClick={togglePlay} style={{
+      <button onClick={togglePlay} className="tap-scale" style={{
         width: 34, height: 34, borderRadius: '50%', border: 'none', flexShrink: 0,
         background: isMe ? 'rgba(255,255,255,0.16)' : 'var(--ink)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-        transition: 'transform 80ms ease-out, opacity 80ms', position: 'relative',
+        position: 'relative',
       }}>
         {playing
           ? <svg width="12" height="12" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
@@ -287,7 +287,7 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flex: 1, gap: 12, animation: 'rec-fadein 0.15s ease-out' }}>
-      <button onClick={onCancel} type="button" style={{ width: 48, height: 48, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+      <button onClick={onCancel} type="button" className="tap-scale" style={{ width: 48, height: 48, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/></svg>
       </button>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, background: 'var(--surface-2)', borderRadius: 24, padding: '0 14px', height: 44 }}>
@@ -299,7 +299,7 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
           ))}
         </div>
       </div>
-      <button onClick={onSend} type="button" style={{ width: 48, height: 48, borderRadius: '50%', border: 'none', background: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)' }}>
+      <button onClick={onSend} type="button" className="tap-scale" style={{ width: 48, height: 48, borderRadius: '50%', border: 'none', background: 'var(--ink)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0, animation: 'rec-popin 0.2s cubic-bezier(0.175,0.885,0.32,1.275)' }}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
       </button>
     </div>
@@ -1481,12 +1481,12 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
               rows={1}
             />
             {mediaRecorderSupported && !input.trim() && (
-              <button type="button" onClick={startRecording} style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+              <button type="button" onClick={startRecording} className="tap-scale" style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
               </button>
             )}
             {input.trim() && (
-              <button className="btn-primary" onClick={() => sendMessage(input)} type="button" style={{ width: 40, height: 40, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <button className="btn-primary tap-scale" onClick={() => sendMessage(input)} type="button" style={{ width: 40, height: 40, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Icon name="send" size={15} />
               </button>
             )}

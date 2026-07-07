@@ -184,11 +184,12 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
       {/* Bouton play/pause */}
       <button
         onClick={togglePlay}
+        className="tap-scale"
         style={{
           width: 34, height: 34, borderRadius: '50%', border: 'none', flexShrink: 0,
           background: isMe ? 'rgba(255,255,255,0.16)' : 'var(--ink)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer', transition: 'transform 80ms ease-out, opacity 80ms',
+          cursor: 'pointer',
           position: 'relative',
         }}
       >
@@ -380,7 +381,7 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
       flex: 1, gap: 12, animation: 'rec-fadein 0.15s ease-out',
     }}>
       {/* Poubelle */}
-      <button onClick={onCancel} type="button" style={{
+      <button onClick={onCancel} type="button" className="tap-scale" style={{
         width: 48, height: 48, borderRadius: '50%', border: '1px solid var(--border)',
         background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
         justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
@@ -419,7 +420,7 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
       </div>
 
       {/* Envoyer */}
-      <button onClick={onSend} type="button" style={{
+      <button onClick={onSend} type="button" className="tap-scale" style={{
         width: 48, height: 48, borderRadius: '50%', border: 'none', background: 'var(--ink)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         cursor: 'pointer', flexShrink: 0,
@@ -1861,7 +1862,7 @@ export default function PageClientMessages() {
             />
 
             {mediaRecorderSupported && !input.trim() && (
-              <button type="button" onClick={startRecording} style={{
+              <button type="button" onClick={startRecording} className="tap-scale" style={{
                 width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)',
                 background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
@@ -1876,7 +1877,7 @@ export default function PageClientMessages() {
             )}
 
             {input.trim() && (
-              <button className="btn-primary" onClick={() => sendMessage(input)} type="button" style={{
+              <button className="btn-primary tap-scale" onClick={() => sendMessage(input)} type="button" style={{
                 width: 40, height: 40, borderRadius: '50%', padding: 0,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>
