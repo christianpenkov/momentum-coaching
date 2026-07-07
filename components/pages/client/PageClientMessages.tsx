@@ -178,7 +178,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   const progressIdx = Math.round((progress / 100) * (WAVEFORM.length - 1));
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 150, maxWidth: 190 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 228 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
 
       {/* Bouton play/pause */}
@@ -186,7 +186,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
         onClick={togglePlay}
         className="tap-scale"
         style={{
-          width: 28, height: 28, borderRadius: '50%', border: 'none', flexShrink: 0,
+          width: 31, height: 31, borderRadius: '50%', border: 'none', flexShrink: 0,
           background: isMe ? 'rgba(255,255,255,0.16)' : 'var(--ink)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer',
@@ -194,12 +194,12 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
         }}
       >
         {playing ? (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}>
             <rect x="6" y="4" width="4" height="16" rx="1"/>
             <rect x="14" y="4" width="4" height="16" rx="1"/>
           </svg>
         ) : (
-          <svg width="10" height="10" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'} style={{ marginLeft: 1 }}>
+          <svg width="11" height="11" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'} style={{ marginLeft: 1 }}>
             <polygon points="6 3 20 12 6 21 6 3"/>
           </svg>
         )}
@@ -218,11 +218,11 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
       {/* Waveform compacte, cliquable */}
       <div
         onClick={seekTo}
-        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, height: 24, cursor: 'pointer' }}
+        style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, height: 28, cursor: 'pointer' }}
       >
         {WAVEFORM.map((h, i) => {
           const isPlayed = i <= progressIdx && progress > 0;
-          const maxH = 22;
+          const maxH = 26;
           const barH = Math.max(3, Math.round((h / 22) * maxH));
           return (
             <div

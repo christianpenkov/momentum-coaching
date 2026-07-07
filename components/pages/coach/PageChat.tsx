@@ -151,17 +151,17 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 7, minWidth: 150, maxWidth: 190 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 228 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
       <button onClick={togglePlay} className="tap-scale" style={{
-        width: 28, height: 28, borderRadius: '50%', border: 'none', flexShrink: 0,
+        width: 31, height: 31, borderRadius: '50%', border: 'none', flexShrink: 0,
         background: isMe ? 'rgba(255,255,255,0.16)' : 'var(--ink)',
         display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
         position: 'relative',
       }}>
         {playing
-          ? <svg width="10" height="10" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-          : <svg width="10" height="10" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
+          ? <svg width="11" height="11" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          : <svg width="11" height="11" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
         {/* Pastille "non écouté" — comme WhatsApp, disparaît une fois le vocal réellement
             lancé. Uniquement sur les messages reçus (onListened défini seulement pour !isMe). */}
         {onListened && !listened && (
@@ -171,11 +171,11 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
           }} />
         )}
       </button>
-      <div onClick={seekTo} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, height: 24, cursor: 'pointer' }}>
+      <div onClick={seekTo} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, height: 28, cursor: 'pointer' }}>
         {WAVEFORM.map((h, i) => (
           <div key={i} style={{
             width: 2, borderRadius: 2, flexShrink: 0,
-            height: Math.max(3, Math.round((h/22)*22)),
+            height: Math.max(3, Math.round((h/22)*26)),
             background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
             transition: 'background 0.1s',
             transform: playing && Math.abs(i - progressIdx) <= 1 ? 'scaleY(1.1)' : 'scaleY(1)',
