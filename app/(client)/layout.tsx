@@ -6,7 +6,7 @@ import SidebarClient from '@/components/layout/SidebarClient';
 import BottomNav from '@/components/layout/BottomNav';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider, useUser } from '@/lib/UserContext';
-import { GlobalPresenceClient } from '@/components/layout/GlobalPresence';
+import { GlobalPresenceClientProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
 
@@ -18,21 +18,18 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   const { user } = useUser();
   usePushNotifications(user?.id ?? null);
   return (
-    <>
-      <GlobalPresenceClient />
-      <div ref={shellRef} className="app-shell-pwa">
-        <TopBar />
-        <div className="app-body-pwa">
-          <SidebarClient />
-          <main className="main-content">
-            <PageTransition>{children}</PageTransition>
-          </main>
-        </div>
-        <div ref={navRef} className="bottom-nav-wrapper">
-          <BottomNav />
-        </div>
+    <div ref={shellRef} className="app-shell-pwa">
+      <TopBar />
+      <div className="app-body-pwa">
+        <SidebarClient />
+        <main className="main-content">
+          <PageTransition>{children}</PageTransition>
+        </main>
       </div>
-    </>
+      <div ref={navRef} className="bottom-nav-wrapper">
+        <BottomNav />
+      </div>
+    </div>
   );
 }
 
@@ -44,7 +41,9 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <UserProvider>
-      <ClientLayoutInner shellRef={shellRef} navRef={navRef}>{children}</ClientLayoutInner>
+      <GlobalPresenceClientProvider>
+        <ClientLayoutInner shellRef={shellRef} navRef={navRef}>{children}</ClientLayoutInner>
+      </GlobalPresenceClientProvider>
     </UserProvider>
   );
 }

@@ -10,6 +10,7 @@ import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
 import ChatScrollLogsButton from '@/components/ui/ChatScrollLogsButton';
+import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -778,7 +779,10 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       if (payload.payload?.role === 'client') {
         setClientTyping(true);
         if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-        typingTimerRef.current = setTimeout(() => setClientTyping(false), 3000);
+        // 4s, nettement au-dessus de l'intervalle d'émission (2s côté émetteur) pour
+        // absorber la latence réseau variable (surtout mobile) — sinon l'indicateur
+        // s'éteint puis se rallume (clignote) entre deux broadcasts.
+        typingTimerRef.current = setTimeout(() => setClientTyping(false), 4000);
       }
     };
     presenceCh.on('broadcast', { event: 'typing' }, handler);
@@ -1350,10 +1354,12 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
               value={input}
               onChange={e => {
                 setInput(e.target.value);
-                // Throttle — évite de spammer le canal realtime à chaque frappe
+                // Throttle — évite de spammer le canal realtime à chaque frappe. Intervalle
+                // (2s) nettement inférieur au timeout d'extinction côté récepteur (4s) pour
+                // absorber la latence réseau variable, sinon l'indicateur clignote.
                 if (presenceCh) {
                   const now = Date.now();
-                  if (now - lastTypingSentRef.current > 2500) {
+                  if (now - lastTypingSentRef.current > 2000) {
                     lastTypingSentRef.current = now;
                     presenceCh.send({ type: 'broadcast', event: 'typing', payload: { role: 'coach' } });
                   }
@@ -1481,16 +1487,12 @@ export default function PageChat() {
   const { clients, loading } = useSupabaseClients();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
-  const [onlineClients, setOnlineClients] = useState<Set<string>>(new Set());
-  // worker: true déporte le heartbeat WebSocket Realtime dans un Web Worker — insensible au
-  // throttling de timers que les navigateurs appliquent aux onglets en arrière-plan, cause
-  // principale des faux "hors ligne"/"en ligne" figés observés en prod.
-  const supabase = useRef(createClient({ worker: true, heartbeatIntervalMs: 15_000 })).current;
+  // En ligne/hors ligne = présence plateforme entière (voir lib/GlobalPresenceContext.tsx),
+  // pas seulement "a la messagerie ouverte" — plus précis pour l'utilisateur.
+  const { isClientOnline } = useGlobalCoachPresence();
+  const supabase = useRef(createClient()).current;
   const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const [presenceCh, setPresenceCh] = useState<ReturnType<typeof supabase.channel> | null>(null);
-  // Dernier online_at connu du client actif — TTL local indépendant de l'état du canal
-  // WebSocket (voir le useEffect de présence plus bas pour le détail du pattern).
-  const lastClientSeenRef = useRef<number | null>(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
@@ -1500,18 +1502,9 @@ export default function PageChat() {
     if (clients.length > 0 && !activeId) setActiveId(clients[0].id);
   }, [clients, activeId]);
 
-  // presenceRetryKey force la recréation complète du canal — nécessaire quand le WebSocket
-  // meurt silencieusement (veille OS, coupure réseau) sans que visibilitychange se déclenche :
-  // le dernier état "sync" connu reste figé indéfiniment sinon (ex: élève vu "en ligne" des
-  // heures après sa vraie déconnexion, jusqu'au prochain hard refresh).
-  const [presenceRetryKey, setPresenceRetryKey] = useState(0);
-  // Backoff exponentiel sur les retries — sans ça, une erreur de canal (souvent causée par un
-  // rate limit Supabase Realtime sur les events de présence, confirmé en prod via les logs :
-  // "ClientPresenceRateLimitReached") déclenchait un retry immédiat → nouveau track() → risque
-  // de re-déclencher le même rate limit → boucle qui s'auto-alimente et ne se résout jamais
-  // (constaté : les deux appareils restaient "hors ligne" en permanence l'un pour l'autre).
   const retryAttemptRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [presenceRetryKey, setPresenceRetryKey] = useState(0);
   const scheduleRetry = () => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     const attempt = retryAttemptRef.current;
@@ -1526,42 +1519,20 @@ export default function PageChat() {
     return () => window.removeEventListener('online', onOnline);
   }, []);
 
-  // Presence coach : écoute présence client sur les deux canaux (messagerie + global)
-  // Pattern robuste inspiré de Slack/Discord — voir commentaire détaillé dans
-  // PageClientMessages.tsx (même logique, symétrique).
+  // Canal messagerie : broadcast typing uniquement — la présence en ligne/hors ligne vient
+  // désormais du contexte GlobalPresenceCoachProvider (lib/GlobalPresenceContext.tsx).
   useEffect(() => {
     if (!userId || !activeId) return;
 
     const ch = supabase.channel(`presence-chat-${activeId}`, {
       config: { presence: { key: userId } },
     });
-    const track = () => ch.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
 
-    ch.on('presence', { event: 'sync' }, () => {
-        const state = ch.presenceState();
-        const clientEntry = Object.entries(state).find(([key, entries]) =>
-          key !== userId && (entries as Array<Record<string, unknown>>).some(e => e.role === 'client')
-        );
-        if (clientEntry) {
-          const entry = (clientEntry[1] as Array<Record<string, unknown>>).find(e => e.role === 'client');
-          lastClientSeenRef.current = entry?.online_at ? new Date(entry.online_at as string).getTime() : Date.now();
-        } else {
-          lastClientSeenRef.current = null;
-        }
-        setOnlineClients(prev => {
-          const next = new Set(prev);
-          if (clientEntry) next.add(activeId); else next.delete(activeId);
-          return next;
-        });
-      })
-      .subscribe((status) => {
+    ch.subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           presenceIsSubscribedRef.current = true;
           retryAttemptRef.current = 0;
-          if (document.visibilityState === 'visible') track();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
-          // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
           presenceIsSubscribedRef.current = false;
           scheduleRetry();
         }
@@ -1569,46 +1540,9 @@ export default function PageChat() {
     presenceChRef.current = ch;
     setPresenceCh(ch);
 
-    // Heartbeat applicatif — re-track() périodique pour garder online_at frais côté client.
-    // Espacé à 60s (au lieu de 20s précédemment) : le rate limit Supabase Realtime sur les
-    // events de présence a été confirmé atteint en prod ("ClientPresenceRateLimitReached" dans
-    // les logs Realtime) quand plusieurs mécanismes (heartbeat + retry immédiat sur erreur)
-    // envoyaient trop de track() rapprochés — cause du bug "toujours hors ligne" des deux côtés.
-    const heartbeatId = setInterval(() => {
-      if (presenceIsSubscribedRef.current && document.visibilityState === 'visible') track();
-    }, 60_000);
-
-    // TTL local — le client n'est plus "en ligne" si son dernier online_at dépasse 2.5x le
-    // heartbeat (150s), même si le canal ne l'a jamais formellement retiré du presenceState()
-    // (WebSocket mort sans "leave" propagé). Marge large pour absorber la latence réseau
-    // normale sans faux négatif.
-    const staleCheckId = setInterval(() => {
-      if (lastClientSeenRef.current !== null && Date.now() - lastClientSeenRef.current > 150_000) {
-        lastClientSeenRef.current = null;
-        setOnlineClients(prev => {
-          const next = new Set(prev);
-          next.delete(activeId);
-          return next;
-        });
-      }
-    }, 10_000);
-
-    const handleVisibility = () => {
-      if (!presenceChRef.current || !presenceIsSubscribedRef.current) return;
-      if (document.visibilityState === 'hidden') {
-        presenceChRef.current.untrack();
-      } else {
-        track();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
     return () => {
       presenceIsSubscribedRef.current = false;
-      clearInterval(heartbeatId);
-      clearInterval(staleCheckId);
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
       presenceChRef.current = null;
       setPresenceCh(null);
@@ -1639,7 +1573,7 @@ export default function PageChat() {
         <div style={{ flex: 1, overflowY: 'auto' }}>
           {clients.map(cl => {
             const isActive = cl.id === activeId;
-            const isOnline = onlineClients.has(cl.id);
+            const isOnline = isClientOnline(cl.id);
             const initials = cl.initials || cl.name.slice(0, 2).toUpperCase();
             return (
               <div key={cl.id} onClick={() => setActiveId(cl.id)} style={{
@@ -1675,7 +1609,7 @@ export default function PageChat() {
           userId={userId}
           clientName={activeClient.name}
           clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
-          isOnline={onlineClients.has(activeId)}
+          isOnline={isClientOnline(activeId)}
           supabase={supabase}
           presenceCh={presenceCh}
         />

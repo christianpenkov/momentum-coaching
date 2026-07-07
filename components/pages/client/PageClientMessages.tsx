@@ -10,6 +10,7 @@ import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
 import ChatScrollLogsButton from '@/components/ui/ChatScrollLogsButton';
+import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -809,7 +810,9 @@ export default function PageClientMessages() {
   const [isRecording, setIsRecording] = useState(false);
   const [recordingElapsed, setRecordingElapsed] = useState(0);
   const [mediaRecorderSupported, setMediaRecorderSupported] = useState(false);
-  const [isCoachOnline, setIsCoachOnline] = useState(false);
+  // En ligne/hors ligne = présence plateforme entière (voir lib/GlobalPresenceContext.tsx),
+  // pas seulement "a la messagerie ouverte" — plus précis pour l'utilisateur.
+  const { coachOnline: isCoachOnline } = useGlobalClientPresence();
   const [coachTyping, setCoachTyping] = useState(false);
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [showScrollArrow, setShowScrollArrow] = useState(false);
@@ -847,9 +850,6 @@ export default function PageClientMessages() {
   const presenceChRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
   const isSubscribedRef = useRef(false);
   const lastTypingSentRef = useRef<number>(0);
-  // Dernier online_at connu du coach — permet un TTL local indépendant de l'état du canal
-  // WebSocket (voir useEffect de présence plus bas pour le détail du pattern).
-  const lastCoachSeenRef = useRef<number | null>(null);
 
   // worker: true déporte le heartbeat WebSocket Realtime dans un Web Worker — insensible au
   // throttling de timers que les navigateurs appliquent aux onglets en arrière-plan, cause
@@ -1006,9 +1006,10 @@ export default function PageClientMessages() {
   }, []);
   useEffect(() => {
     if (!clientId || !userId) return;
-    // Canal messagerie pour broadcast typing + présence locale
-    // La présence globale (hors messagerie) est gérée par GlobalPresenceClient dans le layout
-    // sur le canal global-presence-${clientId}
+    // Canal messagerie pour broadcast typing uniquement — la présence en ligne/hors ligne
+    // vient désormais du contexte GlobalPresenceClientProvider (lib/GlobalPresenceContext.tsx),
+    // actif sur toute la plateforme via le canal global-presence-${clientId} monté dans le
+    // layout, pas seulement quand la messagerie est ouverte (voir useGlobalClientPresence()).
     const ch = supabase.channel(`presence-chat-${clientId}`, {
       config: { presence: { key: userId } },
     });
@@ -1016,79 +1017,30 @@ export default function PageClientMessages() {
     // pour que le broadcast typing soit disponible dès la première frappe
     presenceChRef.current = ch;
 
-    const track = () => ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
-
-    ch.on('presence', { event: 'sync' }, () => {
-        const state = ch.presenceState();
-        const coachEntry = Object.entries(state).find(([key, entries]) =>
-          key !== userId &&
-          (entries as Array<Record<string, unknown>>).some(e => e.role === 'coach')
-        );
-        if (coachEntry) {
-          const entry = (coachEntry[1] as Array<Record<string, unknown>>).find(e => e.role === 'coach');
-          lastCoachSeenRef.current = entry?.online_at ? new Date(entry.online_at as string).getTime() : Date.now();
-          setIsCoachOnline(true);
-        } else {
-          lastCoachSeenRef.current = null;
-          setIsCoachOnline(false);
-        }
-      })
-      .on('broadcast', { event: 'typing' }, (payload) => {
+    ch.on('broadcast', { event: 'typing' }, (payload) => {
         if (payload.payload?.role === 'coach') {
           setCoachTyping(true);
           if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
-          typingTimerRef.current = setTimeout(() => setCoachTyping(false), 3000);
+          // 4s, nettement au-dessus de l'intervalle d'émission (2s côté émetteur) pour
+          // absorber la latence réseau variable (surtout mobile) — sinon l'indicateur
+          // s'éteint puis se rallume (clignote) entre deux broadcasts.
+          typingTimerRef.current = setTimeout(() => setCoachTyping(false), 4000);
         }
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           isSubscribedRef.current = true;
           retryAttemptRef.current = 0;
-          if (document.visibilityState === 'visible') track();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
-          // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
-          // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
+          // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts.
           isSubscribedRef.current = false;
           scheduleRetry();
         }
       });
 
-    // Heartbeat applicatif — re-track() périodique pour garder online_at frais côté coach.
-    // Espacé à 60s (au lieu de 20s précédemment) : le rate limit Supabase Realtime sur les
-    // events de présence a été confirmé atteint en prod ("ClientPresenceRateLimitReached" dans
-    // les logs Realtime) quand plusieurs mécanismes (heartbeat + retry immédiat sur erreur)
-    // envoyaient trop de track() rapprochés — cause du bug "toujours hors ligne" des deux côtés.
-    const heartbeatId = setInterval(() => {
-      if (isSubscribedRef.current && document.visibilityState === 'visible') track();
-    }, 60_000);
-
-    // TTL local — le coach n'est plus "en ligne" si son dernier online_at dépasse 2.5x le
-    // heartbeat (150s), même si le canal ne l'a jamais formellement retiré du presenceState()
-    // (WebSocket mort sans "leave" propagé). Marge large pour absorber la latence réseau
-    // normale sans faux négatif.
-    const staleCheckId = setInterval(() => {
-      if (lastCoachSeenRef.current !== null && Date.now() - lastCoachSeenRef.current > 150_000) {
-        setIsCoachOnline(false);
-      }
-    }, 10_000);
-
-    // Gérer verrouillage écran : untrack quand caché, retrack quand visible
-    const handleVisibility = () => {
-      if (!presenceChRef.current || !isSubscribedRef.current) return;
-      if (document.visibilityState === 'hidden') {
-        presenceChRef.current.untrack();
-      } else {
-        track();
-      }
-    };
-    document.addEventListener('visibilitychange', handleVisibility);
-
     return () => {
       isSubscribedRef.current = false;
-      clearInterval(heartbeatId);
-      clearInterval(staleCheckId);
       if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
-      document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
       presenceChRef.current = null;
       // Annuler le timer sans réinitialiser coachTyping laissait l'indicateur "en train
@@ -1800,10 +1752,15 @@ export default function PageClientMessages() {
               value={input}
               onChange={e => {
                 setInput(e.target.value);
-                // Broadcast typing throttlé — drop si canal pas encore SUBSCRIBED
+                // Broadcast typing throttlé — drop si canal pas encore SUBSCRIBED.
+                // Intervalle d'émission (2s) nettement inférieur au timeout d'extinction côté
+                // récepteur (4s, voir plus bas) pour absorber la latence réseau variable — sur
+                // mobile en particulier, un ancien réglage à 2.5s/3s laissait une marge trop
+                // fine et l'indicateur "en train d'écrire" clignotait (s'éteignait puis se
+                // rallumait) dès que la latence dépassait ~500ms.
                 if (presenceChRef.current && isSubscribedRef.current) {
                   const now = Date.now();
-                  if (now - lastTypingSentRef.current > 2500) {
+                  if (now - lastTypingSentRef.current > 2000) {
                     lastTypingSentRef.current = now;
                     presenceChRef.current.send({ type: 'broadcast', event: 'typing', payload: { role: 'client' } });
                   }
