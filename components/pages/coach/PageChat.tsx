@@ -1225,7 +1225,10 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
               })}
             </div>
           ))}
-          {clientTyping && <div className="msg-bubble-in" style={{ marginTop: 8 }}><TypingIndicator /></div>}
+          {/* Pas de msg-bubble-in ici : ce conteneur reste monté en continu tant que
+              clientTyping est true — l'animation d'entrée n'a pas lieu d'être et pouvait
+              interagir avec l'animation infinie des points (clignotement constaté mobile). */}
+          {clientTyping && <div style={{ marginTop: 8 }}><TypingIndicator /></div>}
           <div ref={bottomRef} />
         </div>
 

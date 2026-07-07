@@ -1598,9 +1598,13 @@ export default function PageClientMessages() {
             </div>
           ))}
 
-          {/* Indicateur de frappe */}
+          {/* Indicateur de frappe — pas de msg-bubble-in ici : ce conteneur reste monté en
+              continu tant que coachTyping est true (ne se démonte qu'à l'extinction), l'animation
+              d'entrée n'a donc pas lieu d'être et pouvait, sur certains navigateurs mobiles,
+              interagir avec l'animation infinie des points et donner une impression de
+              clignotement au lieu d'un mouvement continu des 3 points. */}
           {coachTyping && (
-            <div className="msg-bubble-in" style={{ marginTop: 8 }}>
+            <div style={{ marginTop: 8 }}>
               <TypingIndicator />
             </div>
           )}
