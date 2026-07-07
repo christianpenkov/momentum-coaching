@@ -943,6 +943,24 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
             backfill_source: 'cron',
           }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         }
+        // ig_accounts_engaged/ig_total_interactions : même besoin qu'au-dessus mais pour
+        // l'engagement — la route stats/route.ts passe en lecture 100%-DB pour ces
+        // métriques (2026-07-07), donc le cron doit désormais les actualiser aussi sur
+        // "aujourd'hui" (pas seulement "hier"), sinon "Interactions posts"/"Taux
+        // d'engagement" resteraient à 0/null pour le jour même jusqu'au lendemain matin.
+        // Vrai appel Meta daté sur todayStr (period=day), pas un simple recopiage — ces
+        // métriques nécessitent un appel spécifique par jour, contrairement à ig_followers.
+        try {
+          const todayMetrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, todayStr);
+          if (todayMetrics.ig_accounts_engaged != null || todayMetrics.ig_total_interactions != null) {
+            await supa.from('analytics_daily_snapshots').upsert({
+              profile_id: profileId, date: todayStr,
+              ig_accounts_engaged: todayMetrics.ig_accounts_engaged,
+              ig_total_interactions: todayMetrics.ig_total_interactions,
+              backfill_source: 'cron',
+            }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          }
+        } catch { /* non bloquant — la ligne "hier" reste écrite normalement */ }
       })(),
       snapshotIgPosts(profileId, igCreds.token, igCreds.igAccountId, yesterday),
     ]);

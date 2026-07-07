@@ -77,13 +77,43 @@ export async function GET(request: Request) {
 
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  const [accountRes, mediaRes, insightsRes, engagedRes, demoRes, onlineFollowersRes, viewsBreakdownRes, reachDedupRes] = await Promise.all([
+  // reach/follower_count/accounts_engaged/total_interactions/posts : lus depuis
+  // analytics_daily_snapshots / analytics_ig_posts_history (même DB que la vue
+  // historique S-1+, alimentée par le cron toutes les 30 min — cf. lib/ig-fetch.ts /
+  // supabase/functions/poll-leads/index.ts), pas depuis l'API Meta live.
+  //
+  // RÈGLE (pour éviter la récidive, cf. bug du 2026-07-07) : toute métrique Meta qui
+  // n'existe qu'en `metric_type=total_value` agrégé sur toute la fenêtre demandée
+  // (accounts_engaged, total_interactions — jamais une vraie série `values[]` par
+  // jour, contrairement à reach/follower_count) NE DOIT JAMAIS être reconstruite
+  // depuis un appel live dans cette route : soit la DB a la vraie valeur quotidienne
+  // (le cron interroge Meta un jour à la fois), soit rien. Un appel live "total_value"
+  // pour ce genre de métrique ne peut remplir qu'un seul point (l'agrégat), jamais
+  // toute une série jour par jour — l'ancien bug venait exactement de ce genre de
+  // confusion (résultat fetché puis jamais utilisable proprement).
+  //
+  // Champs qui restent en live Meta (bio/photo/username/heatmap/démographie/views
+  // breakdown/reach dédupliqué 28j) : jamais collectés par le cron aujourd'hui,
+  // migrer ça est un chantier de collecte séparé (cf. TODOS.md / plan).
+  const sinceDateStr = new Date(since * 1000).toISOString().split('T')[0];
+  const untilDateStr = new Date(until * 1000).toISOString().split('T')[0];
+  const dbSnapshotsPromise = serviceSupabase
+    .from('analytics_daily_snapshots')
+    .select('date, ig_reach, ig_followers, ig_accounts_engaged, ig_total_interactions, ig_views, ig_website_clicks, ig_profile_taps, ig_reach_follower, ig_reach_non_follower')
+    .eq('profile_id', targetProfileId)
+    .gte('date', sinceDateStr)
+    .lte('date', untilDateStr)
+    .order('date', { ascending: true });
+  const dbPostsPromise = serviceSupabase
+    .from('analytics_ig_posts_history')
+    .select('*')
+    .eq('profile_id', targetProfileId)
+    .gte('snapshot_date', sinceDateStr)
+    .lte('snapshot_date', untilDateStr)
+    .order('snapshot_date', { ascending: false });
+
+  const [accountRes, demoRes, onlineFollowersRes, viewsBreakdownRes, reachDedupRes, dbSnapshotsRes, dbPostsRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=username,name,profile_picture_url,followers_count,follows_count,media_count,biography&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,is_shared_to_feed,video_duration&limit=100&access_token=${token}`),
-    // reach, follower_count, website_clicks fonctionnent en period=day
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,follows_and_unfollows,profile_links_taps,website_clicks&period=day&since=${since}&until=${until}&access_token=${token}`),
-    // accounts_engaged + total_interactions nécessitent metric_type=total_value (period=day sans ça retourne data:[])
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follower_demographics&period=lifetime&breakdown=age,gender,country,city&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=online_followers&period=lifetime&since=${ofSince}&until=${ofUntil}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&metric_type=total_value&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`),
@@ -94,47 +124,26 @@ export async function GET(request: Request) {
     // catégorie sur toute la fenêtre, calculé côté serveur par Meta. Fenêtre fixe 28j (pas
     // de since/until arbitraire possible pour reach en mode dédupliqué, contrairement à views).
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=days_28&metric_type=total_value&breakdown=follow_type&access_token=${token}`),
+    dbSnapshotsPromise,
+    dbPostsPromise,
   ]);
 
-  const [accountData, mediaData, insightsData, engagedData, demoData, onlineFollowersData, viewsBreakdownData, reachDedupData] = await Promise.all([
-    safeJson(accountRes), safeJson(mediaRes), safeJson(insightsRes), safeJson(engagedRes), safeJson(demoRes), safeJson(onlineFollowersRes), safeJson(viewsBreakdownRes), safeJson(reachDedupRes),
+  const [accountData, demoData, onlineFollowersData, viewsBreakdownData, reachDedupData] = await Promise.all([
+    safeJson(accountRes), safeJson(demoRes), safeJson(onlineFollowersRes), safeJson(viewsBreakdownRes), safeJson(reachDedupRes),
   ]);
+  const dbSnaps = dbSnapshotsRes.data ?? [];
 
   if (accountData.error) {
     return NextResponse.json({
       error: accountData.error.message,
       code: accountData.error.code,
       type: accountData.error.type,
-      insightsError: insightsData?.error || null,
     }, { status: 400 });
   }
 
-  // Agrège les insights compte 30j
-  const insightMap: Record<string, number[]> = {};
-  for (const metric of insightsData?.data || []) {
-    insightMap[metric.name] = (metric.values || []).map((v: any) => v.value || 0);
-  }
-  const sum = (arr: number[]) => (arr || []).reduce((a, b) => a + b, 0);
+  const sum = (arr: (number | null)[]) => arr.reduce((a: number, b) => a + (b ?? 0), 0);
 
-  // engagedRes (accounts_engaged, total_interactions) est fetché avec metric_type=
-  // total_value — nécessaire pour avoir une réponse non vide en period=day (cf.
-  // commentaire plus haut), MAIS ça change le format : total_value.value est UN SEUL
-  // nombre agrégé sur toute la fenêtre since→until, pas une série values[] par jour.
-  // engagedData n'était jamais lu depuis son fetch (bug trouvé le 2026-07-07) : le code
-  // lisait insightMap['accounts_engaged']/['total_interactions'], qui restaient
-  // toujours vides car insightMap ne vient que d'insightsData (reach/follower_count/
-  // etc.), qui ne demande pas ces deux métriques. Conséquence : "Interactions posts"
-  // affichait systématiquement 0 en vue "période actuelle" malgré une vraie donnée
-  // disponible côté Meta.
-  let accountsEngagedTotalValue = 0;
-  let totalInteractionsTotalValue = 0;
-  for (const m of (engagedData?.data || [])) {
-    const v = m.total_value?.value || 0;
-    if (m.name === 'accounts_engaged') accountsEngagedTotalValue += v;
-    else if (m.name === 'total_interactions') totalInteractionsTotalValue += v;
-  }
-
-  const reach30d = sum(insightMap['reach'] || []);
+  const reach30d = sum(dbSnaps.map(r => r.ig_reach));
   // Nombre RÉEL de comptes abonnés uniques distincts touchés sur ~28j (pas un ratio
   // statistique ni une somme de reach quotidien qui recompte un même compte touché
   // plusieurs jours) — total_value + breakdown=follow_type de Meta renvoie le vrai
@@ -157,15 +166,18 @@ export async function GET(request: Request) {
       }
     }
   }
-  // accounts_engaged/total_interactions via total_value sont non fiables (> reach, inclut stories/DMs)
-  // On calcule les vraies interactions depuis les posts individuels après leur fetch (voir plus bas)
-  const accountsEngaged30d = 0; // remplacé par postInteractions30d calculé depuis les posts
-  const totalInteractions30d = 0;
-  // follows_and_unfollows peut être vide sur certains comptes — on fall back sur follower_count (delta quotidien)
-  const followsUnfollows30d = sum(insightMap['follows_and_unfollows'] || []) || sum(insightMap['follower_count'] || []);
-  const profileLinksTaps30d = sum(insightMap['profile_links_taps'] || []);
-  const websiteClicks30d = sum(insightMap['website_clicks'] || []);
-  const views30d = sum(insightMap['views'] || []);
+  const accountsEngaged30d = sum(dbSnaps.map(r => r.ig_accounts_engaged));
+  const totalInteractions30d = sum(dbSnaps.map(r => r.ig_total_interactions));
+  const profileLinksTaps30d = sum(dbSnaps.map(r => r.ig_profile_taps));
+  const websiteClicks30d = sum(dbSnaps.map(r => r.ig_website_clicks));
+  const views30d = sum(dbSnaps.map(r => r.ig_views));
+  // follows_and_unfollows : pas de colonne dédiée fiable en DB actuellement — approximé
+  // par le delta net d'abonnés sur la fenêtre (dernier - premier jour connu).
+  const followsUnfollows30d = (() => {
+    const withFollowers = dbSnaps.filter(r => r.ig_followers != null);
+    if (withFollowers.length < 2) return 0;
+    return (withFollowers[withFollowers.length - 1].ig_followers ?? 0) - (withFollowers[0].ig_followers ?? 0);
+  })();
 
   // Views breakdown follower_type : part abonnés vs non-abonnés (viralité)
   let viewsFollowerBreakdown: { follower: number; nonFollower: number } | null = null;
@@ -232,181 +244,56 @@ export async function GET(request: Request) {
     dataPointCount: ofValues.filter((e: any) => e.value && Object.keys(e.value).length > 0).length,
   };
 
-  // Chart reach + followers + vues + interactions par jour
-  const reachValues = insightMap['reach'] || [];
-  const followerDeltaValues = insightMap['follower_count'] || [];
-  const viewsValues = insightMap['views'] || [];
-  const engagedValues = insightMap['accounts_engaged'] || [];
-  const interactionsValues = insightMap['total_interactions'] || [];
-  const websiteClicksValues = insightMap['website_clicks'] || [];
+  // Chart reach + followers + vues + interactions par jour — directement depuis dbSnaps
+  // (déjà trié par date croissante). ig_followers est déjà un nombre ABSOLU par jour
+  // (pas un delta à reconstruire) : le cron écrit accountData.followers_count "réel" à
+  // chaque passage, sur la ligne du jour concerné (hier + aujourd'hui, cf. fix cron
+  // 2026-07-07) — plus besoin de reconstruire à rebours depuis un delta Meta bruité.
+  const chartData = dbSnaps.map(r => ({
+    date: r.date,
+    reach: r.ig_reach ?? 0,
+    followerCount: r.ig_followers ?? null,
+    views: r.ig_views ?? 0,
+    accountsEngaged: r.ig_accounts_engaged ?? 0,
+    totalInteractions: r.ig_total_interactions ?? 0,
+    websiteClicks: r.ig_website_clicks ?? 0,
+    reachFollower: r.ig_reach_follower ?? null,
+    reachNonFollower: r.ig_reach_non_follower ?? null,
+  }));
 
-  // Reconstruit la série "Abonnés" en nombre ABSOLU (pas en delta) : follower_count
-  // (insights) n'est qu'un delta quotidien. accountData.followers_count est le compte
-  // réel, temps réel, déjà fetché dans le même Promise.all — on part de ce nombre pour
-  // aujourd'hui et on remonte en arrière en soustrayant les deltas connus.
-  // Ancienne version : gelait artificiellement les 3 derniers jours à la même valeur
-  // qu'aujourd'hui (hypothèse "delta pas encore stabilisé chez Meta, s'annule à ~0"),
-  // ce qui masquait systématiquement tout vrai gain/perte récent dans "Abonnés nets"
-  // (bug remonté 2026-07-07 : +1 abonné réel affiché comme +0). Reconstruction directe
-  // sans zone gelée — accepte un delta ponctuellement bruité sur les tout derniers
-  // jours plutôt que de cacher un vrai mouvement récent.
-  const todayAbsoluteFollowers: number | null = typeof accountData.followers_count === 'number' ? accountData.followers_count : null;
-  const followerAbsoluteValues: (number | null)[] = new Array(followerDeltaValues.length).fill(null);
-  if (todayAbsoluteFollowers !== null && followerDeltaValues.length > 0) {
-    const lastIdx = followerDeltaValues.length - 1;
-    followerAbsoluteValues[lastIdx] = todayAbsoluteFollowers;
-    for (let i = lastIdx - 1; i >= 0; i--) {
-      followerAbsoluteValues[i] = followerAbsoluteValues[i + 1]! - (followerDeltaValues[i + 1] ?? 0);
-    }
+  // Posts individuels — depuis analytics_ig_posts_history (même table que le cron
+  // snapshotIgPosts alimente quotidiennement, thumbnails déjà pérennisées dans un
+  // bucket Storage permanent depuis le fix du 2026-07-07). Dédupliqué par post_id, on
+  // garde le snapshot le plus récent (query triée snapshot_date descendant) — même
+  // pattern que latestIgPost/igPosts dans components/analytics/PageClientStats.tsx.
+  const dbPostRows = dbPostsRes.data ?? [];
+  const latestPostByid = new Map<string, any>();
+  for (const row of dbPostRows) {
+    if (!latestPostByid.has(row.post_id)) latestPostByid.set(row.post_id, row);
   }
-
-  const today = new Date();
-
-  // Breakdown reach follower/non-follower JOUR PAR JOUR — Meta ne renvoie un vrai
-  // détail (pas un agrégat collapsé sur toute la fenêtre) que sur une requête à
-  // fenêtre d'UN jour (confirmé en testant l'API réelle) — même contrainte que
-  // lib/ig-fetch.ts (fetchIgDayMetrics), un appel par jour affiché, en parallèle.
-  const reachBreakdownByDate = new Map<string, { follower: number; nonFollower: number }>();
-  await Promise.all(
-    reachValues.map(async (_val: number, i: number) => {
-      const d = new Date(today);
-      d.setDate(d.getDate() - (reachValues.length - 1 - i));
-      const dayStart = Math.floor(new Date(d.toISOString().split('T')[0] + 'T00:00:00Z').getTime() / 1000);
-      const dayEnd = dayStart + 86400;
-      try {
-        const res = await fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=day&since=${dayStart}&until=${dayEnd}&access_token=${token}`);
-        const data = await safeJson(res);
-        for (const metric of data?.data || []) {
-          if (metric.name === 'reach' && metric.total_value?.breakdowns) {
-            let follower = 0, nonFollower = 0, found = false;
-            for (const bd of metric.total_value.breakdowns) {
-              for (const r of bd.results || []) {
-                const key = r.dimension_values?.[0];
-                if (key === 'FOLLOWER') { follower += r.value || 0; found = true; }
-                else if (key === 'NON_FOLLOWER') { nonFollower += r.value || 0; found = true; }
-              }
-            }
-            if (found) reachBreakdownByDate.set(d.toISOString().split('T')[0], { follower, nonFollower });
-          }
-        }
-      } catch { /* jour ignoré si l'appel échoue — pas bloquant pour le reste */ }
-    })
-  );
-
-  const chartData = reachValues.map((val: number, i: number) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - (reachValues.length - 1 - i));
-    const dateStr = d.toISOString().split('T')[0];
-    const bd = reachBreakdownByDate.get(dateStr);
-    return {
-      date: dateStr,
-      reach: val,
-      followerCount: followerAbsoluteValues[i] ?? null,
-      views: viewsValues[i] ?? 0,
-      accountsEngaged: engagedValues[i] ?? 0,
-      totalInteractions: interactionsValues[i] ?? 0,
-      websiteClicks: websiteClicksValues[i] ?? 0,
-      reachFollower: bd?.follower ?? null,
-      reachNonFollower: bd?.nonFollower ?? null,
-    };
-  });
-
-  // Extrait duration_s depuis le token efg encodé dans l'URL media_url
-  // Meta n'expose pas video_duration en champ direct — la durée est dans efg (base64 JSON)
-  const extractDuration = (mediaUrl: string | null | undefined): number | null => {
-    if (!mediaUrl) return null;
-    try {
-      const match = mediaUrl.match(/[?&]efg=([^&]+)/);
-      if (!match) return null;
-      const decoded = JSON.parse(Buffer.from(decodeURIComponent(match[1]), 'base64').toString('utf8'));
-      return typeof decoded.duration_s === 'number' ? decoded.duration_s : null;
-    } catch {
-      return null;
-    }
-  };
-
-  // Fetch insights par média en parallèle
-  const mediaItems = mediaData?.data || [];
-  const mediaWithInsights = await Promise.all(
-    mediaItems.map(async (p: any) => {
-      const isReel = p.media_type === 'VIDEO' || p.media_type === 'REEL';
-
-      // 3 calls indépendants pour éviter qu'une métrique refusée fasse échouer les autres
-      const safeInsights = async (metric: string) => {
-        try {
-          const r = await fetch(`https://graph.instagram.com/v22.0/${p.id}/insights?metric=${metric}&access_token=${token}`);
-          const d = await r.json();
-          if (d?.error || !d?.data) return {};
-          const out: Record<string, number> = {};
-          for (const m of d.data) out[m.name] = m.values?.[0]?.value ?? m.value ?? 0;
-          return out;
-        } catch { return {}; }
-      };
-
-      try {
-        const ins: Record<string, number> = {};
-
-        // Call 1 : métriques communes à tous les types
-        Object.assign(ins, await safeInsights('likes,comments,reach,saved,shares,views,total_interactions'));
-
-        if (isReel) {
-          // Call 2 : watch time + skip rate (métriques reel uniquement)
-          Object.assign(ins, await safeInsights('ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate'));
-          // follows + profile_visits non supportés sur les reels (erreur API confirmée)
-        } else {
-          // Pour les images/carousels : follows + profile_visits supportés
-          Object.assign(ins, await safeInsights('follows,profile_visits'));
-        }
-
-        // null = métrique non disponible pour ce type de média (≠ 0)
-        const pick = (key: string, fallback?: number) =>
-          key in ins ? ins[key] : (fallback !== undefined ? fallback : null);
-
-        return {
-          id: p.id,
-          caption: p.caption ? p.caption.slice(0, 150) : '',
-          type: p.media_type,
-          thumbnail: p.thumbnail_url || p.media_url || null,
-          timestamp: p.timestamp,
-          permalink: p.permalink,
-          likes: pick('likes', p.like_count),
-          comments: pick('comments', p.comments_count),
-          reach: pick('reach'),
-          saved: pick('saved'),
-          shares: pick('shares'),
-          views: pick('views'),
-          totalInteractions: pick('total_interactions'),
-          follows: pick('follows'),
-          profileVisits: pick('profile_visits'),
-          videoDuration: extractDuration(p.media_url) ?? p.video_duration ?? null,
-          avgWatchTimeMs: pick('ig_reels_avg_watch_time'),
-          totalWatchTimeMs: pick('ig_reels_video_view_total_time'),
-          skipRate: pick('reels_skip_rate'),
-        };
-      } catch {
-        return {
-          id: p.id,
-          caption: p.caption ? p.caption.slice(0, 150) : '',
-          type: p.media_type,
-          thumbnail: p.thumbnail_url || p.media_url || null,
-          timestamp: p.timestamp,
-          permalink: p.permalink,
-          likes: p.like_count ?? 0,
-          comments: p.comments_count ?? 0,
-          videoDuration: extractDuration(p.media_url) ?? p.video_duration ?? null,
-          reach: null, saved: null, shares: null, views: null,
-          totalInteractions: null, follows: null, profileVisits: null,
-          avgWatchTimeMs: null, totalWatchTimeMs: null, skipRate: null,
-        };
-      }
-    })
-  );
-
-  // Interactions réelles = somme des totalInteractions lifetime des posts publiés dans la période
-  const cutoff30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const postInteractions30d = mediaWithInsights
-    .filter(p => new Date(p.timestamp) >= cutoff30d)
-    .reduce((s, p) => s + (p.totalInteractions ?? 0), 0);
+  const posts = [...latestPostByid.values()]
+    .map((row: any) => ({
+      id: row.post_id,
+      caption: row.caption ?? '',
+      type: row.post_type ?? 'IMAGE',
+      thumbnail: row.thumbnail ?? null,
+      timestamp: row.published_at ?? row.snapshot_date,
+      permalink: row.permalink ?? null,
+      likes: row.likes ?? null,
+      comments: row.comments ?? null,
+      reach: row.reach ?? null,
+      saved: row.saves ?? null,
+      shares: row.shares ?? null,
+      views: row.views ?? null,
+      totalInteractions: row.total_interactions ?? null,
+      follows: row.follows ?? null,
+      profileVisits: row.profile_visits ?? null,
+      videoDuration: row.video_duration_sec ?? null,
+      avgWatchTimeMs: row.avg_watch_time_ms ?? null,
+      totalWatchTimeMs: row.total_watch_time_ms ?? null,
+      skipRate: row.skip_rate ?? null,
+    }))
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return NextResponse.json({
     username: accountData.username,
@@ -419,8 +306,8 @@ export async function GET(request: Request) {
     reach30d,
     reach28dDedupFollowers,
     reach28dDedupNonFollowers,
-    accountsEngaged30d: postInteractions30d,
-    totalInteractions30d: postInteractions30d,
+    accountsEngaged30d,
+    totalInteractions30d,
     followsUnfollows30d,
     profileLinksTaps30d,
     websiteClicks30d,
@@ -428,7 +315,7 @@ export async function GET(request: Request) {
     views30d,
     viewsFollowerBreakdown,
     chartData,
-    posts: mediaWithInsights,
+    posts,
     demographics,
     onlineFollowers,
   });
