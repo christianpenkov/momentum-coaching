@@ -919,6 +919,7 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
 async function snapshotProfile(profileId: string): Promise<string[]> {
   const errors: string[] = [];
   const yesterday = isoDate(1);
+  const todayStr = isoDate(0);
 
   // IG J-1 + posts individuels (en parallèle)
   const igCreds = await getIgCreds(profileId);
@@ -928,6 +929,20 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         const metrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, yesterday);
         const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         if (error) throw new Error(error.message);
+        // ig_followers/ig_following viennent de accountData.followers_count/follows_count
+        // (état ACTUEL du compte, pas une vraie métrique period=day datée) — le cron ne
+        // tournant qu'une fois par jour et écrivant seulement la ligne "hier", le nombre
+        // d'abonnés du jour COURANT restait à null jusqu'au lendemain matin (décalage
+        // d'un jour entre le vrai changement et la date où il apparaît). Écrit aussi ces
+        // deux colonnes (seulement elles, sans écraser reach/engagement/interactions qui
+        // nécessiteraient un vrai appel daté sur aujourd'hui) sur la ligne du jour même.
+        if (metrics.ig_followers != null || metrics.ig_following != null) {
+          await supa.from('analytics_daily_snapshots').upsert({
+            profile_id: profileId, date: todayStr,
+            ig_followers: metrics.ig_followers, ig_following: metrics.ig_following,
+            backfill_source: 'cron',
+          }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+        }
       })(),
       snapshotIgPosts(profileId, igCreds.token, igCreds.igAccountId, yesterday),
     ]);

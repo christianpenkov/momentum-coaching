@@ -116,6 +116,24 @@ export async function GET(request: Request) {
   }
   const sum = (arr: number[]) => (arr || []).reduce((a, b) => a + b, 0);
 
+  // engagedRes (accounts_engaged, total_interactions) est fetché avec metric_type=
+  // total_value — nécessaire pour avoir une réponse non vide en period=day (cf.
+  // commentaire plus haut), MAIS ça change le format : total_value.value est UN SEUL
+  // nombre agrégé sur toute la fenêtre since→until, pas une série values[] par jour.
+  // engagedData n'était jamais lu depuis son fetch (bug trouvé le 2026-07-07) : le code
+  // lisait insightMap['accounts_engaged']/['total_interactions'], qui restaient
+  // toujours vides car insightMap ne vient que d'insightsData (reach/follower_count/
+  // etc.), qui ne demande pas ces deux métriques. Conséquence : "Interactions posts"
+  // affichait systématiquement 0 en vue "période actuelle" malgré une vraie donnée
+  // disponible côté Meta.
+  let accountsEngagedTotalValue = 0;
+  let totalInteractionsTotalValue = 0;
+  for (const m of (engagedData?.data || [])) {
+    const v = m.total_value?.value || 0;
+    if (m.name === 'accounts_engaged') accountsEngagedTotalValue += v;
+    else if (m.name === 'total_interactions') totalInteractionsTotalValue += v;
+  }
+
   const reach30d = sum(insightMap['reach'] || []);
   // Nombre RÉEL de comptes abonnés uniques distincts touchés sur ~28j (pas un ratio
   // statistique ni une somme de reach quotidien qui recompte un même compte touché
