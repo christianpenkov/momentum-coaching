@@ -977,8 +977,22 @@ export default function PageClientMessages() {
   //  3. presenceRetryKey force la recréation du canal sur retour réseau ou erreur
   //     (CHANNEL_ERROR/TIMED_OUT/CLOSED), au lieu d'attendre un hard refresh.
   const [presenceRetryKey, setPresenceRetryKey] = useState(0);
+  // Backoff exponentiel sur les retries — sans ça, une erreur de canal (souvent causée par un
+  // rate limit Supabase Realtime sur les events de présence, confirmé en prod via les logs :
+  // "ClientPresenceRateLimitReached") déclenchait un retry immédiat → nouveau track() → risque
+  // de re-déclencher le même rate limit → boucle qui s'auto-alimente et ne se résout jamais
+  // (constaté : les deux appareils restaient "hors ligne" en permanence l'un pour l'autre).
+  const retryAttemptRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRetry = () => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    const attempt = retryAttemptRef.current;
+    const delay = Math.min(1000 * 2 ** attempt, 30_000);
+    retryAttemptRef.current = attempt + 1;
+    retryTimerRef.current = setTimeout(() => setPresenceRetryKey(k => k + 1), delay);
+  };
   useEffect(() => {
-    const onOnline = () => setPresenceRetryKey(k => k + 1);
+    const onOnline = () => { retryAttemptRef.current = 0; setPresenceRetryKey(k => k + 1); };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
   }, []);
@@ -1021,30 +1035,34 @@ export default function PageClientMessages() {
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
           isSubscribedRef.current = true;
+          retryAttemptRef.current = 0;
           if (document.visibilityState === 'visible') track();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
           // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
           isSubscribedRef.current = false;
-          setPresenceRetryKey(k => k + 1);
+          scheduleRetry();
         }
       });
 
-    // Heartbeat applicatif — re-track périodique pour garder online_at frais côté coach,
-    // indépendamment du heartbeat bas niveau du WebSocket (qui peut être throttlé en tab
-    // background sans worker: true, mais on garde ce filet applicatif en plus par robustesse).
+    // Heartbeat applicatif — re-track() périodique pour garder online_at frais côté coach.
+    // Espacé à 60s (au lieu de 20s précédemment) : le rate limit Supabase Realtime sur les
+    // events de présence a été confirmé atteint en prod ("ClientPresenceRateLimitReached" dans
+    // les logs Realtime) quand plusieurs mécanismes (heartbeat + retry immédiat sur erreur)
+    // envoyaient trop de track() rapprochés — cause du bug "toujours hors ligne" des deux côtés.
     const heartbeatId = setInterval(() => {
       if (isSubscribedRef.current && document.visibilityState === 'visible') track();
-    }, 20_000);
+    }, 60_000);
 
-    // TTL local — le coach n'est plus "en ligne" si son dernier online_at dépasse 50s, même
-    // si le canal ne l'a jamais formellement retiré du presenceState() (WebSocket mort sans
-    // "leave" propagé). Vérifié toutes les 5s, indépendamment de tout événement du canal.
+    // TTL local — le coach n'est plus "en ligne" si son dernier online_at dépasse 2.5x le
+    // heartbeat (150s), même si le canal ne l'a jamais formellement retiré du presenceState()
+    // (WebSocket mort sans "leave" propagé). Marge large pour absorber la latence réseau
+    // normale sans faux négatif.
     const staleCheckId = setInterval(() => {
-      if (lastCoachSeenRef.current !== null && Date.now() - lastCoachSeenRef.current > 50_000) {
+      if (lastCoachSeenRef.current !== null && Date.now() - lastCoachSeenRef.current > 150_000) {
         setIsCoachOnline(false);
       }
-    }, 5_000);
+    }, 10_000);
 
     // Gérer verrouillage écran : untrack quand caché, retrack quand visible
     const handleVisibility = () => {
@@ -1061,6 +1079,7 @@ export default function PageClientMessages() {
       isSubscribedRef.current = false;
       clearInterval(heartbeatId);
       clearInterval(staleCheckId);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
       presenceChRef.current = null;

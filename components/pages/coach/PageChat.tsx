@@ -1444,8 +1444,23 @@ export default function PageChat() {
   // le dernier état "sync" connu reste figé indéfiniment sinon (ex: élève vu "en ligne" des
   // heures après sa vraie déconnexion, jusqu'au prochain hard refresh).
   const [presenceRetryKey, setPresenceRetryKey] = useState(0);
+  // Backoff exponentiel sur les retries — sans ça, une erreur de canal (souvent causée par un
+  // rate limit Supabase Realtime sur les events de présence, confirmé en prod via les logs :
+  // "ClientPresenceRateLimitReached") déclenchait un retry immédiat → nouveau track() → risque
+  // de re-déclencher le même rate limit → boucle qui s'auto-alimente et ne se résout jamais
+  // (constaté : les deux appareils restaient "hors ligne" en permanence l'un pour l'autre).
+  const retryAttemptRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRetry = () => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    const attempt = retryAttemptRef.current;
+    const delay = Math.min(1000 * 2 ** attempt, 30_000);
+    retryAttemptRef.current = attempt + 1;
+    retryTimerRef.current = setTimeout(() => setPresenceRetryKey(k => k + 1), delay);
+  };
+  const presenceIsSubscribedRef = useRef(false);
   useEffect(() => {
-    const onOnline = () => setPresenceRetryKey(k => k + 1);
+    const onOnline = () => { retryAttemptRef.current = 0; setPresenceRetryKey(k => k + 1); };
     window.addEventListener('online', onOnline);
     return () => window.removeEventListener('online', onOnline);
   }, []);
@@ -1480,26 +1495,34 @@ export default function PageChat() {
       })
       .subscribe((status) => {
         if (status === 'SUBSCRIBED') {
+          presenceIsSubscribedRef.current = true;
+          retryAttemptRef.current = 0;
           if (document.visibilityState === 'visible') track();
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
           // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
-          setPresenceRetryKey(k => k + 1);
+          presenceIsSubscribedRef.current = false;
+          scheduleRetry();
         }
       });
     presenceChRef.current = ch;
     setPresenceCh(ch);
 
-    // Heartbeat applicatif — re-track périodique pour garder online_at frais côté client.
+    // Heartbeat applicatif — re-track() périodique pour garder online_at frais côté client.
+    // Espacé à 60s (au lieu de 20s précédemment) : le rate limit Supabase Realtime sur les
+    // events de présence a été confirmé atteint en prod ("ClientPresenceRateLimitReached" dans
+    // les logs Realtime) quand plusieurs mécanismes (heartbeat + retry immédiat sur erreur)
+    // envoyaient trop de track() rapprochés — cause du bug "toujours hors ligne" des deux côtés.
     const heartbeatId = setInterval(() => {
-      if (document.visibilityState === 'visible') track();
-    }, 20_000);
+      if (presenceIsSubscribedRef.current && document.visibilityState === 'visible') track();
+    }, 60_000);
 
-    // TTL local — le client n'est plus "en ligne" si son dernier online_at dépasse 50s, même
-    // si le canal ne l'a jamais formellement retiré du presenceState() (WebSocket mort sans
-    // "leave" propagé).
+    // TTL local — le client n'est plus "en ligne" si son dernier online_at dépasse 2.5x le
+    // heartbeat (150s), même si le canal ne l'a jamais formellement retiré du presenceState()
+    // (WebSocket mort sans "leave" propagé). Marge large pour absorber la latence réseau
+    // normale sans faux négatif.
     const staleCheckId = setInterval(() => {
-      if (lastClientSeenRef.current !== null && Date.now() - lastClientSeenRef.current > 50_000) {
+      if (lastClientSeenRef.current !== null && Date.now() - lastClientSeenRef.current > 150_000) {
         lastClientSeenRef.current = null;
         setOnlineClients(prev => {
           const next = new Set(prev);
@@ -1507,10 +1530,10 @@ export default function PageChat() {
           return next;
         });
       }
-    }, 5_000);
+    }, 10_000);
 
     const handleVisibility = () => {
-      if (!presenceChRef.current) return;
+      if (!presenceChRef.current || !presenceIsSubscribedRef.current) return;
       if (document.visibilityState === 'hidden') {
         presenceChRef.current.untrack();
       } else {
@@ -1520,8 +1543,10 @@ export default function PageChat() {
     document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
+      presenceIsSubscribedRef.current = false;
       clearInterval(heartbeatId);
       clearInterval(staleCheckId);
+      if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
       document.removeEventListener('visibilitychange', handleVisibility);
       supabase.removeChannel(ch);
       presenceChRef.current = null;
