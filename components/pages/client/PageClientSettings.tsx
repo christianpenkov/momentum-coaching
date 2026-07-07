@@ -338,7 +338,7 @@ export default function PageClientSettings() {
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Se déconnecter</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Fermer la session sur cet appareil</div>
           </div>
-          <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={async () => {
+          <button className="logout-button" type="button" onClick={async () => {
             // scope: 'local' — le scope par défaut de signOut() est 'global' et
             // déconnecterait TOUS les appareils de ce compte, pas seulement celui-ci
             // (contrairement à ce que le texte du bouton promet).
@@ -346,6 +346,13 @@ export default function PageClientSettings() {
             window.location.href = '/login';
           }}>
             Se déconnecter
+            <div className="icon">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+                <polyline points="16 17 21 12 16 7" />
+                <line x1="21" y1="12" x2="9" y2="12" />
+              </svg>
+            </div>
           </button>
         </div>
       </div>
