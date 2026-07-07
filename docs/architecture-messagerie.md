@@ -2,6 +2,8 @@
 
 Documentation de référence pour reconstruire une messagerie temps réel équivalente sur une autre plateforme. Couvre : schéma DB, réaltime (messages + présence + typing), scroll robuste, marquage lu, notifications.
 
+**Statut** : présence en ligne/hors ligne, typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan) — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `a5e621b`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
+
 ## Fichiers
 
 - `components/pages/coach/PageChat.tsx` — vue coach (liste de conversations + thread actif)
@@ -138,7 +140,13 @@ Réutilise le **même canal** que la présence (`presence-chat-${clientId}`), vi
   });
   ```
 
-**Piège corrigé** : si le canal est recréé (retry, retour d'arrière-plan) **entre** le `setCoachTyping(true)` et l'expiration du timer de 3s, le cleanup de l'effet annule le timer (`clearTimeout`) mais oubliait de repasser `coachTyping` à `false` — l'indicateur restait bloqué affiché indéfiniment. **Toujours réinitialiser l'état dans le cleanup, pas seulement annuler le timer.**
+**Piège corrigé et validé en usage réel** : si le canal est recréé (retry, retour d'arrière-plan) **entre** le `setCoachTyping(true)` et l'expiration du timer de 3s, le cleanup de l'effet annule le timer (`clearTimeout`) mais oubliait de repasser `coachTyping` à `false` — l'indicateur restait bloqué affiché indéfiniment ("En train d'écrire…" visible en permanence, constaté en usage réel). **Toujours réinitialiser l'état dans le cleanup, pas seulement annuler le timer** :
+```ts
+return () => {
+  if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
+  setCoachTyping(false); // pas juste clearTimeout — sinon le state reste bloqué à true
+};
+```
 
 ## 6. Scroll — atterrir directement à la bonne position, sans flash ni résidu
 
@@ -175,6 +183,34 @@ Au lieu de toujours scroller tout en bas, si des messages non lus existent, on a
 - Deux flags d'ancrage distincts selon où on a atterri :
   - `stickToBottomRef` : ancré en bas (cas normal).
   - `stickToDividerRef` : ancré sur le divider (cas non-lu) — sans ce 2ᵉ flag, rien ne protège la position du divider pendant la stabilisation post-paint (voir 6.5), et un reflow peut faire dériver la vue de plusieurs messages.
+
+### 6.4bis Refaire le calcul au retour d'arrière-plan, pas seulement au premier chargement
+
+**Piège corrigé et validé en usage réel** : le reset de tous ces flags (`firstUnreadComputedRef = false`, etc.) ne se déclenchait que dans un `useEffect` dépendant de `[loading]` — or `loading` ne repasse à `true` qu'au tout premier montage du composant (chargement initial des messages). Si l'app/onglet n'est **jamais complètement fermé** (mise en arrière-plan mobile sans kill de l'app, ou simple changement d'onglet/fenêtre sur PC), `loading` reste `false` indéfiniment : le calcul du premier non-lu ne se refait jamais, même en revenant des heures plus tard avec plein de nouveaux messages — le séparateur "Nouveaux messages" n'apparaissait alors jamais, les nouveaux messages semblaient juste "apparaître" sans distinction visuelle.
+
+Fix : un listener `visibilitychange` séparé détecte un retour au premier plan après une **absence significative** (seuil de 5s, pour ignorer les micro blur/focus type notification rapide ou alt-tab instantané) et refait exactement le même reset que le chargement initial :
+```ts
+const hiddenAtRef = useRef<number | null>(null);
+useEffect(() => {
+  const handleBackgroundReturn = () => {
+    if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return; }
+    const wasHiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
+    hiddenAtRef.current = null;
+    if (wasHiddenFor < 5000) return; // ignore les changements d'onglet très courts
+    initialScrollDone.current = false;
+    stickToBottomRef.current = true;
+    settlingRef.current = true;
+    knownIdsRef.current = null;
+    firstUnreadComputedRef.current = false;
+    setFirstUnreadId(null);
+    setContentReady(false);
+    suppressAutoReadRef.current = true;
+  };
+  document.addEventListener('visibilitychange', handleBackgroundReturn);
+  return () => document.removeEventListener('visibilitychange', handleBackgroundReturn);
+}, []);
+```
+Ce mécanisme fonctionne identiquement sur mobile PWA (mise en arrière-plan) et sur PC (changement d'onglet/fenêtre) — les deux déclenchent le même événement `visibilitychange`, il n'y a pas de distinction à faire entre les deux environnements.
 
 ### 6.5 Boucle `requestAnimationFrame` continue pendant une fenêtre de "stabilisation"
 
@@ -285,6 +321,7 @@ Le clavier virtuel et la barre d'adresse mobile changent la hauteur visible sans
 | `lastCoachSeenRef` / `lastPeerSeenRef` | ref | Dernier `online_at` connu du peer — base du TTL local |
 | `presenceRetryKey` | state | Incrémenté pour forcer la recréation du canal presence |
 | `retryAttemptRef` | ref | Compteur pour le backoff exponentiel |
+| `hiddenAtRef` | ref | Timestamp de mise en arrière-plan — sert à mesurer la durée d'absence (seuil 5s) avant de refaire le reset "premier non-lu" au retour (§6.4bis) |
 
 ## 10. Ce qu'il faut absolument reproduire si migration vers une autre stack
 
