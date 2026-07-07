@@ -2,7 +2,7 @@
 
 Documentation de référence pour reconstruire une messagerie temps réel équivalente sur une autre plateforme. Couvre : schéma DB, réaltime (messages + présence + typing), scroll robuste, marquage lu, notifications.
 
-**Statut** : présence en ligne/hors ligne (plateforme entière, pas juste messagerie), typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan), navigation SPA, notifications forcées — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `063f8e7`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
+**Statut** : présence en ligne/hors ligne (plateforme entière, pas juste messagerie), typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan, scroll bloqué après reset — §6.4ter), navigation SPA, notifications forcées — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `e5932a5`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
 
 ## Fichiers
 
@@ -132,6 +132,27 @@ Le coach a potentiellement plusieurs élèves — `GlobalPresenceCoachProvider` 
 
 Diagnostiqué via les **logs Realtime réels du projet** (`mcp Supabase get_logs`, service `realtime`) : `ClientPresenceRateLimitReached: client_rate_limit_exceeded`. Le rate limit de présence est sensible au **nombre d'événements `track()`/`untrack()` par seconde**, pas juste au nombre d'utilisateurs connectés. Un heartbeat à 20s combiné à des retries immédiats suffit à l'atteindre avec seulement 2 appareils. Réglages qui tiennent en prod : heartbeat 60s, TTL 150s, backoff exponentiel sur les retries.
 
+### 4.6 Timers d'arrière-plan potentiellement gelés — check TTL synchrone au réveil
+
+Le `setInterval` de vérification du TTL (point 5, §4.3) suppose qu'il continue de s'exécuter toutes les `STALE_CHECK_MS` pendant toute la durée de vie du composant. Sur mobile, quand l'app passe en arrière-plan **profond** (écran verrouillé, pas juste onglet caché), l'OS peut **complètement geler** le process JS — pas seulement le throttler. Dans ce cas, le `setInterval` ne s'exécute tout simplement pas pendant l'absence, et le TTL n'a jamais l'occasion de rattraper un statut périmé pendant les minutes de verrouillage — le prochain tick programmé ne se déclenche qu'au réveil, sans garantie de délai précis.
+
+Fix : en plus du `setInterval` périodique, faire un check TTL **synchrone immédiat** dans le handler `visibilitychange` lui-même, au retour `visible` :
+```ts
+const handleVisibility = () => {
+  if (!isSubscribedRef.current) return;
+  if (document.visibilityState === 'hidden') {
+    ch.untrack();
+  } else {
+    track();
+    // Ne pas attendre le prochain tick du setInterval, potentiellement gelé pendant l'absence.
+    if (lastCoachSeenRef.current !== null && Date.now() - lastCoachSeenRef.current > STALE_TTL_MS) {
+      setCoachOnline(false);
+    }
+  }
+};
+```
+`Date.now()` reflète toujours l'heure réelle au réveil, indépendamment de si les timers ont tourné pendant l'intervalle — donc ce check reste fiable même après un gel complet du process.
+
 ## 5. Indicateur "en train d'écrire"
 
 Utilise le canal **local à la conversation** (`presence-chat-${clientId}` — pas le canal de présence globale, voir §4.2), via `broadcast` (pas `presence`) :
@@ -209,6 +230,7 @@ Au lieu de toujours scroller tout en bas, si des messages non lus existent, on a
 Fix : un listener `visibilitychange` séparé détecte un retour au premier plan après une **absence significative** (seuil de 5s, pour ignorer les micro blur/focus type notification rapide ou alt-tab instantané) et refait exactement le même reset que le chargement initial :
 ```ts
 const hiddenAtRef = useRef<number | null>(null);
+const [resetTick, setResetTick] = useState(0); // voir §6.4ter — indispensable
 useEffect(() => {
   const handleBackgroundReturn = () => {
     if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return; }
@@ -223,12 +245,33 @@ useEffect(() => {
     setFirstUnreadId(null);
     setContentReady(false);
     suppressAutoReadRef.current = true;
+    setResetTick(t => t + 1);
   };
   document.addEventListener('visibilitychange', handleBackgroundReturn);
   return () => document.removeEventListener('visibilitychange', handleBackgroundReturn);
 }, []);
 ```
 Ce mécanisme fonctionne identiquement sur mobile PWA (mise en arrière-plan) et sur PC (changement d'onglet/fenêtre) — les deux déclenchent le même événement `visibilitychange`, il n'y a pas de distinction à faire entre les deux environnements.
+
+### 6.4ter Piège CRITIQUE : `setState(null)` ne redéclenche pas toujours l'effet cible
+
+**Bug corrigé, le plus insidieux de toute la session** : le reset ci-dessus fonctionnait très bien... sauf dans un cas fréquent, silencieux, et reproductible en 1-2 minutes seulement (constaté PC **et** mobile).
+
+`setFirstUnreadId(null)` était censé forcer le `useLayoutEffect` de scroll (§6.3-6.4, dépendant de `[..., firstUnreadId, ...]`) à se redéclencher après le reset. Mais React ne redéclenche un effet que si une de ses dépendances **change réellement** entre deux rendus commités (comparaison `Object.is`). Si `firstUnreadId` était **déjà `null`** avant le reset (cas très fréquent : pas de message non lu au moment de l'ouverture précédente), `setFirstUnreadId(null)` ne fait **rien** — React bail-out, aucun re-render, donc **le `useLayoutEffect` ne se redéclenche jamais**.
+
+Conséquence en cascade :
+1. `contentReady` reste bloqué à `false` pour toujours (seul le corps du `useLayoutEffect`, jamais exécuté, peut le repasser à `true`).
+2. Le container `.chat-messages-zone` reste en `visibility: hidden` **en permanence** (§6.2, piloté par `contentReady`).
+3. Un élément `visibility: hidden` **ne reçoit plus les événements pointeur/tactiles** sur la plupart des moteurs de rendu (WebKit/Blink) — donc **plus aucun scroll manuel possible**, ni au doigt ni à la molette.
+4. Le timer qui referme `settlingRef` (§6.5) dépend aussi de `[contentReady]` — comme celui-ci ne bouge jamais, `settlingRef.current` reste bloqué à `true`, et la boucle `requestAnimationFrame` de stabilisation tourne indéfiniment en arrière-plan (sans jamais réussir à re-scroller quoi que ce soit, puisque l'utilisateur ne peut de toute façon plus interagir).
+
+Fix : un **compteur** dédié (`resetTick`), incrémenté à chaque reset — pas une valeur qui peut « retomber sur elle-même » — ajouté explicitement aux dépendances du `useLayoutEffect` :
+```ts
+}, [messages, coachTyping, loading, firstUnreadId, clientId, userId, resetTick]);
+```
+Un compteur qui s'incrémente garantit une valeur strictement différente à chaque appel, donc `Object.is` échoue toujours la comparaison, donc l'effet se redéclenche **à coup sûr** — indépendamment de l'état de toutes les autres dépendances.
+
+**Leçon générale** : quand un effect doit être "forcé" à se redéclencher depuis un handler externe, ne jamais compter sur un `setState(valeurFixe)` (comme `setX(null)`, `setX(false)`, `setX(0)`) pour le déclenchement — si la valeur était déjà celle-là, rien ne se passe. Utiliser un compteur incrémental dédié comme dépendance, ou un `useReducer` avec une action "force update".
 
 ### 6.5 Boucle `requestAnimationFrame` continue pendant une fenêtre de "stabilisation"
 
@@ -370,6 +413,7 @@ C'est donc le **même chemin de code** que le tout premier chargement de l'app �
 
 *(`lastCoachSeenRef`/`lastPeerSeenRef`, `presenceIsSubscribedRef` équivalents vivent maintenant dans `lib/GlobalPresenceContext.tsx`, pas dans le composant messagerie — voir §4.)*
 | `hiddenAtRef` | ref | Timestamp de mise en arrière-plan — sert à mesurer la durée d'absence (seuil 5s) avant de refaire le reset "premier non-lu" au retour (§6.4bis) |
+| `resetTick` | state | Compteur incrémenté à chaque reset visibilitychange — garantit la ré-exécution du `useLayoutEffect` de scroll même quand les autres dépendances n'ont pas changé (§6.4ter, fix critique du scroll bloqué) |
 
 ## 12. Ce qu'il faut absolument reproduire si migration vers une autre stack
 
