@@ -1071,6 +1071,11 @@ export default function PageClientMessages() {
 
   // ── Scroll bas — instant au chargement, ancré tant que l'utilisateur ne scrolle pas ──
   const initialScrollDone = useRef(false);
+  // La zone de messages reste masquée (visibility:hidden, garde le layout pour scrollHeight)
+  // tant que le scroll initial n'a pas été posé — sinon le navigateur peint une frame avec
+  // scrollTop:0 (tout en haut) avant que notre effect ne corrige la position, visible comme
+  // un flash d'un instant à l'ouverture de la conversation.
+  const [contentReady, setContentReady] = useState(false);
   // IDs déjà présents au premier chargement de la conversation — ces messages ne jouent pas
   // l'animation d'entrée (msg-bubble-in), sinon leur translateY/opacity donne l'impression
   // d'un scroll même quand la position finale est déjà correcte. Seuls les messages qui
@@ -1098,7 +1103,7 @@ export default function PageClientMessages() {
   const settlingRef = useRef(true);
   // Réinitialiser à chaque nouveau chargement (retour sur la page en PWA)
   useEffect(() => {
-    if (loading) { initialScrollDone.current = false; stickToBottomRef.current = true; settlingRef.current = true; knownIdsRef.current = null; firstUnreadComputedRef.current = false; setFirstUnreadId(null); }
+    if (loading) { initialScrollDone.current = false; stickToBottomRef.current = true; settlingRef.current = true; knownIdsRef.current = null; firstUnreadComputedRef.current = false; setFirstUnreadId(null); setContentReady(false); }
   }, [loading]);
   useEffect(() => {
     if (loading) return;
@@ -1132,6 +1137,10 @@ export default function PageClientMessages() {
       stickToBottomRef.current = !target;
       stickToDividerRef.current = !!target;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
+      // Révéler la zone messages seulement après que le navigateur ait effectivement peint
+      // la position de scroll corrigée — sinon le reveal pourrait précéder le repaint et
+      // laisser passer une frame de "haut de conversation" quand même.
+      requestAnimationFrame(() => requestAnimationFrame(() => setContentReady(true)));
       const t = setTimeout(() => {
         settlingRef.current = false;
       }, 2500);
@@ -1476,6 +1485,9 @@ export default function PageClientMessages() {
           flex: 1, overflowY: 'auto', overflowX: 'hidden',
           padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2,
           WebkitOverflowScrolling: 'touch',
+          // Masqué (mais toujours mesurable pour scrollHeight) tant que le scroll initial
+          // n'est pas posé — évite le flash "tout en haut" avant correction de la position.
+          visibility: (!loading && messages.length > 0 && !contentReady) ? 'hidden' : 'visible',
         } as React.CSSProperties}>
           {loading ? (
             <InlineLoader />

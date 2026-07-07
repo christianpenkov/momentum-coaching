@@ -779,6 +779,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   }, [presenceCh]);
 
   const initialScrollDone = useRef(false);
+  // La zone de messages reste masquée (visibility:hidden, garde le layout pour scrollHeight)
+  // tant que le scroll initial n'a pas été posé — sinon le navigateur peint une frame avec
+  // scrollTop:0 (tout en haut) avant que notre effect ne corrige la position, visible comme
+  // un flash d'un instant à l'ouverture de la conversation.
+  const [contentReady, setContentReady] = useState(false);
   // IDs déjà présents au premier chargement de la conversation — ces messages ne jouent pas
   // l'animation d'entrée (msg-bubble-in), sinon leur translateY/opacity donne l'impression
   // d'un scroll même quand la position finale est déjà correcte. Seuls les messages qui
@@ -834,6 +839,10 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       stickToDividerRef.current = !!target;
       settlingRef.current = true;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
+      // Révéler la zone messages seulement après que le navigateur ait effectivement peint
+      // la position de scroll corrigée — sinon le reveal pourrait précéder le repaint et
+      // laisser passer une frame de "haut de conversation" quand même.
+      requestAnimationFrame(() => requestAnimationFrame(() => setContentReady(true)));
       const t = setTimeout(() => { settlingRef.current = false; }, 2500);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
@@ -1085,7 +1094,13 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         {/* Messages */}
         <div ref={chatZoneRef} onScroll={handleChatScroll}
           onTouchStart={handleUserGestureStart} onMouseDown={handleUserGestureStart} onWheel={handleUserGestureStart}
-          className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+          className="chat-messages-zone" style={{
+            flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 16px 8px',
+            display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch',
+            // Masqué (mais toujours mesurable pour scrollHeight) tant que le scroll initial
+            // n'est pas posé — évite le flash "tout en haut" avant correction de la position.
+            visibility: (!loading && messages.length > 0 && !contentReady) ? 'hidden' : 'visible',
+          } as React.CSSProperties}>
           {loading ? (
             <InlineLoader />
           ) : messages.length === 0 ? (
