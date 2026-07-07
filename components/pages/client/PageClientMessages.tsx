@@ -959,6 +959,16 @@ export default function PageClientMessages() {
   }, [clientId, supabase]);
 
   // ── Presence : écoute coach + typing (canal messagerie uniquement pour broadcast)
+  // presenceRetryKey force la recréation complète du canal — nécessaire quand le WebSocket
+  // meurt silencieusement (veille OS, coupure réseau) sans que visibilitychange se déclenche :
+  // le dernier état "sync" connu reste figé indéfiniment sinon (ex: coach vu "en ligne" des
+  // heures après sa vraie déconnexion, jusqu'au prochain hard refresh).
+  const [presenceRetryKey, setPresenceRetryKey] = useState(0);
+  useEffect(() => {
+    const onOnline = () => setPresenceRetryKey(k => k + 1);
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
   useEffect(() => {
     if (!clientId || !userId) return;
     // Canal messagerie pour broadcast typing + présence locale
@@ -992,6 +1002,11 @@ export default function PageClientMessages() {
           if (document.visibilityState === 'visible') {
             await ch.track({ user_id: userId, role: 'client', online_at: new Date().toISOString() });
           }
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
+          // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
+          isSubscribedRef.current = false;
+          setPresenceRetryKey(k => k + 1);
         }
       });
 
@@ -1013,7 +1028,7 @@ export default function PageClientMessages() {
       presenceChRef.current = null;
       if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
     };
-  }, [clientId, userId, supabase]);
+  }, [clientId, userId, supabase, presenceRetryKey]);
 
 
   // ── Scroll bas — instant au chargement, ancré tant que l'utilisateur ne scrolle pas ──

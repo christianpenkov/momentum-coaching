@@ -1369,6 +1369,17 @@ export default function PageChat() {
     if (clients.length > 0 && !activeId) setActiveId(clients[0].id);
   }, [clients, activeId]);
 
+  // presenceRetryKey force la recréation complète du canal — nécessaire quand le WebSocket
+  // meurt silencieusement (veille OS, coupure réseau) sans que visibilitychange se déclenche :
+  // le dernier état "sync" connu reste figé indéfiniment sinon (ex: élève vu "en ligne" des
+  // heures après sa vraie déconnexion, jusqu'au prochain hard refresh).
+  const [presenceRetryKey, setPresenceRetryKey] = useState(0);
+  useEffect(() => {
+    const onOnline = () => setPresenceRetryKey(k => k + 1);
+    window.addEventListener('online', onOnline);
+    return () => window.removeEventListener('online', onOnline);
+  }, []);
+
   // Presence coach : écoute présence client sur les deux canaux (messagerie + global)
   useEffect(() => {
     if (!userId || !activeId) return;
@@ -1390,6 +1401,10 @@ export default function PageChat() {
       .subscribe(async (status) => {
         if (status === 'SUBSCRIBED' && document.visibilityState === 'visible') {
           await ch.track({ user_id: userId, role: 'coach', online_at: new Date().toISOString() });
+        } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
+          // Le SDK Realtime ne se re-souscrit pas tout seul sur ces statuts — sans ce retry,
+          // le point de présence reste figé sur le dernier état connu jusqu'au prochain reload.
+          setPresenceRetryKey(k => k + 1);
         }
       });
     presenceChRef.current = ch;
@@ -1411,7 +1426,7 @@ export default function PageChat() {
       presenceChRef.current = null;
       setPresenceCh(null);
     };
-  }, [userId, activeId, supabase]);
+  }, [userId, activeId, supabase, presenceRetryKey]);
 
   if (loading) return <InlineLoader fullPage />;
 
