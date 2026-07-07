@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, createContext, useContext, Fragment } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
@@ -1105,7 +1105,12 @@ export default function PageClientMessages() {
   useEffect(() => {
     if (loading) { initialScrollDone.current = false; stickToBottomRef.current = true; settlingRef.current = true; knownIdsRef.current = null; firstUnreadComputedRef.current = false; setFirstUnreadId(null); setContentReady(false); }
   }, [loading]);
-  useEffect(() => {
+  // useLayoutEffect (pas useEffect) : s'exécute de façon SYNCHRONE avant que le navigateur
+  // peigne le DOM. Avec useEffect, un premier paint pouvait survenir avec scrollTop:0 (haut
+  // de la conversation) avant que le scroll ne soit corrigé — flash intermittent constaté en
+  // usage réel malgré le masquage visibility (le masquage lui-même n'était appliqué qu'au
+  // paint SUIVANT ce premier paint fautif). useLayoutEffect élimine la fenêtre elle-même.
+  useLayoutEffect(() => {
     if (loading) return;
     const container = chatZoneRef.current;
     if (!container) return;
@@ -1114,6 +1119,8 @@ export default function PageClientMessages() {
     if (!firstUnreadComputedRef.current) {
       // On calcule le premier non-lu et on attend le re-render suivant (le séparateur
       // "Nouveaux messages" doit être monté dans le DOM avant qu'on puisse scroller dessus).
+      // Toujours synchrone : setFirstUnreadId déclenche un re-render + ce même
+      // useLayoutEffect avant le prochain paint, donc pas de fenêtre de flash entre les deux.
       firstUnreadComputedRef.current = true;
       const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
       logChatScroll('firstUnread computed', { found: !!firstUnread, id: firstUnread?.id, totalMsgs: messages.length });
@@ -1137,10 +1144,7 @@ export default function PageClientMessages() {
       stickToBottomRef.current = !target;
       stickToDividerRef.current = !!target;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
-      // Révéler la zone messages seulement après que le navigateur ait effectivement peint
-      // la position de scroll corrigée — sinon le reveal pourrait précéder le repaint et
-      // laisser passer une frame de "haut de conversation" quand même.
-      requestAnimationFrame(() => requestAnimationFrame(() => setContentReady(true)));
+      setContentReady(true);
       const t = setTimeout(() => {
         settlingRef.current = false;
       }, 2500);

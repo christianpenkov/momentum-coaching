@@ -1,7 +1,7 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
 
-import { useState, useRef, useEffect, useCallback, createContext, useContext, Fragment } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { createClient } from '@/lib/supabase/client';
@@ -806,7 +806,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   // "scroll" natif alors que l'utilisateur n'a rien touché — on ignore onScroll pendant cette
   // fenêtre pour ne pas désarmer stickToBottomRef par erreur.
   const settlingRef = useRef(true);
-  useEffect(() => {
+  // useLayoutEffect (pas useEffect) : s'exécute de façon SYNCHRONE avant que le navigateur
+  // peigne le DOM — élimine la fenêtre de flash "haut de conversation" au premier paint.
+  useLayoutEffect(() => {
     if (loading) return;
     const container = chatZoneRef.current;
     if (!container) return;
@@ -839,10 +841,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       stickToDividerRef.current = !!target;
       settlingRef.current = true;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
-      // Révéler la zone messages seulement après que le navigateur ait effectivement peint
-      // la position de scroll corrigée — sinon le reveal pourrait précéder le repaint et
-      // laisser passer une frame de "haut de conversation" quand même.
-      requestAnimationFrame(() => requestAnimationFrame(() => setContentReady(true)));
+      setContentReady(true);
       const t = setTimeout(() => { settlingRef.current = false; }, 2500);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
