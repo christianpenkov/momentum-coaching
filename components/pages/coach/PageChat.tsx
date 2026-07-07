@@ -842,12 +842,30 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       settlingRef.current = true;
       logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       setContentReady(true);
-      const t = setTimeout(() => { settlingRef.current = false; }, 2500);
-      return () => clearTimeout(t);
+      // BUG CRITIQUE CORRIGÉ : ce setTimeout était posé DANS ce useLayoutEffect (dépendances
+      // [messages, ...]) avec un cleanup `return () => clearTimeout(t)`. React exécute ce
+      // cleanup à CHAQUE redéclenchement de l'effet (donc à chaque nouveau message) — mais un
+      // nouveau timer n'était reposé que dans la branche `if (!initialScrollDone.current)`, qui
+      // ne se reproduit jamais après le tout premier passage. Résultat : dès qu'un 2e message
+      // arrivait dans les 2.5s suivant l'ouverture, le timer était annulé sans jamais être
+      // reposé — settlingRef.current restait bloqué à `true` pour toujours, et la boucle rAF de
+      // stabilisation (qui vérifie settlingRef à chaque frame) tournait indéfiniment à 60fps,
+      // saturant le thread principal (confirmé : app totalement figée, PC et mobile, nécessitant
+      // un hard refresh / fermeture complète). Le timer vit maintenant dans un effect séparé,
+      // dé-corrélé du cycle de vie de CE useLayoutEffect.
     } else if (stickToBottomRef.current) {
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
     }
   }, [messages, clientTyping, loading, firstUnreadId, clientId, userId]);
+
+  // Timer de fin de fenêtre de stabilisation — posé UNE SEULE FOIS quand initialScrollDone
+  // passe à true, indépendant des re-déclenchements de l'effet de scroll ci-dessus (voir
+  // commentaire détaillé plus haut sur le bug corrigé).
+  useEffect(() => {
+    if (!settlingRef.current) return;
+    const t = setTimeout(() => { settlingRef.current = false; }, 2500);
+    return () => clearTimeout(t);
+  }, [contentReady]);
 
   // Boucle rAF active en continu pendant toute la fenêtre de stabilisation (settlingRef,
   // 2.5s) — ne dépend d'AUCUN événement navigateur (ResizeObserver, onScroll, visualViewport).
