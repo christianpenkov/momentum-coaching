@@ -832,31 +832,40 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     }
   }, [messages, clientTyping, loading, firstUnreadId, clientId, userId]);
 
+  // Boucle rAF active en continu pendant toute la fenêtre de stabilisation (settlingRef,
+  // 2.5s) — ne dépend d'AUCUN événement navigateur (ResizeObserver, onScroll, visualViewport).
+  // Un seul scrollTo() par notification ResizeObserver s'est révélé insuffisant en pratique
+  // (constaté côté élève : écart de plusieurs messages malgré des logs indiquant gap:0 juste
+  // avant — le contenu continue de grandir entre deux notifications regroupées par le
+  // navigateur). Cette boucle vérifie et corrige à CHAQUE frame tant qu'on est en phase de
+  // stabilisation et ancré en bas, donc aucune fenêtre de croissance non détectée n'est possible.
+  useEffect(() => {
+    if (loading || !settlingRef.current) return;
+    let rafId: number | null = null;
+    const tick = () => {
+      const c = chatZoneRef.current;
+      if (!c || !stickToBottomRef.current || !settlingRef.current) { rafId = null; return; }
+      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
+      if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      rafId = requestAnimationFrame(tick);
+    };
+    rafId = requestAnimationFrame(tick);
+    return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
+  }, [loading, messages]);
+
+  // Après la fenêtre de stabilisation (images/audio qui chargent encore plus tard), le
+  // ResizeObserver reste le filet de sécurité classique.
   useEffect(() => {
     const container = chatZoneRef.current;
     if (!container || loading) return;
-    // Pendant la stabilisation, le contenu peut grandir sur plusieurs frames d'affilée
-    // (images/police qui chargent en cascade) — ResizeObserver ne notifie qu'une fois par
-    // frame, donc un seul scrollTo() par callback peut rater la croissance suivante. On
-    // reste en rAF-loop de correction tant qu'un écart existe, pas juste "une fois au signal".
-    let rafId: number | null = null;
-    const correct = () => {
-      rafId = null;
+    const ro = new ResizeObserver(() => {
       const c = chatZoneRef.current;
       if (!c || !stickToBottomRef.current) return;
       const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      if (gap > 0) {
-        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
-        rafId = requestAnimationFrame(correct);
-      }
-    };
-    const ro = new ResizeObserver(() => {
-      if (stickToBottomRef.current && rafId === null) {
-        rafId = requestAnimationFrame(correct);
-      }
+      if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
     });
     ro.observe(container);
-    return () => { ro.disconnect(); if (rafId !== null) cancelAnimationFrame(rafId); };
+    return () => ro.disconnect();
   }, [loading]);
 
   // Le shell mobile (voir useViewportShellHeight) recalcule sa hauteur via visualViewport
