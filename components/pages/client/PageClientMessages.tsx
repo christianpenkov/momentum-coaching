@@ -8,6 +8,8 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
+import { logChatScroll } from '@/lib/chatScrollDebug';
+import ChatScrollLogsButton from '@/components/ui/ChatScrollLogsButton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1067,6 +1069,7 @@ export default function PageClientMessages() {
       // "Nouveaux messages" doit être monté dans le DOM avant qu'on puisse scroller dessus).
       firstUnreadComputedRef.current = true;
       const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
+      logChatScroll('firstUnread computed', { found: !!firstUnread, id: firstUnread?.id, totalMsgs: messages.length });
       if (firstUnread) { setFirstUnreadId(firstUnread.id); return; }
     }
     if (!initialScrollDone.current) {
@@ -1084,12 +1087,17 @@ export default function PageClientMessages() {
       // Ancrage bas désactivé si on a atterri sur un message non lu au milieu de l'historique —
       // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
       stickToBottomRef.current = !target;
+      logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       const t = setTimeout(() => {
         settlingRef.current = false;
       }, 2500);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
+      const gapBefore = container.scrollHeight - container.scrollTop - container.clientHeight;
+      logChatScroll('new message → stick scroll', { messageCount: messages.length, gapBefore });
       container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+    } else {
+      logChatScroll('new message, NOT sticking (user scrolled up)', { messageCount: messages.length });
     }
   }, [messages, coachTyping, loading, firstUnreadId, clientId, userId]);
 
@@ -1124,7 +1132,10 @@ export default function PageClientMessages() {
       const c = chatZoneRef.current;
       if (!c || !stickToBottomRef.current) return;
       const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      if (gap > 0) {
+        logChatScroll('ResizeObserver fired (post-settling)', { gapBefore: gap });
+        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      }
     });
     ro.observe(container);
     return () => ro.disconnect();
@@ -1150,6 +1161,7 @@ export default function PageClientMessages() {
     };
     const onViewportResize = () => {
       if (!stickToBottomRef.current) return;
+      logChatScroll('visualViewport resize', { vvHeight: vv!.height });
       // Le resize peut continuer sur quelques frames (clavier/barre d'adresse qui finit son
       // animation) — on corrige en continu pendant 500ms au lieu d'une seule fois.
       stopAt = Date.now() + 500;
@@ -1329,13 +1341,23 @@ export default function PageClientMessages() {
   }
 
   // ── Flèche scroll bas ──────────────────────────────────────────────────────
+  // Un vrai geste (touch/souris/molette) est un signal fiable à 100% qu'il vient de
+  // l'utilisateur — jamais du navigateur — donc on désarme l'ancrage bas immédiatement,
+  // sans attendre la fin de settlingRef. Sans ça, scroller vers le haut dans la seconde qui
+  // suit l'ouverture de la conversation était systématiquement annulé par la boucle rAF.
+  const userGestureRef = useRef(false);
+  function handleUserGestureStart() {
+    userGestureRef.current = true;
+    settlingRef.current = false;
+  }
   function handleChatScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollArrow(distanceFromBottom > 120);
-    // Pendant la stabilisation (settlingRef), un "scroll" natif peut venir du navigateur
-    // lui-même (reflow viewport/fonts), pas de l'utilisateur — on ne désarme pas l'ancrage bas.
-    if (!settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
+    // Pendant la stabilisation (settlingRef) SANS geste utilisateur détecté, un "scroll"
+    // natif peut venir du navigateur lui-même (reflow viewport/fonts) — on ignore ce cas
+    // pour ne pas désarmer l'ancrage bas par erreur. Un vrai geste (userGestureRef) prime.
+    if (userGestureRef.current || !settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
     const el = chatZoneRef.current;
@@ -1357,6 +1379,7 @@ export default function PageClientMessages() {
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
       <div className="chat-shell" style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
+        <ChatScrollLogsButton />
 
         {/* ── Header ── */}
         <div style={{
@@ -1394,7 +1417,9 @@ export default function PageClientMessages() {
         </div>
 
         {/* ── Zone messages ── */}
-        <div ref={chatZoneRef} onScroll={handleChatScroll} className="chat-messages-zone" style={{
+        <div ref={chatZoneRef} onScroll={handleChatScroll}
+          onTouchStart={handleUserGestureStart} onMouseDown={handleUserGestureStart} onWheel={handleUserGestureStart}
+          className="chat-messages-zone" style={{
           flex: 1, overflowY: 'auto', overflowX: 'hidden',
           padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2,
           WebkitOverflowScrolling: 'touch',

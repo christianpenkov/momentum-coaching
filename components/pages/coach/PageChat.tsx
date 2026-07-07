@@ -8,6 +8,8 @@ import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
+import { logChatScroll } from '@/lib/chatScrollDebug';
+import ChatScrollLogsButton from '@/components/ui/ChatScrollLogsButton';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -807,6 +809,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       // "Nouveaux messages" doit être monté dans le DOM avant qu'on puisse scroller dessus).
       firstUnreadComputedRef.current = true;
       const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
+      logChatScroll('firstUnread computed', { found: !!firstUnread, id: firstUnread?.id, totalMsgs: messages.length });
       if (firstUnread) { setFirstUnreadId(firstUnread.id); return; }
     }
     if (!initialScrollDone.current) {
@@ -825,6 +828,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
       stickToBottomRef.current = !target;
       settlingRef.current = true;
+      logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
       const t = setTimeout(() => { settlingRef.current = false; }, 2500);
       return () => clearTimeout(t);
     } else if (stickToBottomRef.current) {
@@ -1014,13 +1018,23 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     if (mr.state !== 'inactive') mr.stop();
   }
 
+  // Un vrai geste (touch/souris/molette) est un signal fiable à 100% qu'il vient de
+  // l'utilisateur — jamais du navigateur — donc on désarme l'ancrage bas immédiatement,
+  // sans attendre la fin de settlingRef. Sans ça, scroller vers le haut dans la seconde qui
+  // suit l'ouverture de la conversation était systématiquement annulé par la boucle rAF.
+  const userGestureRef = useRef(false);
+  function handleUserGestureStart() {
+    userGestureRef.current = true;
+    settlingRef.current = false;
+  }
   function handleChatScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
     const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     setShowScrollArrow(distanceFromBottom > 120);
-    // Pendant la stabilisation (settlingRef), un "scroll" natif peut venir du navigateur
-    // lui-même (reflow viewport/fonts), pas de l'utilisateur — on ne désarme pas l'ancrage bas.
-    if (!settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
+    // Pendant la stabilisation (settlingRef) SANS geste utilisateur détecté, un "scroll"
+    // natif peut venir du navigateur lui-même (reflow viewport/fonts) — on ignore ce cas
+    // pour ne pas désarmer l'ancrage bas par erreur. Un vrai geste (userGestureRef) prime.
+    if (userGestureRef.current || !settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
     const el = chatZoneRef.current;
@@ -1039,6 +1053,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
+        <ChatScrollLogsButton />
 
         {/* Header */}
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)' }}>
@@ -1055,7 +1070,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
         </div>
 
         {/* Messages */}
-        <div ref={chatZoneRef} onScroll={handleChatScroll} className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
+        <div ref={chatZoneRef} onScroll={handleChatScroll}
+          onTouchStart={handleUserGestureStart} onMouseDown={handleUserGestureStart} onWheel={handleUserGestureStart}
+          className="chat-messages-zone" style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch' } as React.CSSProperties}>
           {loading ? (
             <InlineLoader />
           ) : messages.length === 0 ? (
