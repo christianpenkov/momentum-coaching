@@ -9,7 +9,6 @@ import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
-import ChatScrollLogsButton from '@/components/ui/ChatScrollLogsButton';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1479,7 +1478,6 @@ export default function PageClientMessages() {
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
       <div className="chat-shell" style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
-        <ChatScrollLogsButton />
 
         {/* ── Header ── */}
         <div style={{

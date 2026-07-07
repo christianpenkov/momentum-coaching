@@ -2,7 +2,7 @@
 
 Documentation de référence pour reconstruire une messagerie temps réel équivalente sur une autre plateforme. Couvre : schéma DB, réaltime (messages + présence + typing), scroll robuste, marquage lu, notifications.
 
-**Statut** : présence en ligne/hors ligne, typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan) — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `a5e621b`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
+**Statut** : présence en ligne/hors ligne (plateforme entière, pas juste messagerie), typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan), navigation SPA, notifications forcées — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `063f8e7`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
 
 ## Fichiers
 
@@ -53,24 +53,36 @@ const channel = supabase.channel(`messages-client-${clientId}`)
 
 Cleanup : `supabase.removeChannel(channel)`. Nom de canal incluant `clientId` pour éviter les collisions entre conversations lors des remounts en PWA.
 
-## 4. Présence en ligne/hors ligne — le point le plus délicat
+## 4. Présence en ligne/hors ligne — plateforme entière, pas juste messagerie
 
 ### 4.1 Pourquoi c'est difficile
 
 Un canal Supabase Realtime **Presence** donne un état `join`/`leave` par client connecté au canal. Le piège : si le WebSocket meurt **silencieusement** (mise en veille de l'OS, coupure réseau brutale, throttling de l'onglet en arrière-plan), le serveur peut mettre plusieurs dizaines de secondes à minutes à détecter la coupure et ne déclenche parfois jamais de vrai `leave` — le peer peut alors rester affiché "en ligne" indéfiniment jusqu'à un hard refresh.
 
-### 4.2 Solution : ne jamais faire confiance au seul état du canal
+### 4.2 Portée : présence plateforme entière, pas juste "messagerie ouverte"
 
-Pattern retenu (inspiré Slack/Discord — heartbeat + TTL, jamais un booléen de connexion seul) :
+**Décision importante** : le statut "en ligne" affiché dans la messagerie doit refléter la présence de l'utilisateur sur **toute la plateforme** (n'importe quelle page), pas seulement quand il a la page Messages ouverte. Sinon quitter Messages pour une autre page fait immédiatement passer le peer à "hors ligne" à tort, alors qu'il est toujours actif ailleurs sur l'app.
 
-1. **Canal unique par conversation** : `presence-chat-${clientId}`, avec `config: { presence: { key: userId } }` — chaque participant a sa propre clé (son `auth.users.id`), donc pas de collision entre coach et élève sur le même canal.
+Conséquence architecturale : la présence **ne peut pas** vivre dans le composant de messagerie lui-même (démonté/remonté à chaque navigation, voir §11) — elle doit vivre dans le **layout**, qui reste monté tant que l'utilisateur navigue dans une même section (coach ou élève) de la plateforme.
+
+- `lib/GlobalPresenceContext.tsx` expose deux providers :
+  - `GlobalPresenceClientProvider` (monté dans `app/(client)/layout.tsx`) — un seul canal (le coach est le seul peer possible), expose `useGlobalClientPresence() → { coachOnline: boolean }`.
+  - `GlobalPresenceCoachProvider` (monté dans `app/(coach)/layout.tsx`) — un canal **par élève** du coach (`clients` table), expose `useGlobalCoachPresence() → { isClientOnline(clientId): boolean }`.
+- Le composant messagerie ne calcule plus rien lui-même pour "en ligne/hors ligne" — il consomme juste `const { coachOnline } = useGlobalClientPresence();` (ou l'équivalent coach).
+- Le canal `presence-chat-${clientId}` (local à la messagerie) **reste utilisé**, mais uniquement pour le broadcast `typing` (§5) — plus pour le calcul de présence.
+
+### 4.3 Solution : ne jamais faire confiance au seul état du canal
+
+Pattern retenu (inspiré Slack/Discord — heartbeat + TTL, jamais un booléen de connexion seul), appliqué au canal `global-presence-${clientId}` :
+
+1. **Canal par élève** : `global-presence-${clientId}`, avec `config: { presence: { key: userId } }` — chaque participant a sa propre clé (son `auth.users.id`).
 
 2. **`track()` initial** au `SUBSCRIBED` :
    ```ts
    ch.track({ user_id: userId, role: 'coach' /* ou 'client' */, online_at: new Date().toISOString() });
    ```
 
-3. **`sync` event** — reçu par chaque participant dès que l'état de présence du canal change (y compris son propre `track()` initial). On lit `ch.presenceState()`, on cherche l'entrée du **peer** (clé ≠ la sienne, `role` opposé), et on retient son `online_at` :
+3. **`sync` event** — reçu par chaque participant dès que l'état de présence du canal change. On lit `ch.presenceState()`, on cherche l'entrée du **peer** (clé ≠ la sienne, `role` opposé), et on retient son `online_at` :
    ```ts
    ch.on('presence', { event: 'sync' }, () => {
      const state = ch.presenceState();
@@ -81,7 +93,7 @@ Pattern retenu (inspiré Slack/Discord — heartbeat + TTL, jamais un booléen d
    });
    ```
 
-4. **Heartbeat applicatif** : re-`track()` toutes les **60 secondes** (pas plus fréquent — voir 4.4) tant que la page est visible :
+4. **Heartbeat applicatif** : re-`track()` toutes les **60 secondes** (pas plus fréquent — voir 4.5) tant que la page est visible :
    ```ts
    setInterval(() => { if (isSubscribedRef.current && document.visibilityState === 'visible') track(); }, 60_000);
    ```
@@ -102,7 +114,7 @@ Pattern retenu (inspiré Slack/Discord — heartbeat + TTL, jamais un booléen d
      else if (['CHANNEL_ERROR','TIMED_OUT','CLOSED'].includes(status)) scheduleRetry();
    });
    ```
-   Et sur retour réseau : `window.addEventListener('online', () => { retryAttemptRef.current = 0; setPresenceRetryKey(k => k+1); })` — `presenceRetryKey` est une dépendance du `useEffect` qui crée le canal, donc l'incrémenter force sa recréation complète.
+   Et sur retour réseau : `window.addEventListener('online', () => { retryAttemptRef.current = 0; setRetryKey(k => k+1); })` — `retryKey` est une dépendance du `useEffect` qui crée le canal, donc l'incrémenter force sa recréation complète.
 
 8. **Backoff exponentiel sur les retries** — **critique** :
    ```ts
@@ -112,41 +124,47 @@ Pattern retenu (inspiré Slack/Discord — heartbeat + TTL, jamais un booléen d
 
 9. **`worker: true` sur le client Realtime** (`createClient({ worker: true, heartbeatIntervalMs: 15_000 })`) — déporte le heartbeat bas niveau du WebSocket dans un Web Worker, insensible au throttling de timers que les navigateurs appliquent aux onglets en arrière-plan longue durée. Le SDK Supabase embarque le script worker dans un `Blob` local (`URL.createObjectURL`), donc aucune requête réseau externe, aucun risque de blocage CSP.
 
-### 4.3 Où ça vit dans le code
+### 4.4 Cas particulier côté coach : un canal par élève
 
-- Côté élève : dans le composant principal, un seul canal sert à la fois pour la présence **et** le broadcast `typing` (voir §5) — pas deux canaux séparés.
-- Côté coach : le canal de présence vit dans le composant **parent** (`PageChat`, jamais démonté tant qu'on reste dans les pages coach), pas dans le sous-composant de thread — car il doit persister même quand on change de conversation active.
+Le coach a potentiellement plusieurs élèves — `GlobalPresenceCoachProvider` ouvre **un canal par `clientId`** (liste récupérée via `clients.coach_id = user.id`), chacun avec son propre cycle heartbeat/TTL/retry indépendant, agrégés dans une seule `Record<clientId, boolean>` exposée via `isClientOnline(clientId)`. Le cleanup doit itérer et démonter chaque canal individuellement au démontage du provider (changement de liste d'élèves, déconnexion).
 
-### 4.4 Rate limit Supabase Realtime — leçon apprise
+### 4.5 Rate limit Supabase Realtime — leçon apprise
 
 Diagnostiqué via les **logs Realtime réels du projet** (`mcp Supabase get_logs`, service `realtime`) : `ClientPresenceRateLimitReached: client_rate_limit_exceeded`. Le rate limit de présence est sensible au **nombre d'événements `track()`/`untrack()` par seconde**, pas juste au nombre d'utilisateurs connectés. Un heartbeat à 20s combiné à des retries immédiats suffit à l'atteindre avec seulement 2 appareils. Réglages qui tiennent en prod : heartbeat 60s, TTL 150s, backoff exponentiel sur les retries.
 
 ## 5. Indicateur "en train d'écrire"
 
-Réutilise le **même canal** que la présence (`presence-chat-${clientId}`), via `broadcast` (pas `presence`) :
+Utilise le canal **local à la conversation** (`presence-chat-${clientId}` — pas le canal de présence globale, voir §4.2), via `broadcast` (pas `presence`) :
 
-- Émission (débattue/throttlée côté frappe, pas à chaque keystroke) :
+- Émission, throttlée à **2 secondes** côté frappe (pas à chaque keystroke) :
   ```ts
-  ch.send({ type: 'broadcast', event: 'typing', payload: { role: 'client' } });
+  if (now - lastTypingSentRef.current > 2000) {
+    lastTypingSentRef.current = now;
+    ch.send({ type: 'broadcast', event: 'typing', payload: { role: 'client' } });
+  }
   ```
-- Réception :
+- Réception, avec extinction après **4 secondes** sans nouveau broadcast :
   ```ts
   ch.on('broadcast', { event: 'typing' }, payload => {
     if (payload.payload?.role === 'coach') {
       setCoachTyping(true);
       clearTimeout(typingTimerRef.current);
-      typingTimerRef.current = setTimeout(() => setCoachTyping(false), 3000);
+      typingTimerRef.current = setTimeout(() => setCoachTyping(false), 4000);
     }
   });
   ```
 
-**Piège corrigé et validé en usage réel** : si le canal est recréé (retry, retour d'arrière-plan) **entre** le `setCoachTyping(true)` et l'expiration du timer de 3s, le cleanup de l'effet annule le timer (`clearTimeout`) mais oubliait de repasser `coachTyping` à `false` — l'indicateur restait bloqué affiché indéfiniment ("En train d'écrire…" visible en permanence, constaté en usage réel). **Toujours réinitialiser l'état dans le cleanup, pas seulement annuler le timer** :
+**Piège 1 corrigé — marge émission/extinction trop fine** : avec 2.5s d'émission et 3s d'extinction (réglage initial), la marge de 500ms était trop fine pour absorber la latence réseau variable — constaté surtout sur mobile (latence 4G plus irrégulière que PC-à-PC) : l'indicateur **clignotait** (s'éteignait puis se rallumait) entre deux broadcasts. Fix : émission resserrée à 2s, extinction élargie à 4s — marge de 2s.
+
+**Piège 2 corrigé — timer non réinitialisé au cleanup** : si le canal est recréé (retry, retour d'arrière-plan) **entre** le `setCoachTyping(true)` et l'expiration du timer, le cleanup de l'effet annule le timer (`clearTimeout`) mais oubliait de repasser `coachTyping` à `false` — l'indicateur restait bloqué affiché indéfiniment ("En train d'écrire…" visible en permanence, constaté en usage réel). **Toujours réinitialiser l'état dans le cleanup, pas seulement annuler le timer** :
 ```ts
 return () => {
   if (typingTimerRef.current) clearTimeout(typingTimerRef.current);
   setCoachTyping(false); // pas juste clearTimeout — sinon le state reste bloqué à true
 };
 ```
+
+**Piège 3 corrigé — animation des points qui semble s'interrompre (mobile uniquement)** : le state lui-même restait stable (l'espace réservé sous le dernier message ne clignotait pas), mais l'**animation CSS** des 3 points (`@keyframes` infinie) donnait l'impression de s'arrêter et repartir, uniquement sur mobile réel (pas reproductible en simulateur responsive desktop). Cause : le conteneur de l'indicateur portait la classe `msg-bubble-in` (animation d'entrée fade+translateY, pensée pour les nouvelles bulles de message) alors qu'il reste monté en continu tant que `coachTyping`/`clientTyping` est `true` — sur certains moteurs de rendu mobiles, ça semble interagir avec l'animation infinie des points. Fix : retirer `msg-bubble-in` de ce conteneur spécifique (il n'a pas besoin d'animation d'entrée).
 
 ## 6. Scroll — atterrir directement à la bonne position, sans flash ni résidu
 
@@ -301,7 +319,36 @@ Le clavier virtuel et la barre d'adresse mobile changent la hauteur visible sans
    vv.addEventListener('scroll', update);
    ```
 
-## 9. Récapitulatif des refs/state clés (par conversation)
+## 9. Navigation SPA (App Router) — pourquoi ça "juste marche" sans code dédié
+
+Question posée : si l'utilisateur reste sur la plateforme (jamais d'arrière-plan/verrouillage), navigue vers une autre page, reçoit des messages en push, puis revient sur Messages — voit-il bien le séparateur "Nouveaux messages" ?
+
+Réponse : **oui, sans code supplémentaire**, grâce au routing Next.js App Router. `/client/messages` et `/messages` (coach) sont des **routes** distinctes (fichiers `page.tsx` séparés) — naviguer vers une autre route démonte **complètement** le composant `PageClientMessages`/`PageChat`, contrairement à un simple changement d'onglet interne (tabs) qui garderait le composant monté avec `display:none`.
+
+Au retour sur la route Messages, le composant est **remonté depuis zéro** :
+- `loading` repart à `true` → `useEffect` de chargement initial refait un `fetch` frais des messages (avec les `read_at` à jour).
+- Tous les refs (`firstUnreadComputedRef`, `initialScrollDone`, etc.) repartent à leur valeur initiale (nouvelle instance de composant).
+- Le calcul du premier non-lu (§6.4) s'exécute normalement sur des données fraîches.
+
+C'est donc le **même chemin de code** que le tout premier chargement de l'app — pas besoin de dupliquer la logique de reset (§6.4bis) pour ce cas, qui ne concerne que le scénario où le composant **reste monté** (page Messages jamais quittée, juste mise en arrière-plan/verrouillée).
+
+**Point de vigilance pour la présence** : comme la présence en ligne/hors ligne vit maintenant dans le layout (§4.2), pas dans le composant Messages, elle **n'est pas** affectée par ce démontage/remontage — elle continue de tourner en continu tant que l'utilisateur reste dans la même section de la plateforme (coach ou élève), peu importe la page affichée.
+
+## 10. Notifications forcées à l'installation PWA
+
+`components/PushPermissionGate.tsx`, monté dans les deux layouts, au-dessus de tout le reste (`z-index: 99999`).
+
+- Ne s'affiche **qu'en mode standalone** (app réellement ajoutée à l'écran d'accueil), détecté via :
+  ```ts
+  window.matchMedia('(display-mode: standalone)').matches
+    || (window.navigator as any).standalone === true // iOS
+  ```
+  Pas affiché en simple onglet navigateur — l'utilisateur n'a pas forcément l'intention de recevoir des notifs juste en visitant le site.
+- Tant que `Notification.permission !== 'granted'`, écran plein bloquant avec un bouton qui déclenche `Notification.requestPermission()` — **nécessite un geste utilisateur explicite**, impossible à déclencher automatiquement (contrainte iOS/navigateur, pas du code).
+- "Plus tard" laisse passer une fois par session (`sessionStorage`) — réapparaît à la prochaine ouverture complète de l'app tant que la permission n'est pas accordée.
+- Cas `denied` (refusé explicitement) : JS ne peut plus rouvrir la popup native — affiche les étapes pour réactiver manuellement dans les réglages du téléphone plutôt qu'un bouton qui ne ferait rien.
+
+## 11. Récapitulatif des refs/state clés (par conversation)
 
 | Nom | Type | Rôle |
 |---|---|---|
@@ -317,13 +364,14 @@ Le clavier virtuel et la barre d'adresse mobile changent la hauteur visible sans
 | `settlingRef` | ref | Fenêtre de stabilisation active (2.5s post-ouverture) |
 | `userGestureRef` | ref | Un vrai geste utilisateur a eu lieu — désarme `settlingRef` immédiatement |
 | `knownIdsRef` | ref | IDs déjà présents au chargement — pilote l'animation d'entrée des bulles (seuls les nouveaux messages l'ont) |
-| `isSubscribedRef` | ref | Le canal presence est `SUBSCRIBED` (garde pour `untrack`/`track`) |
-| `lastCoachSeenRef` / `lastPeerSeenRef` | ref | Dernier `online_at` connu du peer — base du TTL local |
-| `presenceRetryKey` | state | Incrémenté pour forcer la recréation du canal presence |
-| `retryAttemptRef` | ref | Compteur pour le backoff exponentiel |
+| `isSubscribedRef` | ref | Le canal `presence-chat-*` (typing) est `SUBSCRIBED` |
+| `presenceRetryKey` | state | Incrémenté pour forcer la recréation du canal typing |
+| `retryAttemptRef` | ref | Compteur pour le backoff exponentiel (canal typing) |
+
+*(`lastCoachSeenRef`/`lastPeerSeenRef`, `presenceIsSubscribedRef` équivalents vivent maintenant dans `lib/GlobalPresenceContext.tsx`, pas dans le composant messagerie — voir §4.)*
 | `hiddenAtRef` | ref | Timestamp de mise en arrière-plan — sert à mesurer la durée d'absence (seuil 5s) avant de refaire le reset "premier non-lu" au retour (§6.4bis) |
 
-## 10. Ce qu'il faut absolument reproduire si migration vers une autre stack
+## 12. Ce qu'il faut absolument reproduire si migration vers une autre stack
 
 - Système realtime avec un vrai **Presence** (pas juste du pub/sub classique) — sinon il faut réimplémenter le heartbeat + TTL à la main.
 - `useLayoutEffect`-équivalent (ou son analogue dans le framework cible) pour le scroll initial — critique pour éviter le flash.

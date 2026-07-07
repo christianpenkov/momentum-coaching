@@ -9,7 +9,6 @@ import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
-import ChatScrollLogsButton from '@/components/ui/ChatScrollLogsButton';
 import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1139,7 +1138,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
-        <ChatScrollLogsButton />
 
         {/* Header */}
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)' }}>
