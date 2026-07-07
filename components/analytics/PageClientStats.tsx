@@ -729,11 +729,17 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
   });
   const igReachP = igDaysSlice.reduce((s, d) => s + d.reach, 0);
   const igFollowerDeltaP = (igDaysSlice[igDaysSlice.length - 1]?.followerCount ?? 0) - (igDaysSlice[0]?.followerCount ?? 0);
-  const igEngagedP = igDaysSlice.reduce((s, d) => s + (d.accountsEngaged ?? 0), 0);
+  // Vraie somme des interactions (likes+comments+saves+shares) — distincte des comptes
+  // ENGAGÉS (accountsEngaged, un nombre de personnes), qui était utilisée par erreur
+  // pour le KPI "Interactions posts" ET pour engRate, alors que ces deux métriques
+  // Meta sont différentes par définition (cf. bug ig_accounts_engaged/
+  // ig_total_interactions identiques corrigé le 2026-07-06 — même confusion ici,
+  // côté lecture cette fois plutôt que côté collecte).
+  const igInteractionsP = igDaysSlice.reduce((s, d) => s + (d.totalInteractions ?? 0), 0);
   const igViewsP = igDaysSlice.reduce((s, d) => s + (d.views ?? 0), 0);
 
 
-  const engRate = igReachP > 0 ? pct(igEngagedP, igReachP) : 0;
+  const engRate = igReachP > 0 ? pct(igInteractionsP, igReachP) : 0;
   // Nombre RÉEL de comptes abonnés uniques touchés (pas un ratio recalculé depuis un
   // total de reach mêlé abonnés+non-abonnés) — confirmé via test direct API Meta :
   // period=days_28 + metric_type=total_value + breakdown=follow_type renvoie le vrai
@@ -857,7 +863,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
           { label: 'Abonnés', value: fmt(ig.followers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés' },
           { label: 'Publications', value: fmt(postsInPeriod), sub: `${period}j`, color: IG_COLOR, key: 'Publications' },
           { label: 'Reach · personnes', value: fmt(igReachP), sub: `${period}j`, color: 'var(--ink)', key: 'Reach' },
-          { label: 'Interactions posts', value: fmt(igEngagedP), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
+          { label: 'Interactions posts', value: fmt(igInteractionsP), sub: `${period}j`, color: 'var(--ink)', key: 'Interactions posts' },
         ].map(s => (
           <div key={s.key} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
