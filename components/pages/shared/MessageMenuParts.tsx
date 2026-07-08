@@ -74,12 +74,13 @@ export function ReactionBar({ top, left, isMe, onReact }: { top: number; left: n
   );
 }
 
-// ─── Détail d'une réaction existante — WhatsApp affiche qui a réagi (avatar + nom)
-// au lieu de rouvrir la barre d'emojis quand on clique sur SA PROPRE réaction ;
-// permet de la retirer d'un clic sans repasser par le picker complet.
+// ─── Détail d'une réaction existante — WhatsApp affiche toujours qui a réagi
+// (avatar + nom) au clic sur un badge, plutôt que de rouvrir la barre d'emojis.
+// "Cliquez pour supprimer" et le retrait au clic n'apparaissent que si c'est SA
+// PROPRE réaction (onRemove absent = simple aperçu en lecture seule sinon).
 export function ReactionDetail({ top, left, avatarUrl, initials, name, emoji, onRemove }: {
   top: number; left: number; avatarUrl?: string | null; initials: string; name: string;
-  emoji: string; onRemove: () => void;
+  emoji: string; onRemove?: () => void;
 }) {
   return (
     <div
@@ -90,13 +91,13 @@ export function ReactionDetail({ top, left, avatarUrl, initials, name, emoji, on
         display: 'flex', alignItems: 'center', gap: 10,
         background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
         padding: '8px 14px', boxShadow: '0 4px 16px rgba(0,0,0,.15)',
-        cursor: 'pointer', minWidth: 200,
+        cursor: onRemove ? 'pointer' : 'default', minWidth: 200,
       }}
     >
       <Avatar initials={initials} avatarUrl={avatarUrl} size={32} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{name}</div>
-        <div style={{ fontSize: 11, color: 'var(--muted)' }}>Cliquez pour supprimer</div>
+        {onRemove && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Cliquez pour supprimer</div>}
       </div>
       <div style={{ fontSize: 22, flexShrink: 0 }}>{emoji}</div>
     </div>

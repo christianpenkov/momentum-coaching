@@ -816,7 +816,12 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         marginTop: isContinued ? 2 : 8, marginBottom: msg.reaction_emoji ? 10 : 0,
         position: 'relative', overflow: 'visible',
         transform: liftPx ? `translateY(-${liftPx}px)` : undefined,
-        transition: 'transform 160ms ease-out',
+        // Transition seulement à la remontée (liftPx > 0) — le retour au repos est
+        // instantané. Sans ça, un clic juste après la fermeture d'un précédent menu
+        // pouvait mesurer getBoundingClientRect() en pleine transition (position "en
+        // vol", ni l'ancienne ni la nouvelle), faussant tout le calcul de position du
+        // panneau suivant (dérive visible verticale et horizontale sur mobile).
+        transition: liftPx ? 'transform 160ms ease-out' : 'none',
       }}
     >
       <div
@@ -857,7 +862,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         )}
         {msg.reaction_emoji && (
           <div
-            onClick={() => onOpenCtxMenu(bubbleRef.current!, msg, { menuOnly: true, reactionDetail: msg.reaction_by === userId })}
+            onClick={() => onOpenCtxMenu(bubbleRef.current!, msg, { menuOnly: true, reactionDetail: true })}
             style={{
               position: 'absolute', bottom: -10, [isMe ? 'left' : 'right']: 8,
               background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
@@ -2154,8 +2159,10 @@ export default function PageClientMessages() {
         const msgIsMe = msg.sender_id === userId;
         const isTextMessage = !msg.type || msg.type === 'text';
         if (ctxMenu.reactionDetail && msg.reaction_emoji) {
-          // Sa propre réaction : mini-panneau (avatar + "Cliquez pour supprimer")
-          // au lieu de rouvrir toute la barre d'emojis — comme WhatsApp.
+          // Affiche toujours qui a réagi (avatar + nom) au clic sur un badge — comme
+          // WhatsApp. "Cliquez pour supprimer" et le retrait au clic n'apparaissent que
+          // si c'est SA PROPRE réaction.
+          const reactorIsMe = msg.reaction_by === userId;
           const detailTop = Math.min(
             ctxMenu.rect.bottom + MENU_GAP,
             window.innerHeight - REACTION_DETAIL_HEIGHT - MENU_SCREEN_MARGIN
@@ -2177,9 +2184,11 @@ export default function PageClientMessages() {
               />
               <ReactionDetail
                 top={detailTop} left={detailLeft}
-                avatarUrl={myAvatarUrl} initials={myInitials} name="Vous"
+                avatarUrl={reactorIsMe ? myAvatarUrl : coachAvatarUrl}
+                initials={(reactorIsMe ? myInitials : coachInitials) || '?'}
+                name={reactorIsMe ? 'Vous' : coachName}
                 emoji={msg.reaction_emoji}
-                onRemove={() => { clearReaction(msg.id); setCtxMenu(null); }}
+                onRemove={reactorIsMe ? () => { clearReaction(msg.id); setCtxMenu(null); } : undefined}
               />
             </>
           );
