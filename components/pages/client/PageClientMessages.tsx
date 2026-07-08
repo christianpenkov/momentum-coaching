@@ -13,7 +13,7 @@ import { logChatScroll } from '@/lib/chatScrollDebug';
 import { logAudio, getAudioLogs } from '@/lib/audioDebug';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
-import { buildMenuItems, renderMenuItem, ReactionBar, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
+import { buildMenuItems, renderMenuItem, ReactionBar, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -540,6 +540,7 @@ function MessageContextMenu({ rect, isMe, isTextMessage, canEdit, canDelete, men
   const top = Math.min(rect.bottom + MENU_GAP, window.innerHeight - menuHeight - MENU_SCREEN_MARGIN);
   const reactionBarTop = Math.max(MENU_SCREEN_MARGIN, rect.top - REACTION_BAR_HEIGHT - MENU_GAP);
   const left = Math.min(Math.max(rect.right - CTX_MENU_WIDTH, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
+  const reactionBarLeft = Math.min(Math.max(rect.right - REACTION_BAR_WIDTH, 8), window.innerWidth - REACTION_BAR_WIDTH - 8);
   return createPortal(
     <>
       <div
@@ -547,7 +548,7 @@ function MessageContextMenu({ rect, isMe, isTextMessage, canEdit, canDelete, men
         onMouseDown={onClose}
         onTouchEnd={e => { e.preventDefault(); onClose(); }}
       />
-      <ReactionBar top={reactionBarTop} left={left} onReact={emoji => { onReact(emoji); onClose(); }} />
+      <ReactionBar top={reactionBarTop} left={reactionBarLeft} onReact={emoji => { onReact(emoji); onClose(); }} />
       {!menuOnly && items.length > 0 && (
         <div style={{
           position: 'fixed', left, top, zIndex: 10000,
@@ -807,9 +808,10 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         position: 'relative', overflow: 'visible',
         transform: liftPx ? `translateY(-${liftPx}px)` : undefined,
         transition: 'transform 160ms ease-out',
-        // Le message ciblé par le menu doit rester net au-dessus du fond flouté (portail
-        // à z-index 9999) — sans ça il subit le flou comme le reste de la page derrière.
-        zIndex: isMenuTarget ? 10000 : undefined,
+        // Le message ciblé par le menu doit rester net au-dessus du fond flouté ET du
+        // menu lui-même (tous deux en portail document.body, donc physiquement après ce
+        // wrapper dans le DOM — à z-index égal ils gagneraient l'affichage malgré tout).
+        zIndex: isMenuTarget ? 10001 : undefined,
       }}
     >
       <div

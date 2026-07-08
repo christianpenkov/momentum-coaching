@@ -74,6 +74,8 @@ export function ReactionBar({ top, left, onReact }: { top: number; left: number;
 
 export const MENU_ITEM_HEIGHT = 44;
 export const REACTION_BAR_HEIGHT = 46;
+// 8 emojis (32px) + bouton "+" (28px) + gaps (2px × 8) + marginLeft (2px) + padding (8px × 2)
+export const REACTION_BAR_WIDTH = 8 * 32 + 28 + 8 * 2 + 2 + 8 * 2;
 export const MENU_GAP = 8;
 export const MENU_SCREEN_MARGIN = 16;
 export const CTX_MENU_WIDTH = 180;
