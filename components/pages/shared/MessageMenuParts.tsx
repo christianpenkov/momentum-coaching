@@ -1,6 +1,7 @@
 'use client';
 
 import Icon from '@/components/ui/Icon';
+import Avatar from '@/components/ui/Avatar';
 
 // ─── Règles du menu contextuel — source unique de vérité ──────────────────────
 // Réutilisée à la fois pour précalculer le nombre d'items (position du menu,
@@ -69,6 +70,35 @@ export function ReactionBar({ top, left, isMe, onReact }: { top: number; left: n
           }}>{emoji}</button>
         );
       })}
+    </div>
+  );
+}
+
+// ─── Détail d'une réaction existante — WhatsApp affiche qui a réagi (avatar + nom)
+// au lieu de rouvrir la barre d'emojis quand on clique sur SA PROPRE réaction ;
+// permet de la retirer d'un clic sans repasser par le picker complet.
+export function ReactionDetail({ top, left, avatarUrl, initials, name, emoji, onRemove }: {
+  top: number; left: number; avatarUrl?: string | null; initials: string; name: string;
+  emoji: string; onRemove: () => void;
+}) {
+  return (
+    <div
+      onMouseDown={onRemove}
+      className="msg-reaction-detail-pop"
+      style={{
+        position: 'fixed', top, left, zIndex: 10000,
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
+        padding: '8px 14px', boxShadow: '0 4px 16px rgba(0,0,0,.15)',
+        cursor: 'pointer', minWidth: 200,
+      }}
+    >
+      <Avatar initials={initials} avatarUrl={avatarUrl} size={32} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{name}</div>
+        <div style={{ fontSize: 11, color: 'var(--muted)' }}>Cliquez pour supprimer</div>
+      </div>
+      <div style={{ fontSize: 22, flexShrink: 0 }}>{emoji}</div>
     </div>
   );
 }

@@ -8,13 +8,24 @@ import { useRef, useEffect, useCallback } from 'react';
 // pratique (le haptique n'est fiable que sur un vrai tap physique direct sur le
 // switch, incompatible avec une détection de long-press custom déclenchée après
 // coup). navigator.vibrate() n'est de toute façon pas supporté sur iOS Safari.
-export function useLongPress(onTrigger: (x: number, y: number) => void, enabled: boolean, delay = 500) {
+export function useLongPress(
+  onTrigger: (x: number, y: number) => void,
+  enabled: boolean,
+  delay = 500,
+  onDoubleTap?: () => void,
+) {
   const containerRef = useRef<HTMLElement | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startPos = useRef<{ x: number; y: number } | null>(null);
   const movedRef = useRef(false);
   const onTriggerRef = useRef(onTrigger);
   onTriggerRef.current = onTrigger;
+  // Double-tap (comme WhatsApp/Instagram : 👍 rapide) — deux touchend rapprochés
+  // dans le temps, sans mouvement significatif entre les deux, sur le même élément.
+  const lastTapRef = useRef(0);
+  const onDoubleTapRef = useRef(onDoubleTap);
+  onDoubleTapRef.current = onDoubleTap;
+  const DOUBLE_TAP_MS = 300;
 
   const clear = useCallback(() => {
     if (timerRef.current) { clearTimeout(timerRef.current); timerRef.current = null; }
@@ -41,7 +52,18 @@ export function useLongPress(onTrigger: (x: number, y: number) => void, enabled:
       if (dx > 10 || dy > 10) { movedRef.current = true; clear(); }
     };
 
-    const onTouchEnd = () => clear();
+    const onTouchEnd = () => {
+      clear();
+      if (onDoubleTapRef.current && !movedRef.current) {
+        const now = Date.now();
+        if (now - lastTapRef.current < DOUBLE_TAP_MS) {
+          lastTapRef.current = 0;
+          onDoubleTapRef.current();
+        } else {
+          lastTapRef.current = now;
+        }
+      }
+    };
 
     const onContextMenu = (e: MouseEvent) => {
       e.preventDefault();

@@ -13,7 +13,7 @@ import { logChatScroll } from '@/lib/chatScrollDebug';
 import { logAudio } from '@/lib/audioDebug';
 import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
-import { buildMenuItems, renderMenuItem, ReactionBar, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
+import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -600,13 +600,14 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, clientName, clientAvatarUrl, clientInitials, myAvatarUrl, myInitials }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, clientName, clientAvatarUrl, clientInitials, myAvatarUrl, myInitials }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
-  onOpenCtxMenu: (bubbleEl: HTMLDivElement, msg: Msg, opts?: { menuOnly?: boolean }) => void;
+  onOpenCtxMenu: (bubbleEl: HTMLDivElement, msg: Msg, opts?: { menuOnly?: boolean; reactionDetail?: boolean }) => void;
   onOpenLightbox: (url: string) => void;
+  onDoubleTapReact: (msg: Msg) => void;
   isMenuTarget?: boolean;
   liftPx?: number;
   onEnterViewport?: (msgId: string) => void;
@@ -641,7 +642,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   // bulle reste visible — v2 sans clone — mais le long-press est désactivé pour
   // éviter une double ouverture).
   const canOpenMenu = !isEditing && !isMenuTarget;
-  const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
+  const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu, 500, () => onDoubleTapReact(msg));
   // Flèche hover desktop (WhatsApp desktop) — coexiste avec le clic droit natif.
   const [hovered, setHovered] = useState(false);
   // editRect est remesuré par le composant parent au clic sur "Modifier" via
@@ -743,7 +744,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         )}
         {msg.reaction_emoji && (
           <div
-            onClick={() => onOpenCtxMenu(bubbleRef.current!, msg, { menuOnly: true })}
+            onClick={() => onOpenCtxMenu(bubbleRef.current!, msg, { menuOnly: true, reactionDetail: msg.reaction_by === userId })}
             style={{
               position: 'absolute', bottom: -10, [isMe ? 'left' : 'right']: 8,
               background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
@@ -917,7 +918,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
   const [isSendingFile, setIsSendingFile] = useState(false);
-  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string; lift: number; menuOnly: boolean; bubbleHtml: string } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string; lift: number; menuOnly: boolean; reactionDetail: boolean; bubbleHtml: string } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1317,7 +1318,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   // Ouverture du menu contextuel (clic droit / long-press / flèche hover / clic sur
   // un badge de réaction). Calcule le lift nécessaire pour que le menu reste
   // TOUJOURS en dessous du message (jamais au-dessus) — voir docs/architecture-messagerie.md.
-  function openMenu(bubbleEl: HTMLDivElement, msg: Msg, opts: { menuOnly?: boolean } = {}) {
+  function openMenu(bubbleEl: HTMLDivElement, msg: Msg, opts: { menuOnly?: boolean; reactionDetail?: boolean } = {}) {
     const isMe = msg.sender_id === userId;
     const isTextMessage = !msg.type || msg.type === 'text';
     const items = buildMenuItems(isMe, isTextMessage, canEditMsg(msg), canDeleteMsg(msg));
@@ -1336,7 +1337,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     // menu est ouvert — l'original vit dans un conteneur overflow:auto (scroll des
     // messages), qui clippe toujours ses enfants visuellement peu importe le z-index,
     // donc impossible de le faire "sortir" par-dessus l'overlay sans le dupliquer ainsi.
-    setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly, bubbleHtml: bubbleEl.outerHTML });
+    setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly, reactionDetail: !!opts.reactionDetail, bubbleHtml: bubbleEl.outerHTML });
   }
 
   async function editMessage(msgId: string, newText: string) {
@@ -1551,6 +1552,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
                       canDelete={canDeleteMsg(msg)}
                       onOpenCtxMenu={(bubbleEl, m, opts) => openMenu(bubbleEl, m, opts)}
                       onOpenLightbox={setLightboxUrl}
+                      onDoubleTapReact={m => handleReact(m, '👍')}
                       isMenuTarget={ctxMenu?.msgId === msg.id}
                       liftPx={ctxMenu?.msgId === msg.id ? ctxMenu.lift : 0}
                       onEnterViewport={markMessageRead}
@@ -1791,6 +1793,31 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
         if (!msg) return null;
         const msgIsMe = msg.sender_id === userId;
         const isTextMessage = !msg.type || msg.type === 'text';
+        if (ctxMenu.reactionDetail && msg.reaction_emoji) {
+          // Sa propre réaction : mini-panneau (avatar + "Cliquez pour supprimer")
+          // au lieu de rouvrir toute la barre d'emojis — comme WhatsApp.
+          const detailTop = Math.min(ctxMenu.rect.bottom + MENU_GAP, window.innerHeight - 60 - MENU_SCREEN_MARGIN);
+          const detailLeft = Math.min(Math.max(ctxMenu.rect.right - 220, 8), window.innerWidth - 220 - 8);
+          return (
+            <>
+              <div
+                style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }}
+                onMouseDown={() => setCtxMenu(null)}
+                onTouchEnd={e => { e.preventDefault(); setCtxMenu(null); }}
+              />
+              <div
+                style={{ position: 'fixed', left: ctxMenu.rect.left, top: ctxMenu.rect.top, width: ctxMenu.rect.width, height: ctxMenu.rect.height, zIndex: 10000, pointerEvents: 'none' }}
+                dangerouslySetInnerHTML={{ __html: ctxMenu.bubbleHtml }}
+              />
+              <ReactionDetail
+                top={detailTop} left={detailLeft}
+                avatarUrl={myAvatarUrl} initials={myInitials} name="Vous"
+                emoji={msg.reaction_emoji}
+                onRemove={() => { clearReaction(msg.id); setCtxMenu(null); }}
+              />
+            </>
+          );
+        }
         return (
           <MessageContextMenu
             rect={ctxMenu.rect}
