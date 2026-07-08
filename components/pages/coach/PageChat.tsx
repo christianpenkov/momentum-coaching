@@ -11,6 +11,8 @@ import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
 import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
+import { useUser } from '@/lib/UserContext';
+import { buildMenuItems, renderMenuItem, ReactionBar, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -29,6 +31,11 @@ interface Msg {
   edited_at?: string | null;
   caption?: string | null;
   reply_to_id?: string | null;
+  reaction_emoji?: string | null;
+  reaction_by?: string | null;
+  file_size_bytes?: number | null;
+  page_count?: number | null;
+  thumbnail_url?: string | null;
 }
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -59,9 +66,10 @@ const WAVEFORM = [4,8,14,9,18,12,20,15,22,11,17,13,21,10,16,8,19,12,6,14,9,17,11
 
 // ─── AudioBubble ─────────────────────────────────────────────────────────────
 
-function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
+function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl, initials }: {
   id: string; url: string; duration?: number; isMe: boolean;
   listened?: boolean; onListened?: (id: string) => void;
+  avatarUrl?: string | null; initials: string;
 }) {
   const { activeId, setActive } = useContext(AudioContext);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -150,44 +158,48 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened }: {
   const progressIdx = Math.round((progress / 100) * (WAVEFORM.length - 1));
   const fillColor = isMe ? 'rgba(255,255,255,0.9)' : 'var(--ink)';
   const trackBg = isMe ? 'rgba(255,255,255,0.2)' : 'var(--border)';
-  const iconColor = isMe ? '#fff' : 'var(--ink)';
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 180, maxWidth: 228 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200, maxWidth: 260 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
-      <button onClick={togglePlay} className="tap-scale" style={{
-        width: 31, height: 31, borderRadius: '50%', border: 'none', flexShrink: 0,
-        background: isMe ? 'rgba(255,255,255,0.16)' : 'var(--ink)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-        position: 'relative',
-      }}>
-        {playing
-          ? <svg width="11" height="11" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-          : <svg width="11" height="11" viewBox="0 0 24 24" fill={isMe ? iconColor : '#fff'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
+      <div style={{ position: 'relative', flexShrink: 0 }}>
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={38} />
+        <button onClick={togglePlay} className="tap-scale" style={{
+          position: 'absolute', bottom: -3, right: -3, width: 18, height: 18, borderRadius: '50%',
+          border: '2px solid var(--surface)', background: 'var(--ink)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+        }}>
+          {playing
+            ? <svg width="7" height="7" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+            : <svg width="7" height="7" viewBox="0 0 24 24" fill="#fff" style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
+        </button>
         {/* Pastille "non écouté" — comme WhatsApp, disparaît une fois le vocal réellement
             lancé. Uniquement sur les messages reçus (onListened défini seulement pour !isMe). */}
         {onListened && !listened && (
           <span style={{
-            position: 'absolute', top: -1, right: -1, width: 8, height: 8,
+            position: 'absolute', top: -1, right: -1, width: 9, height: 9,
             borderRadius: '50%', background: 'var(--red)', border: '2px solid var(--surface)',
           }} />
         )}
-      </button>
-      <div onClick={seekTo} style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 1.5, height: 28, cursor: 'pointer' }}>
+      </div>
+      <div onClick={seekTo} style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 24, cursor: 'pointer' }}>
         {WAVEFORM.map((h, i) => (
           <div key={i} style={{
-            width: 2, borderRadius: 2, flexShrink: 0,
-            height: Math.max(3, Math.round((h/22)*26)),
+            width: 2.5, height: 2.5, borderRadius: '50%', flexShrink: 0,
             background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
             transition: 'background 0.1s',
-            transform: playing && Math.abs(i - progressIdx) <= 1 ? 'scaleY(1.1)' : 'scaleY(1)',
-            transformOrigin: 'center',
-            transitionDuration: playing ? '0.08s' : '0.1s',
           }} />
         ))}
+        {progress > 0 && (
+          <div style={{
+            position: 'absolute', top: '50%', left: `${progress}%`, width: 11, height: 11, borderRadius: '50%',
+            background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 3px rgba(0,0,0,.3)',
+            transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
+          }} />
+        )}
       </div>
-      <span style={{ fontSize: 10, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, flexShrink: 0 }}>
+      <span style={{ fontSize: 10, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, flexShrink: 0, alignSelf: 'flex-end' }}>
         {progress > 0 && audioRef.current ? formatDuration(audioRef.current.currentTime) : formatDuration(currentDuration)}
       </span>
     </div>
@@ -310,108 +322,42 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 }
 
 // ─── MessageContextMenu — clic droit desktop / appui long mobile ─────────────
+// v2 : plus de grossissement de bulle (juste le fond assombri/flouté), le message
+// reste à sa taille et position réelles (potentiellement remonté par le lift du
+// composant appelant si pas assez de place en dessous). Position toujours EN
+// DESSOUS du message, jamais au-dessus — voir docs/architecture-messagerie.md.
 
-const CTX_MENU_WIDTH = 160;
-const CTX_MENU_ITEM_HEIGHT = 38;
-const BUBBLE_SCALE = 1.3;
-
-function MessageContextMenu({ rect, html, isMe, isTextMessage, canEdit, canDelete, onReply, onCopy, onEdit, onDelete, onClose }: {
-  rect: DOMRect; html: string; isMe: boolean; isTextMessage: boolean; canEdit: boolean; canDelete: boolean;
-  onReply: () => void; onCopy: () => void; onEdit: () => void; onDelete: () => void; onClose: () => void;
+function MessageContextMenu({ rect, isMe, isTextMessage, canEdit, canDelete, menuOnly, onReply, onCopy, onEdit, onDelete, onReact, onClose }: {
+  rect: DOMRect; isMe: boolean; isTextMessage: boolean; canEdit: boolean; canDelete: boolean; menuOnly: boolean;
+  onReply: () => void; onCopy: () => void; onEdit: () => void; onDelete: () => void; onReact: (emoji: string) => void; onClose: () => void;
 }) {
-  const cloneRef = useRef<HTMLDivElement>(null);
-  const [grown, setGrown] = useState(false);
-  useEffect(() => {
-    if (cloneRef.current) cloneRef.current.innerHTML = html;
-    const raf = requestAnimationFrame(() => setGrown(true));
-    return () => cancelAnimationFrame(raf);
-  }, [html]);
-
   if (typeof document === 'undefined') return null;
-  // Nombre d'items réellement affichés — détermine la hauteur réservée pour le
-  // positionnement au-dessus/en-dessous de la bulle (Répondre toujours présent, Copier
-  // seulement sur texte, Modifier/Supprimer seulement sur ses propres messages, "Délai
-  // dépassé" seulement si isMe et aucune des deux actions n'est plus disponible).
-  const itemCount = 1 /* Répondre */ + (isTextMessage ? 1 : 0) + (canEdit ? 1 : 0) + (canDelete ? 1 : 0)
-    + (isMe && !canEdit && !canDelete ? 1 : 0);
-  const menuHeight = itemCount * CTX_MENU_ITEM_HEIGHT;
-  // Le clone visuel grossit toujours symétriquement depuis la bulle réelle (effet
-  // WhatsApp), mais le MENU s'ancre sur la bulle réelle (rect), pas sur le clone
-  // agrandi — pour un message long qui occupe presque tout l'écran, ancrer sur le
-  // clone poussait le menu très loin (parfois tout en bas). Règle simple et
-  // prévisible : juste au-dessus si assez de place, sinon juste en-dessous.
-  const GAP = 8;
-  const SCREEN_MARGIN = 16;
-  const scaledWidth = rect.width * BUBBLE_SCALE;
-  const scaledHeight = rect.height * BUBBLE_SCALE;
-  const idealLeft = rect.left - (scaledWidth - rect.width) / 2;
-  const cloneLeft = Math.min(Math.max(idealLeft, SCREEN_MARGIN), window.innerWidth - scaledWidth - SCREEN_MARGIN);
-  const idealTop = rect.top - (scaledHeight - rect.height) / 2;
-  const cloneTop = Math.max(idealTop, SCREEN_MARGIN);
-  const spaceAbove = rect.top - SCREEN_MARGIN;
-  const openUpward = spaceAbove >= menuHeight + GAP;
-  const rawTop = openUpward ? rect.top - menuHeight - GAP : rect.bottom + GAP;
-  const top = Math.min(Math.max(rawTop, SCREEN_MARGIN), window.innerHeight - menuHeight - SCREEN_MARGIN);
-  // Aligné au bord droit de la bulle (les messages sont à droite de l'écran).
+  const items = buildMenuItems(isMe, isTextMessage, canEdit, canDelete);
+  const menuHeight = (menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
+  // Toujours en dessous — l'appelant (openMenu) a déjà remonté le message (lift)
+  // si la place manquait, donc rect.bottom + GAP tient toujours dans l'écran ici.
+  const top = Math.min(rect.bottom + MENU_GAP, window.innerHeight - menuHeight - MENU_SCREEN_MARGIN);
+  const reactionBarTop = Math.max(MENU_SCREEN_MARGIN, rect.top - REACTION_BAR_HEIGHT - MENU_GAP);
   const left = Math.min(Math.max(rect.right - CTX_MENU_WIDTH, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
-      {/* Clone visuel de la bulle — même raison que côté élève : overflow:auto de la
-          zone de scroll parente clippe tout transform:scale() sur l'original. */}
-      <div
-        ref={cloneRef}
-        style={{
-          position: 'fixed',
-          left: grown ? cloneLeft : rect.left,
-          top: grown ? cloneTop : rect.top,
-          width: grown ? scaledWidth : rect.width,
-          height: grown ? scaledHeight : rect.height,
-          zIndex: 10000,
-          transition: 'left 160ms cubic-bezier(0.34, 1.56, 0.64, 1), top 160ms cubic-bezier(0.34, 1.56, 0.64, 1), width 160ms cubic-bezier(0.34, 1.56, 0.64, 1), height 160ms cubic-bezier(0.34, 1.56, 0.64, 1)',
-          pointerEvents: 'none',
-        }}
-      />
-      <div style={{
-        position: 'fixed', left, top, zIndex: 10000,
-        background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
-        minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 13,
-      }}>
-        <button className="msg-ctx-btn" onMouseDown={() => { onReply(); onClose(); }} style={{
-          display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
-          border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink)',
+      <ReactionBar top={reactionBarTop} left={left} onReact={emoji => { onReact(emoji); onClose(); }} />
+      {!menuOnly && items.length > 0 && (
+        <div style={{
+          position: 'fixed', left, top, zIndex: 10000,
+          background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+          minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 14,
         }}>
-          Répondre
-        </button>
-        {isTextMessage && (
-          <button className="msg-ctx-btn" onMouseDown={() => { onCopy(); onClose(); }} style={{
-            display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
-            border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink)',
-          }}>
-            Copier
-          </button>
-        )}
-        {canEdit && (
-          <button className="msg-ctx-btn" onMouseDown={() => { onEdit(); onClose(); }} style={{
-            display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
-            border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink)',
-          }}>
-            Modifier
-          </button>
-        )}
-        {canDelete && (
-          <button className="msg-ctx-btn" onMouseDown={() => { onDelete(); onClose(); }} style={{
-            display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
-            border: 'none', background: 'none', cursor: 'pointer', color: 'var(--red)',
-          }}>
-            Supprimer
-          </button>
-        )}
-        {isMe && !canEdit && !canDelete && (
-          <div style={{ padding: '10px 14px', color: 'var(--faint)' }}>Délai dépassé</div>
-        )}
-      </div>
+          {items.map(item => renderMenuItem(item.key, {
+            onReply: () => { onReply(); onClose(); },
+            onCopy: () => { onCopy(); onClose(); },
+            onEdit: () => { onEdit(); onClose(); },
+            onDelete: () => { onDelete(); onClose(); },
+          }))}
+        </div>
+      )}
     </>,
     document.body
   );
@@ -548,14 +494,15 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, clientName }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, clientName, clientAvatarUrl, clientInitials, myAvatarUrl, myInitials }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
-  onOpenCtxMenu: (rect: DOMRect, html: string) => void;
+  onOpenCtxMenu: (bubbleEl: HTMLDivElement, msg: Msg, opts?: { menuOnly?: boolean }) => void;
   onOpenLightbox: (url: string) => void;
   isMenuTarget?: boolean;
+  liftPx?: number;
   onEnterViewport?: (msgId: string) => void;
   registerBubbleRef?: (msgId: string, el: HTMLDivElement | null) => void;
   animate?: boolean;
@@ -563,6 +510,10 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   quotedMsg?: Msg;
   onQuoteClick?: (msgId: string) => void;
   clientName: string;
+  clientAvatarUrl?: string | null;
+  clientInitials?: string;
+  myAvatarUrl?: string | null;
+  myInitials?: string;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
@@ -575,13 +526,16 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   };
   const openMenu = () => {
     if (!bubbleRef.current) return;
-    onOpenCtxMenu(bubbleRef.current.getBoundingClientRect(), bubbleRef.current.outerHTML);
+    onOpenCtxMenu(bubbleRef.current, msg);
   };
   // Long-press + clic droit combinés (voir lib/useLongPress.ts). Désactivé en
   // mode édition et tant que le menu contextuel est ouvert sur cette bulle (la
-  // bulle reste dans le DOM en visibility:hidden pendant ce temps).
+  // bulle reste visible — v2 sans clone — mais le long-press est désactivé pour
+  // éviter une double ouverture).
   const canOpenMenu = !isEditing && !isMenuTarget;
   const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
+  // Flèche hover desktop (WhatsApp desktop) — coexiste avec le clic droit natif.
+  const [hovered, setHovered] = useState(false);
   // editRect est remesuré par le composant parent au clic sur "Modifier" via
   // bubbleRefsMap (pas un rect figé au long-press) — voir onEdit dans le rendu
   // du menu contextuel.
@@ -630,7 +584,19 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   }, [onEnterViewport, isMe, msg.id]);
 
   return (
-    <div ref={wrapperRef} className={animate ? (isMe ? 'msg-bubble-sent' : 'msg-bubble-in') : undefined} style={{ alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%', marginTop: isContinued ? 2 : 8 }}>
+    <div
+      ref={wrapperRef}
+      className={animate ? (isMe ? 'msg-bubble-sent' : 'msg-bubble-in') : undefined}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        alignSelf: isMe ? 'flex-end' : 'flex-start', maxWidth: '78%',
+        marginTop: isContinued ? 2 : 8, marginBottom: msg.reaction_emoji ? 10 : 0,
+        position: 'relative', overflow: 'visible',
+        transform: liftPx ? `translateY(-${liftPx}px)` : undefined,
+        transition: 'transform 160ms ease-out',
+      }}
+    >
       <div
         ref={setBubbleRef}
         style={{
@@ -643,8 +609,38 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
-          visibility: (isMenuTarget || isEditing) ? 'hidden' : 'visible',
+          visibility: isEditing ? 'hidden' : 'visible',
         }}>
+        {hovered && !isEditing && !isMenuTarget && (
+          <button
+            onClick={openMenu}
+            className="msg-hover-arrow tap-scale"
+            style={{
+              position: 'absolute', top: 2, [isMe ? 'left' : 'right']: -28,
+              width: 24, height: 24, borderRadius: '50%', border: 'none',
+              background: 'var(--surface)', boxShadow: '0 1px 4px rgba(0,0,0,.15)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', opacity: 0.9, zIndex: 5,
+            } as React.CSSProperties}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 12 15 18 9" />
+            </svg>
+          </button>
+        )}
+        {msg.reaction_emoji && (
+          <div
+            onClick={() => onOpenCtxMenu(bubbleRef.current!, msg, { menuOnly: true })}
+            style={{
+              position: 'absolute', bottom: -10, [isMe ? 'left' : 'right']: 8,
+              background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12,
+              padding: '2px 6px', fontSize: 13, boxShadow: '0 1px 3px rgba(0,0,0,.12)',
+              cursor: 'pointer', lineHeight: 1, zIndex: 5,
+            } as React.CSSProperties}
+          >
+            {msg.reaction_emoji}
+          </div>
+        )}
         {!isEditing && msg.reply_to_id && (
           <div
             onClick={() => quotedMsg && onQuoteClick?.(quotedMsg.id)}
@@ -672,7 +668,12 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           </div>
         )}
         {isEditing ? null : isAudio && msg.audio_url ? (
-          <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} listened={!!msg.listened_at} onListened={isMe ? undefined : onListened} />
+          <AudioBubble
+            id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe}
+            listened={!!msg.listened_at} onListened={isMe ? undefined : onListened}
+            avatarUrl={isMe ? myAvatarUrl : clientAvatarUrl}
+            initials={(isMe ? myInitials : clientInitials) || '?'}
+          />
         ) : isImage && msg.audio_url ? (
           <div>
             <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
@@ -784,6 +785,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   isOnline: boolean; supabase: ReturnType<typeof createClient>;
   presenceCh: ReturnType<typeof supabase.channel> | null;
 }) {
+  const { user } = useUser();
+  const myAvatarUrl = user?.avatar_url ?? null;
+  const myInitials = user?.initials ?? '?';
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
@@ -797,7 +801,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
   const [fileCaption, setFileCaption] = useState('');
   const [isSendingFile, setIsSendingFile] = useState(false);
-  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; html: string; msgId: string } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string; lift: number; menuOnly: boolean } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -837,7 +841,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     setLoading(true);
     setMessages([]);
     supabase.from('messages')
-      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at, caption, reply_to_id')
+      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url')
       .eq('client_id', clientId)
       .order('created_at', { ascending: true })
       .then(({ data }) => {
@@ -1153,7 +1157,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     setReplyingTo(null);
     const { data } = await supabase.from('messages')
       .insert({ client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', read: false, reply_to_id: replyId })
-      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, caption, reply_to_id').single();
+      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url').single();
     if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
   }
 
@@ -1169,6 +1173,22 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     setTimeout(() => el.classList.remove('msg-flash-highlight'), 1200);
   }
 
+  // Réactions — RPC dédiées (voir migration), une seule réaction par message,
+  // n'importe quel participant peut réagir à n'importe quel message (comme WhatsApp).
+  async function reactToMessage(msgId: string, emoji: string) {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reaction_emoji: emoji, reaction_by: userId } : m));
+    const { error } = await supabase.rpc('set_message_reaction', { p_message_id: msgId, p_emoji: emoji });
+    if (error) setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reaction_emoji: null, reaction_by: null } : m));
+  }
+  async function clearReaction(msgId: string) {
+    setMessages(prev => prev.map(m => m.id === msgId ? { ...m, reaction_emoji: null, reaction_by: null } : m));
+    await supabase.rpc('clear_message_reaction', { p_message_id: msgId });
+  }
+  function handleReact(msg: Msg, emoji: string) {
+    if (msg.reaction_emoji === emoji && msg.reaction_by === userId) clearReaction(msg.id);
+    else reactToMessage(msg.id, emoji);
+  }
+
   // Édition / suppression — la policy RLS reste la seule vraie garantie de sécurité,
   // ces vérifications côté client ne sont qu'un affichage cohérent avec les permissions.
   function canEditMsg(msg: Msg) {
@@ -1177,6 +1197,22 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   function canDeleteMsg(msg: Msg) {
     return msg.sender_id === userId && Date.now() - new Date(msg.created_at).getTime() < DELETE_WINDOW_MS;
   }
+
+  // Ouverture du menu contextuel (clic droit / long-press / flèche hover / clic sur
+  // un badge de réaction). Calcule le lift nécessaire pour que le menu reste
+  // TOUJOURS en dessous du message (jamais au-dessus) — voir docs/architecture-messagerie.md.
+  function openMenu(bubbleEl: HTMLDivElement, msg: Msg, opts: { menuOnly?: boolean } = {}) {
+    const isMe = msg.sender_id === userId;
+    const isTextMessage = !msg.type || msg.type === 'text';
+    const items = buildMenuItems(isMe, isTextMessage, canEditMsg(msg), canDeleteMsg(msg));
+    if (!opts.menuOnly && items.length === 0) return;
+    const rect = bubbleEl.getBoundingClientRect();
+    const menuHeight = (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
+    const spaceBelow = window.innerHeight - rect.bottom - MENU_SCREEN_MARGIN;
+    const lift = Math.max(0, (menuHeight + MENU_GAP) - spaceBelow);
+    setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly });
+  }
+
   async function editMessage(msgId: string, newText: string) {
     if (!newText.trim()) return;
     const editedAt = new Date().toISOString();
@@ -1389,14 +1425,19 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
                       onSaveEdit={() => { editMessage(msg.id, editText); setEditingId(null); }}
                       canEdit={canEditMsg(msg)}
                       canDelete={canDeleteMsg(msg)}
-                      onOpenCtxMenu={(rect, html) => setCtxMenu({ rect, html, msgId: msg.id })}
+                      onOpenCtxMenu={(bubbleEl, m, opts) => openMenu(bubbleEl, m, opts)}
                       onOpenLightbox={setLightboxUrl}
                       isMenuTarget={ctxMenu?.msgId === msg.id}
+                      liftPx={ctxMenu?.msgId === msg.id ? ctxMenu.lift : 0}
                       onEnterViewport={markMessageRead}
                       onListened={markMessageListened}
                       quotedMsg={msg.reply_to_id ? messagesById.get(msg.reply_to_id) : undefined}
                       onQuoteClick={scrollToMessage}
                       clientName={clientName}
+                      clientAvatarUrl={clientAvatarUrl}
+                      clientInitials={clientInitials}
+                      myAvatarUrl={myAvatarUrl}
+                      myInitials={myInitials}
                       registerBubbleRef={(id, el) => {
                         if (el) bubbleRefsMap.current.set(id, el);
                         else bubbleRefsMap.current.delete(id);
@@ -1643,7 +1684,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
         return (
           <MessageContextMenu
             rect={ctxMenu.rect}
-            html={ctxMenu.html}
+            menuOnly={ctxMenu.menuOnly}
             isMe={msgIsMe}
             isTextMessage={isTextMessage}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
@@ -1658,6 +1699,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
               setEditText(msg.text);
             }}
             onDelete={() => setConfirmDeleteId(msg.id)}
+            onReact={emoji => handleReact(msg, emoji)}
             onClose={() => setCtxMenu(null)}
           />
         );

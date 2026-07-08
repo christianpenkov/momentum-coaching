@@ -1734,6 +1734,13 @@ a { color: inherit; text-decoration: none; }
 @media (prefers-reduced-motion: reduce) {
   .msg-flash-highlight::after { animation: none; opacity: 0; }
 }
+
+/* ── Flèche hover desktop (menu contextuel WhatsApp-style) — masquée sur tout
+   appareil sans souris réelle, pour éviter un résidu visuel après un tap tactile
+   qui simulerait un :hover sur certains navigateurs mobiles. */
+@media (hover: none) {
+  .msg-hover-arrow { display: none; }
+}
 @media (prefers-reduced-motion: reduce) {
   .msg-bubble-sent { animation: none; }
 }
