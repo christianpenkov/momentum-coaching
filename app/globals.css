@@ -1748,12 +1748,19 @@ a { color: inherit; text-decoration: none; }
 }
 
 /* ── Bouton play/pause du vocal — plus grand sur mobile (zone tactile confortable
-   façon WhatsApp), taille normale sur desktop où la souris est précise. */
+   façon WhatsApp), taille normale sur desktop où la souris est précise. Les
+   marginTop ci-dessous alignent le CENTRE du bouton (référence) avec le centre
+   de l'avatar (42px) et de la waveform (24px) — pas juste une valeur partagée,
+   car des hauteurs différentes exigent des marges différentes pour un même axe. */
 .audio-play-btn { width: 40px; height: 40px; margin-top: 8px; }
 .audio-play-btn svg { width: 20px; height: 20px; }
+.audio-avatar-col { margin-top: 7px; }
+.audio-wave-col { margin-top: 16px; }
 @media (max-width: 767px) {
   .audio-play-btn { width: 44px; height: 44px; margin-top: 10px; }
   .audio-play-btn svg { width: 22px; height: 22px; }
+  .audio-avatar-col { margin-top: 11px; }
+  .audio-wave-col { margin-top: 20px; }
 }
 
 /* ── Tap feedback — boutons interactifs de la messagerie (play/pause, envoi, micro,

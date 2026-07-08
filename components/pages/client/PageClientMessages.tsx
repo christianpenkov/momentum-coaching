@@ -10,6 +10,7 @@ import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
+import { logAudio, getAudioLogs } from '@/lib/audioDebug';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { buildMenuItems, renderMenuItem, ReactionBar, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
@@ -141,6 +142,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       } catch {}
     };
     const onPlay = () => {
+      logAudio('event:play', { id, readyState: el.readyState, duration: el.duration, currentTime: el.currentTime });
       if (listened || !onListened) return;
       const dur = el.duration || currentDuration || 0;
       const threshold = dur > 0 ? Math.min(1500, dur * 1000) : 1500;
@@ -148,20 +150,36 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       listenTimerRef.current = setTimeout(() => onListened(id), threshold);
     };
     const onPause = () => {
+      logAudio('event:pause', { id, readyState: el.readyState, currentTime: el.currentTime, ended: el.ended });
       if (listenTimerRef.current) { clearTimeout(listenTimerRef.current); listenTimerRef.current = null; }
       try { localStorage.setItem(positionKey, String(el.currentTime)); } catch {}
     };
+    const onError = () => logAudio('event:error', { id, error: el.error ? { code: el.error.code, message: el.error.message } : null });
+    const onStalled = () => logAudio('event:stalled', { id, readyState: el.readyState });
+    const onSuspend = () => logAudio('event:suspend', { id, readyState: el.readyState });
+    const onWaiting = () => logAudio('event:waiting', { id, readyState: el.readyState });
+    const onCanPlay = () => logAudio('event:canplay', { id, readyState: el.readyState });
     el.addEventListener('timeupdate', onTimeUpdate);
     el.addEventListener('ended', onEnded);
     el.addEventListener('loadedmetadata', onLoaded);
     el.addEventListener('play', onPlay);
     el.addEventListener('pause', onPause);
+    el.addEventListener('error', onError);
+    el.addEventListener('stalled', onStalled);
+    el.addEventListener('suspend', onSuspend);
+    el.addEventListener('waiting', onWaiting);
+    el.addEventListener('canplay', onCanPlay);
     return () => {
       el.removeEventListener('timeupdate', onTimeUpdate);
       el.removeEventListener('ended', onEnded);
       el.removeEventListener('loadedmetadata', onLoaded);
       el.removeEventListener('play', onPlay);
       el.removeEventListener('pause', onPause);
+      el.removeEventListener('error', onError);
+      el.removeEventListener('stalled', onStalled);
+      el.removeEventListener('suspend', onSuspend);
+      el.removeEventListener('waiting', onWaiting);
+      el.removeEventListener('canplay', onCanPlay);
       if (listenTimerRef.current) clearTimeout(listenTimerRef.current);
     };
   }, [currentDuration, setActive, listened, onListened, id]);
@@ -169,12 +187,19 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const togglePlay = useCallback(async () => {
     const el = audioRef.current;
     if (!el) return;
+    logAudio('togglePlay:click', { id, playing, readyState: el.readyState, paused: el.paused, networkState: el.networkState });
     if (playing) {
       el.pause();
       setActive(null);
     } else {
       setActive(id);
-      try { await el.play(); } catch { setActive(null); }
+      try {
+        await el.play();
+        logAudio('togglePlay:play-resolved', { id });
+      } catch (err) {
+        logAudio('togglePlay:play-rejected', { id, err: err instanceof Error ? err.message : String(err) });
+        setActive(null);
+      }
     }
   }, [playing, id, setActive]);
 
@@ -218,7 +243,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       <audio ref={audioRef} src={url} preload="metadata" />
 
       {/* Avatar (rappel écouté/non écouté) + bouton play/pause séparé, comme WhatsApp */}
-      <div style={{ position: 'relative', flexShrink: 0, marginTop: 9 }}>
+      <div className="audio-avatar-col" style={{ position: 'relative', flexShrink: 0 }}>
         <Avatar initials={initials} avatarUrl={avatarUrl} size={42} />
         {/* Icône micro — overlay discret sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
         <span style={{
@@ -258,7 +283,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
         )}
       </button>
 
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2, marginTop: 9 }}>
+      <div className="audio-wave-col" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         {/* Waveform + curseur, étirée pour remplir l'espace disponible (comme WhatsApp) */}
         <div
           onPointerDown={handlePointerDown}
@@ -679,6 +704,8 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   const isAudio = msg.type === 'audio';
   const isImage = msg.type === 'image';
   const isDocument = msg.type === 'document';
+  const isTextMessage = !msg.type || msg.type === 'text';
+  const hasMenuItems = buildMenuItems(isMe, isTextMessage, !!canEdit, !!canDelete).length > 0;
   const bubbleRef = useRef<HTMLDivElement>(null);
   const setBubbleRef = (el: HTMLDivElement | null) => {
     bubbleRef.current = el;
@@ -779,7 +806,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           position: 'relative',
           visibility: isEditing ? 'hidden' : 'visible',
         }}>
-        {hovered && !isEditing && !isMenuTarget && (
+        {hovered && !isEditing && !isMenuTarget && hasMenuItems && (
           <button
             onMouseDown={e => { e.preventDefault(); e.stopPropagation(); openMenu(); }}
             className="msg-hover-arrow tap-scale"
@@ -788,7 +815,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
               width: 28, height: 28, borderRadius: '50%', border: 'none',
               background: isImage
                 ? 'radial-gradient(circle, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.15) 70%, transparent 100%)'
-                : 'transparent',
+                : (isMe ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.06)'),
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 5,
             } as React.CSSProperties}
@@ -990,6 +1017,7 @@ export default function PageClientMessages() {
   // à jour même si la liste a scrollé ou reçu de nouveaux messages entre-temps.
   const bubbleRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [audioLogsCopied, setAudioLogsCopied] = useState(false);
   // Force un re-render périodique pour que les boutons Modifier/Supprimer
   // disparaissent au bon moment même si l'utilisateur reste immobile sur la page.
   const [, forceTick] = useState(0);
@@ -1728,6 +1756,21 @@ export default function PageClientMessages() {
           </div>
           {/* Bouton activation notifications — géré par PushInit */}
           {userId && <PushInit userId={userId} />}
+          {/* Bouton debug temporaire — copie les logs audio accumulés (bug lecture vocale
+              bloquée sur mobile). À retirer une fois le bug résolu. */}
+          <button
+            onClick={async () => {
+              const logs = getAudioLogs() || '(aucun log audio pour le moment)';
+              try { await navigator.clipboard.writeText(logs); setAudioLogsCopied(true); setTimeout(() => setAudioLogsCopied(false), 2000); } catch {}
+            }}
+            style={{
+              flexShrink: 0, padding: '6px 10px', fontSize: 11, fontWeight: 600,
+              borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--muted)', cursor: 'pointer',
+            }}
+          >
+            {audioLogsCopied ? 'Copié !' : 'Logs vocaux'}
+          </button>
         </div>
 
         {/* ── Zone messages ── */}
