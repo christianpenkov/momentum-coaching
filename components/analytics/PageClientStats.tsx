@@ -3965,8 +3965,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         ] : null;
 
         // Prospects DM liés — source fiable prospectLinksData (même raison que dmProspects plus haut :
-        // prospectLinks/shortio.links est tronqué côté serveur par période dès periodIndex > 0)
-        const linkedProspects = (prospectLinksData ?? []).filter((l: any) => l.post_id === row.postId);
+        // prospectLinks/shortio.links est tronqué côté serveur par période dès periodIndex > 0), filtré
+        // sur la période sélectionnée comme le reste du modal (calendly_link_sent_at ?? created_at).
+        const linkedProspects = (prospectLinksData ?? []).filter((l: any) => {
+          if (l.post_id !== row.postId) return false;
+          if (!l.calendly_link_sent) return false;
+          const ts = l.calendly_link_sent_at ?? l.created_at;
+          return ts ? isInPeriod(ts) : false;
+        });
         const statusMap2: Record<string, string> = { closed: 'Closé', booked: 'Call booké', pending: 'En attente', noshow: 'No-show' };
 
         const FunnelStep = ({ label, value, rate, rateThreshold, isFirst }: { label: string; value: number | null; rate: number | null; rateThreshold?: number; isFirst?: boolean }) => (
