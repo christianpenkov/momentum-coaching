@@ -169,16 +169,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200, maxWidth: 260 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={38} />
-        <button onClick={togglePlay} className="tap-scale" style={{
-          position: 'absolute', bottom: -3, right: -3, width: 18, height: 18, borderRadius: '50%',
-          border: '2px solid var(--surface)', background: 'var(--ink)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-        }}>
-          {playing
-            ? <svg width="7" height="7" viewBox="0 0 24 24" fill="#fff"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-            : <svg width="7" height="7" viewBox="0 0 24 24" fill="#fff" style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
-        </button>
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={34} />
         {/* Pastille "non écouté" — comme WhatsApp, disparaît une fois le vocal réellement
             lancé. Uniquement sur les messages reçus (onListened défini seulement pour !isMe). */}
         {onListened && !listened && (
@@ -188,6 +179,14 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           }} />
         )}
       </div>
+      <button onClick={togglePlay} className="tap-scale" style={{
+        width: 22, height: 22, borderRadius: '50%', border: 'none', flexShrink: 0,
+        background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+      }}>
+        {playing
+          ? <svg width="14" height="14" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          : <svg width="14" height="14" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
+      </button>
       <div onClick={seekTo} style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 24, cursor: 'pointer' }}>
         {WAVEFORM.map((h, i) => (
           <div key={i} style={{
