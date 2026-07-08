@@ -2937,7 +2937,15 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const consolidatedRows = allPostIds.map(key => {
     const [postId, platform] = key.split('|');
     const descLink = postLinks.find((l: any) => l.postId === postId);
-    const dmProspects = prospectLinks.filter((l: any) => l.postId === postId);
+    // dmProspects : source fiable prospectLinksData (jamais tronqué côté serveur par période, contrairement
+    // à shortio.links/prospectLinks qui vient de /api/shortio/snapshots — tronqué sur startDate/endDate en
+    // S-1+ et peut louper des liens). Même pattern déjà validé pour Performance LM (supaProspects, ligne 4273).
+    const dmProspects = (prospectLinksData ?? []).filter((pl: any) => {
+      if (pl.post_id !== postId) return false;
+      if (!pl.calendly_link_sent) return false;
+      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+      return ts ? isInPeriod(ts) : false;
+    });
     const postLeads = leads.filter(lead => lead.postId === postId);
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
