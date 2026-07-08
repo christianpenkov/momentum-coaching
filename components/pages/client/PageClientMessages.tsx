@@ -13,7 +13,7 @@ import { logChatScroll } from '@/lib/chatScrollDebug';
 import { logAudio } from '@/lib/audioDebug';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
-import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
+import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1555,7 +1555,13 @@ export default function PageClientMessages() {
     const items = buildMenuItems(isMe, isTextMessage, canEditMsg(msg), canDeleteMsg(msg));
     if (!opts.menuOnly && items.length === 0) return;
     const rawRect = bubbleEl.getBoundingClientRect();
-    const menuHeight = (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
+    // Le panneau de détail de réaction n'affiche jamais la barre d'emojis complète —
+    // utiliser REACTION_BAR_HEIGHT ici sous-évaluait la place nécessaire dans certains
+    // cas et sur-évaluait dans d'autres, faisant remonter le message de travers et
+    // laissant le panneau coupé en bas d'écran (hauteur réelle très différente).
+    const menuHeight = opts.reactionDetail
+      ? REACTION_DETAIL_HEIGHT + MENU_GAP
+      : (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
     const spaceBelow = window.innerHeight - rawRect.bottom - MENU_SCREEN_MARGIN;
     const lift = Math.max(0, (menuHeight + MENU_GAP) - spaceBelow);
     // Le rect brut est capturé avant que le lift ne soit appliqué visuellement (transform
@@ -2150,8 +2156,14 @@ export default function PageClientMessages() {
         if (ctxMenu.reactionDetail && msg.reaction_emoji) {
           // Sa propre réaction : mini-panneau (avatar + "Cliquez pour supprimer")
           // au lieu de rouvrir toute la barre d'emojis — comme WhatsApp.
-          const detailTop = Math.min(ctxMenu.rect.bottom + MENU_GAP, window.innerHeight - 60 - MENU_SCREEN_MARGIN);
-          const detailLeft = Math.min(Math.max(ctxMenu.rect.right - 220, 8), window.innerWidth - 220 - 8);
+          const detailTop = Math.min(
+            ctxMenu.rect.bottom + MENU_GAP,
+            window.innerHeight - REACTION_DETAIL_HEIGHT - MENU_SCREEN_MARGIN
+          );
+          const detailLeft = Math.min(
+            Math.max(ctxMenu.rect.right - REACTION_DETAIL_WIDTH, MENU_SCREEN_MARGIN / 2),
+            window.innerWidth - REACTION_DETAIL_WIDTH - MENU_SCREEN_MARGIN / 2
+          );
           return (
             <>
               <div

@@ -105,6 +105,8 @@ export function ReactionDetail({ top, left, avatarUrl, initials, name, emoji, on
 
 export const MENU_ITEM_HEIGHT = 44;
 export const REACTION_BAR_HEIGHT = 46;
+export const REACTION_DETAIL_HEIGHT = 48;
+export const REACTION_DETAIL_WIDTH = 220;
 // 8 emojis (32px) + gaps (2px × 7) + padding (8px × 2)
 export const REACTION_BAR_WIDTH = 8 * 32 + 7 * 2 + 8 * 2;
 export const MENU_GAP = 8;
