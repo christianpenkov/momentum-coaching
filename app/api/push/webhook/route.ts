@@ -24,11 +24,20 @@ export async function POST(req: NextRequest) {
     }
 
     const body = JSON.parse(rawText);
-    const record = body?.record;
+    // Deux formes de payload : `record` pour un nouveau message (trigger INSERT),
+    // `reaction_record` pour une réaction posée sur un message existant (trigger UPDATE).
+    // Le destinataire et l'auteur de l'action sont inversés entre les deux cas — pour une
+    // réaction, sender_id du message reste l'auteur ORIGINAL (le destinataire de la notif),
+    // et reaction_by est la personne qui vient de réagir (l'auteur de l'action à notifier).
+    const isReaction = !!body?.reaction_record;
+    const record = body?.record ?? body?.reaction_record;
     log(`[WEBHOOK] record: ${JSON.stringify(record).slice(0, 150)}`);
 
     if (!record?.client_id || !record?.sender_id) {
       return NextResponse.json({ ok: true, reason: 'no_record', logs });
+    }
+    if (isReaction && !record.reaction_by) {
+      return NextResponse.json({ ok: true, reason: 'no_reactor', logs });
     }
 
     const { data: clientRow } = await supabase
@@ -36,9 +45,17 @@ export async function POST(req: NextRequest) {
     log(`[WEBHOOK] client: ${JSON.stringify(clientRow)}`);
     if (!clientRow) return NextResponse.json({ ok: true, reason: 'no_client', logs });
 
-    const recipientUserId = record.sender_id === clientRow.profile_id
-      ? clientRow.coach_id : clientRow.profile_id;
+    // Nouveau message : destinataire = l'autre participant. Réaction : destinataire =
+    // l'auteur du message original (sender_id), qui n'a pas forcément posé la réaction.
+    const actorId = isReaction ? record.reaction_by : record.sender_id;
+    const recipientUserId = isReaction
+      ? record.sender_id
+      : (record.sender_id === clientRow.profile_id ? clientRow.coach_id : clientRow.profile_id);
     log(`[WEBHOOK] destinataire: ${recipientUserId}`);
+
+    if (actorId === recipientUserId) {
+      return NextResponse.json({ ok: true, reason: 'self_action', logs });
+    }
 
     const { data: subs } = await supabase
       .from('push_subscriptions').select('endpoint, p256dh, auth').eq('profile_id', recipientUserId);
@@ -47,20 +64,23 @@ export async function POST(req: NextRequest) {
 
     subs.forEach((s, i) => log(`[WEBHOOK] sub[${i}] endpoint: ${s.endpoint.slice(0, 50)}`));
 
-    const { data: sender } = await supabase
-      .from('profiles').select('full_name').eq('id', record.sender_id).maybeSingle();
+    const { data: actor } = await supabase
+      .from('profiles').select('full_name').eq('id', actorId).maybeSingle();
 
-    const title = sender?.full_name || 'Momentum';
-    const bodyText = record.type === 'audio' ? '🎤 Message vocal'
+    const title = actor?.full_name || 'Momentum';
+    const bodyText = isReaction
+      ? `A réagi ${record.reaction_emoji} à votre message`
+      : record.type === 'audio' ? '🎤 Message vocal'
       : record.type === 'image' ? '📷 Photo'
       : record.type === 'document' ? '📄 Document'
       : (record.text || 'Nouveau message');
     // Miniature affichée dans la notification (Android + certaines PWA iOS) — l'image
     // elle-même pour un message image, la miniature générée pour un PDF, rien pour le reste.
-    const notifImage = record.type === 'image' ? record.audio_url
+    const notifImage = isReaction ? undefined
+      : record.type === 'image' ? record.audio_url
       : record.type === 'document' ? record.thumbnail_url
       : undefined;
-    const url = record.sender_id === clientRow.profile_id ? '/messages' : '/client/messages';
+    const url = recipientUserId === clientRow.profile_id ? '/client/messages' : '/messages';
 
     // Badge PWA (pastille iOS avec chiffre) — compte tous les messages non lus adressés
     // au destinataire, tous clients confondus (un coach a plusieurs élèves).
