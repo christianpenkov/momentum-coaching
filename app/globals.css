@@ -99,11 +99,16 @@ input, textarea { font-family: inherit; }
   to { transform: rotate(360deg); }
 }
 
-/* Ré-autoriser la sélection dans les bulles de messages et les blocs de code debug */
+/* Ré-autoriser la sélection dans les bulles de messages et les blocs de code debug.
+   -webkit-touch-callout reste désactivé (héritage de la règle globale ci-dessus) :
+   sans ça, un appui long sur du texte dans .chat-messages-zone déclenche EN PLUS
+   du menu contextuel custom (useLongPress) le menu de sélection natif iOS
+   (loupe + "Copier"/"Répondre" natif) — les deux se superposaient. */
 .chat-messages-zone,
 .selectable {
   -webkit-user-select: text;
   user-select: text;
+  -webkit-touch-callout: none;
 }
 
 /* ── Touch UX iOS — zéro latence, zéro highlight gris ── */
