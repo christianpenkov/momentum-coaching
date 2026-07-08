@@ -780,8 +780,8 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
             initials={(isMe ? myInitials : clientInitials) || '?'}
           />
         ) : isImage && msg.audio_url ? (
-          <div>
-            <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+          <div style={{ maxWidth: 260 }}>
+            <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', cursor: 'pointer' }}
               onClick={() => onOpenLightbox(msg.audio_url!)}
             >
               <img
@@ -856,17 +856,12 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         {!isEditing && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            gap: 3, marginTop: isImage ? 0 : 4,
-            ...(isImage ? {
-              position: 'absolute', bottom: 6, right: 8,
-              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
-              borderRadius: 6, padding: '2px 5px',
-            } : {}),
+            gap: 3, marginTop: 4,
           }}>
             {msg.edited_at && (
-              <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.7)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)') }}>modifié ·</span>
+              <span style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)' }}>modifié ·</span>
             )}
-            <span style={{ fontSize: 10, color: isImage ? 'rgba(255,255,255,0.9)' : (isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)') }}>{formatTime(msg.created_at)}</span>
+            <span style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)' }}>{formatTime(msg.created_at)}</span>
             <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} isAudio={isAudio} listenedAt={msg.listened_at} />
           </div>
         )}
