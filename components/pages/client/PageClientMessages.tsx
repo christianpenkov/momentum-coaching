@@ -68,8 +68,9 @@ function isSameDay(a: string, b: string) {
 }
 
 function formatDuration(s: number) {
-  const min = Math.floor(s / 60);
-  const sec = Math.floor(s % 60);
+  const safe = Number.isFinite(s) ? s : 0;
+  const min = Math.floor(safe / 60);
+  const sec = Math.floor(safe % 60);
   return `${min}:${sec.toString().padStart(2, '0')}`;
 }
 
@@ -776,14 +777,14 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
             onClick={openMenu}
             className="msg-hover-arrow tap-scale"
             style={{
-              position: 'absolute', top: 2, [isMe ? 'left' : 'right']: -28,
-              width: 24, height: 24, borderRadius: '50%', border: 'none',
-              background: 'var(--surface)', boxShadow: '0 1px 4px rgba(0,0,0,.15)',
+              position: 'absolute', top: 4, right: 6,
+              width: 22, height: 22, borderRadius: '50%', border: 'none',
+              background: 'transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              cursor: 'pointer', opacity: 0.9, zIndex: 5,
+              cursor: 'pointer', zIndex: 5,
             } as React.CSSProperties}
           >
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
