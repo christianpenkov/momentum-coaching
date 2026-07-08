@@ -61,6 +61,11 @@ function formatDate(dateStr: string) {
 function isSameDay(a: string, b: string) { return new Date(a).toDateString() === new Date(b).toDateString(); }
 function formatDuration(s: number) { const m = Math.floor(s/60); const sec = Math.floor(s%60); return `${m}:${sec.toString().padStart(2,'0')}`; }
 function getFileExt(name: string) { return (name.split('.').pop() || '').toUpperCase(); }
+function formatFileSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
+}
 
 const WAVEFORM = [4,8,14,9,18,12,20,15,22,11,17,13,21,10,16,8,19,12,6,14,9,17,11,5,7];
 
@@ -710,32 +715,35 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           </div>
         ) : isDocument && msg.audio_url ? (
           <>
-            <a href={msg.audio_url} target="_blank" rel="noopener noreferrer"
-              style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
-                background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)',
-                borderRadius: 10, padding: '10px 12px', minWidth: 200, maxWidth: 280 }}>
-              <div style={{
-                width: 38, height: 38, borderRadius: 8, flexShrink: 0,
-                background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.85)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                </svg>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
-                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                  {msg.text || 'Document'}
+            <div style={{ borderRadius: 10, overflow: 'hidden', minWidth: 220, maxWidth: 280, background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)' }}>
+              {msg.thumbnail_url ? (
+                <img src={msg.thumbnail_url} alt="" style={{ width: '100%', height: 140, objectFit: 'cover', objectPosition: 'top', display: 'block', borderBottom: '1px solid var(--border-soft)' }} />
+              ) : getFileExt(msg.text || '').toLowerCase() === 'pdf' ? (
+                <div style={{ background: '#fff', height: 140, display: 'flex', alignItems: 'center', justifyContent: 'center', borderBottom: '1px solid var(--border-soft)' }}>
+                  <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 </div>
-                <div style={{ fontSize: 11, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
-                  {getFileExt(msg.text || '')}
+              ) : null}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px' }}>
+                <div style={{ width: 32, height: 32, borderRadius: 6, flexShrink: 0, background: isMe ? 'rgba(255,255,255,0.15)' : '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.85)' : '#dc2626'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
+                    overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {msg.text || 'Document'}
+                  </div>
+                  <div style={{ fontSize: 11, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
+                    {msg.page_count ? `${msg.page_count} page${msg.page_count > 1 ? 's' : ''} · ` : ''}
+                    {getFileExt(msg.text || '').toLowerCase()}{msg.file_size_bytes ? ` · ${formatFileSize(msg.file_size_bytes)}` : ''}
+                  </div>
                 </div>
               </div>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-              </svg>
-            </a>
+              <div style={{ display: 'flex', borderTop: `1px solid ${isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)'}` }}>
+                <a href={msg.audio_url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: 'center', padding: '10px 0', fontSize: 13, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)', textDecoration: 'none' }}>Ouvrir</a>
+                <div style={{ width: 1, background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)' }} />
+                <a href={msg.audio_url} download={msg.text || undefined} style={{ flex: 1, textAlign: 'center', padding: '10px 0', fontSize: 13, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)', textDecoration: 'none' }}>Enregistrer sous...</a>
+              </div>
+            </div>
             {msg.caption && (
               <div style={{ fontSize: 13, color: isMe ? '#fff' : 'var(--ink)', padding: '6px 2px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 {msg.caption}
@@ -1253,26 +1261,26 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   // Envoi fichier — preview + confirmation avant envoi, comme côté élève
   async function sendFile(file: File, caption?: string) {
     const isImage = file.type.startsWith('image/');
-    const type: 'image' | 'document' = isImage ? 'image' : 'document';
     if (file.size > (isImage ? 5*1024*1024 : 20*1024*1024)) { setIsSendingFile(false); return; }
     setIsSendingFile(true);
     const replyId = replyingTo?.id ?? null;
-    const ext = file.name.split('.').pop() || 'bin';
-    const fileName = `${clientId}/${Date.now()}.${ext}`;
-    const { error } = await supabase.storage.from('chat-medias').upload(fileName, file, { contentType: file.type });
-    if (error) { setIsSendingFile(false); return; }
-    const { data: urlData } = supabase.storage.from('chat-medias').getPublicUrl(fileName);
-    await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: file.name, type, audio_url: urlData.publicUrl, read: false, caption: caption?.trim() || null, reply_to_id: replyId });
+    // Upload via la route serveur (pas d'upload direct navigateur→Storage) : elle
+    // génère la miniature PDF + compte les pages (pdf-to-img, Node.js uniquement)
+    // et fait l'insert du message elle-même — le message n'apparaît qu'une fois
+    // tout prêt, cohérent avec le comportement précédent qui attendait déjà la
+    // fin de l'upload avant d'insérer.
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('client_id', clientId);
+    if (caption?.trim()) formData.append('caption', caption.trim());
+    if (replyId) formData.append('reply_to_id', replyId);
+    const res = await fetch('/api/messages/upload-file', { method: 'POST', body: formData });
+    const json = await res.json();
+    if (res.ok && json.message) setMessages(prev => [...prev, json.message as Msg]);
     setIsSendingFile(false);
     setReplyingTo(null);
     setPendingFile(prev => { if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl); return null; });
     setFileCaption('');
-  }
-
-  function formatFileSize(bytes: number) {
-    if (bytes < 1024) return `${bytes} o`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
   }
 
   // Enregistrement

@@ -1,30 +1,11 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
+import { isPdfFile, generatePdfThumbnail } from '@/lib/pdfThumbnail';
 
 // Force Node.js runtime (pdf-to-img uses pdfjs-dist, incompatible with Edge)
 export const runtime = 'nodejs';
 
 const MAX_SIZE = 50 * 1024 * 1024; // 50 MB
-
-function isPdf(file: File): boolean {
-  return file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-}
-
-async function generatePdfThumbnail(
-  bytes: ArrayBuffer
-): Promise<{ thumbnail: Uint8Array; pageCount: number } | null> {
-  try {
-    const { pdf } = await import('pdf-to-img');
-    const doc = await pdf(new Uint8Array(bytes), { scale: 1.5 });
-    const pageCount = doc.length;
-    // Only need the first page
-    const firstPage = await doc.getPage(1);
-    return { thumbnail: firstPage, pageCount };
-  } catch (err) {
-    console.error('[upload] PDF thumbnail error:', err);
-    return null;
-  }
-}
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient();
@@ -63,7 +44,7 @@ export async function POST(req: NextRequest) {
   let thumbnailUrl: string | null = null;
   let pageCount: number | null = null;
 
-  if (isPdf(file)) {
+  if (isPdfFile(file)) {
     const result = await generatePdfThumbnail(bytes);
     if (result) {
       pageCount = result.pageCount;
