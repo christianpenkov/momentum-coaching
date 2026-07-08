@@ -646,7 +646,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           borderRadius: isMe
             ? (isContinued ? '18px 4px 4px 18px' : isLast ? '18px 4px 18px 18px' : '18px 4px 4px 18px')
             : (isContinued ? '4px 18px 18px 4px' : isLast ? '4px 18px 18px 18px' : '4px 18px 18px 4px'),
-          padding: isAudio ? '10px 12px' : isImage ? '4px' : '9px 12px',
+          padding: isAudio ? '10px 12px 6px 12px' : isImage ? '4px' : '9px 12px',
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
@@ -793,7 +793,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         {!isEditing && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            gap: 3, marginTop: isImage ? 0 : isAudio ? 6 : 4,
+            gap: 3, marginTop: isImage ? 0 : isAudio ? 0 : 4,
             ...(isImage ? {
               position: 'absolute', bottom: 6, right: 8,
               background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
