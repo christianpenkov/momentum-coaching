@@ -49,7 +49,7 @@ export function renderMenuItem(key: string, handlers: { onReply: () => void; onC
 // ─── Barre de réactions rapides ────────────────────────────────────────────────
 export const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏', '🔥', '💪'];
 
-export function ReactionBar({ top, left, onReact }: { top: number; left: number; onReact: (emoji: string) => void }) {
+export function ReactionBar({ top, left, isMe, onReact }: { top: number; left: number; isMe: boolean; onReact: (emoji: string) => void }) {
   return (
     <div style={{
       position: 'fixed', top, left, zIndex: 10000,
@@ -57,13 +57,19 @@ export function ReactionBar({ top, left, onReact }: { top: number; left: number;
       background: 'var(--surface)', borderRadius: 28, padding: '6px 8px',
       boxShadow: '0 4px 16px rgba(0,0,0,.15)', border: '1px solid var(--border)',
     }}>
-      {QUICK_REACTIONS.map((emoji, i) => (
-        <button key={emoji} onMouseDown={() => onReact(emoji)} className="tap-scale msg-reaction-emoji" style={{
-          width: 32, height: 32, border: 'none', background: 'none', cursor: 'pointer',
-          fontSize: 19, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%',
-          animationDelay: `${i * 30}ms`,
-        }}>{emoji}</button>
-      ))}
+      {QUICK_REACTIONS.map((emoji, i) => {
+        // Cascade dans le sens de lecture naturel côté message : de droite à gauche
+        // pour ses propres messages (bulle alignée à droite), de gauche à droite
+        // pour les messages reçus — l'animation "part" du côté proche de la bulle.
+        const order = isMe ? (QUICK_REACTIONS.length - 1 - i) : i;
+        return (
+          <button key={emoji} onMouseDown={() => onReact(emoji)} className="tap-scale msg-reaction-emoji" style={{
+            width: 32, height: 32, border: 'none', background: 'none', cursor: 'pointer',
+            fontSize: 19, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%',
+            animationDelay: `${order * 18}ms`,
+          }}>{emoji}</button>
+        );
+      })}
     </div>
   );
 }

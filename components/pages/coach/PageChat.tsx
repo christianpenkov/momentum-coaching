@@ -448,7 +448,7 @@ function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, ca
         style={{ position: 'fixed', left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 10000, pointerEvents: 'none' }}
         dangerouslySetInnerHTML={{ __html: bubbleHtml }}
       />
-      <ReactionBar top={reactionBarTop} left={reactionBarLeft} onReact={emoji => { onReact(emoji); onClose(); }} />
+      <ReactionBar top={reactionBarTop} left={reactionBarLeft} isMe={isMe} onReact={emoji => { onReact(emoji); onClose(); }} />
       {!menuOnly && items.length > 0 && (
         <div style={{
           position: 'fixed', left, top, zIndex: 10000,
