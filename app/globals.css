@@ -1737,9 +1737,11 @@ a { color: inherit; text-decoration: none; }
 
 /* ── Flèche hover desktop (menu contextuel WhatsApp-style) — masquée sur tout
    appareil sans souris réelle, pour éviter un résidu visuel après un tap tactile
-   qui simulerait un :hover sur certains navigateurs mobiles. */
-@media (hover: none) {
-  .msg-hover-arrow { display: none; }
+   qui simulerait un :hover sur certains navigateurs mobiles. Double condition
+   (hover:none OU pointer:coarse) car certains hybrides tactile+souris ne
+   matchent qu'un seul des deux media features selon le navigateur. */
+@media (hover: none), (pointer: coarse) {
+  .msg-hover-arrow { display: none !important; pointer-events: none; }
 }
 @media (prefers-reduced-motion: reduce) {
   .msg-bubble-sent { animation: none; }

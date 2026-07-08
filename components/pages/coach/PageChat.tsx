@@ -386,7 +386,11 @@ function MessageContextMenu({ rect, isMe, isTextMessage, canEdit, canDelete, men
   const left = Math.min(Math.max(rect.right - CTX_MENU_WIDTH, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
     <>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }} onMouseDown={onClose} onTouchStart={onClose} />
+      <div
+        style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }}
+        onMouseDown={onClose}
+        onTouchEnd={e => { e.preventDefault(); onClose(); }}
+      />
       <ReactionBar top={reactionBarTop} left={left} onReact={emoji => { onReact(emoji); onClose(); }} />
       {!menuOnly && items.length > 0 && (
         <div style={{
