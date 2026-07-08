@@ -63,19 +63,14 @@ export function ReactionBar({ top, left, onReact }: { top: number; left: number;
           fontSize: 19, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%',
         }}>{emoji}</button>
       ))}
-      <div style={{
-        width: 28, height: 28, borderRadius: '50%', background: 'var(--surface-2)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        fontSize: 15, color: 'var(--muted)', flexShrink: 0, marginLeft: 2, cursor: 'default',
-      }}>+</div>
     </div>
   );
 }
 
 export const MENU_ITEM_HEIGHT = 44;
 export const REACTION_BAR_HEIGHT = 46;
-// 8 emojis (32px) + bouton "+" (28px) + gaps (2px × 8) + marginLeft (2px) + padding (8px × 2)
-export const REACTION_BAR_WIDTH = 8 * 32 + 28 + 8 * 2 + 2 + 8 * 2;
+// 8 emojis (32px) + gaps (2px × 7) + padding (8px × 2)
+export const REACTION_BAR_WIDTH = 8 * 32 + 7 * 2 + 8 * 2;
 export const MENU_GAP = 8;
 export const MENU_SCREEN_MARGIN = 16;
 export const CTX_MENU_WIDTH = 180;

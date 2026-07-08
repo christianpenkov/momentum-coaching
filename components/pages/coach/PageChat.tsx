@@ -420,8 +420,8 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 // composant appelant si pas assez de place en dessous). Position toujours EN
 // DESSOUS du message, jamais au-dessus — voir docs/architecture-messagerie.md.
 
-function MessageContextMenu({ rect, isMe, isTextMessage, canEdit, canDelete, menuOnly, onReply, onCopy, onEdit, onDelete, onReact, onClose }: {
-  rect: DOMRect; isMe: boolean; isTextMessage: boolean; canEdit: boolean; canDelete: boolean; menuOnly: boolean;
+function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, canDelete, menuOnly, onReply, onCopy, onEdit, onDelete, onReact, onClose }: {
+  rect: DOMRect; bubbleHtml: string; isMe: boolean; isTextMessage: boolean; canEdit: boolean; canDelete: boolean; menuOnly: boolean;
   onReply: () => void; onCopy: () => void; onEdit: () => void; onDelete: () => void; onReact: (emoji: string) => void; onClose: () => void;
 }) {
   if (typeof document === 'undefined') return null;
@@ -439,6 +439,14 @@ function MessageContextMenu({ rect, isMe, isTextMessage, canEdit, canDelete, men
         style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }}
         onMouseDown={onClose}
         onTouchEnd={e => { e.preventDefault(); onClose(); }}
+      />
+      {/* Clone visuel de la bulle réelle — l'original vit dans un conteneur overflow:auto
+          (scroll des messages) qui le clippe toujours, peu importe le z-index. On affiche
+          donc une copie hors de ce conteneur, positionnée pile à l'écran là où l'original
+          apparaît, pendant que l'original est masqué (visibility:hidden, voir isMenuTarget). */}
+      <div
+        style={{ position: 'fixed', left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 10000, pointerEvents: 'none' }}
+        dangerouslySetInnerHTML={{ __html: bubbleHtml }}
       />
       <ReactionBar top={reactionBarTop} left={reactionBarLeft} onReact={emoji => { onReact(emoji); onClose(); }} />
       {!menuOnly && items.length > 0 && (
@@ -695,10 +703,6 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         position: 'relative', overflow: 'visible',
         transform: liftPx ? `translateY(-${liftPx}px)` : undefined,
         transition: 'transform 160ms ease-out',
-        // Le message ciblé par le menu doit rester net au-dessus du fond flouté ET du
-        // menu lui-même (tous deux en portail document.body, donc physiquement après ce
-        // wrapper dans le DOM — à z-index égal ils gagneraient l'affichage malgré tout).
-        zIndex: isMenuTarget ? 10001 : undefined,
       }}
     >
       <div
@@ -713,7 +717,10 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
-          visibility: isEditing ? 'hidden' : 'visible',
+          // Masquée pendant l'édition ET pendant que le menu contextuel est ouvert sur
+          // cette bulle — un clone identique (bubbleHtml) est affiché en portail à sa
+          // place exacte, hors du conteneur scrollable qui clipperait sinon tout z-index.
+          visibility: (isEditing || isMenuTarget) ? 'hidden' : 'visible',
         }}>
         {hovered && !isEditing && !isMenuTarget && hasMenuItems && (
           <button
@@ -910,7 +917,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
   const [isSendingFile, setIsSendingFile] = useState(false);
-  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string; lift: number; menuOnly: boolean } | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string; lift: number; menuOnly: boolean; bubbleHtml: string } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -1326,7 +1333,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     const rect = lift > 0
       ? new DOMRect(rawRect.x, rawRect.top - lift, rawRect.width, rawRect.height)
       : rawRect;
-    setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly });
+    // Clone HTML de la bulle affiché en portail au-dessus du fond flouté pendant que le
+    // menu est ouvert — l'original vit dans un conteneur overflow:auto (scroll des
+    // messages), qui clippe toujours ses enfants visuellement peu importe le z-index,
+    // donc impossible de le faire "sortir" par-dessus l'overlay sans le dupliquer ainsi.
+    setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly, bubbleHtml: bubbleEl.outerHTML });
   }
 
   async function editMessage(msgId: string, newText: string) {
@@ -1799,8 +1810,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
         return (
           <MessageContextMenu
             rect={ctxMenu.rect}
-            menuOnly={ctxMenu.menuOnly}
+            bubbleHtml={ctxMenu.bubbleHtml}
             isMe={msgIsMe}
+            menuOnly={ctxMenu.menuOnly}
             isTextMessage={isTextMessage}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
             onReply={() => setReplyingTo(msg)}
