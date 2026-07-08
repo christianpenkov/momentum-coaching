@@ -151,14 +151,33 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
     else { setActive(id); try { await el.play(); } catch { setActive(null); } }
   }, [playing, id, setActive]);
 
-  const seekTo = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+  // Seek au clic ET glisser (souris + tactile unifiés via Pointer Events) — le curseur
+  // suit le doigt/la souris en continu tant que le bouton est maintenu, pas seulement
+  // au clic initial. setPointerCapture garantit que les événements pointermove
+  // continuent d'arriver même si le curseur sort de la waveform pendant le drag.
+  const seekTo = useCallback((clientX: number, rect: DOMRect) => {
     const el = audioRef.current;
-    if (!el) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    el.currentTime = ratio * (el.duration || 0);
+    if (!el || !el.duration) return;
+    const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+    el.currentTime = ratio * el.duration;
     setProgress(ratio * 100);
   }, []);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const target = e.currentTarget;
+    target.setPointerCapture(e.pointerId);
+    const rect = target.getBoundingClientRect();
+    seekTo(e.clientX, rect);
+    const onMove = (ev: PointerEvent) => seekTo(ev.clientX, rect);
+    const onUp = () => {
+      target.removeEventListener('pointermove', onMove);
+      target.removeEventListener('pointerup', onUp);
+      target.removeEventListener('pointercancel', onUp);
+    };
+    target.addEventListener('pointermove', onMove);
+    target.addEventListener('pointerup', onUp);
+    target.addEventListener('pointercancel', onUp);
+  }, [seekTo]);
 
   const progressIdx = Math.round((progress / 100) * (WAVEFORM.length - 1));
   const fillColor = isMe ? 'rgba(255,255,255,0.9)' : 'var(--ink)';
@@ -166,7 +185,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 230, maxWidth: 290 }}>
+    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 10, width: 230, maxWidth: '100%' }}>
       <audio ref={audioRef} src={url} preload="metadata" />
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <Avatar initials={initials} avatarUrl={avatarUrl} size={46} />
@@ -179,15 +198,18 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           }} />
         )}
       </div>
-      <button onClick={togglePlay} className="tap-scale" style={{
-        width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0,
+      <button onClick={togglePlay} className="tap-scale audio-play-btn" style={{
+        borderRadius: '50%', border: 'none', flexShrink: 0,
         background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
       }}>
         {playing
-          ? <svg width="18" height="18" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-          : <svg width="18" height="18" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
+          ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
       </button>
-      <div onClick={seekTo} style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer' }}>
+      <div
+        onPointerDown={handlePointerDown}
+        style={{ flex: 1, minWidth: 0, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer', touchAction: 'none' }}
+      >
         {WAVEFORM.map((h, i) => (
           <div key={i} style={{
             width: 3, height: Math.max(4, Math.round((h / 22) * 30)), borderRadius: 2, flexShrink: 0,
@@ -197,13 +219,13 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
         ))}
         {progress > 0 && (
           <div style={{
-            position: 'absolute', top: '50%', left: `${progress}%`, width: 14, height: 14, borderRadius: '50%',
-            background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 3px rgba(0,0,0,.3)',
+            position: 'absolute', top: '50%', left: `${progress}%`, width: 16, height: 16, borderRadius: '50%',
+            background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 4px rgba(0,0,0,.4)',
             transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
           }} />
         )}
       </div>
-      <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, flexShrink: 0, alignSelf: 'flex-end' }}>
+      <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-end' }}>
         {progress > 0 && audioRef.current ? formatDuration(audioRef.current.currentTime) : formatDuration(currentDuration)}
       </span>
     </div>
