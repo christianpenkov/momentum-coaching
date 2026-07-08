@@ -1328,27 +1328,35 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     const isTextMessage = !msg.type || msg.type === 'text';
     const items = buildMenuItems(isMe, isTextMessage, canEditMsg(msg), canDeleteMsg(msg));
     if (!opts.menuOnly && items.length === 0) return;
-    const rawRect = bubbleEl.getBoundingClientRect();
-    // Le panneau de détail de réaction n'affiche jamais la barre d'emojis complète —
-    // utiliser REACTION_BAR_HEIGHT ici sous-évaluait la place nécessaire dans certains
-    // cas et sur-évaluait dans d'autres, faisant remonter le message de travers et
-    // laissant le panneau coupé en bas d'écran (hauteur réelle très différente).
-    const menuHeight = opts.reactionDetail
-      ? REACTION_DETAIL_HEIGHT + MENU_GAP
-      : (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
-    const spaceBelow = window.innerHeight - rawRect.bottom - MENU_SCREEN_MARGIN;
-    const lift = Math.max(0, (menuHeight + MENU_GAP) - spaceBelow);
-    // Le rect brut est capturé avant que le lift ne soit appliqué visuellement (transform
-    // translateY sur le wrapper) — sans corriger top/bottom ici, le menu s'ancre à l'ancienne
-    // position de la bulle pendant qu'elle remonte visuellement à l'écran.
-    const rect = lift > 0
-      ? new DOMRect(rawRect.x, rawRect.top - lift, rawRect.width, rawRect.height)
-      : rawRect;
-    // Clone HTML de la bulle affiché en portail au-dessus du fond flouté pendant que le
-    // menu est ouvert — l'original vit dans un conteneur overflow:auto (scroll des
-    // messages), qui clippe toujours ses enfants visuellement peu importe le z-index,
-    // donc impossible de le faire "sortir" par-dessus l'overlay sans le dupliquer ainsi.
-    setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly, reactionDetail: !!opts.reactionDetail, bubbleHtml: bubbleEl.outerHTML });
+    // Remesure via requestAnimationFrame avant de committer — le clic déclencheur (sur le
+    // badge de réaction ou la flèche hover) peut lui-même provoquer un micro-reflow
+    // (démontage du bouton hover, changement de visibility) entre le mousedown et le
+    // moment où on mesure ; une mesure synchrone immédiate peut donc capturer une
+    // position pas encore stabilisée, surtout left/x qui n'est jamais recorrigé après
+    // coup (seul top l'est pour le lift) — d'où un décalage horizontal visible du clone.
+    requestAnimationFrame(() => {
+      const rawRect = bubbleEl.getBoundingClientRect();
+      // Le panneau de détail de réaction n'affiche jamais la barre d'emojis complète —
+      // utiliser REACTION_BAR_HEIGHT ici sous-évaluait la place nécessaire dans certains
+      // cas et sur-évaluait dans d'autres, faisant remonter le message de travers et
+      // laissant le panneau coupé en bas d'écran (hauteur réelle très différente).
+      const menuHeight = opts.reactionDetail
+        ? REACTION_DETAIL_HEIGHT + MENU_GAP
+        : (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
+      const spaceBelow = window.innerHeight - rawRect.bottom - MENU_SCREEN_MARGIN;
+      const lift = Math.max(0, (menuHeight + MENU_GAP) - spaceBelow);
+      // Le rect brut est capturé avant que le lift ne soit appliqué visuellement (transform
+      // translateY sur le wrapper) — sans corriger top/bottom ici, le menu s'ancre à l'ancienne
+      // position de la bulle pendant qu'elle remonte visuellement à l'écran.
+      const rect = lift > 0
+        ? new DOMRect(rawRect.x, rawRect.top - lift, rawRect.width, rawRect.height)
+        : rawRect;
+      // Clone HTML de la bulle affiché en portail au-dessus du fond flouté pendant que le
+      // menu est ouvert — l'original vit dans un conteneur overflow:auto (scroll des
+      // messages), qui clippe toujours ses enfants visuellement peu importe le z-index,
+      // donc impossible de le faire "sortir" par-dessus l'overlay sans le dupliquer ainsi.
+      setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly, reactionDetail: !!opts.reactionDetail, bubbleHtml: bubbleEl.outerHTML });
+    });
   }
 
   async function editMessage(msgId: string, newText: string) {
