@@ -8,6 +8,7 @@ import celebrationAnimation from '@/public/animations/celebration.json';
 
 type RapportStep =
   | 'show_up'
+  | 'qualified'
   | 'closed'
   | 'revenue'
   | 'celebration'
@@ -236,8 +237,15 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
       setSaving(false);
       onClose();
     } else {
-      setStep('closed');
+      setStep('qualified');
     }
+  }
+
+  async function handleQualified(qualified: boolean) {
+    setSaving(true);
+    await patchRapport({ qualified });
+    setSaving(false);
+    setStep('closed');
   }
 
   async function handleRevenue() {
@@ -316,6 +324,22 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 </button>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: '#d97706', border: '1px solid #fcd34d' }} disabled={saving} onClick={handleRescheduled}>
                   Appel reporté — nouvelle date à planifier
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* ── Étape 1.5 — qualifié ? ──────────────────────────────────────── */}
+          {step === 'qualified' && (
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Le prospect était-il qualifié ?</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Correspond-il au profil recherché (besoin, budget, timing) ?</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleQualified(true)}>
+                  Oui, qualifié
+                </button>
+                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving} onClick={() => handleQualified(false)}>
+                  Non, pas qualifié
                 </button>
               </div>
             </div>
@@ -410,10 +434,6 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
                   onClick={async () => { setSaving(true); await patchRapport({ no_show: false, deal_closed: false, revenue: 0, outcome: 'to_recontact' }); setSaving(false); onClose(); }}>
                   Pas closé — à recontacter
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={async () => { setSaving(true); await patchRapport({ no_show: false, deal_closed: false, revenue: 0, outcome: 'not_qualified' }); setSaving(false); onClose(); }}>
-                  Lead pas qualifié
                 </button>
               </div>
             </div>

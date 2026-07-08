@@ -89,6 +89,7 @@ interface CallRecord {
   rescheduled?: boolean; source?: string; notes?: string;
   ig_lead_id?: string | null; outcome?: string | null;
   utm_content?: string | null; utm_medium?: string | null;
+  qualified?: boolean | null;
 }
 interface StripeStats {
   mrr: number; monthlyRevenue: number; activeSubscriptions: number;
@@ -443,7 +444,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   // Attribution calls IG → post : même logique que Business micro
   // 1. ig_lead_id → media_id via leadIdToMediaId
   // 2. sans ig_lead_id → utm_content === postId (calls depuis lien description/bio)
-  type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; revenueTotal: number; revenuePerCall: number };
+  type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
       const postCalls = igCallsAll.filter(c => {
@@ -458,7 +459,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
       const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       const avgWatchTimeMin = p.avgWatchTimeMs ? Math.round(p.avgWatchTimeMs / 1000 / 60 * 10) / 10 : null;
-      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: p.views || p.reach || 0, totalViews: p.views || p.reach || 0, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0 };
+      const totalViewsIG = p.views || p.reach || 0;
+      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: totalViewsIG > 0 ? revTotal / totalViewsIG : null };
     }),
     ...ytVideos.map(v => {
       const postCalls = ytCallsAll.filter(c => c.utm_content === v.id);
@@ -470,7 +472,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
       const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       const avgWatchTimeMin = v.watchTime30d && v.views30d > 0 ? Math.round(v.watchTime30d / v.views30d / 60 * 10) / 10 : null;
-      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: Math.round(v.watchTime30d / 60), avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0 };
+      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: Math.round(v.watchTime30d / 60), avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: v.views > 0 ? revTotal / v.views : null };
     }),
   ];
 
@@ -622,7 +624,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
                 if (contentSort === 'views') return ['', 'Contenu', 'Plateforme', 'Vues totales'];
                 if (contentSort === 'watchTime') return ['', 'Contenu', 'Plateforme', 'Watch time total', 'Watch time moyen'];
                 if (contentSort === 'calls') return ['', 'Contenu', 'Plateforme', 'Calls bookés', 'Calls honorés', 'No-show', 'Closé'];
-                return ['', 'Contenu', 'Plateforme', 'Calls bookés', 'Revenue / call', 'Revenue total'];
+                return ['', 'Contenu', 'Plateforme', 'Calls bookés', 'Revenue / call', 'Cash / vue', 'Revenue total'];
               })().map((h, i) => (
                 <th key={i} style={{ textAlign: i <= 1 ? 'left' : 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>{h}</th>
               ))}
@@ -677,6 +679,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
                   {contentSort === 'revenue' && (<>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(c.callsBooked)}</td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, color: 'var(--muted)' }}>{c.revenuePerCall > 0 ? fmtEur(c.revenuePerCall) : '—'}</td>
+                    <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 12, color: 'var(--muted)' }}>{c.cashPerView !== null ? fmtEur(c.cashPerView) : '—'}</td>
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmtEur(c.revenueTotal)}</td>
                   </>)}
                 </tr>
@@ -1877,14 +1880,16 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
       const noShows = cs.filter(c => c.no_show).length;
       // metricIdx correspond à l'index dans row.metrics : 0=reach/vues pour 1 call, 1=bookés,
-      // 2=no-show, 3=close rate, 4=rev/call booké, 5=revenue total.
+      // 2=no-show, 3=close rate, 4=rev/call booké, 5=cash/vue, 6=revenue total.
+      const reachDay = reachByDate?.get(iso) ?? 0;
       let v = 0;
-      if (metricIdx === 0) v = booked > 0 ? Math.round((reachByDate?.get(iso) ?? 0) / booked) : 0;
+      if (metricIdx === 0) v = booked > 0 ? Math.round(reachDay / booked) : 0;
       else if (metricIdx === 1) v = booked;
       else if (metricIdx === 2) v = booked > 0 ? Math.round((noShows / booked) * 100) : 0;
       else if (metricIdx === 3) v = honored > 0 ? Math.round((closed / honored) * 100) : 0;
       else if (metricIdx === 4) v = booked > 0 ? Math.round(rev / booked) : 0;
-      else if (metricIdx === 5) v = rev;
+      else if (metricIdx === 5) v = reachDay > 0 ? rev / reachDay : 0;
+      else if (metricIdx === 6) v = rev;
       return { date: iso, v };
     });
   }
@@ -1903,6 +1908,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         { label: 'No-show', value: igBookes > 0 ? `${igNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: igHonores > 0 ? `${pct(igCloses, igHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: igBookes > 0 ? fmtEur(Math.round(igRev / igBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Cash / vue', value: igReachD > 0 ? fmtEur(igRev / igReachD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(igRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -1914,6 +1920,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         { label: 'No-show', value: ytBookes > 0 ? `${ytNoShowRate}%` : '—', prevValue: null, delta: null, lowerIsBetter: true },
         { label: 'Close rate', value: ytHonores > 0 ? `${pct(ytCloses, ytHonores)}%` : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Rev / call booké', value: ytBookes > 0 ? fmtEur(Math.round(ytRev / ytBookes)) : '—', prevValue: null, delta: null, lowerIsBetter: false },
+        { label: 'Cash / vue', value: ytViewsD > 0 ? fmtEur(ytRev / ytViewsD) : '—', prevValue: null, delta: null, lowerIsBetter: false },
         { label: 'Revenue total', value: fmtEur(ytRev), prevValue: null, delta: null, lowerIsBetter: false },
       ],
     },
@@ -2106,7 +2113,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                 <div style={{ width: 8, height: 8, borderRadius: '50%', background: row.color }} />
                 <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)' }}>{row.platform}</div>
               </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)' }}>
                 {row.metrics.map((m, mi) => {
                   const d = m.delta;
                   const isGood = d ? (m.lowerIsBetter ? d.value < 0 : d.value > 0) : false;
@@ -2121,7 +2128,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   return (
                     <div key={mi}
                       onClick={() => { setExpandedEff({ label: `${row.platform} — ${m.label}`, value: m.value, color: row.color, data: effData }); onModalChange?.(true); }}
-                      style={{ padding: '14px 14px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
+                      style={{ padding: '14px 10px', borderLeft: mi > 0 ? '1px solid var(--border-soft)' : 'none', cursor: 'pointer', transition: 'background .15s' }}
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
                     >
@@ -2505,7 +2512,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [prospectFilter, setProspectFilter] = useState<ProspectStatus>('all');
   const [showCreate, setShowCreate] = useState(false);
   // Tableau contenu : tri
-  type SortKey = 'clicsDesc' | 'lmDetectes' | 'lmClics' | 'lmReponses' | 'dmCount' | 'callsBooked' | 'callsHonored' | 'closed' | 'revenue' | 'vuesParCall' | 'views';
+  type SortKey = 'clicsDesc' | 'lmDetectes' | 'lmClics' | 'lmReponses' | 'dmCount' | 'callsBooked' | 'callsHonored' | 'qualifiedPct' | 'closed' | 'revenue' | 'vuesParCall' | 'cashParVue' | 'views';
   const [sortKey, setSortKey] = useState<SortKey>('callsBooked');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   // Tableau breakdown par source : tri
@@ -2915,6 +2922,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
+    // Vues lifetime (depuis publication) — pour Cash/Vue, indépendant du filtre de période de la page
+    const viewsLifetime = igPost?.views || ytVideo?.views || 0;
     // Nom du LM associé aux leads de ce contenu (premier keyword trouvé)
     const lmKeyword = postLeads[0]?.keyword || null;
     const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;
@@ -2929,13 +2938,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
     // postCalls = calls rattachés à ce contenu (DM + description), filtrés sur la période sélectionnée (scheduled_at)
     // postCallsDesc = uniquement via lien description (utm_medium = 'description') — pour breakdown par source
+    const matchesContent = (c: CallRecord) => c.ig_lead_id ? leadIdToMediaId?.get(c.ig_lead_id) === postId : c.utm_content === postId;
     const postCalls = (calls && leadIdToMediaId)
-      ? calls.filter(c => {
-          const matchesContent = c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === postId : c.utm_content === postId;
-          if (!matchesContent) return false;
-          return isInPeriod(c.scheduled_at);
-        })
+      ? calls.filter(c => matchesContent(c) && isInPeriod(c.scheduled_at))
       : [];
+    // Calls lifetime (depuis publication du contenu) — pour Cash/Vue et % qualifié, indépendant du filtre de période
+    const postCallsLifetime = (calls && leadIdToMediaId) ? calls.filter(matchesContent) : [];
     const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
     const callsBooked = postCalls.filter(c => c.status === 'active').length;
     const callsHonored = postCalls.filter(c => c.status === 'active' && !c.no_show).length;
@@ -2952,7 +2960,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
 
-    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, lmName, postCallsDesc };
+    // Cash/Vue lifetime : revenue cumulé depuis publication / vues cumulées depuis publication
+    const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (c.revenue || 0), 0);
+    const cashParVue = viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
+
+    // % qualifié : parmi les calls honorés avec qualified renseigné (exclut no-show et non-renseignés)
+    const qualifiableCalls = postCallsLifetime.filter(c => c.status === 'active' && !c.no_show && c.qualified !== null && c.qualified !== undefined);
+    const qualifiedCount = qualifiableCalls.filter(c => c.qualified === true).length;
+    const qualifiedAnswered = qualifiableCalls.length;
+    const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
+
+    return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, cashParVue, qualifiedPct, qualifiedCount, qualifiedAnswered, lmName, postCallsDesc };
   }).sort((a, b) => b.views - a.views || b.revenue - a.revenue);
 
   // ── Section 3 : pipeline prospects ──
@@ -3669,10 +3687,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
             <thead>
               <tr>
-                {/* Thumbnail */}
-                <th style={{ width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
-                {/* Contenu — pas de tri */}
-                <th style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
+                {/* Thumbnail — fixe au scroll horizontal */}
+                <th style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
+                {/* Contenu — pas de tri, fixe au scroll horizontal */}
+                <th style={{ position: 'sticky', left: 44, zIndex: 2, background: 'var(--surface)', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
                 {([
                   ['clicsDesc',    'Clics desc.'],
                   ['lmDetectes',   'Commentaires LM'],
@@ -3681,9 +3699,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   ['dmCount',      'Liens DM'],
                   ['callsBooked',  'Calls bookés'],
                   ['callsHonored', 'Calls honorés'],
+                  ['qualifiedPct', '% Qualifié'],
                   ['closed',       'Closés'],
                   ['revenue',      'Revenue'],
                   ['vuesParCall',  'Vues / Call'],
+                  ['cashParVue',   'Cash / Vue (lifetime)'],
                 ] as [SortKey, string][]).map(([key, label]) => {
                   const active = sortKey === key;
                   return (
@@ -3722,12 +3742,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
                       onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
                       onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
-                      <td style={{ padding: '8px 10px', width: 40 }}>
+                      <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                         {row.thumbnail
                           ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                           : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : '▶️'}</div>}
                       </td>
-                      <td style={{ padding: '8px 10px', maxWidth: 200 }}>
+                      <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
                         <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
                           <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
@@ -3741,9 +3761,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.qualifiedPct !== null ? 600 : 400, whiteSpace: 'nowrap' }}>
+                        {row.qualifiedPct !== null ? `${row.qualifiedPct}% (${row.qualifiedCount}/${row.qualifiedAnswered})` : '—'}
+                      </td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
                       <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
+                      <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.cashParVue !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.cashParVue !== null ? 600 : 400, whiteSpace: 'nowrap' }}>{row.cashParVue !== null ? fmtEur(row.cashParVue) : '—'}</td>
                     </tr>
                   );
                 };
@@ -3780,10 +3804,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 780 }}>
                 <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
                   <tr>
-                    <th style={{ width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
-                    <th style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
-                    {(['clicsDesc', 'lmDetectes', 'lmClics', 'lmReponses', 'dmCount', 'callsBooked', 'callsHonored', 'closed', 'revenue', 'vuesParCall'] as SortKey[]).map(key => {
-                      const labels: Record<string, string> = { clicsDesc: 'Clics desc.', lmDetectes: 'Commentaires LM', lmClics: 'Clics LM', lmReponses: 'Réponses LM', dmCount: 'Liens DM', callsBooked: 'Calls bookés', callsHonored: 'Calls honorés', closed: 'Closés', revenue: 'Revenue', vuesParCall: 'Vues / Call' };
+                    <th style={{ position: 'sticky', left: 0, zIndex: 3, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
+                    <th style={{ position: 'sticky', left: 44, zIndex: 3, background: 'var(--surface)', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
+                    {(['clicsDesc', 'lmDetectes', 'lmClics', 'lmReponses', 'dmCount', 'callsBooked', 'callsHonored', 'qualifiedPct', 'closed', 'revenue', 'vuesParCall', 'cashParVue'] as SortKey[]).map(key => {
+                      const labels: Record<string, string> = { clicsDesc: 'Clics desc.', lmDetectes: 'Commentaires LM', lmClics: 'Clics LM', lmReponses: 'Réponses LM', dmCount: 'Liens DM', callsBooked: 'Calls bookés', callsHonored: 'Calls honorés', qualifiedPct: '% Qualifié', closed: 'Closés', revenue: 'Revenue', vuesParCall: 'Vues / Call', cashParVue: 'Cash / Vue (lifetime)' };
                       const active = sortKey === key;
                       return (
                         <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
@@ -3819,12 +3843,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           style={{ borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', background: isSelected ? BLUE + '07' : '' }}
                           onMouseEnter={e => { if (!isSelected) e.currentTarget.style.background = 'var(--surface-2)'; }}
                           onMouseLeave={e => { if (!isSelected) e.currentTarget.style.background = ''; }}>
-                          <td style={{ padding: '8px 10px', width: 40 }}>
+                          <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                             {row.thumbnail
                               ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                               : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : '▶️'}</div>}
                           </td>
-                          <td style={{ padding: '8px 10px', maxWidth: 200 }}>
+                          <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
                             <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
                             <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
                           </td>
@@ -3835,9 +3859,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.dmCount > 0 ? 700 : 400, color: row.dmCount > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.dmCount > 0 ? row.dmCount : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsBooked > 0 ? 700 : 400, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked > 0 ? row.callsBooked : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.callsHonored > 0 ? 700 : 400, color: row.callsHonored > 0 ? GREEN : 'var(--faint)' }}>{row.callsHonored > 0 ? row.callsHonored : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.qualifiedPct !== null ? 600 : 400, whiteSpace: 'nowrap' }}>
+                            {row.qualifiedPct !== null ? `${row.qualifiedPct}% (${row.qualifiedCount}/${row.qualifiedAnswered})` : '—'}
+                          </td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.closed > 0 ? 700 : 400, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed > 0 ? row.closed : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: 700, color: row.revenue > 0 ? GREEN : 'var(--faint)', whiteSpace: 'nowrap' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.vuesParCall ? 'var(--muted)' : 'var(--faint)', fontWeight: row.vuesParCall ? 600 : 400 }}>{row.vuesParCall ? fmt(row.vuesParCall) : '—'}</td>
+                          <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 12, color: row.cashParVue !== null ? 'var(--ink)' : 'var(--faint)', fontWeight: row.cashParVue !== null ? 600 : 400, whiteSpace: 'nowrap' }}>{row.cashParVue !== null ? fmtEur(row.cashParVue) : '—'}</td>
                         </tr>
                       );
                     })}
@@ -4160,13 +4188,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     <th style={thS}>Clics Calendly DM</th>
                     <th style={thS}>Calls bookés</th>
                     <th style={thS}>Calls honorés</th>
+                    <th style={thS}>% Qualifié</th>
                     <th style={thS}>Closés</th>
                     <th style={thS}>Revenue</th>
                   </tr>
                 </thead>
                 <tbody>
                   {leadMagnets.length === 0 && (
-                    <tr><td colSpan={11} style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>Aucun lead magnet configuré — ajoutez-en via les paramètres</td></tr>
+                    <tr><td colSpan={12} style={{ padding: '20px', textAlign: 'center', fontSize: 12, color: 'var(--faint)' }}>Aucun lead magnet configuré — ajoutez-en via les paramètres</td></tr>
                   )}
                   {leadMagnets.map((lm, i) => {
                     // Pivot unique : keyword_matched — même clé sur lmHistory, prospect_links, et shortio path
@@ -4230,6 +4259,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     const closed  = supaProspects.filter((pl: any) => pl.dealClosed === true).length;
                     const revenue = supaProspects.reduce((s: number, pl: any) => s + (pl.revenue || 0), 0);
 
+                    // % qualifié : parmi les calls honorés avec qualified renseigné (exclut non-renseignés)
+                    const qualifiableProspects = supaProspects.filter((pl: any) => pl.callHonored && pl.qualified !== null);
+                    const qualifiedCount = qualifiableProspects.filter((pl: any) => pl.qualified === true).length;
+                    const qualifiedAnswered = qualifiableProspects.length;
+                    const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
+
                     const hasActivity = leadsCount > 0;
 
                     return (
@@ -4261,6 +4296,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         <td style={tdS}>
                           <div style={{ fontWeight: hasActivity && honored > 0 ? 700 : 400, color: hasActivity && honored > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? honored : '—'}</div>
                           {hasActivity && booked > 0 && <Sub pct={ratePct(honored, booked)} isClose />}
+                        </td>
+                        <td style={{ ...tdS, fontSize: 11, whiteSpace: 'nowrap', fontWeight: qualifiedPct !== null ? 600 : 400, color: qualifiedPct !== null ? 'var(--ink)' : 'var(--faint)' }}>
+                          {qualifiedPct !== null ? `${qualifiedPct}% (${qualifiedCount}/${qualifiedAnswered})` : '—'}
                         </td>
                         <td style={tdS}>
                           <div style={{ fontWeight: hasActivity && closed > 0 ? 700 : 400, color: hasActivity && closed > 0 ? GREEN : 'var(--faint)' }}>{hasActivity ? closed : '—'}</div>
@@ -4968,7 +5006,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
 
   // Map ig_lead_id → {callBooked, dealClosed, revenue} pour la table Performance LM
   const now = new Date();
-  const callByLeadId = new Map<string, { callBooked: boolean; callHonored: boolean; dealClosed: boolean; revenue: number }>();
+  const callByLeadId = new Map<string, { callBooked: boolean; callHonored: boolean; dealClosed: boolean; revenue: number; qualified: boolean | null }>();
   for (const c of callsData) {
     if (c.ig_lead_id) {
       callByLeadId.set(c.ig_lead_id, {
@@ -4976,11 +5014,12 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
         callHonored: c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show,
         dealClosed:  !!c.deal_closed,
         revenue:     c.revenue || 0,
+        qualified:   c.qualified ?? null,
       });
     }
   }
 
-  // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/humanClicks30d/post_id via DB
+  // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/qualified/humanClicks30d/post_id via DB
   const prospectLinksData = (prospectLinksRes.data ?? []).map((pl: any) => {
     const callData = pl.ig_lead_id ? callByLeadId.get(pl.ig_lead_id) : undefined;
     const urlKey = (pl.short_url || '').toLowerCase();
@@ -4990,6 +5029,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       callHonored:     callData?.callHonored ?? false,
       dealClosed:      callData?.dealClosed  ?? false,
       revenue:         callData?.revenue     ?? 0,
+      qualified:       callData?.qualified   ?? null,
       humanClicks30d:  clicksByUrl.get(urlKey) ?? 0,
       post_id:         pl.ig_lead_id ? (leadIdToMediaId.get(pl.ig_lead_id) ?? null) : null,
     };

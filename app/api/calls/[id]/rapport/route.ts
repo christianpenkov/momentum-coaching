@@ -46,7 +46,7 @@ async function getBestKnownStage(profileId: string, igLeadId: string, igUsername
 }
 
 // PATCH /api/calls/[id]/rapport
-// Body: { no_show?: boolean, deal_closed?: boolean, revenue?: number, outcome?: string }
+// Body: { no_show?: boolean, deal_closed?: boolean, revenue?: number, outcome?: string, qualified?: boolean }
 // Seul l'élève hôte du call (coach_id = user.id pour les calls Calendly) peut remplir.
 export async function PATCH(
   request: NextRequest,
@@ -76,6 +76,7 @@ export async function PATCH(
   if (typeof body.deal_closed === 'boolean') patch.deal_closed = body.deal_closed;
   if (typeof body.revenue === 'number')     patch.revenue = body.revenue;
   if (typeof body.outcome === 'string')     patch.outcome = body.outcome;
+  if (typeof body.qualified === 'boolean')  patch.qualified = body.qualified;
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'Aucune donnée à mettre à jour' }, { status: 400 });
