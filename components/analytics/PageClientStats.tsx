@@ -477,7 +477,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       const avgWatchTimeMin = p.avgWatchTimeMs ? Math.round(p.avgWatchTimeMs / 1000 / 60 * 10) / 10 : null;
       const totalViewsIG = p.views || p.reach || 0;
       const viewsLifetimeIG = igLiveViewsByIdOv.get(p.id) ?? null;
-      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
+      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' || p.type === 'REEL' || p.type === 'REELS' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
     }),
     ...ytVideos.map(v => {
       const postCalls = ytCallsAll.filter(c => c.utm_content === v.id);
@@ -960,7 +960,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
           {ig.posts.map(post => {
             const er = post.totalInteractions && post.reach ? fmtPct(pct(post.totalInteractions, post.reach)) : '—';
-            const isReel = post.type === 'VIDEO' || post.type === 'REEL';
+            const isReel = post.type === 'VIDEO' || post.type === 'REEL' || post.type === 'REELS';
             const completion = isReel && post.avgWatchTimeMs && post.videoDuration
               ? `${Math.round((post.avgWatchTimeMs / 1000) / post.videoDuration * 100)}%`
               : null;
@@ -1058,7 +1058,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>{new Date(selectedPost.timestamp).toLocaleDateString('fr-FR', { dateStyle: 'long' })}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                  {selectedPost.type === 'VIDEO' || selectedPost.type === 'REEL' ? 'Reel' : selectedPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image'}
+                  {selectedPost.type === 'VIDEO' || selectedPost.type === 'REEL' || selectedPost.type === 'REELS' ? 'Reel' : selectedPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image'}
                 </div>
               </div>
               <button onClick={() => setSelectedPost(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
@@ -1079,7 +1079,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                   <div style={{ fontSize: 18, fontWeight: 700 }}>{value !== null && value !== undefined ? fmt(value as number) : '—'}</div>
                 </div>
               ))}
-              {(selectedPost.type === 'VIDEO' || selectedPost.type === 'REEL') && <>
+              {(selectedPost.type === 'VIDEO' || selectedPost.type === 'REEL' || selectedPost.type === 'REELS') && <>
                 {[
                   ['⏱ Watch time moyen', selectedPost.avgWatchTimeMs !== null ? fmtMs(selectedPost.avgWatchTimeMs!) : null],
                   ['⏩ Skip rate', selectedPost.skipRate !== null ? fmtPct(selectedPost.skipRate!) : null],
@@ -2951,7 +2951,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
     const title = igPost?.caption || ytVideo?.title || '(sans titre)';
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
-    const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
+    const type = igPost ? (igPost.type === 'VIDEO' || igPost.type === 'REEL' || igPost.type === 'REELS' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
     // Vues lifetime pour Cash/Vue — UNIQUEMENT igLive/ytLive, jamais ig/yt ou igPost/ytVideo (qui
     // varient avec periodIndex). Si le post n'est plus dans la fenêtre de fetch live, on ne connaît
