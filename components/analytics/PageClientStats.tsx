@@ -433,8 +433,10 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   // ── Top contenus ──────────────────────────────────────────────────────────
   const igCallsAll = calls.filter(isIGCall);
   const ytCallsAll = calls.filter(isYTCall);
-  const igPosts = (ig?.posts?.length ? ig.posts : igLive?.posts) || [];
-  const ytVideos = (yt?.videos?.length ? yt.videos : ytLive?.videos) || [];
+  // igLive/ytLive en priorité pour les vues lifetime — ig/yt basculent vers un historique figé (snapshot
+  // d'une période passée) selon periodIndex, alors que ce bloc est un classement all-time indépendant de la période
+  const igPosts = (igLive?.posts?.length ? igLive.posts : ig?.posts) || [];
+  const ytVideos = (ytLive?.videos?.length ? ytLive.videos : yt?.videos) || [];
   const ytTotalViews = ytVideos.reduce((s, v) => s + v.views30d, 0);
   const ytTotalCallsBooked = ytCallsAll.filter(c => c.status === 'active').length;
   const ytTotalNoShow = ytCallsAll.filter(c => c.no_show).length;
@@ -604,7 +606,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700 }}>Top contenus</div>
-            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Toutes publications · {sortedContent.length} contenus</div>
+            <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Toutes publications · {sortedContent.length} contenus · depuis toujours (all time)</div>
           </div>
           <div style={{ display: 'flex', gap: 4 }}>
             {SORT_LABELS_V2.map(s => (
@@ -2605,6 +2607,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const igPostsRaw = (ig?.posts?.length ? ig.posts : igLive?.posts) || [];
   const igPosts = igPostsRaw.map((p: any) => ({ ...p, thumbnail: igLiveThumbnails.get(p.id) ?? p.thumbnail ?? null }));
   const ytVideos = (yt?.videos?.length ? yt.videos : ytLive?.videos) || [];
+  // Vues lifetime "à jour" pour Cash/Vue — toujours depuis igLive/ytLive (jamais l'historique figé
+  // d'une période passée, qui capture un instantané des vues à cette date-là, pas le total actuel)
+  const igLiveViewsById = new Map<string, number>((igLive?.posts ?? []).map((p: any) => [p.id, p.views || p.reach || 0]));
+  const ytLiveViewsById = new Map<string, number>((ytLive?.videos ?? []).map((v: any) => [v.id, v.views || 0]));
 
   // Index prospect_links DB par short_url
   const plDbByUrl2 = new Map<string, any>();
@@ -2922,8 +2928,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
-    // Vues lifetime (depuis publication) — pour Cash/Vue, indépendant du filtre de période de la page
-    const viewsLifetime = igPost?.views || ytVideo?.views || 0;
+    // Vues lifetime (depuis publication) — pour Cash/Vue, toujours depuis les données live actuelles,
+    // jamais l'historique d'une période passée (qui fige les vues à cette date-là, pas le total à jour)
+    const viewsLifetime = platform === 'IG' ? (igLiveViewsById.get(postId) ?? 0) : (ytLiveViewsById.get(postId) ?? 0);
     // Nom du LM associé aux leads de ce contenu (premier keyword trouvé)
     const lmKeyword = postLeads[0]?.keyword || null;
     const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;
