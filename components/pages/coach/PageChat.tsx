@@ -658,17 +658,17 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         }}>
         {hovered && !isEditing && !isMenuTarget && (
           <button
-            onClick={openMenu}
+            onMouseDown={e => { e.preventDefault(); e.stopPropagation(); openMenu(); }}
             className="msg-hover-arrow tap-scale"
             style={{
               position: 'absolute', top: 4, right: 6,
-              width: 22, height: 22, borderRadius: '50%', border: 'none',
+              width: 28, height: 28, borderRadius: '50%', border: 'none',
               background: 'transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 5,
             } as React.CSSProperties}
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isMe ? '#fff' : 'var(--ink)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isMe ? '#fff' : 'var(--ink)'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
@@ -1255,10 +1255,16 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     const isTextMessage = !msg.type || msg.type === 'text';
     const items = buildMenuItems(isMe, isTextMessage, canEditMsg(msg), canDeleteMsg(msg));
     if (!opts.menuOnly && items.length === 0) return;
-    const rect = bubbleEl.getBoundingClientRect();
+    const rawRect = bubbleEl.getBoundingClientRect();
     const menuHeight = (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
-    const spaceBelow = window.innerHeight - rect.bottom - MENU_SCREEN_MARGIN;
+    const spaceBelow = window.innerHeight - rawRect.bottom - MENU_SCREEN_MARGIN;
     const lift = Math.max(0, (menuHeight + MENU_GAP) - spaceBelow);
+    // Le rect brut est capturé avant que le lift ne soit appliqué visuellement (transform
+    // translateY sur le wrapper) — sans corriger top/bottom ici, le menu s'ancre à l'ancienne
+    // position de la bulle pendant qu'elle remonte visuellement à l'écran.
+    const rect = lift > 0
+      ? new DOMRect(rawRect.x, rawRect.top - lift, rawRect.width, rawRect.height)
+      : rawRect;
     setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly });
   }
 
