@@ -2,13 +2,15 @@
 
 Documentation de référence pour reconstruire une messagerie temps réel équivalente sur une autre plateforme. Couvre : schéma DB, réaltime (messages + présence + typing), scroll robuste, marquage lu, notifications.
 
-**Statut** : présence en ligne/hors ligne (plateforme entière, pas juste messagerie), typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan, scroll bloqué après reset — §6.4ter), navigation SPA, notifications forcées, messages vocaux écouté/vu + reprise de lecture (§13), répondre à un message + copier (§15), légende sur fichier (§16), photo de profil (§17) — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `782b172`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
+**Statut** : présence en ligne/hors ligne (plateforme entière, pas juste messagerie), typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan, scroll bloqué après reset — §6.4ter), navigation SPA, notifications forcées, messages vocaux écouté/vu + reprise de lecture (§13), répondre à un message + copier (§15), légende sur fichier (§16), photo de profil (§17), menu contextuel v2 sans grossissement de bulle (§19), réactions emoji (§20), AudioBubble style WhatsApp (§21), bloc document avec vraie miniature PDF (§22), citation avec fond (§23) — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `230e03d`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
 
 ## Fichiers
 
 - `components/pages/coach/PageChat.tsx` — vue coach (liste de conversations + thread actif)
 - `components/pages/client/PageClientMessages.tsx` — vue élève (une seule conversation avec son coach)
-- Les deux fichiers sont **structurellement dupliqués** (pas de composant partagé) — même logique, adaptée aux rôles inversés (`role: 'coach'` / `role: 'client'`)
+- Les deux fichiers sont **structurellement dupliqués** — même logique, adaptée aux rôles inversés (`role: 'coach'` / `role: 'client'`)
+- `components/pages/shared/MessageMenuParts.tsx` — **exception au principe de duplication** : `MenuItem`, `ReactionBar`, `buildMenuItems()` n'ont aucune logique spécifique au rôle, partagés entre les deux fichiers pour éviter une duplication gratuite (voir §19)
+- `lib/pdfThumbnail.ts` — génération de miniature PDF + comptage de pages (`pdf-to-img`), partagé entre `app/api/resources/upload/route.ts` et `app/api/messages/upload-file/route.ts`
 
 ## 1. Schéma de données
 
@@ -28,7 +30,13 @@ listened_at   timestamptz null   -- null = vocal non écouté (distinct de read_
 edited_at     timestamptz null
 caption       text null          -- légende optionnelle sur image/document, voir §16
 reply_to_id   uuid null          -- FK messages.id on delete set null, voir §15
+reaction_emoji text null         -- emoji de la réaction posée, voir §20
+reaction_by   uuid null          -- FK profiles.id on delete set null, auteur de la réaction, voir §20
+file_size_bytes integer null     -- taille du fichier envoyé (octets), voir §22
+page_count    integer null       -- nombre de pages si PDF, voir §22
+thumbnail_url text null          -- miniature de la page 1 si PDF, voir §22
 ```
+Contrainte : `check ((reaction_emoji is null) = (reaction_by is null))` — une réaction a toujours emoji + auteur ensemble, jamais l'un sans l'autre.
 
 Table `profiles` (Postgres/Supabase) — pertinente pour la photo de profil (§17) :
 
@@ -670,10 +678,134 @@ Fonctionne uniquement une fois la policy croisée (§17.1) appliquée — sans e
 
 `lib/UserContext.tsx` charge le profil (dont `avatar_url`) une fois au montage et sur changement d'état d'auth — un upload de photo dans les Réglages ne déclenche ni l'un ni l'autre. Une fonction `refreshUser()` est exposée par le contexte (refait le même `loadUser` que l'effet initial, sur demande) et appelée juste après la mise à jour réussie de `profiles.avatar_url`, pour que la sidebar reflète la nouvelle photo sans nécessiter un rechargement de page.
 
-## 18. Ce qu'il faut absolument reproduire si migration vers une autre stack
+## 19. Menu contextuel v2 — sans grossissement de bulle, lift du message
+
+### 19.1 Suppression du clone agrandi
+
+La v1 grossissait un clone de la bulle de 30% (`BUBBLE_SCALE`) via un `<div>` cloné (`innerHTML` copié depuis `outerHTML`) dans un portail, avec transition `cubic-bezier` façon rebond. Coûteux à maintenir (calculs de position du clone séparés du menu, `outerHTML` à transmettre) et pas fidèle à WhatsApp (captures fournies : juste le fond assombri/flouté, la bulle garde sa taille réelle). Supprimé entièrement — le fond `rgba(0,0,0,.35)` + `backdropFilter: blur(4px)` suffisait déjà seul à l'effet recherché.
+
+Conséquence : `MessageBubble` n'a plus besoin de masquer la bulle réelle pendant que le menu est ouvert (`visibility` ne dépend plus de `isMenuTarget`, seulement de `isEditing`) — elle reste visible, potentiellement remontée par le lift (§19.2).
+
+### 19.2 Lift du message — jamais de menu au-dessus
+
+WhatsApp n'ouvre jamais le menu au-dessus du message : si la place manque en dessous, c'est le **message lui-même** qui remonte légèrement (pas le menu qui se repositionne). Implémenté via un `transform: translateY(-liftPx)` sur le **wrapper externe** de `MessageBubble` (jamais sur la bulle interne, qui doit garder `position:relative` pour ses propres enfants positionnés — badge de réaction §20.3, flèche hover) :
+
+```ts
+function openMenu(bubbleEl: HTMLDivElement, msg: Msg, opts: { menuOnly?: boolean } = {}) {
+  const items = buildMenuItems(isMe, isTextMessage, canEditMsg(msg), canDeleteMsg(msg));
+  if (!opts.menuOnly && items.length === 0) return; // rien à afficher
+  const rect = bubbleEl.getBoundingClientRect();
+  const menuHeight = (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
+  const spaceBelow = window.innerHeight - rect.bottom - MENU_SCREEN_MARGIN;
+  const lift = Math.max(0, (menuHeight + MENU_GAP) - spaceBelow);
+  setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly });
+}
+```
+
+Le calcul se fait **une seule fois à l'ouverture** (pas de remesure après la transition) — le rect utilisé par le menu est le rect d'origine moins le lift (`rect.top - lift`), donc toujours cohérent avec la position finale de la bulle une fois translatée. Fermeture (`ctxMenu = null`) → `liftPx` redevient `0` côté `MessageBubble` → la transition CSS (`transition: 'transform 160ms ease-out'`) ramène automatiquement le message à sa place, sans code de "retour" dédié.
+
+**Piège évité, pas rencontré en pratique** : si le contenu de la bulle changeait de taille pile pendant que le menu est ouvert (image qui finit de charger), le lift resterait basé sur l'ancien rect. Jugé négligeable — le menu reste ouvert quelques secondes, et les images ont déjà leurs dimensions connues avant qu'un long-press soit possible dessus. Pas de `ResizeObserver` de sécurité ajouté (complexité non justifiée pour ce cas).
+
+### 19.3 Règles de contenu du menu — `buildMenuItems()` centralisé
+
+Avant : Répondre toujours affiché (même sur ses propres messages), "Délai dépassé" en fallback. Nouvelles règles WhatsApp-like :
+- Message **reçu** : Répondre + Copier (si texte).
+- Message **envoyé** : Modifier (si < 15min) + Supprimer (si < 1h) + Copier (si texte) — **plus de Répondre, plus de "Délai dépassé"**. Si aucun item (message non-texte envoyé, délais expirés), le menu ne s'ouvre pas du tout.
+
+Cette logique vit dans une fonction pure `buildMenuItems(isMe, isTextMessage, canEdit, canDelete)` (`components/pages/shared/MessageMenuParts.tsx`), appelée à **deux endroits** qui doivent rester synchronisés : `openMenu()` (pour calculer `menuHeight`/le lift) et le rendu réel du menu. Centraliser dans une seule fonction évite qu'un des deux diverge silencieusement si la règle change un jour.
+
+### 19.4 Flèche hover desktop
+
+Nouveau petit bouton rond (`.msg-hover-arrow`), apparaît au survol souris sur le côté extérieur de la bulle (gauche si `isMe`, droite sinon), ouvre le même menu que le clic droit — les deux coexistent. Masqué explicitement sur tout appareil sans souris réelle :
+```css
+@media (hover: none) { .msg-hover-arrow { display: none; } }
+```
+Sans cette règle, certains navigateurs mobiles peuvent simuler un `:hover` bref après un tap, laissant un résidu visuel du bouton.
+
+## 20. Réactions emoji
+
+### 20.1 Modèle de données — colonnes simples, pas de table dédiée
+
+`messages.reaction_emoji`/`reaction_by` — une seule réaction par message, quel que soit qui l'a posée (conversation coach↔élève = toujours 2 personnes). Décision explicite : **pas** de table `message_reactions(message_id, user_id, emoji)` pour l'instant — inutile tant qu'il n'y a que 2 participants possibles par conversation. Si Momentum passe un jour aux conversations de groupe, migration standard vers une table dédiée (une ligne par utilisateur par message).
+
+### 20.2 RPC dédiées plutôt qu'une policy UPDATE générale
+
+Point de sécurité vérifié en base (`pg_policies` sur `messages`) : deux policies UPDATE existaient déjà (`sender_id = auth.uid() + fenêtre 15min` pour éditer son texte, `sender_id <> auth.uid()` pour marquer lu) — **aucune n'autorise un update sans limite de temps par un participant quelconque**. Une policy UPDATE générale pour les réactions aurait élargi le pouvoir de modification à **toutes** les colonnes (texte compris) sans limite de temps dès qu'on est participant — Postgres RLS ne restreint pas nativement par colonne, seulement par ligne.
+
+Solution : deux fonctions RPC `SECURITY DEFINER`, chacune limitée aux 2 colonnes `reaction_*` :
+```sql
+create or replace function public.set_message_reaction(p_message_id uuid, p_emoji text)
+returns void language plpgsql security definer set search_path = public as $$
+begin
+  if not exists (select 1 from messages m join clients c on c.id = m.client_id
+    where m.id = p_message_id and (c.profile_id = auth.uid() or c.coach_id = auth.uid()))
+  then raise exception 'not authorized'; end if;
+  update messages set reaction_emoji = p_emoji, reaction_by = auth.uid() where id = p_message_id;
+end; $$;
+```
+`clear_message_reaction(p_message_id)` est symétrique (remet les deux colonnes à `null`). N'importe quel participant peut réagir à n'importe quel message, y compris les siens (comme WhatsApp) — la vérification porte uniquement sur l'appartenance à la conversation, pas sur `sender_id`.
+
+### 20.3 Barre de réactions + badge — toggle
+
+8 emojis fixes (`👍❤️😂😮😢🙏🔥💪` — 7 de base WhatsApp + 🔥💪 ajoutés à la demande), bouton "+" décoratif (pas de picker complet). Cliquer le même emoji déjà posé par soi-même **retire** la réaction ; cliquer un autre **remplace** (une seule réaction par message, quel que soit l'auteur — un participant peut donc écraser la réaction de l'autre, acceptable en 1:1) :
+```ts
+function handleReact(msg: Msg, emoji: string) {
+  if (msg.reaction_emoji === emoji && msg.reaction_by === userId) clearReaction(msg.id);
+  else reactToMessage(msg.id, emoji);
+}
+```
+Badge affiché en `position: absolute` sur la bulle (bas, côté opposé à l'expéditeur) — **toujours un enfant de la bulle interne** (déjà `position:relative`), jamais du wrapper externe transformé par le lift (§19.2) : un `transform` actif crée un nouveau containing block pour les descendants `position:absolute`, ce qui déplacerait le badge de façon incorrecte s'il était ancré sur l'élément translaté. Cliquer le badge rouvre **uniquement** la barre de réactions (`menuOnly: true` dans le state du menu), pas le menu Modifier/Supprimer/Copier complet.
+
+## 21. AudioBubble — design WhatsApp (avatar, pointillés, curseur)
+
+Remplace le bouton play/pause rond plein par l'avatar réel de l'expéditeur (photo ou initiales, réutilise `components/ui/Avatar.tsx`) avec un petit bouton play/pause superposé en bas à droite. La waveform passe de barres pleines à hauteur variable à des **pointillés** (petits ronds, taille fixe `2.5px`) — plus proche du rendu WhatsApp réel, où seule la couleur/position varie, pas la hauteur. Un curseur rond bleu (`#3b82f6`) avance sur la waveform pendant la lecture, positionné en `left: %` (pas en px) pour rester responsive nativement :
+```tsx
+<div style={{ position: 'absolute', top: '50%', left: `${progress}%`, transform: 'translate(-50%, -50%)', ... }} />
+```
+Le conteneur waveform doit avoir `position: relative` pour que ce curseur `absolute` se positionne bien par rapport à lui, pas à un ancêtre plus lointain.
+
+**Avatar de l'expéditeur** : jusqu'ici `MessageBubble` ne recevait que `clientName`/`coachName` en props, jamais les URLs d'avatar. Il fallait aussi ajouter `useUser()` (absent des deux fichiers messagerie) pour connaître sa propre photo (vocaux qu'on a soi-même envoyés) :
+```tsx
+const { user } = useUser();
+const myAvatarUrl = user?.avatar_url ?? null;
+```
+Toute la logique de lecture/pause/seek/persistance de position (`localStorage`)/marquage écouté (§13) reste **inchangée** — seul le rendu visuel a changé.
+
+## 22. Bloc document — vraie miniature PDF via route API dédiée
+
+### 22.1 Piège architectural corrigé avant implémentation
+
+`sendFile()` faisait un **upload direct navigateur → Supabase Storage**, sans jamais passer par un serveur Next.js. La génération de miniature PDF (`pdf-to-img`, basé sur `pdfjs-dist`) nécessite `runtime = 'nodejs'` — **impossible à exécuter dans le navigateur**. Il ne suffisait donc pas de "réutiliser une fonction" : il fallait faire passer l'upload de fichier par un serveur.
+
+`lib/pdfThumbnail.ts` extrait la fonction `generatePdfThumbnail`/`isPdfFile` (déjà en prod dans `app/api/resources/upload/route.ts` pour la page Ressources) — réutilisée par une **nouvelle route** `app/api/messages/upload-file/route.ts`, qui fait l'upload vers `chat-medias`, génère la miniature si PDF, **et insère le message directement côté serveur** (avec `thumbnail_url`/`page_count`/`file_size_bytes`).
+
+`sendFile()` (les deux fichiers messagerie) appelle cette route via `fetch(..., { body: formData })` au lieu d'uploader lui-même :
+```ts
+const formData = new FormData();
+formData.append('file', file);
+formData.append('client_id', clientId);
+const res = await fetch('/api/messages/upload-file', { method: 'POST', body: formData });
+const json = await res.json();
+if (res.ok && json.message) setMessages(prev => [...prev, json.message as Msg]);
+```
+Le message n'apparaît qu'une fois la réponse reçue (miniature générée) — cohérent avec le comportement précédent qui attendait déjà la fin de l'upload avant d'insérer. Le realtime `postgres_changes` INSERT reçoit aussi l'événement (l'insert vient du serveur), mais la garde existante (`prev.some(m => m.id === msg.id)`) évite tout doublon puisque l'ID est déjà connu localement.
+
+### 22.2 Rendu
+
+Aperçu de la page 1 (`msg.thumbnail_url`) si disponible, sinon zone générique avec icône PDF si l'extension est `.pdf`, sinon rien. Bandeau nom/pages/taille en dessous, puis deux vrais boutons pleine largeur séparés par une ligne (`Ouvrir` en `target="_blank"`, `Enregistrer sous...` en `<a download>`) — remplace l'ancien lien simple avec icône générique statique.
+
+**Limitation connue** : pas de miniature pour les fichiers non-PDF (docx, etc.) — comportement identique à avant (icône générique), amélioration possible plus tard si besoin.
+
+## 23. Citation avec fond distinct
+
+La citation dans une bulle qui répond n'avait qu'une barre verticale de 3px sans fond — remplacée par un vrai bloc avec fond distinct (`rgba(255,255,255,0.14)` sur bulle envoyée, `var(--surface-2)` sur bulle reçue), nom de l'expéditeur cité en vert (`var(--green)`) plutôt que la couleur du texte normal, cohérent avec les captures WhatsApp fournies.
+
+## 24. Ce qu'il faut absolument reproduire si migration vers une autre stack
 
 - Système realtime avec un vrai **Presence** (pas juste du pub/sub classique) — sinon il faut réimplémenter le heartbeat + TTL à la main.
 - `useLayoutEffect`-équivalent (ou son analogue dans le framework cible) pour le scroll initial — critique pour éviter le flash.
 - Bien vérifier que **tout timer/interval posé dans un effect qui se redéclenche souvent** (dépendant d'une liste qui grossit) a un cycle de vie **découplé** de cet effet, sinon risque de blocage de flag et boucle infinie (le bug le plus grave rencontré).
 - Rate limits du provider realtime choisi — tester avec 2+ clients simultanés avant de considérer la présence "finie".
 - RLS croisée entre deux rôles liés (coach/élève) n'est **jamais** automatique — chaque nouvelle table/colonne consultée par l'un sur le profil de l'autre nécessite sa propre policy explicite, à vérifier avant de supposer qu'un SELECT "devrait marcher".
+- Pour toute action sensible côté DB (réactions, modifications), préférer une **RPC `SECURITY DEFINER` scoped aux colonnes concernées** plutôt qu'une policy UPDATE générale — RLS Postgres ne restreint pas par colonne, une policy trop permissive peut élargir silencieusement le pouvoir de modification bien au-delà de l'intention initiale.
+- Toute génération de fichier côté serveur (miniatures, traitement d'image/PDF) nécessite un vrai aller-retour serveur — vérifier le chemin d'upload réel (`direct client→storage` vs `via une route API`) avant de supposer qu'une fonction existante est réutilisable telle quelle.
