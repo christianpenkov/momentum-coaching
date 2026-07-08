@@ -103,7 +103,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
     const el = audioRef.current;
     if (!el) return;
     const onTime = () => {
-      const dur = el.duration || currentDuration || 1;
+      const dur = (Number.isFinite(el.duration) && el.duration > 0) ? el.duration : (currentDuration || 1);
       setProgress((el.currentTime/dur)*100);
       try { localStorage.setItem(positionKey, String(el.currentTime)); } catch {}
     };
@@ -113,10 +113,10 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       try { localStorage.removeItem(positionKey); } catch {}
     };
     const onLoad = () => {
-      if (el.duration && !isNaN(el.duration)) setCurrentDuration(el.duration);
+      if (Number.isFinite(el.duration) && el.duration > 0) setCurrentDuration(el.duration);
       try {
         const saved = parseFloat(localStorage.getItem(positionKey) || '');
-        if (!isNaN(saved) && saved > 0 && saved < el.duration) {
+        if (!isNaN(saved) && saved > 0 && Number.isFinite(el.duration) && saved < el.duration) {
           el.currentTime = saved;
           setProgress((saved / el.duration) * 100);
         }
@@ -161,7 +161,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   // continuent d'arriver même si le curseur sort de la waveform pendant le drag.
   const seekTo = useCallback((clientX: number, rect: DOMRect) => {
     const el = audioRef.current;
-    if (!el || !el.duration) return;
+    if (!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     el.currentTime = ratio * el.duration;
     setProgress(ratio * 100);
@@ -189,9 +189,9 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 10, width: 300, maxWidth: '100%', paddingBottom: 16 }}>
+    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'flex-start', gap: 10, width: 300, maxWidth: '100%' }}>
       <audio ref={audioRef} src={url} preload="metadata" />
-      <div style={{ position: 'relative', flexShrink: 0 }}>
+      <div style={{ position: 'relative', flexShrink: 0, marginTop: 9 }}>
         <Avatar initials={initials} avatarUrl={avatarUrl} size={42} />
         {/* Icône micro — overlay discret sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
         <span style={{
@@ -221,10 +221,10 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
       </button>
-      <div style={{ flex: 1, minWidth: 0, position: 'relative', alignSelf: 'stretch' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <div
           onPointerDown={handlePointerDown}
-          style={{ position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
+          style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
         >
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             {WAVEFORM.map((h, i) => (
@@ -243,7 +243,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
             }} />
           )}
         </div>
-        <span style={{ position: 'absolute', top: '100%', left: 0, marginTop: 2, fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>
+        <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>
           {progress > 0 && audioRef.current ? formatDuration(audioRef.current.currentTime) : formatDuration(currentDuration)}
         </span>
       </div>
@@ -650,7 +650,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           borderRadius: isMe
             ? (isContinued ? '18px 4px 4px 18px' : isLast ? '18px 4px 18px 18px' : '18px 4px 4px 18px')
             : (isContinued ? '4px 18px 18px 4px' : isLast ? '4px 18px 18px 18px' : '4px 18px 18px 4px'),
-          padding: isAudio ? '10px 12px 0 12px' : isImage ? '4px' : '9px 12px',
+          padding: isAudio ? '10px 12px' : isImage ? '4px' : '9px 12px',
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
@@ -668,7 +668,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
               cursor: 'pointer', zIndex: 5,
             } as React.CSSProperties}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.7)' : 'var(--muted)'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isMe ? '#fff' : 'var(--ink)'} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
@@ -797,7 +797,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         {!isEditing && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            gap: 3, marginTop: isImage ? 0 : isAudio ? 0 : 4,
+            gap: 3, marginTop: isImage ? 0 : 4,
             ...(isImage ? {
               position: 'absolute', bottom: 6, right: 8,
               background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
