@@ -3964,8 +3964,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           { pct: '100%', viewers: 3 },
         ] : null;
 
-        // Prospects DM liés
-        const linkedProspects = prospectLinks.filter((l: any) => l.postId === row.postId);
+        // Prospects DM liés — source fiable prospectLinksData (même raison que dmProspects plus haut :
+        // prospectLinks/shortio.links est tronqué côté serveur par période dès periodIndex > 0)
+        const linkedProspects = (prospectLinksData ?? []).filter((l: any) => l.post_id === row.postId);
         const statusMap2: Record<string, string> = { closed: 'Closé', booked: 'Call booké', pending: 'En attente', noshow: 'No-show' };
 
         const FunnelStep = ({ label, value, rate, rateThreshold, isFirst }: { label: string; value: number | null; rate: number | null; rateThreshold?: number; isFirst?: boolean }) => (
@@ -4154,16 +4155,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         </thead>
                         <tbody>
                           {linkedProspects.map((l: any, i: number) => {
-                            const lead = leads.find(ml => ml.igUserId === l.igUserId);
+                            const lead = leads.find((ml: any) => ml.id === l.ig_lead_id);
                             const canal = lead?.leadMagnetSent ? 'LM' : (l.dmType === 'organic' ? 'DM organique' : 'Cold DM');
                             const canalColor2 = lead?.leadMagnetSent ? AMBER : (l.dmType === 'organic' ? '#10B981' : BLUE);
                             const st = getProspectStatus(l);
-                            const daysAgo2 = Math.floor((Date.now() - new Date(l.createdAt).getTime()) / 86400000);
+                            const daysAgo2 = Math.floor((Date.now() - new Date(l.created_at).getTime()) / 86400000);
                             return (
                               <tr key={i} style={{ borderBottom: '1px solid var(--border-soft)' }}
                                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
-                                <td style={{ padding: '9px 10px', fontSize: 12, fontWeight: 700 }}>@{l.igUsername}</td>
+                                <td style={{ padding: '9px 10px', fontSize: 12, fontWeight: 700 }}>@{l.ig_username}</td>
                                 <td style={{ padding: '9px 10px' }}>
                                   <span style={{ fontSize: 10, fontWeight: 700, color: canalColor2, background: canalColor2 + '18', borderRadius: 4, padding: '2px 6px' }}>{canal}</span>
                                 </td>
