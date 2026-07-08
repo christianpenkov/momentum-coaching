@@ -217,7 +217,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
       </button>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, alignSelf: 'stretch' }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 2, alignSelf: 'stretch' }}>
         <div
           onPointerDown={handlePointerDown}
           style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
