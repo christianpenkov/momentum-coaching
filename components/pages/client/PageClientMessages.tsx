@@ -772,18 +772,19 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           <div
             onClick={() => quotedMsg && onQuoteClick?.(quotedMsg.id)}
             style={{
-              display: 'flex', flexDirection: 'column', gap: 1,
-              borderLeft: `3px solid ${isMe ? 'rgba(255,255,255,0.5)' : 'var(--ink)'}`,
-              paddingLeft: 8, marginBottom: 6, marginLeft: isImage ? 4 : 0, marginRight: isImage ? 4 : 0,
-              marginTop: isImage ? 4 : 0,
-              cursor: quotedMsg ? 'pointer' : 'default', opacity: 0.85,
+              display: 'flex', flexDirection: 'column', gap: 2,
+              background: isMe ? 'rgba(255,255,255,0.14)' : 'var(--surface-2)',
+              borderLeft: `3px solid ${isMe ? '#fff' : 'var(--green)'}`,
+              borderRadius: 6, padding: '6px 8px', marginBottom: 6,
+              marginLeft: isImage ? 4 : 0, marginRight: isImage ? 4 : 0, marginTop: isImage ? 4 : 0,
+              cursor: quotedMsg ? 'pointer' : 'default',
             }}
           >
-            <div style={{ fontSize: 11, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)' }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: isMe ? '#fff' : 'var(--green)' }}>
               {quotedMsg ? (quotedMsg.sender_id === userId ? 'Toi' : coachName) : ''}
             </div>
             <div style={{
-              fontSize: 12, color: isMe ? 'rgba(255,255,255,0.85)' : 'var(--muted)',
+              fontSize: 12.5, color: isMe ? 'rgba(255,255,255,0.9)' : 'var(--ink)',
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220,
             }}>
               {!quotedMsg ? 'Message supprimé'
