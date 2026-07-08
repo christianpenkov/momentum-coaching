@@ -236,7 +236,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           <div
             key={i}
             style={{
-              width: 2.5, height: 2.5, borderRadius: '50%', flexShrink: 0,
+              width: 2.5, height: Math.max(3, Math.round((h / 22) * 22)), borderRadius: 2, flexShrink: 0,
               background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
               transition: 'background 0.1s',
             }}
