@@ -194,34 +194,34 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const progressIdx = Math.round((progress / 100) * (WAVEFORM.length - 1));
 
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 200, maxWidth: 260 }}>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 230, maxWidth: 290 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
 
       {/* Avatar (rappel écouté/non écouté) + bouton play/pause séparé, comme WhatsApp */}
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={34} />
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={46} />
         {/* Pastille "non écouté" — rappel visuel personnel sur les vocaux REÇUS pas encore
             écoutés (disparaît une fois le vocal réellement lancé, voir onPlay plus haut).
             Distinct des coches MessageStatus, qui informent l'EXPÉDITEUR si le destinataire
             a écouté SES propres vocaux envoyés. */}
         {onListened && !listened && (
           <span style={{
-            position: 'absolute', top: -1, right: -1, width: 9, height: 9,
+            position: 'absolute', top: -1, right: -1, width: 11, height: 11,
             borderRadius: '50%', background: 'var(--red)', border: '2px solid var(--surface)',
           }} />
         )}
       </div>
       <button onClick={togglePlay} className="tap-scale" style={{
-        width: 22, height: 22, borderRadius: '50%', border: 'none', flexShrink: 0,
+        width: 36, height: 36, borderRadius: '50%', border: 'none', flexShrink: 0,
         background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
       }}>
         {playing ? (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}>
             <rect x="6" y="4" width="4" height="16" rx="1"/>
             <rect x="14" y="4" width="4" height="16" rx="1"/>
           </svg>
         ) : (
-          <svg width="14" height="14" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}>
+          <svg width="18" height="18" viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}>
             <polygon points="6 3 20 12 6 21 6 3"/>
           </svg>
         )}
@@ -230,13 +230,13 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       {/* Waveform pointillée + curseur bleu */}
       <div
         onClick={seekTo}
-        style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 24, cursor: 'pointer' }}
+        style={{ flex: 1, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer' }}
       >
         {WAVEFORM.map((h, i) => (
           <div
             key={i}
             style={{
-              width: 2.5, height: Math.max(3, Math.round((h / 22) * 22)), borderRadius: 2, flexShrink: 0,
+              width: 3, height: Math.max(4, Math.round((h / 22) * 30)), borderRadius: 2, flexShrink: 0,
               background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
               transition: 'background 0.1s',
             }}
@@ -244,7 +244,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
         ))}
         {progress > 0 && (
           <div style={{
-            position: 'absolute', top: '50%', left: `${progress}%`, width: 11, height: 11, borderRadius: '50%',
+            position: 'absolute', top: '50%', left: `${progress}%`, width: 14, height: 14, borderRadius: '50%',
             background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 3px rgba(0,0,0,.3)',
             transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
           }} />
@@ -252,7 +252,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       </div>
 
       {/* Durée */}
-      <span style={{ fontSize: 10, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, flexShrink: 0, alignSelf: 'flex-end' }}>
+      <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, flexShrink: 0, alignSelf: 'flex-end' }}>
         {progress > 0 && audioRef.current
           ? formatDuration(audioRef.current.currentTime)
           : formatDuration(currentDuration)}
@@ -830,7 +830,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
               </div>
             </div>
             {msg.caption && (
-              <div style={{ fontSize: 13, color: isMe ? '#fff' : 'var(--ink)', padding: '6px 4px 2px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              <div style={{ fontSize: 15, lineHeight: 1.4, color: isMe ? '#fff' : 'var(--ink)', padding: '8px 4px 2px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 {msg.caption}
               </div>
             )}
@@ -850,30 +850,30 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.85)' : '#dc2626'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
+                  <div style={{ fontSize: 15, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
                     overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {msg.text || 'Document'}
                   </div>
-                  <div style={{ fontSize: 11, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
+                  <div style={{ fontSize: 13, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
                     {msg.page_count ? `${msg.page_count} page${msg.page_count > 1 ? 's' : ''} · ` : ''}
                     {getFileExt(msg.text || '').toLowerCase()}{msg.file_size_bytes ? ` · ${formatFileSize(msg.file_size_bytes)}` : ''}
                   </div>
                 </div>
               </div>
               <div style={{ display: 'flex', borderTop: `1px solid ${isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)'}` }}>
-                <a href={msg.audio_url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: 'center', padding: '10px 0', fontSize: 13, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)', textDecoration: 'none' }}>Ouvrir</a>
+                <a href={msg.audio_url} target="_blank" rel="noopener noreferrer" style={{ flex: 1, textAlign: 'center', padding: '12px 0', fontSize: 15, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)', textDecoration: 'none' }}>Ouvrir</a>
                 <div style={{ width: 1, background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)' }} />
-                <a href={msg.audio_url} download={msg.text || undefined} style={{ flex: 1, textAlign: 'center', padding: '10px 0', fontSize: 13, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)', textDecoration: 'none' }}>Enregistrer sous...</a>
+                <a href={msg.audio_url} download={msg.text || undefined} style={{ flex: 1, textAlign: 'center', padding: '12px 0', fontSize: 15, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)', textDecoration: 'none' }}>Enregistrer sous...</a>
               </div>
             </div>
             {msg.caption && (
-              <div style={{ fontSize: 13, color: isMe ? '#fff' : 'var(--ink)', padding: '6px 2px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+              <div style={{ fontSize: 15, lineHeight: 1.4, color: isMe ? '#fff' : 'var(--ink)', padding: '8px 2px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
                 {msg.caption}
               </div>
             )}
           </>
         ) : (
-          <div style={{ fontSize: 14, lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
+          <div style={{ fontSize: 15, lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
         )}
         {!isEditing && (
           <div style={{
