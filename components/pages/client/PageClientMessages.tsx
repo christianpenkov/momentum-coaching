@@ -132,7 +132,27 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       try { localStorage.removeItem(positionKey); } catch {}
     };
     const onLoaded = () => {
-      if (Number.isFinite(el.duration) && el.duration > 0) setCurrentDuration(el.duration);
+      if (Number.isFinite(el.duration) && el.duration > 0) {
+        setCurrentDuration(el.duration);
+      } else {
+        // Bug WebKit connu (bugs.webkit.org #216832) : les vocaux enregistrés sur iOS
+        // Safari via MediaRecorder produisent un mp4 fragmenté sans durée dans les
+        // métadonnées (mvhd/tkhd/mdhd à 0) — el.duration reste 0/NaN/Infinity même une
+        // fois le média chargé. Patch standard : forcer un seek loin dans le "futur"
+        // déclenche le recalcul interne de la durée réelle par le moteur, captée via
+        // l'event durationchange, puis on revient à 0 pour ne pas perturber la lecture.
+        logAudio('duration-fix:trigger', { id, duration: el.duration, readyState: el.readyState });
+        const onDurationChange = () => {
+          if (Number.isFinite(el.duration) && el.duration > 0 && el.duration < 1e9) {
+            logAudio('duration-fix:recovered', { id, duration: el.duration });
+            setCurrentDuration(el.duration);
+            el.currentTime = 0;
+            el.removeEventListener('durationchange', onDurationChange);
+          }
+        };
+        el.addEventListener('durationchange', onDurationChange);
+        try { el.currentTime = 1e10; } catch {}
+      }
       try {
         const saved = parseFloat(localStorage.getItem(positionKey) || '');
         if (!isNaN(saved) && saved > 0 && Number.isFinite(el.duration) && saved < el.duration) {
