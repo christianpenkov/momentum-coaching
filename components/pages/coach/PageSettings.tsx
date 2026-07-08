@@ -1,9 +1,12 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
+import Avatar from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
+import { cropImageToSquare } from '@/lib/cropImageToSquare';
+import { useUser } from '@/lib/UserContext';
 import type { Integration, Provider } from '@/lib/supabase/types';
 
 type IntegrationMode = 'oauth' | 'apikey';
@@ -86,6 +89,10 @@ const INTEGRATION_CONFIG: {
 export default function PageSettings() {
   const supabase = createClient();
   const searchParams = useSearchParams();
+  const { user, refreshUser } = useUser();
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [integrations, setIntegrations] = useState<Record<Provider, Integration | null>>({
     anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null,
@@ -123,8 +130,8 @@ export default function PageSettings() {
       setProfileId(user.id);
       setEmail(user.email || '');
 
-      const { data: profile } = await supabase.from('profiles').select('full_name').eq('id', user.id).single();
-      if (profile) setCoachName(profile.full_name || '');
+      const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).single();
+      if (profile) { setCoachName(profile.full_name || ''); setAvatarUrl(profile.avatar_url || null); }
 
       const { data: integs } = await supabase.from('integrations').select('*').eq('profile_id', user.id);
       if (integs) {
@@ -196,6 +203,31 @@ export default function PageSettings() {
     else showToast('Profil sauvegardé ✓');
   }
 
+  async function onAvatarChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !profileId) return;
+    setUploadingAvatar(true);
+    try {
+      const blob = await cropImageToSquare(file);
+      const path = `${profileId}/avatar.jpg`;
+      const { error: uploadErr } = await supabase.storage.from('avatars')
+        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
+      if (uploadErr) throw uploadErr;
+      const { data: urlData } = supabase.storage.from('avatars').getPublicUrl(path);
+      const freshUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+      const { error: updateErr } = await supabase.from('profiles').update({ avatar_url: freshUrl }).eq('id', profileId);
+      if (updateErr) throw updateErr;
+      setAvatarUrl(freshUrl);
+      refreshUser();
+      showToast('Photo de profil mise à jour ✓');
+    } catch (err) {
+      showToast('Erreur upload photo : ' + (err instanceof Error ? err.message : 'inconnue'), true);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
+
   return (
     <div className="page-content">
       {/* Toast */}
@@ -223,6 +255,30 @@ export default function PageSettings() {
       <div className="settings-section">
         <div className="settings-section-title">Profil coach</div>
         <div className="card">
+          <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
+            <div
+              onClick={() => !uploadingAvatar && avatarInputRef.current?.click()}
+              className="tap-scale"
+              style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', cursor: uploadingAvatar ? 'default' : 'pointer', flexShrink: 0 }}
+            >
+              <Avatar initials={coachName.slice(0, 2).toUpperCase() || '?'} avatarUrl={avatarUrl} size={72} />
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: '50%',
+                background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                opacity: uploadingAvatar ? 1 : 0, transition: 'opacity 150ms',
+              }}
+                onMouseEnter={e => { if (!uploadingAvatar) e.currentTarget.style.opacity = '1'; }}
+                onMouseLeave={e => { if (!uploadingAvatar) e.currentTarget.style.opacity = '0'; }}
+              >
+                <Icon name={uploadingAvatar ? 'loader' : 'camera'} size={18} color="#fff" style={uploadingAvatar ? { animation: 'spin 1s linear infinite' } : undefined} />
+              </div>
+            </div>
+            <input ref={avatarInputRef} type="file" accept="image/*" onChange={onAvatarChange} style={{ display: 'none' }} />
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>
+              Photo de profil<br />
+              <span style={{ fontSize: 11 }}>Visible par ton élève dans la messagerie</span>
+            </div>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Nom</label>

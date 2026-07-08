@@ -46,8 +46,9 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (cErr) throw cErr;
 
       const ids = (rawClients || []).map((c: any) => c.id);
+      const profileIds = (rawClients || []).map((c: any) => c.profile_id).filter(Boolean);
 
-      const [metricsRes, tasksRes, callsRes] = await Promise.all([
+      const [metricsRes, tasksRes, callsRes, avatarsRes] = await Promise.all([
         ids.length > 0
           ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
           : { data: [], error: null },
@@ -57,6 +58,9 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         supabase.from('calls').select('*').eq('coach_id', user.id)
           .neq('ignored', true)
           .order('scheduled_at', { ascending: false }).limit(100),
+        profileIds.length > 0
+          ? supabase.from('profiles').select('id, avatar_url').in('id', profileIds)
+          : { data: [], error: null },
       ]);
 
       if (metricsRes.error) throw metricsRes.error;
@@ -75,6 +79,9 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         tasksMap[t.client_id].push(t);
       });
 
+      const avatarMap: Record<string, string | null> = {};
+      (avatarsRes.data || []).forEach((p: any) => { avatarMap[p.id] = p.avatar_url; });
+
       setClients((rawClients || []).map((c: any) => {
         const metrics = (metricsMap[c.id] || []).sort((a: any, b: any) => a.week - b.week);
         return {
@@ -85,6 +92,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           prevMetrics: metrics[metrics.length - 2] || null,
           resources: [],
           lastCoachMessage: null,
+          avatar_url: c.profile_id ? (avatarMap[c.profile_id] || null) : null,
         };
       }));
       setCalls(callsRes.data || []);

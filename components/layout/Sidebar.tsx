@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
+import Avatar from '../ui/Avatar';
 import { useUser } from '@/lib/UserContext';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
@@ -59,7 +60,7 @@ export default function Sidebar() {
           );
         })}
         <div className="sidebar-coach-info">
-          <div className="avatar" style={{ width: 30, height: 30, fontSize: 11 }}>{user?.initials || '?'}</div>
+          <Avatar initials={user?.initials || '?'} avatarUrl={user?.avatar_url} size={30} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{user?.full_name || user?.email || '—'}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>Coach · {clients.length} élève{clients.length !== 1 ? 's' : ''}</div>

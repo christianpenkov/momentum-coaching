@@ -4,6 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import Avatar from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
@@ -26,6 +27,8 @@ interface Msg {
   read?: boolean;
   listened_at?: string | null;
   edited_at?: string | null;
+  caption?: string | null;
+  reply_to_id?: string | null;
 }
 
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
@@ -309,12 +312,12 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 // ─── MessageContextMenu — clic droit desktop / appui long mobile ─────────────
 
 const CTX_MENU_WIDTH = 160;
-const CTX_MENU_HEIGHT = 90;
+const CTX_MENU_ITEM_HEIGHT = 38;
 const BUBBLE_SCALE = 1.3;
 
-function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, onClose }: {
-  rect: DOMRect; html: string; canEdit: boolean; canDelete: boolean;
-  onEdit: () => void; onDelete: () => void; onClose: () => void;
+function MessageContextMenu({ rect, html, isMe, isTextMessage, canEdit, canDelete, onReply, onCopy, onEdit, onDelete, onClose }: {
+  rect: DOMRect; html: string; isMe: boolean; isTextMessage: boolean; canEdit: boolean; canDelete: boolean;
+  onReply: () => void; onCopy: () => void; onEdit: () => void; onDelete: () => void; onClose: () => void;
 }) {
   const cloneRef = useRef<HTMLDivElement>(null);
   const [grown, setGrown] = useState(false);
@@ -325,6 +328,13 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
   }, [html]);
 
   if (typeof document === 'undefined') return null;
+  // Nombre d'items réellement affichés — détermine la hauteur réservée pour le
+  // positionnement au-dessus/en-dessous de la bulle (Répondre toujours présent, Copier
+  // seulement sur texte, Modifier/Supprimer seulement sur ses propres messages, "Délai
+  // dépassé" seulement si isMe et aucune des deux actions n'est plus disponible).
+  const itemCount = 1 /* Répondre */ + (isTextMessage ? 1 : 0) + (canEdit ? 1 : 0) + (canDelete ? 1 : 0)
+    + (isMe && !canEdit && !canDelete ? 1 : 0);
+  const menuHeight = itemCount * CTX_MENU_ITEM_HEIGHT;
   // Le clone visuel grossit toujours symétriquement depuis la bulle réelle (effet
   // WhatsApp), mais le MENU s'ancre sur la bulle réelle (rect), pas sur le clone
   // agrandi — pour un message long qui occupe presque tout l'écran, ancrer sur le
@@ -339,9 +349,9 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
   const idealTop = rect.top - (scaledHeight - rect.height) / 2;
   const cloneTop = Math.max(idealTop, SCREEN_MARGIN);
   const spaceAbove = rect.top - SCREEN_MARGIN;
-  const openUpward = spaceAbove >= CTX_MENU_HEIGHT + GAP;
-  const rawTop = openUpward ? rect.top - CTX_MENU_HEIGHT - GAP : rect.bottom + GAP;
-  const top = Math.min(Math.max(rawTop, SCREEN_MARGIN), window.innerHeight - CTX_MENU_HEIGHT - SCREEN_MARGIN);
+  const openUpward = spaceAbove >= menuHeight + GAP;
+  const rawTop = openUpward ? rect.top - menuHeight - GAP : rect.bottom + GAP;
+  const top = Math.min(Math.max(rawTop, SCREEN_MARGIN), window.innerHeight - menuHeight - SCREEN_MARGIN);
   // Aligné au bord droit de la bulle (les messages sont à droite de l'écran).
   const left = Math.min(Math.max(rect.right - CTX_MENU_WIDTH, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   return createPortal(
@@ -368,6 +378,20 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
         borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
         minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 13,
       }}>
+        <button className="msg-ctx-btn" onMouseDown={() => { onReply(); onClose(); }} style={{
+          display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
+          border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink)',
+        }}>
+          Répondre
+        </button>
+        {isTextMessage && (
+          <button className="msg-ctx-btn" onMouseDown={() => { onCopy(); onClose(); }} style={{
+            display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
+            border: 'none', background: 'none', cursor: 'pointer', color: 'var(--ink)',
+          }}>
+            Copier
+          </button>
+        )}
         {canEdit && (
           <button className="msg-ctx-btn" onMouseDown={() => { onEdit(); onClose(); }} style={{
             display: 'block', width: '100%', textAlign: 'left', padding: '10px 14px',
@@ -384,7 +408,7 @@ function MessageContextMenu({ rect, html, canEdit, canDelete, onEdit, onDelete, 
             Supprimer
           </button>
         )}
-        {!canEdit && !canDelete && (
+        {isMe && !canEdit && !canDelete && (
           <div style={{ padding: '10px 14px', color: 'var(--faint)' }}>Délai dépassé</div>
         )}
       </div>
@@ -524,7 +548,7 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef, animate, onListened }: {
+function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, isMenuTarget, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, clientName }: {
   msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
@@ -536,6 +560,9 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   registerBubbleRef?: (msgId: string, el: HTMLDivElement | null) => void;
   animate?: boolean;
   onListened?: (msgId: string) => void;
+  quotedMsg?: Msg;
+  onQuoteClick?: (msgId: string) => void;
+  clientName: string;
 }) {
   const isMe = msg.sender_id === userId;
   const isAudio = msg.type === 'audio';
@@ -553,7 +580,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   // Long-press + clic droit combinés (voir lib/useLongPress.ts). Désactivé en
   // mode édition et tant que le menu contextuel est ouvert sur cette bulle (la
   // bulle reste dans le DOM en visibility:hidden pendant ce temps).
-  const canOpenMenu = isMe && (canEdit || canDelete) && !isEditing && !isMenuTarget;
+  const canOpenMenu = !isEditing && !isMenuTarget;
   const { ref: wrapperRef } = useLongPress(() => openMenu(), canOpenMenu);
   // editRect est remesuré par le composant parent au clic sur "Modifier" via
   // bubbleRefsMap (pas un rect figé au long-press) — voir onEdit dans le rendu
@@ -618,62 +645,102 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           position: 'relative',
           visibility: (isMenuTarget || isEditing) ? 'hidden' : 'visible',
         }}>
+        {!isEditing && msg.reply_to_id && (
+          <div
+            onClick={() => quotedMsg && onQuoteClick?.(quotedMsg.id)}
+            style={{
+              display: 'flex', flexDirection: 'column', gap: 1,
+              borderLeft: `3px solid ${isMe ? 'rgba(255,255,255,0.5)' : 'var(--ink)'}`,
+              paddingLeft: 8, marginBottom: 6, marginLeft: isImage ? 4 : 0, marginRight: isImage ? 4 : 0,
+              marginTop: isImage ? 4 : 0,
+              cursor: quotedMsg ? 'pointer' : 'default', opacity: 0.85,
+            }}
+          >
+            <div style={{ fontSize: 11, fontWeight: 600, color: isMe ? '#fff' : 'var(--ink)' }}>
+              {quotedMsg ? (quotedMsg.sender_id === userId ? 'Toi' : clientName) : ''}
+            </div>
+            <div style={{
+              fontSize: 12, color: isMe ? 'rgba(255,255,255,0.85)' : 'var(--muted)',
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220,
+            }}>
+              {!quotedMsg ? 'Message supprimé'
+                : quotedMsg.type === 'audio' ? '🎤 Message vocal'
+                : quotedMsg.type === 'image' ? '📷 Photo'
+                : quotedMsg.type === 'document' ? '📄 Document'
+                : quotedMsg.text}
+            </div>
+          </div>
+        )}
         {isEditing ? null : isAudio && msg.audio_url ? (
           <AudioBubble id={msg.id} url={msg.audio_url} duration={msg.duration_s} isMe={isMe} listened={!!msg.listened_at} onListened={isMe ? undefined : onListened} />
         ) : isImage && msg.audio_url ? (
-          <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
-            onClick={() => onOpenLightbox(msg.audio_url!)}
-          >
-            <img
-              src={msg.audio_url} alt=""
-              style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 12, display: 'block' }}
-            />
-            <div style={{
-              position: 'absolute', inset: 0, borderRadius: 12,
-              background: 'rgba(0,0,0,0)', display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
-              transition: 'background 180ms',
-            }}
-              onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.18)')}
-              onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0)')}
+          <div>
+            <div style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+              onClick={() => onOpenLightbox(msg.audio_url!)}
             >
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-                style={{ opacity: 0, transition: 'opacity 180ms', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }}
-                onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
-                onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+              <img
+                src={msg.audio_url} alt=""
+                style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 12, display: 'block' }}
+              />
+              <div style={{
+                position: 'absolute', inset: 0, borderRadius: 12,
+                background: 'rgba(0,0,0,0)', display: 'flex',
+                alignItems: 'center', justifyContent: 'center',
+                transition: 'background 180ms',
+              }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.18)')}
+                onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0)')}
               >
-                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
-              </svg>
+                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,0.9)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                  style={{ opacity: 0, transition: 'opacity 180ms', filter: 'drop-shadow(0 1px 3px rgba(0,0,0,0.4))' }}
+                  onMouseEnter={e => (e.currentTarget.style.opacity = '1')}
+                  onMouseLeave={e => (e.currentTarget.style.opacity = '0')}
+                >
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                  <line x1="11" y1="8" x2="11" y2="14"/><line x1="8" y1="11" x2="14" y2="11"/>
+                </svg>
+              </div>
             </div>
+            {msg.caption && (
+              <div style={{ fontSize: 13, color: isMe ? '#fff' : 'var(--ink)', padding: '6px 4px 2px', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {msg.caption}
+              </div>
+            )}
           </div>
         ) : isDocument && msg.audio_url ? (
-          <a href={msg.audio_url} target="_blank" rel="noopener noreferrer"
-            style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
-              background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)',
-              borderRadius: 10, padding: '10px 12px', minWidth: 200, maxWidth: 280 }}>
-            <div style={{
-              width: 38, height: 38, borderRadius: 8, flexShrink: 0,
-              background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.85)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+          <>
+            <a href={msg.audio_url} target="_blank" rel="noopener noreferrer"
+              style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none',
+                background: isMe ? 'rgba(255,255,255,0.10)' : 'var(--surface-2)',
+                borderRadius: 10, padding: '10px 12px', minWidth: 200, maxWidth: 280 }}>
+              <div style={{
+                width: 38, height: 38, borderRadius: 8, flexShrink: 0,
+                background: isMe ? 'rgba(255,255,255,0.15)' : 'var(--border)',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.85)' : 'var(--muted)'} strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
+                </svg>
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {msg.text || 'Document'}
+                </div>
+                <div style={{ fontSize: 11, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
+                  {getFileExt(msg.text || '')}
+                </div>
+              </div>
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
               </svg>
-            </div>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: isMe ? '#fff' : 'var(--ink)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {msg.text || 'Document'}
+            </a>
+            {msg.caption && (
+              <div style={{ fontSize: 13, color: isMe ? '#fff' : 'var(--ink)', padding: '6px 2px 0', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                {msg.caption}
               </div>
-              <div style={{ fontSize: 11, color: isMe ? 'rgba(255,255,255,0.55)' : 'var(--muted)', marginTop: 2 }}>
-                {getFileExt(msg.text || '')}
-              </div>
-            </div>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)'} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
-            </svg>
-          </a>
+            )}
+          </>
         ) : (
           <div style={{ fontSize: 14, lineHeight: 1.5, wordBreak: 'break-word' }}>{msg.text}</div>
         )}
@@ -712,8 +779,8 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
 
 // ─── Zone de conversation ─────────────────────────────────────────────────────
 
-function ConversationThread({ clientId, userId, clientName, clientInitials, isOnline, supabase, presenceCh }: {
-  clientId: string; userId: string; clientName: string; clientInitials: string;
+function ConversationThread({ clientId, userId, clientName, clientInitials, clientAvatarUrl, isOnline, supabase, presenceCh }: {
+  clientId: string; userId: string; clientName: string; clientInitials: string; clientAvatarUrl?: string | null;
   isOnline: boolean; supabase: ReturnType<typeof createClient>;
   presenceCh: ReturnType<typeof supabase.channel> | null;
 }) {
@@ -728,8 +795,10 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   const [showScrollArrow, setShowScrollArrow] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
+  const [fileCaption, setFileCaption] = useState('');
   const [isSendingFile, setIsSendingFile] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; html: string; msgId: string } | null>(null);
+  const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editRect, setEditRect] = useState<DOMRect | null>(null);
@@ -768,7 +837,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     setLoading(true);
     setMessages([]);
     supabase.from('messages')
-      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at')
+      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at, caption, reply_to_id')
       .eq('client_id', clientId)
       .order('created_at', { ascending: true })
       .then(({ data }) => {
@@ -1077,13 +1146,27 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   async function sendMessage(text: string) {
     if (!text.trim()) return;
     setInput('');
+    const replyId = replyingTo?.id ?? null;
     const optimisticId = `opt-text-${Date.now()}`;
-    const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: text.trim(), created_at: new Date().toISOString(), type: 'text' };
+    const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: text.trim(), created_at: new Date().toISOString(), type: 'text', reply_to_id: replyId };
     setMessages(prev => [...prev, optimistic]);
+    setReplyingTo(null);
     const { data } = await supabase.from('messages')
-      .insert({ client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', read: false })
-      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at').single();
+      .insert({ client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', read: false, reply_to_id: replyId })
+      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, caption, reply_to_id').single();
     if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
+  }
+
+  async function copyMessageText(text: string) {
+    try { await navigator.clipboard.writeText(text); } catch { /* clipboard indisponible (contexte non sécurisé) */ }
+  }
+
+  function scrollToMessage(msgId: string) {
+    const el = bubbleRefsMap.current.get(msgId);
+    if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('msg-flash-highlight');
+    setTimeout(() => el.classList.remove('msg-flash-highlight'), 1200);
   }
 
   // Édition / suppression — la policy RLS reste la seule vraie garantie de sécurité,
@@ -1113,9 +1196,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
   async function sendAudioMessage(blob: Blob, durationS: number) {
     const ext = blob.type.includes('mp4') ? 'mp4' : blob.type.includes('ogg') ? 'ogg' : 'webm';
     const strictType = ext === 'mp4' ? 'audio/mp4' : ext === 'ogg' ? 'audio/ogg' : 'audio/webm';
+    const replyId = replyingTo?.id ?? null;
+    setReplyingTo(null);
     const optimisticId = `opt-audio-${Date.now()}`;
     const localUrl = URL.createObjectURL(blob);
-    const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: '', created_at: new Date().toISOString(), type: 'audio', audio_url: localUrl, duration_s: durationS };
+    const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: '', created_at: new Date().toISOString(), type: 'audio', audio_url: localUrl, duration_s: durationS, reply_to_id: replyId };
     setMessages(prev => [...prev, optimistic]);
     try {
       const fileName = `${clientId}/${Date.now()}.${ext}`;
@@ -1123,26 +1208,29 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       const { error: uploadError } = await supabase.storage.from('voice-messages').upload(fileName, audioFile, { contentType: strictType, cacheControl: '3600' });
       if (uploadError) { setMessages(prev => prev.filter(m => m.id !== optimisticId)); URL.revokeObjectURL(localUrl); return; }
       const { data: urlData } = supabase.storage.from('voice-messages').getPublicUrl(fileName);
-      const { error: insertError } = await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: '', type: 'audio', audio_url: urlData.publicUrl, duration_s: Math.round(durationS), read: false });
+      const { error: insertError } = await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: '', type: 'audio', audio_url: urlData.publicUrl, duration_s: Math.round(durationS), read: false, reply_to_id: replyId });
       if (insertError) { setMessages(prev => prev.filter(m => m.id !== optimisticId)); URL.revokeObjectURL(localUrl); return; }
       setTimeout(() => URL.revokeObjectURL(localUrl), 5000);
     } catch { setMessages(prev => prev.filter(m => m.id !== optimisticId)); URL.revokeObjectURL(localUrl); }
   }
 
   // Envoi fichier — preview + confirmation avant envoi, comme côté élève
-  async function sendFile(file: File) {
+  async function sendFile(file: File, caption?: string) {
     const isImage = file.type.startsWith('image/');
     const type: 'image' | 'document' = isImage ? 'image' : 'document';
     if (file.size > (isImage ? 5*1024*1024 : 20*1024*1024)) { setIsSendingFile(false); return; }
     setIsSendingFile(true);
+    const replyId = replyingTo?.id ?? null;
     const ext = file.name.split('.').pop() || 'bin';
     const fileName = `${clientId}/${Date.now()}.${ext}`;
     const { error } = await supabase.storage.from('chat-medias').upload(fileName, file, { contentType: file.type });
     if (error) { setIsSendingFile(false); return; }
     const { data: urlData } = supabase.storage.from('chat-medias').getPublicUrl(fileName);
-    await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: file.name, type, audio_url: urlData.publicUrl, read: false });
+    await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: file.name, type, audio_url: urlData.publicUrl, read: false, caption: caption?.trim() || null, reply_to_id: replyId });
     setIsSendingFile(false);
+    setReplyingTo(null);
     setPendingFile(prev => { if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl); return null; });
+    setFileCaption('');
   }
 
   function formatFileSize(bytes: number) {
@@ -1224,14 +1312,18 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
     else messageGroups[messageGroups.length-1].msgs.push(msg);
   });
 
+  // Lookup O(1) pour l'affichage des citations (§13) — construite une fois par changement
+  // de `messages`, évite un .find() O(n) par bulle affichée.
+  const messagesById = new Map(messages.map(m => [m.id, m]));
+
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
       <div style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', background: 'var(--bg)', position: 'relative' }}>
 
         {/* Header */}
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)' }}>
-          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, position: 'relative', flexShrink: 0 }}>
-            {clientInitials}
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <Avatar initials={clientInitials} avatarUrl={clientAvatarUrl} size={40} />
             <div style={{ position: 'absolute', bottom: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
@@ -1302,6 +1394,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
                       isMenuTarget={ctxMenu?.msgId === msg.id}
                       onEnterViewport={markMessageRead}
                       onListened={markMessageListened}
+                      quotedMsg={msg.reply_to_id ? messagesById.get(msg.reply_to_id) : undefined}
+                      onQuoteClick={scrollToMessage}
+                      clientName={clientName}
                       registerBubbleRef={(id, el) => {
                         if (el) bubbleRefsMap.current.set(id, el);
                         else bubbleRefsMap.current.delete(id);
@@ -1342,6 +1437,39 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           </svg>
         </button>
 
+        {/* Bandeau de réponse — visible au-dessus de n'importe quel état de la barre du bas
+            (texte, fichier en attente, enregistrement vocal), pas seulement le textarea. */}
+        {replyingTo && (
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10,
+            padding: '8px 14px', background: 'var(--surface)',
+            borderTop: '1px solid var(--border)', flexShrink: 0,
+            animation: 'slideUp 150ms ease-out',
+          }}>
+            <div style={{ width: 3, alignSelf: 'stretch', borderRadius: 2, background: 'var(--ink)', flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink)' }}>
+                {replyingTo.sender_id === userId ? 'Toi' : clientName}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {replyingTo.type === 'audio' ? '🎤 Message vocal'
+                  : replyingTo.type === 'image' ? '📷 Photo'
+                  : replyingTo.type === 'document' ? '📄 Document'
+                  : replyingTo.text}
+              </div>
+            </div>
+            <button type="button" onClick={() => setReplyingTo(null)} className="tap-scale" style={{
+              width: 28, height: 28, borderRadius: '50%', border: 'none',
+              background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
+              justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        )}
+
         {/* Input file */}
         <input ref={fileInputRef} type="file" accept="image/*,application/pdf,.doc,.docx" style={{ display: 'none' }}
           onChange={e => {
@@ -1358,72 +1486,90 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
           <div style={{
             padding: '10px 12px', background: 'var(--surface)',
             borderTop: '1px solid var(--border)',
-            display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0,
+            display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0,
             animation: 'slideUp 180ms ease-out',
           }}>
-            {pendingFile.type === 'image' && pendingFile.previewUrl ? (
-              <img src={pendingFile.previewUrl} alt=""
-                style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
-            ) : (
-              <div style={{
-                width: 56, height: 56, borderRadius: 8, flexShrink: 0,
-                background: 'var(--surface-2)', border: '1px solid var(--border)',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-              }}>
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
-                </svg>
-              </div>
-            )}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)',
-                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {pendingFile.file.name}
-              </div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                {formatFileSize(pendingFile.file.size)}
-              </div>
-            </div>
-            <button type="button"
-              onClick={() => {
-                if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
-                setPendingFile(null);
-              }}
-              style={{
-                width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border)',
-                background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
-                justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
-              }}>
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
-              </svg>
-            </button>
-            <button type="button"
-              disabled={isSendingFile}
-              onClick={() => sendFile(pendingFile.file)}
-              className="btn-primary"
-              style={{
-                height: 36, padding: '0 16px', borderRadius: 18, fontSize: 13, fontWeight: 600,
-                display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
-                opacity: isSendingFile ? 0.6 : 1,
-              }}>
-              {isSendingFile ? (
-                <>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
-                    style={{ animation: 'spin 0.8s linear infinite' }}>
-                    <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
-                  </svg>
-                  Envoi…
-                </>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              {pendingFile.type === 'image' && pendingFile.previewUrl ? (
+                <img src={pendingFile.previewUrl} alt=""
+                  style={{ width: 56, height: 56, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />
               ) : (
-                <>
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                <div style={{
+                  width: 56, height: 56, borderRadius: 8, flexShrink: 0,
+                  background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>
                   </svg>
-                  Envoyer
-                </>
+                </div>
               )}
-            </button>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500, color: 'var(--ink)',
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {pendingFile.file.name}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                  {formatFileSize(pendingFile.file.size)}
+                </div>
+              </div>
+              <button type="button"
+                onClick={() => {
+                  if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
+                  setPendingFile(null);
+                  setFileCaption('');
+                }}
+                style={{
+                  width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border)',
+                  background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
+                  justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
+                }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                  <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <textarea
+                value={fileCaption}
+                onChange={e => setFileCaption(e.target.value)}
+                placeholder="Ajouter une légende…"
+                rows={1}
+                style={{
+                  flex: 1, resize: 'none', border: '1px solid var(--border)',
+                  borderRadius: 18, padding: '9px 14px', fontSize: 13,
+                  fontFamily: 'inherit', lineHeight: 1.4, outline: 'none',
+                  background: 'var(--surface-2)', color: 'var(--ink)',
+                  maxHeight: 80,
+                }}
+              />
+              <button type="button"
+                disabled={isSendingFile}
+                onClick={() => sendFile(pendingFile.file, fileCaption)}
+                className="btn-primary tap-scale"
+                style={{
+                  height: 36, padding: '0 16px', borderRadius: 18, fontSize: 13, fontWeight: 600,
+                  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                  opacity: isSendingFile ? 0.6 : 1,
+                }}>
+                {isSendingFile ? (
+                  <>
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"
+                      style={{ animation: 'spin 0.8s linear infinite' }}>
+                      <path d="M21 12a9 9 0 1 1-6.219-8.56"/>
+                    </svg>
+                    Envoi…
+                  </>
+                ) : (
+                  <>
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                    Envoyer
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
 
@@ -1492,11 +1638,17 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, isOn
       {ctxMenu && (() => {
         const msg = messages.find(m => m.id === ctxMenu.msgId);
         if (!msg) return null;
+        const msgIsMe = msg.sender_id === userId;
+        const isTextMessage = !msg.type || msg.type === 'text';
         return (
           <MessageContextMenu
             rect={ctxMenu.rect}
             html={ctxMenu.html}
+            isMe={msgIsMe}
+            isTextMessage={isTextMessage}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
+            onReply={() => setReplyingTo(msg)}
+            onCopy={() => copyMessageText(msg.text)}
             onEdit={() => {
               // Mesurer AVANT isEditing=true : une fois vrai, le contenu texte de
               // la bulle est vidé (rendu null) et son rect s'effondre au padding seul.
@@ -1633,9 +1785,7 @@ export default function PageChat() {
                 transition: 'background 100ms',
               }}>
                 <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, color: 'var(--ink)' }}>
-                    {initials}
-                  </div>
+                  <Avatar initials={initials} avatarUrl={cl.avatar_url} size={34} />
                   <div style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
                 </div>
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -1658,6 +1808,7 @@ export default function PageChat() {
           userId={userId}
           clientName={activeClient.name}
           clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
+          clientAvatarUrl={activeClient.avatar_url}
           isOnline={isClientOnline(activeId)}
           supabase={supabase}
           presenceCh={presenceCh}

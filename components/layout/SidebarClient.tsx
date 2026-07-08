@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
+import Avatar from '../ui/Avatar';
 import Onboarding from '../ui/Onboarding';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
@@ -88,9 +89,7 @@ export default function SidebarClient() {
           );
         })}
         <div className="sidebar-coach-info">
-          <div className="avatar" style={{ width: 30, height: 30, fontSize: 11, background: 'var(--green)' }}>
-            {user?.initials || '??'}
-          </div>
+          <Avatar initials={user?.initials || '??'} avatarUrl={user?.avatar_url} size={30} className={user?.avatar_url ? undefined : 'avatar-fallback-green'} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{user?.full_name || '—'}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>Élève{week ? ` · Semaine ${week}` : ''}</div>

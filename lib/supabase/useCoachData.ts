@@ -12,6 +12,7 @@ export interface ClientWithMetrics extends Client {
   resources: { id: string; title: string; description: string | null; url: string | null; week: number | null; created_at: string }[];
   lastCoachMessage: string | null;
   coachName: string | null;
+  avatar_url: string | null;
 }
 
 export interface CoachData {
