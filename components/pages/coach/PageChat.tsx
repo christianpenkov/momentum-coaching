@@ -67,7 +67,7 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
-const WAVEFORM = [4,9,15,20,12,18,8,22,14,6,17,10,19,13,5];
+const WAVEFORM = [4,9,15,20,12,18,8,22,14,6,17,10,19,13,5,8,16,11,21,7,14,9,18,12,4,15,10,20,6,13];
 
 // ─── AudioBubble ─────────────────────────────────────────────────────────────
 
@@ -222,10 +222,10 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           onPointerDown={handlePointerDown}
           style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
         >
-          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', gap: 2, overflow: 'hidden' }}>
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             {WAVEFORM.map((h, i) => (
               <div key={i} style={{
-                flex: 1, minWidth: 2, height: Math.max(3, Math.round((h / 22) * 22)), borderRadius: 2,
+                width: 3, flexShrink: 0, height: Math.max(3, Math.round((h / 22) * 22)), borderRadius: 2,
                 background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
                 transition: 'background 0.1s',
               }} />
@@ -233,8 +233,8 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           </div>
           {progress > 0 && (
             <div style={{
-              position: 'absolute', top: '50%', left: `${progress}%`, width: 13, height: 13, borderRadius: '50%',
-              background: fillColor, transform: 'translate(-50%, -50%)', boxShadow: '0 1px 3px rgba(0,0,0,.35)',
+              position: 'absolute', top: '50%', left: `${progress}%`, width: 14, height: 14, borderRadius: '50%',
+              background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 4px rgba(0,0,0,.4)',
               transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
             }} />
           )}
@@ -646,7 +646,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           borderRadius: isMe
             ? (isContinued ? '18px 4px 4px 18px' : isLast ? '18px 4px 18px 18px' : '18px 4px 4px 18px')
             : (isContinued ? '4px 18px 18px 4px' : isLast ? '4px 18px 18px 18px' : '4px 18px 18px 4px'),
-          padding: isAudio ? '10px 12px 8px 12px' : isImage ? '4px' : '9px 12px',
+          padding: isAudio ? '10px 12px' : isImage ? '4px' : '9px 12px',
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
@@ -793,7 +793,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         {!isEditing && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            gap: 3, marginTop: isImage ? 0 : 4,
+            gap: 3, marginTop: isImage ? 0 : isAudio ? 6 : 4,
             ...(isImage ? {
               position: 'absolute', bottom: 6, right: 8,
               background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
