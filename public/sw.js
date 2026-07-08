@@ -60,6 +60,9 @@ self.addEventListener('push', e => {
           {
             body: (payload.body || 'Nouveau message').substring(0, 100),
             icon: '/favicon-momentum.png',
+            // Miniature large affichée dans la notification (photo envoyée, ou
+            // miniature PDF pour un document) — absent pour les messages texte/vocal.
+            ...(payload.image ? { image: payload.image } : {}),
             tag: 'momentum-msg',
             renotify: true,
             data: { url: payload.url || '/' },

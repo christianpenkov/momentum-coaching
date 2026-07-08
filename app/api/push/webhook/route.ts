@@ -51,7 +51,15 @@ export async function POST(req: NextRequest) {
       .from('profiles').select('full_name').eq('id', record.sender_id).maybeSingle();
 
     const title = sender?.full_name || 'Momentum';
-    const bodyText = record.type === 'audio' ? '🎤 Message vocal' : (record.text || 'Nouveau message');
+    const bodyText = record.type === 'audio' ? '🎤 Message vocal'
+      : record.type === 'image' ? '📷 Photo'
+      : record.type === 'document' ? '📄 Document'
+      : (record.text || 'Nouveau message');
+    // Miniature affichée dans la notification (Android + certaines PWA iOS) — l'image
+    // elle-même pour un message image, la miniature générée pour un PDF, rien pour le reste.
+    const notifImage = record.type === 'image' ? record.audio_url
+      : record.type === 'document' ? record.thumbnail_url
+      : undefined;
     const url = record.sender_id === clientRow.profile_id ? '/messages' : '/client/messages';
 
     // Badge PWA (pastille iOS avec chiffre) — compte tous les messages non lus adressés
@@ -81,7 +89,7 @@ export async function POST(req: NextRequest) {
     );
     log('[WEBHOOK] VAPID ok');
 
-    const payload = JSON.stringify({ title, body: bodyText.substring(0, 100), url, unreadCount: unreadCount ?? 1 });
+    const payload = JSON.stringify({ title, body: bodyText.substring(0, 100), url, unreadCount: unreadCount ?? 1, image: notifImage });
 
     const results = await Promise.allSettled(
       subs.map(sub => webpush.sendNotification(
