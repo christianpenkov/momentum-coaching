@@ -57,10 +57,11 @@ export function ReactionBar({ top, left, onReact }: { top: number; left: number;
       background: 'var(--surface)', borderRadius: 28, padding: '6px 8px',
       boxShadow: '0 4px 16px rgba(0,0,0,.15)', border: '1px solid var(--border)',
     }}>
-      {QUICK_REACTIONS.map(emoji => (
-        <button key={emoji} onMouseDown={() => onReact(emoji)} className="tap-scale" style={{
+      {QUICK_REACTIONS.map((emoji, i) => (
+        <button key={emoji} onMouseDown={() => onReact(emoji)} className="tap-scale msg-reaction-emoji" style={{
           width: 32, height: 32, border: 'none', background: 'none', cursor: 'pointer',
           fontSize: 19, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: '50%',
+          animationDelay: `${i * 30}ms`,
         }}>{emoji}</button>
       ))}
     </div>
