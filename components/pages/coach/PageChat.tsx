@@ -10,7 +10,7 @@ import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
-import { logAudio, getAudioLogs, clearAudioLogs } from '@/lib/audioDebug';
+import { logAudio } from '@/lib/audioDebug';
 import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { buildMenuItems, renderMenuItem, ReactionBar, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
@@ -927,7 +927,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   const bubbleRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [editText, setEditText] = useState('');
   const [actionError, setActionError] = useState<string | null>(null);
-  const [audioLogsCopied, setAudioLogsCopied] = useState(false);
   const [, forceTick] = useState(0);
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -1493,21 +1492,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
               {clientTyping ? 'En train d\'écrire…' : isOnline ? 'En ligne' : 'Hors ligne'}
             </div>
           </div>
-          {/* Bouton debug temporaire — copie les logs audio accumulés (bug lecture vocale
-              bloquée sur mobile). À retirer une fois le bug résolu. */}
-          <button
-            onClick={async () => {
-              const logs = getAudioLogs() || '(aucun log audio pour le moment)';
-              try { await navigator.clipboard.writeText(logs); setAudioLogsCopied(true); setTimeout(() => setAudioLogsCopied(false), 2000); } catch {}
-            }}
-            style={{
-              marginLeft: 'auto', flexShrink: 0, padding: '6px 10px', fontSize: 11, fontWeight: 600,
-              borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)',
-              color: 'var(--muted)', cursor: 'pointer',
-            }}
-          >
-            {audioLogsCopied ? 'Copié !' : 'Logs vocaux'}
-          </button>
         </div>
 
         {/* Messages */}
