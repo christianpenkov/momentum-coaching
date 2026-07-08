@@ -856,12 +856,17 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         {!isEditing && (
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            gap: 3, marginTop: 4,
+            gap: 3, marginTop: isAudio ? 4 : 6,
+            width: 'fit-content', marginLeft: 'auto',
+            ...(isAudio ? {} : {
+              background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)',
+              borderRadius: 6, padding: '2px 5px',
+            }),
           }}>
             {msg.edited_at && (
-              <span style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)' }}>modifié ·</span>
+              <span style={{ fontSize: 10, color: isAudio ? (isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)') : 'rgba(255,255,255,0.7)' }}>modifié ·</span>
             )}
-            <span style={{ fontSize: 10, color: isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)' }}>{formatTime(msg.created_at)}</span>
+            <span style={{ fontSize: 10, color: isAudio ? (isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)') : 'rgba(255,255,255,0.9)' }}>{formatTime(msg.created_at)}</span>
             <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} isAudio={isAudio} listenedAt={msg.listened_at} />
           </div>
         )}
@@ -902,7 +907,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   const [showScrollArrow, setShowScrollArrow] = useState(false);
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
-  const [fileCaption, setFileCaption] = useState('');
   const [isSendingFile, setIsSendingFile] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string; lift: number; menuOnly: boolean } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
@@ -1361,7 +1365,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   }
 
   // Envoi fichier — preview + confirmation avant envoi, comme côté élève
-  async function sendFile(file: File, caption?: string) {
+  async function sendFile(file: File) {
     const isImage = file.type.startsWith('image/');
     if (file.size > (isImage ? 5*1024*1024 : 20*1024*1024)) { setIsSendingFile(false); return; }
     setIsSendingFile(true);
@@ -1374,7 +1378,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     const formData = new FormData();
     formData.append('file', file);
     formData.append('client_id', clientId);
-    if (caption?.trim()) formData.append('caption', caption.trim());
     if (replyId) formData.append('reply_to_id', replyId);
     const res = await fetch('/api/messages/upload-file', { method: 'POST', body: formData });
     const json = await res.json();
@@ -1382,7 +1385,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     setIsSendingFile(false);
     setReplyingTo(null);
     setPendingFile(prev => { if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl); return null; });
-    setFileCaption('');
   }
 
   // Enregistrement
@@ -1683,7 +1685,6 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
                 onClick={() => {
                   if (pendingFile.previewUrl) URL.revokeObjectURL(pendingFile.previewUrl);
                   setPendingFile(null);
-                  setFileCaption('');
                 }}
                 style={{
                   width: 32, height: 32, borderRadius: '50%', border: '1px solid var(--border)',
@@ -1695,23 +1696,10 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
                 </svg>
               </button>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <textarea
-                value={fileCaption}
-                onChange={e => setFileCaption(e.target.value)}
-                placeholder="Ajouter une légende…"
-                rows={1}
-                style={{
-                  flex: 1, resize: 'none', border: '1px solid var(--border)',
-                  borderRadius: 18, padding: '9px 14px', fontSize: 13,
-                  fontFamily: 'inherit', lineHeight: 1.4, outline: 'none',
-                  background: 'var(--surface-2)', color: 'var(--ink)',
-                  maxHeight: 80,
-                }}
-              />
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }}>
               <button type="button"
                 disabled={isSendingFile}
-                onClick={() => sendFile(pendingFile.file, fileCaption)}
+                onClick={() => sendFile(pendingFile.file)}
                 className="btn-primary tap-scale"
                 style={{
                   height: 36, padding: '0 16px', borderRadius: 18, fontSize: 13, fontWeight: 600,
