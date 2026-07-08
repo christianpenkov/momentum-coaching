@@ -67,7 +67,7 @@ function formatFileSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
-const WAVEFORM = [4,8,14,9,18,12,20,15,22,11,17,13,21,10,16,8,19,12,6,14,9,17,11,5,7];
+const WAVEFORM = [4,9,15,20,12,18,8,22,14,6,17,10,19,13,5];
 
 // ─── AudioBubble ─────────────────────────────────────────────────────────────
 
@@ -185,7 +185,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 10, width: 230, maxWidth: '100%' }}>
+    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 6, width: 250, maxWidth: '100%' }}>
       <audio ref={audioRef} src={url} preload="metadata" />
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <Avatar initials={initials} avatarUrl={avatarUrl} size={46} />
@@ -208,7 +208,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       </button>
       <div
         onPointerDown={handlePointerDown}
-        style={{ flex: 1, minWidth: 0, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer', touchAction: 'none' }}
+        style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 118, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer', touchAction: 'none' }}
       >
         {WAVEFORM.map((h, i) => (
           <div key={i} style={{

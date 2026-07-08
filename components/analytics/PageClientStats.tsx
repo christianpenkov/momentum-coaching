@@ -433,10 +433,18 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   // ── Top contenus ──────────────────────────────────────────────────────────
   const igCallsAll = calls.filter(isIGCall);
   const ytCallsAll = calls.filter(isYTCall);
-  // igLive/ytLive en priorité pour les vues lifetime — ig/yt basculent vers un historique figé (snapshot
-  // d'une période passée) selon periodIndex, alors que ce bloc est un classement all-time indépendant de la période
-  const igPosts = (igLive?.posts?.length ? igLive.posts : ig?.posts) || [];
-  const ytVideos = (ytLive?.videos?.length ? ytLive.videos : yt?.videos) || [];
+  // Fusion live + historique — ce bloc est un classement all-time indépendant de la période, mais igLive/
+  // ytLive ne couvrent que les 30 derniers jours : un post plus ancien disparaîtrait s'il fallait choisir
+  // l'un ou l'autre. Le live prime pour les vues (toujours à jour), l'historique comble les posts que le
+  // live ne couvre plus.
+  const igPostsById = new Map<string, any>();
+  for (const p of (ig?.posts ?? [])) igPostsById.set(p.id, p);
+  for (const p of (igLive?.posts ?? [])) igPostsById.set(p.id, { ...igPostsById.get(p.id), ...p });
+  const igPosts = [...igPostsById.values()];
+  const ytVideosById = new Map<string, any>();
+  for (const v of (yt?.videos ?? [])) ytVideosById.set(v.id, v);
+  for (const v of (ytLive?.videos ?? [])) ytVideosById.set(v.id, { ...ytVideosById.get(v.id), ...v });
+  const ytVideos = [...ytVideosById.values()];
   const ytTotalViews = ytVideos.reduce((s, v) => s + v.views30d, 0);
   const ytTotalCallsBooked = ytCallsAll.filter(c => c.status === 'active').length;
   const ytTotalNoShow = ytCallsAll.filter(c => c.no_show).length;
@@ -2928,9 +2936,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
-    // Vues lifetime (depuis publication) — pour Cash/Vue, toujours depuis les données live actuelles,
-    // jamais l'historique d'une période passée (qui fige les vues à cette date-là, pas le total à jour)
-    const viewsLifetime = platform === 'IG' ? (igLiveViewsById.get(postId) ?? 0) : (ytLiveViewsById.get(postId) ?? 0);
+    // Vues lifetime (depuis publication) — pour Cash/Vue. Priorité aux données live actuelles (jamais
+    // l'historique figé d'une période passée) ; fallback sur l'historique si le post n'apparaît plus
+    // dans la fenêtre de fetch live (30j) — un vieux post disparu du live garde sa dernière valeur connue
+    // plutôt que de tomber à 0.
+    const viewsLifetime = platform === 'IG'
+      ? (igLiveViewsById.get(postId) ?? igPost?.views ?? 0)
+      : (ytLiveViewsById.get(postId) ?? ytVideo?.views ?? 0);
     // Nom du LM associé aux leads de ce contenu (premier keyword trouvé)
     const lmKeyword = postLeads[0]?.keyword || null;
     const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;

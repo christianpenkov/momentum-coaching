@@ -84,7 +84,7 @@ function formatFileSize(bytes: number) {
 }
 
 // Waveform statique — compacte, aspect "onde vocale" sans prendre trop de place dans la bulle
-const WAVEFORM = [4,8,14,9,18,12,20,15,22,11,17,13,21,10,16,8,19,12,6,14,9,17,11,5,7];
+const WAVEFORM = [4,9,15,20,12,18,8,22,14,6,17,10,19,13,5];
 
 // ─── AudioBubble — player custom coordonné ───────────────────────────────────
 
@@ -213,7 +213,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const progressIdx = Math.round((progress / 100) * (WAVEFORM.length - 1));
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 10, width: 230, maxWidth: '100%' }}>
+    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 6, width: 250, maxWidth: '100%' }}>
       <audio ref={audioRef} src={url} preload="metadata" />
 
       {/* Avatar (rappel écouté/non écouté) + bouton play/pause séparé, comme WhatsApp */}
@@ -249,7 +249,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       {/* Waveform pointillée + curseur bleu */}
       <div
         onPointerDown={handlePointerDown}
-        style={{ flex: 1, minWidth: 0, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer', touchAction: 'none' }}
+        style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 118, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer', touchAction: 'none' }}
       >
         {WAVEFORM.map((h, i) => (
           <div
