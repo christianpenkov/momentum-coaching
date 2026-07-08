@@ -185,10 +185,21 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 6, width: 250, maxWidth: '100%' }}>
+    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 10, width: 300, maxWidth: '100%' }}>
       <audio ref={audioRef} src={url} preload="metadata" />
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={46} />
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={42} />
+        {/* Icône micro — overlay permanent sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
+        <span style={{
+          position: 'absolute', bottom: -3, right: -3, width: 18, height: 18, borderRadius: '50%',
+          background: isMe ? 'var(--ink)' : 'var(--surface-2)', border: `2px solid ${isMe ? 'var(--ink)' : 'var(--surface)'}`,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={isMe ? '#fff' : 'var(--muted)'} strokeWidth="2.5" strokeLinecap="round">
+            <rect x="9" y="2" width="6" height="12" rx="3" fill={isMe ? '#fff' : 'var(--muted)'} stroke="none"/>
+            <path d="M5 11a7 7 0 0014 0M12 18v3"/>
+          </svg>
+        </span>
         {/* Pastille "non écouté" — comme WhatsApp, disparaît une fois le vocal réellement
             lancé. Uniquement sur les messages reçus (onListened défini seulement pour !isMe). */}
         {onListened && !listened && (
@@ -206,28 +217,32 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
       </button>
-      <div
-        onPointerDown={handlePointerDown}
-        style={{ flex: '0 1 auto', minWidth: 0, maxWidth: 118, position: 'relative', display: 'flex', alignItems: 'center', gap: 3, height: 32, cursor: 'pointer', touchAction: 'none' }}
-      >
-        {WAVEFORM.map((h, i) => (
-          <div key={i} style={{
-            width: 3, height: Math.max(4, Math.round((h / 22) * 30)), borderRadius: 2, flexShrink: 0,
-            background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
-            transition: 'background 0.1s',
-          }} />
-        ))}
-        {progress > 0 && (
-          <div style={{
-            position: 'absolute', top: '50%', left: `${progress}%`, width: 16, height: 16, borderRadius: '50%',
-            background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 4px rgba(0,0,0,.4)',
-            transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
-          }} />
-        )}
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+        <div
+          onPointerDown={handlePointerDown}
+          style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
+        >
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', gap: 2, overflow: 'hidden' }}>
+            {WAVEFORM.map((h, i) => (
+              <div key={i} style={{
+                flex: 1, minWidth: 2, height: Math.max(3, Math.round((h / 22) * 22)), borderRadius: 2,
+                background: i <= progressIdx && progress > 0 ? fillColor : trackBg,
+                transition: 'background 0.1s',
+              }} />
+            ))}
+          </div>
+          {progress > 0 && (
+            <div style={{
+              position: 'absolute', top: '50%', left: `${progress}%`, width: 13, height: 13, borderRadius: '50%',
+              background: fillColor, transform: 'translate(-50%, -50%)', boxShadow: '0 1px 3px rgba(0,0,0,.35)',
+              transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
+            }} />
+          )}
+        </div>
+        <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>
+          {progress > 0 && audioRef.current ? formatDuration(audioRef.current.currentTime) : formatDuration(currentDuration)}
+        </span>
       </div>
-      <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, flexShrink: 0, whiteSpace: 'nowrap', alignSelf: 'flex-end' }}>
-        {progress > 0 && audioRef.current ? formatDuration(audioRef.current.currentTime) : formatDuration(currentDuration)}
-      </span>
     </div>
   );
 }
