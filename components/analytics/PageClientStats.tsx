@@ -345,7 +345,7 @@ type Period = 7 | 30;
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const _ovPIdx = periodIndex ?? 0;
@@ -431,8 +431,11 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   if (closingRate > 0 && closingRate < 20) signalData.push({ type: 'amber', text: `Taux de closing à ${fmt(closingRate, 1)} % — sous le seuil cible de 25 %` });
 
   // ── Top contenus ──────────────────────────────────────────────────────────
-  const igCallsAll = calls.filter(isIGCall);
-  const ytCallsAll = calls.filter(isYTCall);
+  // Ce bloc est all-time — callsAllTime (jamais filtré par période), PAS calls (= callsEff, qui EST
+  // coupé sur la fenêtre de la période affichée dès que periodIndex > 0).
+  const callsForTopContent = callsAllTime ?? calls;
+  const igCallsAll = callsForTopContent.filter(isIGCall);
+  const ytCallsAll = callsForTopContent.filter(isYTCall);
   // Fusion live + historique pour la LISTE de contenus (identité, titre, thumbnail) — ce bloc est un
   // classement all-time, mais igLive/ytLive ne couvrent que les 30 derniers jours : un post plus ancien
   // disparaîtrait s'il fallait choisir l'un ou l'autre.
@@ -2476,7 +2479,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, leadIdToMediaId, igLive, ytLive, shortioChartHistory, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -2497,6 +2500,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   lmClickedByLeadId?: Map<string, string>;
   linkClickedByLeadId?: Map<string, string>;
   calls?: CallRecord[];
+  callsAllTime?: CallRecord[];
   leadIdToMediaId?: Map<string, string>;
   igLive?: IGStats | null;
   ytLive?: YTStats | null;
@@ -2965,8 +2969,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => matchesContent(c) && isInPeriod(c.scheduled_at))
       : [];
-    // Calls lifetime (depuis publication du contenu) — pour Cash/Vue et % qualifié, indépendant du filtre de période
-    const postCallsLifetime = (calls && leadIdToMediaId) ? calls.filter(matchesContent) : [];
+    // Calls lifetime (depuis publication du contenu) — pour Cash/Vue et % qualifié, indépendant du filtre
+    // de période. Source = callsAllTime (jamais coupé par periodIndex), PAS calls (= callsEff, qui EST
+    // filtré sur la fenêtre de la période affichée dès que periodIndex > 0 — cf. callsHist/fetchSnapshot).
+    const postCallsLifetime = (callsAllTime && leadIdToMediaId) ? callsAllTime.filter(matchesContent) : [];
     const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
     const callsBooked = postCalls.filter(c => c.status === 'active').length;
     const callsHonored = postCalls.filter(c => c.status === 'active' && !c.no_show).length;
@@ -2986,15 +2992,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // Cash/Vue lifetime : revenue cumulé depuis publication / vues cumulées depuis publication
     const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (c.revenue || 0), 0);
     const cashParVue = viewsLifetime !== null && viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
-    if (typeof window !== 'undefined' && (revenueLifetime > 0 || postCallsLifetime.length > 0)) {
-      console.log('[CashVue debug]', {
-        postId, platform, title: title.slice(0, 30), periodIndex,
-        viewsLifetimeRaw, viewsLifetime, revenueLifetime, cashParVue,
-        postCallsLifetimeCount: postCallsLifetime.length,
-        postCallsLifetimeRevenues: postCallsLifetime.map(c => ({ id: c.id, revenue: c.revenue, scheduled_at: c.scheduled_at })),
-        igLiveHasPost: platform === 'IG' ? igLiveViewsById.has(postId) : ytLiveViewsById.has(postId),
-      });
-    }
 
     // % qualifié : parmi les calls honorés avec qualified renseigné (exclut no-show et non-renseignés)
     const qualifiableCalls = postCallsLifetime.filter(c => c.status === 'active' && !c.no_show && c.qualified !== null && c.qualified !== undefined);
@@ -5415,11 +5412,11 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
