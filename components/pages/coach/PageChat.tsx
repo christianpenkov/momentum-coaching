@@ -221,7 +221,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
       </button>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2, marginTop: 9 }}>
         <div
           onPointerDown={handlePointerDown}
           style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
@@ -640,6 +640,9 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         position: 'relative', overflow: 'visible',
         transform: liftPx ? `translateY(-${liftPx}px)` : undefined,
         transition: 'transform 160ms ease-out',
+        // Le message ciblé par le menu doit rester net au-dessus du fond flouté (portail
+        // à z-index 9999) — sans ça il subit le flou comme le reste de la page derrière.
+        zIndex: isMenuTarget ? 10000 : undefined,
       }}
     >
       <div
@@ -663,12 +666,14 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
             style={{
               position: 'absolute', top: 4, right: 6,
               width: 28, height: 28, borderRadius: '50%', border: 'none',
-              background: 'transparent',
+              background: isImage
+                ? 'radial-gradient(circle, rgba(0,0,0,0.35) 0%, rgba(0,0,0,0.15) 70%, transparent 100%)'
+                : 'transparent',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               cursor: 'pointer', zIndex: 5,
             } as React.CSSProperties}
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isMe ? '#fff' : 'var(--ink)'} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={isImage ? '#fff' : (isMe ? '#fff' : 'var(--ink)')} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="6 9 12 15 18 9" />
             </svg>
           </button>
