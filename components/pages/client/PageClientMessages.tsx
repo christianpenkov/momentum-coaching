@@ -257,7 +257,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
         )}
       </button>
 
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center', gap: 2, alignSelf: 'stretch' }}>
         {/* Waveform + curseur, étirée pour remplir l'espace disponible (comme WhatsApp) */}
         <div
           onPointerDown={handlePointerDown}
