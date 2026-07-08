@@ -2986,6 +2986,15 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // Cash/Vue lifetime : revenue cumulé depuis publication / vues cumulées depuis publication
     const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (c.revenue || 0), 0);
     const cashParVue = viewsLifetime !== null && viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
+    if (typeof window !== 'undefined' && (revenueLifetime > 0 || postCallsLifetime.length > 0)) {
+      console.log('[CashVue debug]', {
+        postId, platform, title: title.slice(0, 30), periodIndex,
+        viewsLifetimeRaw, viewsLifetime, revenueLifetime, cashParVue,
+        postCallsLifetimeCount: postCallsLifetime.length,
+        postCallsLifetimeRevenues: postCallsLifetime.map(c => ({ id: c.id, revenue: c.revenue, scheduled_at: c.scheduled_at })),
+        igLiveHasPost: platform === 'IG' ? igLiveViewsById.has(postId) : ytLiveViewsById.has(postId),
+      });
+    }
 
     // % qualifié : parmi les calls honorés avec qualified renseigné (exclut no-show et non-renseignés)
     const qualifiableCalls = postCallsLifetime.filter(c => c.status === 'active' && !c.no_show && c.qualified !== null && c.qualified !== undefined);
