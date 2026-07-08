@@ -14,7 +14,6 @@ export function buildMenuItems(isMe: boolean, isTextMessage: boolean, canEdit: b
   } else {
     if (canEdit) items.push({ key: 'edit' });
     if (canDelete) items.push({ key: 'delete' });
-    if (isTextMessage) items.push({ key: 'copy' });
   }
   return items;
 }
