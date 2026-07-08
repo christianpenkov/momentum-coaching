@@ -1567,6 +1567,15 @@ export default function PageClientMessages() {
     // coup (seul top l'est pour le lift) — d'où un décalage horizontal visible du clone.
     requestAnimationFrame(() => {
       const rawRect = bubbleEl.getBoundingClientRect();
+      const wrapperRect = bubbleEl.parentElement?.getBoundingClientRect();
+      console.log('[DEBUG openMenu][client]', {
+        msgId: msg.id, reactionDetail: !!opts.reactionDetail,
+        bubbleRect: { x: rawRect.x, left: rawRect.left, right: rawRect.right, width: rawRect.width, top: rawRect.top, bottom: rawRect.bottom },
+        wrapperRect: wrapperRect ? { x: wrapperRect.x, left: wrapperRect.left, right: wrapperRect.right, width: wrapperRect.width } : null,
+        bubbleElClasses: bubbleEl.className,
+        bubbleElStyle: bubbleEl.getAttribute('style'),
+        parentStyle: bubbleEl.parentElement?.getAttribute('style'),
+      });
       // Le panneau de détail de réaction n'affiche jamais la barre d'emojis complète —
       // utiliser REACTION_BAR_HEIGHT ici sous-évaluait la place nécessaire dans certains
       // cas et sur-évaluait dans d'autres, faisant remonter le message de travers et
@@ -1582,6 +1591,7 @@ export default function PageClientMessages() {
       const rect = lift > 0
         ? new DOMRect(rawRect.x, rawRect.top - lift, rawRect.width, rawRect.height)
         : rawRect;
+      console.log('[DEBUG openMenu][client] final rect', { x: rect.x, left: rect.left, width: rect.width, top: rect.top, lift });
       // Clone HTML de la bulle affiché en portail au-dessus du fond flouté pendant que le
       // menu est ouvert — l'original vit dans un conteneur overflow:auto (scroll des
       // messages), qui clippe toujours ses enfants visuellement peu importe le z-index,

@@ -1336,6 +1336,15 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     // coup (seul top l'est pour le lift) — d'où un décalage horizontal visible du clone.
     requestAnimationFrame(() => {
       const rawRect = bubbleEl.getBoundingClientRect();
+      const wrapperRect = bubbleEl.parentElement?.getBoundingClientRect();
+      console.log('[DEBUG openMenu][coach]', {
+        msgId: msg.id, reactionDetail: !!opts.reactionDetail,
+        bubbleRect: { x: rawRect.x, left: rawRect.left, right: rawRect.right, width: rawRect.width, top: rawRect.top, bottom: rawRect.bottom },
+        wrapperRect: wrapperRect ? { x: wrapperRect.x, left: wrapperRect.left, right: wrapperRect.right, width: wrapperRect.width } : null,
+        bubbleElClasses: bubbleEl.className,
+        bubbleElStyle: bubbleEl.getAttribute('style'),
+        parentStyle: bubbleEl.parentElement?.getAttribute('style'),
+      });
       // Le panneau de détail de réaction n'affiche jamais la barre d'emojis complète —
       // utiliser REACTION_BAR_HEIGHT ici sous-évaluait la place nécessaire dans certains
       // cas et sur-évaluait dans d'autres, faisant remonter le message de travers et
@@ -1345,6 +1354,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
         : (opts.menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
       const spaceBelow = window.innerHeight - rawRect.bottom - MENU_SCREEN_MARGIN;
       const lift = Math.max(0, (menuHeight + MENU_GAP) - spaceBelow);
+      console.log('[DEBUG openMenu][coach] final rect', { lift });
       // Le rect brut est capturé avant que le lift ne soit appliqué visuellement (transform
       // translateY sur le wrapper) — sans corriger top/bottom ici, le menu s'ancre à l'ancienne
       // position de la bulle pendant qu'elle remonte visuellement à l'écran.
