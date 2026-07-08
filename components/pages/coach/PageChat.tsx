@@ -185,18 +185,18 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 10, width: 300, maxWidth: '100%' }}>
+    <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', gap: 10, width: 300, maxWidth: '100%', paddingBottom: 16 }}>
       <audio ref={audioRef} src={url} preload="metadata" />
       <div style={{ position: 'relative', flexShrink: 0 }}>
         <Avatar initials={initials} avatarUrl={avatarUrl} size={42} />
-        {/* Icône micro — overlay permanent sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
+        {/* Icône micro — overlay discret sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
         <span style={{
-          position: 'absolute', bottom: -3, right: -3, width: 18, height: 18, borderRadius: '50%',
-          background: isMe ? 'var(--ink)' : 'var(--surface-2)', border: `2px solid ${isMe ? 'var(--ink)' : 'var(--surface)'}`,
+          position: 'absolute', bottom: -1, right: -1,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
+          filter: 'drop-shadow(0 0 2px rgba(0,0,0,0.6))',
         }}>
-          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke={isMe ? '#fff' : 'var(--muted)'} strokeWidth="2.5" strokeLinecap="round">
-            <rect x="9" y="2" width="6" height="12" rx="3" fill={isMe ? '#fff' : 'var(--muted)'} stroke="none"/>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round">
+            <rect x="9" y="2" width="6" height="12" rx="3" fill="#fff" stroke="none"/>
             <path d="M5 11a7 7 0 0014 0M12 18v3"/>
           </svg>
         </span>
@@ -217,10 +217,10 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
       </button>
-      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-end', gap: 2, alignSelf: 'stretch' }}>
+      <div style={{ flex: 1, minWidth: 0, position: 'relative', alignSelf: 'stretch' }}>
         <div
           onPointerDown={handlePointerDown}
-          style={{ position: 'relative', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
+          style={{ position: 'absolute', top: '50%', left: 0, right: 0, transform: 'translateY(-50%)', display: 'flex', alignItems: 'center', height: 24, cursor: 'pointer', touchAction: 'none' }}
         >
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             {WAVEFORM.map((h, i) => (
@@ -239,7 +239,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
             }} />
           )}
         </div>
-        <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>
+        <span style={{ position: 'absolute', top: '100%', left: 0, marginTop: 2, fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>
           {progress > 0 && audioRef.current ? formatDuration(audioRef.current.currentTime) : formatDuration(currentDuration)}
         </span>
       </div>
@@ -646,7 +646,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
           borderRadius: isMe
             ? (isContinued ? '18px 4px 4px 18px' : isLast ? '18px 4px 18px 18px' : '18px 4px 4px 18px')
             : (isContinued ? '4px 18px 18px 4px' : isLast ? '4px 18px 18px 18px' : '4px 18px 18px 4px'),
-          padding: isAudio ? '10px 12px 6px 12px' : isImage ? '4px' : '9px 12px',
+          padding: isAudio ? '10px 12px 0 12px' : isImage ? '4px' : '9px 12px',
           border: isMe ? 'none' : '1px solid var(--border)',
           boxShadow: isMe ? 'none' : 'var(--shadow-item)',
           position: 'relative',
