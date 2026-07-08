@@ -2,7 +2,7 @@
 
 Documentation de référence pour reconstruire une messagerie temps réel équivalente sur une autre plateforme. Couvre : schéma DB, réaltime (messages + présence + typing), scroll robuste, marquage lu, notifications.
 
-**Statut** : présence en ligne/hors ligne (plateforme entière, pas juste messagerie), typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan, scroll bloqué après reset — §6.4ter), navigation SPA, notifications forcées, messages vocaux écouté/vu + reprise de lecture (§13) — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `13f6cb7`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
+**Statut** : présence en ligne/hors ligne (plateforme entière, pas juste messagerie), typing, scroll (flash, ancrage bas/divider, retour d'arrière-plan, scroll bloqué après reset — §6.4ter), navigation SPA, notifications forcées, messages vocaux écouté/vu + reprise de lecture (§13), répondre à un message + copier (§15), légende sur fichier (§16), photo de profil (§17) — tous validés en usage réel après la série de correctifs décrite ici (commits jusqu'à `782b172`). Tous les pièges documentés ont été effectivement rencontrés en production, pas des risques théoriques.
 
 ## Fichiers
 
@@ -26,6 +26,17 @@ created_at    timestamptz
 read_at       timestamptz null   -- null = non lu
 listened_at   timestamptz null   -- null = vocal non écouté (distinct de read_at, voir §13)
 edited_at     timestamptz null
+caption       text null          -- légende optionnelle sur image/document, voir §16
+reply_to_id   uuid null          -- FK messages.id on delete set null, voir §15
+```
+
+Table `profiles` (Postgres/Supabase) — pertinente pour la photo de profil (§17) :
+
+```sql
+id            uuid primary key  -- = auth.users.id
+role          text              -- 'coach' | 'client'
+full_name     text null
+avatar_url    text null         -- URL publique Storage, avec cache-buster ?t=, voir §17
 ```
 
 Une conversation = toutes les lignes `messages` pour un `client_id` donné. Pas de table `conversations` séparée : le `client_id` sert directement de clé de conversation (1 coach ↔ 1 élève, relation fixe).
@@ -527,9 +538,142 @@ Points notables :
 - Fonctionne symétriquement pour les vocaux envoyés et reçus (pas de restriction `isMe`, contrairement à la pastille §13.3) — décision : cohérent de pouvoir se réécouter son propre vocal envoyé et reprendre où on s'était arrêté.
 - `try/catch` autour de chaque accès `localStorage` : Safari en navigation privée peut lever une exception sur `setItem` (quota 0) — ne doit jamais faire planter la lecture audio elle-même.
 
-## 14. Ce qu'il faut absolument reproduire si migration vers une autre stack
+## 15. Répondre à un message + Copier le texte
+
+### 15.1 Découplage du menu contextuel de `isMe`
+
+Avant cette feature, `MessageContextMenu` (§ voir `MessageBubble`) ne s'ouvrait **que** sur ses propres messages : `canOpenMenu = isMe && (canEdit || canDelete) && !isEditing && !isMenuTarget`. Pour permettre "Répondre"/"Copier" sur les messages **reçus**, la condition d'ouverture est découplée des actions qu'elle propose :
+```ts
+const canOpenMenu = !isEditing && !isMenuTarget; // s'ouvre sur tout message, isMe ou non
+```
+À l'intérieur du menu, chaque action reste conditionnée séparément : "Répondre" toujours affiché, "Copier" seulement si le message est du texte pur (`!msg.type || msg.type === 'text'` — inutile sur un vocal/image/document), "Modifier"/"Supprimer" toujours réservés à `isMe` (logique inchangée). Le fallback "Délai dépassé" ne doit s'afficher que `isMe && !canEdit && !canDelete` — sinon un message reçu l'affichait à tort puisqu'il n'a jamais `canEdit`/`canDelete` à `true`.
+
+Conséquence sur le positionnement du menu (`CTX_MENU_HEIGHT` devenue `CTX_MENU_ITEM_HEIGHT`, hauteur dynamique) : le nombre d'items affichés varie maintenant de 1 (juste "Répondre", sur un vocal reçu ancien) à 4 (Répondre + Copier + Modifier + Supprimer, sur son propre message texte récent) — la hauteur réservée pour choisir d'ouvrir au-dessus ou en-dessous de la bulle doit refléter ce nombre réel, pas une constante fixe.
+
+### 15.2 Pas de duplication de texte cité en DB
+
+`messages.reply_to_id uuid null references messages(id) on delete set null`. Décision technique : **ne pas** stocker de snapshot du texte cité au moment de la réponse. Comme tout l'historique de la conversation est déjà chargé en mémoire (§2, pas de pagination), un lookup local dans le state suffit :
+```ts
+const messagesById = new Map(messages.map(m => [m.id, m])); // une fois par changement de `messages`
+// dans MessageBubble :
+const quotedMsg = msg.reply_to_id ? messagesById.get(msg.reply_to_id) : undefined;
+```
+Si `quotedMsg` est `undefined` (message supprimé entre-temps, retiré du state par le DELETE realtime — §3), afficher "Message supprimé". `ON DELETE SET NULL` en DB reste un filet de sécurité (la ligne ne pointe jamais vers un ID orphelin), mais l'affichage réel repose sur ce lookup local, pas sur une jointure serveur.
+
+**Piège de perf évité** : un `.find()` par bulle affichée serait O(n) par bulle, donc O(n²) sur toute la conversation. La `Map` est construite **une fois** au niveau du composant conversation (pas dans `MessageBubble`) et passée en prop.
+
+### 15.3 Bandeau de citation — placé hors des blocs conditionnels de la barre du bas
+
+La barre de saisie a trois états mutuellement exclusifs : texte normal, preview `pendingFile`, `RecordingOverlay` pendant l'enregistrement vocal. Le bandeau "en train de répondre à…" doit rester visible **peu importe lequel de ces trois états est actif** — il est donc placé **avant** les trois blocs conditionnels dans le JSX, pas à l'intérieur d'un seul d'entre eux. Sinon, démarrer un enregistrement vocal en cours de réponse ferait disparaître le contexte de la réponse sans prévenir.
+
+```tsx
+{replyingTo && (
+  <div>{/* nom expéditeur cité + aperçu tronqué + croix d'annulation */}</div>
+)}
+{pendingFile && (/* ... */)}
+{isRecording && (/* ... */)}
+{!isRecording && !pendingFile && (/* barre normale */)}
+```
+
+`replyingTo` (state `Msg | null`) est réinitialisé **après succès** de l'insert dans les trois chemins d'envoi (`sendMessage`, `sendAudioMessage`, `sendFile`) — pas avant, pour ne pas perdre le contexte si l'envoi échoue.
+
+### 15.4 Scroll + highlight vers le message original
+
+Réutilise le mécanisme déjà en place pour le divider "Nouveaux messages" (§6.4) : `bubbleRefsMap`/`registerBubbleRef`, une `Map<string, HTMLDivElement>` déjà peuplée par bulle montée.
+```ts
+function scrollToMessage(msgId: string) {
+  const el = bubbleRefsMap.current.get(msgId);
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.add('msg-flash-highlight');
+  setTimeout(() => el.classList.remove('msg-flash-highlight'), 1200);
+}
+```
+
+**Piège CSS évité — style inline vs classe** : la bulle a déjà un `background` **inline** (`isMe ? 'var(--ink)' : 'var(--surface)'`). Une classe CSS qui tenterait d'animer `background-color` directement sur cet élément serait **sans aucun effet** (un style inline gagne toujours sur une règle de classe, sauf `!important`). Solution : un overlay `::after` en pseudo-élément, positionné en `absolute inset:0` par-dessus, qui ne touche jamais au `background` réel de la bulle :
+```css
+.msg-flash-highlight { position: relative; }
+.msg-flash-highlight::after {
+  content: ''; position: absolute; inset: 0; border-radius: inherit;
+  background: rgba(255, 214, 0, 0.35); animation: msg-flash-fade 1.1s ease-out forwards;
+  pointer-events: none;
+}
+@keyframes msg-flash-fade { from { opacity: 1; } to { opacity: 0; } }
+```
+
+## 16. Légende sur image/document avant envoi
+
+Avant cette feature, la barre de saisie texte était **complètement masquée** pendant la preview d'un fichier en attente d'envoi (`{!isRecording && !pendingFile && (...)}`) — aucun moyen d'accompagner un fichier d'un message.
+
+`messages.caption text null` — colonne **séparée** du `text` existant (qui contient déjà le nom du fichier, utilisé pour l'affichage et l'extraction d'extension via `getFileExt`). Un `<textarea rows={1}>` compact est ajouté dans le bloc de preview `pendingFile`, sous le nom de fichier/la taille :
+```tsx
+<textarea value={fileCaption} onChange={e => setFileCaption(e.target.value)} placeholder="Ajouter une légende…" rows={1} />
+```
+`sendFile(file, caption?)` — signature étendue, insère `caption: caption?.trim() || null`. `fileCaption` est réinitialisé à la fois à l'envoi et à l'annulation (croix) du fichier en attente.
+
+Affichage : le nom de fichier reste affiché tel quel (comportement inchangé), la légende s'ajoute **en dessous** si présente — pas de remplacement. Pour une image, où la bulle a un padding minimal (`4px`, l'image occupant presque toute la bulle), la légende est rendue dans un `<div>` séparé sous l'`<img>`, avec son propre padding — pas de changement du padding de la bulle elle-même pour ne pas casser l'affichage sans légende.
+
+## 17. Photo de profil coach/élève
+
+### 17.1 Policy RLS croisée — le blocage non documenté avant cette feature
+
+Avant cette feature, la seule policy sur `profiles` était `"own profile" (ALL, auth.uid() = id)` — **un coach ne pouvait pas lire le profil de son élève, ni l'inverse**, même en JOIN depuis le client Supabase JS. Nécessaire pour que l'avatar de l'autre partie soit visible où que ce soit (header de conversation, liste de conversations coach) :
+```sql
+create policy "profiles readable by linked coach/client"
+on public.profiles for select
+using (
+  exists (
+    select 1 from public.clients c
+    where (c.profile_id = profiles.id and c.coach_id = auth.uid())
+       or (c.coach_id = profiles.id and c.profile_id = auth.uid())
+  )
+);
+```
+Additive — ne remplace pas la policy `own profile` existante, qui continue de couvrir UPDATE/DELETE de son propre profil.
+
+### 17.2 Bucket Storage dédié, un dossier par utilisateur
+
+Aucun des buckets existants (`chat-medias`, `voice-messages`, `instagram-avatars`...) n'était réutilisable (policies scoped par `bucket_id`). Nouveau bucket `avatars`, public en lecture, écriture restreinte au propriétaire via un chemin `avatars/${userId}/avatar.jpg` — le dossier par `userId` est **nécessaire** pour que la policy `(storage.foldername(name))[1] = auth.uid()::text` fonctionne (elle exige un vrai premier segment de dossier, pas juste `${userId}.jpg` à la racine du bucket) :
+```sql
+create policy "avatars upload own" on storage.objects for insert
+  with check (bucket_id = 'avatars' and (storage.foldername(name))[1] = auth.uid()::text);
+```
+Chemin **toujours identique** par utilisateur (`upsert: true` à l'upload) — écrase l'ancienne photo à chaque nouvel upload plutôt que d'accumuler des fichiers. Conséquence : un cache-buster (`?t=${Date.now()}`) doit être ajouté à l'URL stockée en DB, sinon le navigateur/CDN continue de servir l'ancienne image en cache après un remplacement — le chemin Storage physique n'a pas changé, seule l'URL affichée doit varier pour forcer un re-fetch.
+
+### 17.3 Recadrage carré côté client — pas de dépendance npm
+
+`lib/cropImageToSquare.ts` : charge le `File` dans une `Image` via `URL.createObjectURL`, calcule un crop carré **centré** (`side = min(width, height)`), dessine sur un `<canvas>` 512×512 puis exporte en `Blob` JPEG qualité 0.9. Pas de repositionnement interactif (crop toujours centré) — décision volontairement simple, cohérente avec "léger, sans dépendance".
+
+### 17.4 Composant `Avatar` étendu, pas dupliqué
+
+`components/ui/Avatar.tsx` existait déjà (initiales uniquement), utilisé dans 6 autres pages hors messagerie (PageClientDetail, PageToday, PageClients, PageCalendar, PageClientAnalytics, PageBriefing). Une prop `avatarUrl?: string | null` optionnelle a été ajoutée plutôt que de créer un second composant — rétrocompatible (les 6 autres appelants continuent de fonctionner sans la passer), et ces pages bénéficient automatiquement de la photo si elles l'adoptent plus tard :
+```tsx
+export default function Avatar({ initials, avatarUrl, size = 36, className }: AvatarProps) {
+  if (avatarUrl) return <img src={avatarUrl} className={`avatar${className ? ' '+className : ''}`} style={{ width: size, height: size, objectFit: 'cover' }} />;
+  return <div className={`avatar${className ? ' '+className : ''}`} style={{ width: size, height: size, fontSize: size*0.35 }}>{initials}</div>;
+}
+```
+La classe CSS `.avatar` (déjà `border-radius: 50%`) s'applique sans changement aussi bien au `<div>` qu'au `<img>`.
+
+### 17.5 Propagation de l'avatar jusqu'à la liste de conversations coach
+
+`lib/SupabaseClientsContext.tsx` chargeait la liste de clients via `select('*')` sur `clients` seul, sans jointure `profiles`. Un second fetch séparé (pas un embed automatique PostgREST, plus prévisible sans FK explicitement nommée) récupère les avatars et les merge en JS :
+```ts
+const profileIds = rawClients.map(c => c.profile_id).filter(Boolean);
+const { data: avatarsData } = await supabase.from('profiles').select('id, avatar_url').in('id', profileIds);
+const avatarMap = Object.fromEntries(avatarsData.map(p => [p.id, p.avatar_url]));
+// merge : avatar_url: c.profile_id ? (avatarMap[c.profile_id] || null) : null
+```
+Fonctionne uniquement une fois la policy croisée (§17.1) appliquée — sans elle, ce fetch retournerait silencieusement un tableau vide (RLS filtre, pas d'erreur explicite).
+
+### 17.6 Rafraîchissement immédiat après upload — `refreshUser()`
+
+`lib/UserContext.tsx` charge le profil (dont `avatar_url`) une fois au montage et sur changement d'état d'auth — un upload de photo dans les Réglages ne déclenche ni l'un ni l'autre. Une fonction `refreshUser()` est exposée par le contexte (refait le même `loadUser` que l'effet initial, sur demande) et appelée juste après la mise à jour réussie de `profiles.avatar_url`, pour que la sidebar reflète la nouvelle photo sans nécessiter un rechargement de page.
+
+## 18. Ce qu'il faut absolument reproduire si migration vers une autre stack
 
 - Système realtime avec un vrai **Presence** (pas juste du pub/sub classique) — sinon il faut réimplémenter le heartbeat + TTL à la main.
 - `useLayoutEffect`-équivalent (ou son analogue dans le framework cible) pour le scroll initial — critique pour éviter le flash.
 - Bien vérifier que **tout timer/interval posé dans un effect qui se redéclenche souvent** (dépendant d'une liste qui grossit) a un cycle de vie **découplé** de cet effet, sinon risque de blocage de flag et boucle infinie (le bug le plus grave rencontré).
 - Rate limits du provider realtime choisi — tester avec 2+ clients simultanés avant de considérer la présence "finie".
+- RLS croisée entre deux rôles liés (coach/élève) n'est **jamais** automatique — chaque nouvelle table/colonne consultée par l'un sur le profil de l'autre nécessite sa propre policy explicite, à vérifier avant de supposer qu'un SELECT "devrait marcher".
