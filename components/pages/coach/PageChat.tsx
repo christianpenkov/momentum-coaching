@@ -1420,7 +1420,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
           onClick={scrollToBottom}
           aria-label="Aller en bas"
           style={{
-            position: 'absolute', right: 16, bottom: 72,
+            position: 'absolute', right: 16, bottom: replyingTo ? 128 : 72,
             width: 36, height: 36, borderRadius: '50%',
             background: 'var(--surface)', border: '1px solid var(--border)',
             boxShadow: '0 2px 8px rgba(0,0,0,0.12)',
@@ -1429,7 +1429,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
             opacity: showScrollArrow ? 1 : 0,
             transform: showScrollArrow ? 'scale(1) translateY(0)' : 'scale(0.8) translateY(6px)',
             pointerEvents: showScrollArrow ? 'auto' : 'none',
-            transition: 'opacity 0.18s ease-out, transform 0.18s ease-out',
+            transition: 'opacity 0.18s ease-out, transform 0.18s ease-out, bottom 0.18s ease-out',
           }}
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">

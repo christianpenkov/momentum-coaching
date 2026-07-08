@@ -14,7 +14,7 @@ export default function Avatar({ initials, avatarUrl, size = 36, className }: Av
         src={avatarUrl}
         alt=""
         className={`avatar${className ? ' ' + className : ''}`}
-        style={{ width: size, height: size, objectFit: 'cover' }}
+        style={{ width: size, height: size, objectFit: 'cover', display: 'block', flexShrink: 0 }}
       />
     );
   }
