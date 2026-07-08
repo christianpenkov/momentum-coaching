@@ -433,10 +433,9 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   // ── Top contenus ──────────────────────────────────────────────────────────
   const igCallsAll = calls.filter(isIGCall);
   const ytCallsAll = calls.filter(isYTCall);
-  // Fusion live + historique — ce bloc est un classement all-time indépendant de la période, mais igLive/
-  // ytLive ne couvrent que les 30 derniers jours : un post plus ancien disparaîtrait s'il fallait choisir
-  // l'un ou l'autre. Le live prime pour les vues (toujours à jour), l'historique comble les posts que le
-  // live ne couvre plus.
+  // Fusion live + historique pour la LISTE de contenus (identité, titre, thumbnail) — ce bloc est un
+  // classement all-time, mais igLive/ytLive ne couvrent que les 30 derniers jours : un post plus ancien
+  // disparaîtrait s'il fallait choisir l'un ou l'autre.
   const igPostsById = new Map<string, any>();
   for (const p of (ig?.posts ?? [])) igPostsById.set(p.id, p);
   for (const p of (igLive?.posts ?? [])) igPostsById.set(p.id, { ...igPostsById.get(p.id), ...p });
@@ -445,6 +444,10 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
   for (const v of (yt?.videos ?? [])) ytVideosById.set(v.id, v);
   for (const v of (ytLive?.videos ?? [])) ytVideosById.set(v.id, { ...ytVideosById.get(v.id), ...v });
   const ytVideos = [...ytVideosById.values()];
+  // Vues lifetime pour Cash/Vue — UNIQUEMENT igLive/ytLive (jamais l'historique, qui varie avec
+  // periodIndex). Si le post n'est plus dans la fenêtre live (30j), vue lifetime inconnue : null.
+  const igLiveViewsByIdOv = new Map<string, number>((igLive?.posts ?? []).map((p: any) => [p.id, p.views || p.reach || 0]));
+  const ytLiveViewsByIdOv = new Map<string, number>((ytLive?.videos ?? []).map((v: any) => [v.id, v.views || 0]));
   const ytTotalViews = ytVideos.reduce((s, v) => s + v.views30d, 0);
   const ytTotalCallsBooked = ytCallsAll.filter(c => c.status === 'active').length;
   const ytTotalNoShow = ytCallsAll.filter(c => c.no_show).length;
@@ -470,7 +473,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       const avgWatchTimeMin = p.avgWatchTimeMs ? Math.round(p.avgWatchTimeMs / 1000 / 60 * 10) / 10 : null;
       const totalViewsIG = p.views || p.reach || 0;
-      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: totalViewsIG > 0 ? revTotal / totalViewsIG : null };
+      const viewsLifetimeIG = igLiveViewsByIdOv.get(p.id) ?? null;
+      return { id: p.id, title: p.caption?.slice(0, 60) || '(sans titre)', thumbnail: p.thumbnail || null, platform: 'IG' as const, type: p.type === 'VIDEO' ? 'Reel' : p.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image', views: totalViewsIG, totalViews: totalViewsIG, watchTime: p.totalWatchTimeMs ? Math.round(p.totalWatchTimeMs / 1000 / 60) : 0, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeIG && viewsLifetimeIG > 0 ? revTotal / viewsLifetimeIG : null };
     }),
     ...ytVideos.map(v => {
       const postCalls = ytCallsAll.filter(c => c.utm_content === v.id);
@@ -482,7 +486,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, shortio, period, periodInd
       const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
       const avgWatchTimeMin = v.watchTime30d && v.views30d > 0 ? Math.round(v.watchTime30d / v.views30d / 60 * 10) / 10 : null;
-      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: Math.round(v.watchTime30d / 60), avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: v.views > 0 ? revTotal / v.views : null };
+      const viewsLifetimeYT = ytLiveViewsByIdOv.get(v.id) ?? null;
+      return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: Math.round(v.watchTime30d / 60), avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
     }),
   ];
 
@@ -2936,13 +2941,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
     const type = igPost ? (igPost.type === 'VIDEO' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
     const views = igPost?.views || ytVideo?.views30d || 0;
-    // Vues lifetime (depuis publication) — pour Cash/Vue. Priorité aux données live actuelles (jamais
-    // l'historique figé d'une période passée) ; fallback sur l'historique si le post n'apparaît plus
-    // dans la fenêtre de fetch live (30j) — un vieux post disparu du live garde sa dernière valeur connue
-    // plutôt que de tomber à 0.
-    const viewsLifetime = platform === 'IG'
-      ? (igLiveViewsById.get(postId) ?? igPost?.views ?? 0)
-      : (ytLiveViewsById.get(postId) ?? ytVideo?.views ?? 0);
+    // Vues lifetime pour Cash/Vue — UNIQUEMENT igLive/ytLive, jamais ig/yt ou igPost/ytVideo (qui
+    // varient avec periodIndex). Si le post n'est plus dans la fenêtre de fetch live, on ne connaît
+    // pas sa valeur actuelle : null (affiché "—"), jamais une valeur bancale qui changerait selon
+    // la période sélectionnée.
+    const viewsLifetimeRaw = platform === 'IG' ? igLiveViewsById.get(postId) : ytLiveViewsById.get(postId);
+    const viewsLifetime = viewsLifetimeRaw ?? null;
     // Nom du LM associé aux leads de ce contenu (premier keyword trouvé)
     const lmKeyword = postLeads[0]?.keyword || null;
     const lmName = lmKeyword ? (lmNameByKeyword.get(lmKeyword.toLowerCase()) ?? lmKeyword) : null;
@@ -2981,7 +2985,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
     // Cash/Vue lifetime : revenue cumulé depuis publication / vues cumulées depuis publication
     const revenueLifetime = postCallsLifetime.reduce((s, c) => s + (c.revenue || 0), 0);
-    const cashParVue = viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
+    const cashParVue = viewsLifetime !== null && viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
 
     // % qualifié : parmi les calls honorés avec qualified renseigné (exclut no-show et non-renseignés)
     const qualifiableCalls = postCallsLifetime.filter(c => c.status === 'active' && !c.no_show && c.qualified !== null && c.qualified !== undefined);
