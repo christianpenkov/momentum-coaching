@@ -59,7 +59,8 @@ self.addEventListener('push', e => {
           payload.title || 'Momentum',
           {
             body: (payload.body || 'Nouveau message').substring(0, 100),
-            icon: '/favicon-momentum.png',
+            // Photo de profil de l'expéditeur si disponible, sinon logo Momentum.
+            icon: payload.icon || '/favicon-momentum.png',
             // Miniature large affichée dans la notification (photo envoyée, ou
             // miniature PDF pour un document) — absent pour les messages texte/vocal.
             ...(payload.image ? { image: payload.image } : {}),

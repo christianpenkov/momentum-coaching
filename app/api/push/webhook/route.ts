@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     subs.forEach((s, i) => log(`[WEBHOOK] sub[${i}] endpoint: ${s.endpoint.slice(0, 50)}`));
 
     const { data: actor } = await supabase
-      .from('profiles').select('full_name').eq('id', actorId).maybeSingle();
+      .from('profiles').select('full_name, avatar_url').eq('id', actorId).maybeSingle();
 
     const title = actor?.full_name || 'Momentum';
     const bodyText = isReaction
@@ -109,7 +109,14 @@ export async function POST(req: NextRequest) {
     );
     log('[WEBHOOK] VAPID ok');
 
-    const payload = JSON.stringify({ title, body: bodyText.substring(0, 100), url, unreadCount: unreadCount ?? 1, image: notifImage });
+    const payload = JSON.stringify({
+      title, body: bodyText.substring(0, 100), url, unreadCount: unreadCount ?? 1,
+      image: notifImage,
+      // Photo de profil de l'expéditeur affichée en icône de la notification (au lieu
+      // du logo Momentum générique) — comportement WhatsApp/iMessage. Fallback géré
+      // côté service worker si absente.
+      icon: actor?.avatar_url || undefined,
+    });
 
     const results = await Promise.allSettled(
       subs.map(sub => webpush.sendNotification(
