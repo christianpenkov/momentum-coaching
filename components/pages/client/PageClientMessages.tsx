@@ -1463,10 +1463,17 @@ export default function PageClientMessages() {
   // fenêtre de croissance non détectée n'est possible dans les deux cas.
   useEffect(() => {
     if (loading || !settlingRef.current) return;
+    // Dès qu'un menu contextuel est ouvert (l'utilisateur interagit activement avec un
+    // message précis, ex: clic sur une réaction), on arrête définitivement cette boucle
+    // et on marque la stabilisation comme terminée — sans ça, un scrollIntoView "instant"
+    // pouvait se déclencher PENDANT que le menu est déjà affiché, recentrant la vue sur
+    // un tout autre message et donnant l'impression d'un scroll auto vers le haut alors
+    // que l'utilisateur vient de cliquer sur une réaction.
+    if (ctxMenu) { settlingRef.current = false; return; }
     let rafId: number | null = null;
     const tick = () => {
       const c = chatZoneRef.current;
-      if (!c || !settlingRef.current) { rafId = null; return; }
+      if (!c || !settlingRef.current || ctxMenu) { rafId = null; return; }
       if (stickToBottomRef.current) {
         const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
         if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
@@ -1481,7 +1488,7 @@ export default function PageClientMessages() {
     };
     rafId = requestAnimationFrame(tick);
     return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
-  }, [loading, messages, clientId]);
+  }, [loading, messages, clientId, ctxMenu]);
 
   // Après la fenêtre de stabilisation (images/audio qui chargent encore plus tard), le
   // ResizeObserver reste le filet de sécurité classique — moins critique une fois le layout
@@ -1511,6 +1518,19 @@ export default function PageClientMessages() {
     if (loading) return;
     const vv = window.visualViewport;
     if (!vv) return;
+    // Deux gardes, pratique standard pour distinguer un vrai repli de barre d'adresse d'un
+    // resize parasite (cf. iOS Safari address bar quirks) :
+    // 1. Fenêtre de grâce de quelques secondes après l'ouverture — passé ce délai, on
+    //    désactive complètement ce mécanisme.
+    // 2. Seuil de magnitude — un vrai repli de barre d'adresse Safari change vv.height
+    //    d'au moins ~50-60px ; sous ce seuil, ce n'est que du bruit (clavier qui vibre,
+    //    micro-ajustement) qu'il ne faut surtout pas traiter comme un signal de rescroll.
+    // Sans ces deux gardes, N'IMPORTE QUEL tap sur mobile qui fait à peine bouger la barre
+    // d'adresse (même longtemps après l'ouverture) forçait un rescroll brutal en bas —
+    // donnant l'impression d'un scroll auto "au hasard" au moindre tap sur l'écran.
+    const graceUntil = Date.now() + 4000;
+    const RESIZE_THRESHOLD_PX = 40;
+    let lastHeight = vv.height;
     let rafId: number | null = null;
     let stopAt = 0;
     const tick = () => {
@@ -1521,8 +1541,10 @@ export default function PageClientMessages() {
       rafId = requestAnimationFrame(tick);
     };
     const onViewportResize = () => {
-      if (!stickToBottomRef.current) return;
-      logChatScroll('visualViewport resize', { vvHeight: vv!.height });
+      const heightDelta = Math.abs(vv!.height - lastHeight);
+      lastHeight = vv!.height;
+      if (!stickToBottomRef.current || Date.now() > graceUntil || heightDelta < RESIZE_THRESHOLD_PX) return;
+      logChatScroll('visualViewport resize', { vvHeight: vv!.height, heightDelta });
       // Le resize peut continuer sur quelques frames (clavier/barre d'adresse qui finit son
       // animation) — on corrige en continu pendant 500ms au lieu d'une seule fois.
       stopAt = Date.now() + 500;
