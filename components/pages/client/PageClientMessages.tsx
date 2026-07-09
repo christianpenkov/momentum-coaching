@@ -10,6 +10,7 @@ import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logAudio } from '@/lib/audioDebug';
+import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
@@ -68,7 +69,11 @@ function isSameDay(a: string, b: string) {
 }
 
 function formatDuration(s: number) {
-  const safe = Number.isFinite(s) ? s : 0;
+  // Le hack WebKit (voir onLoaded) pose volontairement el.currentTime = 1e10 pour forcer un
+  // recalcul de durée sur les mp4 fragmentés — si ce recalcul échoue, cette valeur peut fuiter
+  // jusqu'ici (constaté : "166666666:40" affiché). Toute durée >= 1e6s (~11 jours, aucun vocal
+  // légitime) est traitée comme invalide plutôt que d'être affichée telle quelle.
+  const safe = Number.isFinite(s) && s < 1e6 ? s : 0;
   const min = Math.floor(safe / 60);
   const sec = Math.floor(safe % 60);
   return `${min}:${sec.toString().padStart(2, '0')}`;
@@ -98,6 +103,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   const audioRef = useRef<HTMLAudioElement>(null);
   const [progress, setProgress] = useState(0);
   const [currentDuration, setCurrentDuration] = useState(duration ?? 0);
+  const [playError, setPlayError] = useState(false);
   const playing = activeId === id;
   // Position de lecture persistée (localStorage) — survit au changement de page ET au refresh
   // complet, contrairement à un simple state/ref React qui se réinitialise au démontage.
@@ -112,14 +118,20 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   // `progress` — le curseur tremble/recule au lieu de suivre le doigt. On ignore ces
   // `timeupdate` naturels tant que le drag est actif (voir onTimeUpdate plus bas).
   const isDraggingRef = useRef(false);
+  // Promesse de `el.play()` en vol — le navigateur rejette un `play()` interrompu par un
+  // `pause()` concurrent (AbortError) et peut laisser le player dans un état bâtard où le
+  // prochain clic play ne fait plus rien (constaté en usage réel : lecture qui se coupe
+  // toute seule juste après le clic, puis play qui ne redémarre plus). On attend que la
+  // promesse se résolve avant de laisser l'effect ci-dessous appeler pause().
+  const pendingPlayRef = useRef<Promise<void> | null>(null);
 
   // Pause quand un autre player devient actif
   useEffect(() => {
     const el = audioRef.current;
-    if (!el) return;
-    if (!playing && !el.paused) {
-      el.pause();
-    }
+    if (!el || playing) return;
+    const doPause = () => { if (!el.paused) el.pause(); };
+    if (pendingPlayRef.current) pendingPlayRef.current.then(doPause, doPause);
+    else doPause();
   }, [playing]);
 
   useEffect(() => {
@@ -218,12 +230,23 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
       setActive(null);
     } else {
       setActive(id);
+      setPlayError(false);
       try {
-        await el.play();
+        const p = el.play();
+        pendingPlayRef.current = p;
+        await p;
         logAudio('togglePlay:play-resolved', { id });
       } catch (err) {
         logAudio('togglePlay:play-rejected', { id, err: err instanceof Error ? err.message : String(err) });
         setActive(null);
+        // Échec silencieux avant ce fix : l'icône play revenait sans aucun signal, l'utilisateur
+        // reclique sans comprendre pourquoi rien ne se passe. Affiche un état d'erreur temporaire
+        // sur le bouton (icône warning ~2s) — signal clair que CE clic précis a échoué (fichier
+        // corrompu/codec non supporté/réseau, cause exacte dans les logs via "Logs vocaux").
+        setPlayError(true);
+        setTimeout(() => setPlayError(false), 2000);
+      } finally {
+        pendingPlayRef.current = null;
       }
     }
   }, [playing, id, setActive]);
@@ -232,11 +255,20 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   // suit le doigt/la souris en continu tant que le bouton est maintenu, pas seulement
   // au clic initial. setPointerCapture garantit que les événements pointermove
   // continuent d'arriver même si le curseur sort de la waveform pendant le drag.
-  const seekTo = useCallback((clientX: number, rect: DOMRect) => {
+  // `applySeek=false` pendant un drag actif : ne met à jour QUE le visuel (`progress`),
+  // sans toucher à `el.currentTime` à chaque pointermove. Assigner `currentTime` déclenche un
+  // vrai seek sur le média (recherche du bon fragment/décodage) — sur mobile ou un fichier pas
+  // entièrement bufferisé (`preload="metadata"`), ça peut prendre plusieurs dizaines à
+  // centaines de ms. Empiler un seek à chaque pointermove fait traîner l'audio derrière le
+  // doigt (constaté en usage réel : latence/imprécision du curseur pendant un drag en lecture,
+  // absente en pause car aucun seek concurrent n'était en vol). Le curseur reste ainsi
+  // toujours parfaitement synchrone avec le doigt ; le seek réel n'est posé qu'au relâchement
+  // (voir onUp dans handlePointerDown).
+  const seekTo = useCallback((clientX: number, rect: DOMRect, applySeek = true) => {
     const el = audioRef.current;
     if (!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-    el.currentTime = ratio * el.duration;
+    if (applySeek) el.currentTime = ratio * el.duration;
     setProgress(ratio * 100);
   }, []);
 
@@ -245,16 +277,25 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
     target.setPointerCapture(e.pointerId);
     const rect = target.getBoundingClientRect();
     const el = audioRef.current;
-    // Pause pendant le drag — sinon la lecture continue en arrière-plan et ses `timeupdate`
-    // naturels concurrencent ceux du drag (curseur qui tremble/recule, voir isDraggingRef).
-    // Reprend au relâchement uniquement si la lecture était en cours.
-    const wasPlaying = !!el && !el.paused;
+    // isDraggingRef doit être armé AVANT tout pause()/seekTo — sinon un `timeupdate` déjà en
+    // file d'attente au moment du pointerdown peut encore s'exécuter juste après (event déjà
+    // mis en queue par le navigateur avant qu'on intervienne) et écraser transitoirement
+    // `progress` avec l'ancienne position de lecture, donnant un micro-jitter du curseur/de
+    // la waveform pendant le tout début du drag en lecture (constaté en usage réel).
     isDraggingRef.current = true;
+    // Pause pendant le drag — sinon la lecture continue en arrière-plan et ses `timeupdate`
+    // naturels concurrencent ceux du drag. Reprend au relâchement si la lecture était en cours.
+    const wasPlaying = !!el && !el.paused;
     if (wasPlaying) el?.pause();
-    seekTo(e.clientX, rect);
-    const onMove = (ev: PointerEvent) => seekTo(ev.clientX, rect);
-    const onUp = () => {
+    // Seek réel appliqué une seule fois (au premier down) — le reste du geste ne fait bouger
+    // que le visuel, voir seekTo.
+    seekTo(e.clientX, rect, true);
+    const onMove = (ev: PointerEvent) => seekTo(ev.clientX, rect, false);
+    const onUp = (ev: PointerEvent) => {
       isDraggingRef.current = false;
+      // Pose le seek réel une seule fois, à la position finale du doigt — évite d'empiler un
+      // vrai seek média à chaque pointermove (voir commentaire sur seekTo).
+      seekTo(ev.clientX, rect, true);
       if (wasPlaying) el?.play().catch(() => {});
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
@@ -301,11 +342,15 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           }} />
         )}
       </div>
-      <button onClick={togglePlay} className="tap-scale audio-play-btn" style={{
+      <button onClick={togglePlay} className="tap-scale audio-play-btn" title={playError ? 'Impossible de lire ce vocal' : undefined} style={{
         borderRadius: '50%', border: 'none', flexShrink: 0,
         background: 'none', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
       }}>
-        {playing ? (
+        {playError ? (
+          <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 9v4M12 17h.01M10.29 3.86l-8.18 14.14A2 2 0 004.02 21h15.96a2 2 0 001.91-2.99L13.71 3.86a2 2 0 00-3.42 0z"/>
+          </svg>
+        ) : playing ? (
           <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}>
             <rect x="6" y="4" width="4" height="16" rx="1"/>
             <rect x="14" y="4" width="4" height="16" rx="1"/>
@@ -344,9 +389,13 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           )}
         </div>
 
-        {/* Durée */}
+        {/* Durée — affiche la position de lecture uniquement pendant une lecture active et
+            plausible (bornée par currentDuration) ; sinon la durée totale connue. Avant, la
+            condition était juste `progress > 0` (restait vraie après un seek ou en pause après
+            un drag) et affichait audioRef.current.currentTime sans aucune vérification — d'où
+            des durées corrompues fuitées par le hack WebKit ci-dessus (voir formatDuration). */}
         <span style={{ fontSize: 12, color: mutedColor, fontVariantNumeric: 'tabular-nums', lineHeight: 1, whiteSpace: 'nowrap' }}>
-          {progress > 0 && audioRef.current
+          {playing && audioRef.current && audioRef.current.currentTime < 1e6
             ? formatDuration(audioRef.current.currentTime)
             : formatDuration(currentDuration)}
         </span>
@@ -1588,12 +1637,24 @@ export default function PageClientMessages() {
       const mr = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
       audioChunksRef.current = [];
       mr.ondataavailable = (e) => { if (e.data.size > 0) audioChunksRef.current.push(e.data); };
-      mr.onstop = () => {
+      mr.onstop = async () => {
         streamRef.current?.getTracks().forEach(t => t.stop());
         streamRef.current = null;
         const dur = (Date.now() - recordingStartRef.current) / 1000;
         const finalType = mimeType || 'audio/mp4';
-        const blob = new Blob(audioChunksRef.current, { type: finalType });
+        let blob = new Blob(audioChunksRef.current, { type: finalType });
+        // MediaRecorder produit du webm sans durée valide dans les métadonnées (bug connu,
+        // cf. bugzilla #1385699) — el.duration reste Infinity/NaN à la lecture selon le
+        // navigateur. On répare le fichier À LA SOURCE avec la durée wall-clock déjà connue,
+        // plutôt que de patcher la lecture à chaque affichage (fragile, dépend du lecteur).
+        // Pas de fix équivalent praticable côté client pour mp4 fragmenté (iOS Safari) — le
+        // hack de lecture existant (voir onLoad/onLoaded) reste la protection pour cette branche.
+        if (blob.size > 0 && finalType.startsWith('audio/webm')) {
+          try {
+            const fixed = await fixWebmDuration(blob, dur * 1000, { logger: false });
+            blob = fixed;
+          } catch { /* fix échoué — on envoie le blob tel quel, pas pire qu'avant */ }
+        }
         if (blob.size > 0) sendAudioMessage(blob, dur);
         if (recordingTimerRef.current) clearInterval(recordingTimerRef.current);
         setIsRecording(false);
