@@ -1370,7 +1370,15 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     // moment où on mesure ; une mesure synchrone immédiate peut donc capturer une
     // position pas encore stabilisée, surtout left/x qui n'est jamais recorrigé après
     // coup (seul top l'est pour le lift) — d'où un décalage horizontal visible du clone.
-    requestAnimationFrame(() => {
+    // Si la conversation vient tout juste de s'ouvrir, une boucle rAF distincte (voir
+    // settlingRef) réajuste activement le scroll pendant ~2.5s pour compenser des images/
+    // polices qui finissent de charger — un clic dans cette fenêtre mesurait une position
+    // qui continuait de bouger sous les pieds de l'utilisateur (le message "remontait" de
+    // plusieurs rangs juste après l'ouverture du menu). On attend la fin de cette
+    // stabilisation (généralement quelques dizaines de ms, rarement les 2.5s pleines)
+    // avant de mesurer quoi que ce soit.
+    const measureWhenSettled = () => {
+      if (settlingRef.current) { requestAnimationFrame(measureWhenSettled); return; }
       const rawRect = bubbleEl.getBoundingClientRect();
       // Le panneau de détail de réaction n'affiche jamais la barre d'emojis complète —
       // utiliser REACTION_BAR_HEIGHT ici sous-évaluait la place nécessaire dans certains
@@ -1392,7 +1400,8 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
       // messages), qui clippe toujours ses enfants visuellement peu importe le z-index,
       // donc impossible de le faire "sortir" par-dessus l'overlay sans le dupliquer ainsi.
       setCtxMenu({ rect, msgId: msg.id, lift, menuOnly: !!opts.menuOnly, reactionDetail: !!opts.reactionDetail, bubbleHtml: bubbleEl.outerHTML });
-    });
+    };
+    requestAnimationFrame(measureWhenSettled);
   }
 
   async function editMessage(msgId: string, newText: string) {
