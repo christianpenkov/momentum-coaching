@@ -11,7 +11,7 @@ import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
 import { logAudio } from '@/lib/audioDebug';
-import { logScroll, getScrollLogs, watchScrollTop } from '@/lib/scrollDebug';
+import { logScroll, getScrollLogs, watchScrollTop, watchGlobalScrollMethods } from '@/lib/scrollDebug';
 import { getChatScrollLogs } from '@/lib/chatScrollDebug';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
@@ -1314,7 +1314,9 @@ export default function PageClientMessages() {
     const el = chatZoneRef.current;
     if (!el) return;
     logScroll('watchScrollTop installed');
-    return watchScrollTop(el, 'client');
+    const unwatch = watchScrollTop(el, 'client');
+    const unwatchGlobal = watchGlobalScrollMethods();
+    return () => { unwatch(); unwatchGlobal(); };
   }, []);
 
   // Filet de sécurité supplémentaire — watchScrollTop n'intercepte que les écritures

@@ -44,11 +44,34 @@ export function watchScrollTop(el: HTMLElement, tag: string) {
     get() { return originalGet.call(this); },
     set(v: number) {
       const before = originalGet.call(this);
-      logScroll(`${tag} scrollTop SET`, { from: before, to: v, delta: v - before, stack: shortStack() });
+      const delta = v - before;
+      logScroll(`${tag} scrollTop SET`, { from: before, to: v, delta, stack: shortStack() });
+      // Affiche aussi en direct dans la console DevTools (pas juste le buffer interne) —
+      // console.trace donne la VRAIE stack native cliquable de Chrome, bien plus lisible
+      // que l'extrait manuel de shortStack() pour repérer le site d'appel exact en un clic.
+      if (Math.abs(delta) > 5) {
+        // eslint-disable-next-line no-console
+        console.trace(`[SCROLL-DEBUG] ${tag} scrollTop: ${before} → ${v} (delta ${delta})`);
+      }
       originalSet.call(this, v);
     },
   });
   return () => {
     Object.defineProperty(el, 'scrollTop', desc);
+  };
+}
+
+// Instrumente aussi scrollIntoView/scrollTo au niveau global — certains scrolls natifs
+// (focus, scrollIntoView du navigateur) ne passent jamais par le setter scrollTop d'un
+// élément précis mais par ces méthodes, invisibles à watchScrollTop seul.
+export function watchGlobalScrollMethods() {
+  const originalScrollIntoView = Element.prototype.scrollIntoView;
+  Element.prototype.scrollIntoView = function (this: Element, ...args: unknown[]) {
+    const el = this as HTMLElement;
+    console.trace(`[SCROLL-DEBUG] scrollIntoView() called on`, el.tagName, el.className?.toString().slice(0, 60), el.id);
+    return originalScrollIntoView.apply(this, args as never);
+  };
+  return () => {
+    Element.prototype.scrollIntoView = originalScrollIntoView;
   };
 }
