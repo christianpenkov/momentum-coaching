@@ -92,6 +92,11 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   // Position de lecture persistée (localStorage) — survit au changement de page ET au refresh
   // complet, contrairement à un simple state/ref React qui se réinitialise au démontage.
   const positionKey = `audio-pos-${id}`;
+  // Pendant un drag du curseur, la lecture continue en arrière-plan produit ses propres
+  // `timeupdate` naturels qui entrent en concurrence avec les `seekTo` du drag pour piloter
+  // `progress` — le curseur tremble/recule au lieu de suivre le doigt. On ignore ces
+  // `timeupdate` naturels tant que le drag est actif (voir onTime plus bas).
+  const isDraggingRef = useRef(false);
 
   useEffect(() => {
     const el = audioRef.current;
@@ -103,6 +108,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
     const el = audioRef.current;
     if (!el) return;
     const onTime = () => {
+      if (isDraggingRef.current) return; // le drag pilote seul `progress`, voir seekTo/handlePointerDown
       const dur = (Number.isFinite(el.duration) && el.duration > 0) ? el.duration : (currentDuration || 1);
       setProgress((el.currentTime/dur)*100);
       try { localStorage.setItem(positionKey, String(el.currentTime)); } catch {}
@@ -218,9 +224,18 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
     const target = e.currentTarget;
     target.setPointerCapture(e.pointerId);
     const rect = target.getBoundingClientRect();
+    const el = audioRef.current;
+    // Pause pendant le drag — sinon la lecture continue en arrière-plan et ses `timeupdate`
+    // naturels concurrencent ceux du drag (curseur qui tremble/recule, voir isDraggingRef).
+    // Reprend au relâchement uniquement si la lecture était en cours.
+    const wasPlaying = !!el && !el.paused;
+    isDraggingRef.current = true;
+    if (wasPlaying) el?.pause();
     seekTo(e.clientX, rect);
     const onMove = (ev: PointerEvent) => seekTo(ev.clientX, rect);
     const onUp = () => {
+      isDraggingRef.current = false;
+      if (wasPlaying) el?.play().catch(() => {});
       target.removeEventListener('pointermove', onMove);
       target.removeEventListener('pointerup', onUp);
       target.removeEventListener('pointercancel', onUp);
