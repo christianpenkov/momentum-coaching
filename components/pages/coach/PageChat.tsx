@@ -1269,20 +1269,39 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
   }, [loading, messages, clientId, ctxMenu]);
 
-  // Après la fenêtre de stabilisation (images/audio qui chargent encore plus tard), le
-  // ResizeObserver reste le filet de sécurité classique.
+  // Filet de sécurité — rattrape le scroll bas quand le CONTENU grandit après le premier
+  // paint (polices web qui basculent, images/vocaux qui chargent tard).
+  //
+  // Piège corrigé (cause racine du bug de scroll qui saute) : avant, ce ResizeObserver
+  // observait `container` (.chat-messages-zone), qui a une hauteur flex FIXE — un
+  // ResizeObserver ne se déclenche QUE quand la boîte de sa cible change, jamais quand
+  // c'est seulement le scrollHeight (contenu interne) qui grandit. Le filet ne voyait donc
+  // jamais le grossissement du texte au chargement des polices. On observe désormais les
+  // ENFANTS DIRECTS de la zone (les groupes de messages), dont la hauteur cumulée EST le
+  // contenu qui grandit — le callback se déclenche enfin au bon moment. Réobservé à chaque
+  // changement de `messages` (nouveaux enfants).
+  //
+  // Garde stickToBottomRef retirée du filet : elle pouvait avoir été basculée à false par un
+  // micro-scroll parasite pendant le chargement ; on ré-ancre en bas tant que l'utilisateur
+  // n'a pas VOLONTAIREMENT scrollé loin du bas (gap déjà important = intention de lire plus
+  // haut, on respecte). Seuil de 200px : au-delà, l'utilisateur lit ailleurs, on ne force pas.
   useEffect(() => {
     const container = chatZoneRef.current;
     if (!container || loading) return;
     const ro = new ResizeObserver(() => {
       const c = chatZoneRef.current;
-      if (!c || !stickToBottomRef.current) return;
+      if (!c) return;
       const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      // Ré-ancre seulement si on était déjà proche du bas (gap < 200) — sinon l'utilisateur
+      // a délibérément scrollé vers le haut et on ne doit surtout pas le ramener en bas.
+      if (gap > 0 && gap < 200 && stickToBottomRef.current) {
+        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
+      }
     });
-    ro.observe(container);
+    // Observer le contenu (enfants directs = groupes de messages), pas le conteneur fixe.
+    Array.from(container.children).forEach(child => ro.observe(child));
     return () => ro.disconnect();
-  }, [loading]);
+  }, [loading, messages]);
 
   // Le shell mobile (voir useViewportShellHeight) recalcule sa hauteur via visualViewport
   // APRÈS le premier paint — ce resize n'est jamais un geste utilisateur : on force le
@@ -1527,12 +1546,39 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     if (mr.state !== 'inactive') mr.stop();
   }
 
-  // Un vrai geste (touch/souris/molette) est un signal fiable à 100% qu'il vient de
-  // l'utilisateur — jamais du navigateur — donc on désarme l'ancrage bas immédiatement,
-  // sans attendre la fin de settlingRef. Sans ça, scroller vers le haut dans la seconde qui
-  // suit l'ouverture de la conversation était systématiquement annulé par la boucle rAF.
+  // Désarmement de l'ancrage bas (settlingRef) sur INTENTION DE SCROLL réelle uniquement.
+  //
+  // Piège corrigé : avant, un simple touchstart/mousedown (un TAP, sans aucun mouvement)
+  // coupait settlingRef instantanément. Or pendant les premières secondes, les polices web
+  // finissent de charger (display:'swap' historique → FOUT) et agrandissent le texte, donc
+  // le scrollHeight grandit APRÈS le premier paint. La boucle rAF de settlingRef compensait
+  // ça en re-scrollant en bas — mais un tap la coupait net, laissant le contenu grandir sans
+  // compensation → les messages "sautaient" vers le haut. Aucune écriture scrollTop JS n'était
+  // impliquée (le navigateur ne fait que peindre un layout plus grand), d'où l'invisibilité
+  // totale à l'instrumentation.
+  //
+  // Fix : un tap seul (pointer down sans déplacement) n'arme que userGestureRef, il ne coupe
+  // PAS settlingRef. Seul un vrai geste de scroll — molette, ou touchmove au-delà d'un seuil
+  // de mouvement — désarme la compensation (l'utilisateur veut réellement scroller).
   const userGestureRef = useRef(false);
-  function handleUserGestureStart() {
+  const touchStartYRef = useRef<number | null>(null);
+  const TOUCH_MOVE_THRESHOLD = 10; // même seuil que lib/useLongPress.ts
+  function handlePointerDown(e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) {
+    userGestureRef.current = true;
+    // 'touches' n'existe pas sur un MouseEvent — on lit clientY quand c'est un pointeur tactile.
+    touchStartYRef.current = 'clientY' in e ? e.clientY : null;
+  }
+  function handleTouchStart(e: React.TouchEvent<HTMLDivElement>) {
+    userGestureRef.current = true;
+    touchStartYRef.current = e.touches[0]?.clientY ?? null;
+  }
+  function handleTouchMove(e: React.TouchEvent<HTMLDivElement>) {
+    if (touchStartYRef.current === null) return;
+    const dy = Math.abs((e.touches[0]?.clientY ?? touchStartYRef.current) - touchStartYRef.current);
+    if (dy > TOUCH_MOVE_THRESHOLD) settlingRef.current = false; // vrai scroll tactile
+  }
+  function handleWheel() {
+    // La molette est toujours une intention de scroll délibérée — désarme immédiatement.
     userGestureRef.current = true;
     settlingRef.current = false;
   }
@@ -1583,7 +1629,8 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
 
         {/* Messages */}
         <div ref={chatZoneRef} onScroll={handleChatScroll}
-          onTouchStart={handleUserGestureStart} onMouseDown={handleUserGestureStart} onWheel={handleUserGestureStart}
+          onTouchStart={handleTouchStart} onTouchMove={handleTouchMove}
+          onMouseDown={handlePointerDown} onWheel={handleWheel}
           className="chat-messages-zone" style={{
             flex: 1, overflowY: 'auto', overflowX: 'hidden', padding: '16px 16px 8px',
             display: 'flex', flexDirection: 'column', gap: 2, WebkitOverflowScrolling: 'touch',

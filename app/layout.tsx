@@ -3,17 +3,26 @@ import { Inter, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './Providers';
 
+// display: 'optional' (et non 'swap') — évite le FOUT qui faisait sauter le scroll de la
+// messagerie : avec 'swap', le texte s'affiche en police système puis BASCULE vers Inter
+// quand elle finit de charger (premières secondes), ce qui change la hauteur des messages
+// donc le scrollHeight APRÈS le premier paint. 'optional' laisse ~100ms au navigateur puis
+// garde la police de repli pour la session si elle n'est pas prête — plus aucune bascule
+// tardive, donc plus de changement de hauteur après coup. next/font génère déjà un
+// adjustFontFallback (metrics de la police de repli calées sur Inter) pour minimiser
+// l'écart visuel. Les volets scroll (ResizeObserver sur le contenu, tap qui ne coupe plus
+// la compensation) protègent en plus contre tout autre reflow tardif (images, vocaux).
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
-  display: 'swap',
+  display: 'optional',
 });
 
 const ibmPlexMono = IBM_Plex_Mono({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
   variable: '--font-mono',
-  display: 'swap',
+  display: 'optional',
 });
 
 export const metadata: Metadata = {
