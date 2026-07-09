@@ -1591,8 +1591,11 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
                   {/* domain avec marge basse fixe (pas 'auto' pur) : quand toutes les valeurs
                       sont à 0 (ex: Subs nets sans variation), le point pulsant (halo r=6)
-                      collé à y=0 débordait visuellement sous l'axe X. */}
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={statModal.unit != null} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = statModal.unit == null ? Math.max(1, Math.ceil(range * 0.1)) : (range > 0 ? range * 0.1 : 1); return [dataMin - margin, dataMax + margin]; }} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (statModal.unit == null ? String(Math.round(v)) : String(v))} />
+                      collé à y=0 débordait visuellement sous l'axe X. La borne basse ne
+                      descend sous 0 que si de vraies valeurs négatives existent (ex: Subs
+                      nets) — un compteur (Likes, Vues...) n'affiche jamais de tick négatif
+                      fantôme quand toutes ses valeurs réelles sont à 0. */}
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={statModal.unit != null} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = statModal.unit == null ? Math.max(1, Math.ceil(range * 0.1)) : (range > 0 ? range * 0.1 : 1); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (statModal.unit == null ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
