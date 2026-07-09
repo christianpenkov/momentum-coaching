@@ -1216,7 +1216,11 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
     const pts = pastDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
     const sum = pts.reduce((a, b) => a + b, 0);
     let vals = pts.map(p => Math.round((p / sum) * total));
-    vals[vals.length - 1] += total - vals.reduce((a, b) => a + b, 0);
+    // Le résidu d'arrondi compense la somme sur le dernier jour — jamais en-dessous de 0
+    // (compteur de likes/vues, jamais négatif), sinon un petit total réparti sur peu de
+    // jours peut générer un résidu négatif qui plonge le dernier point.
+    const residual = total - vals.reduce((a, b) => a + b, 0);
+    vals[vals.length - 1] = Math.max(0, vals[vals.length - 1] + residual);
     const valByDate = new Map(pastDays.map((d, i) => [d.date, vals[i]]));
     return ytDays.map(d => ({ date: d.date, v: valByDate.has(d.date) ? valByDate.get(d.date)! : (null as any) }));
   };
@@ -1588,7 +1592,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                   {/* domain avec marge basse fixe (pas 'auto' pur) : quand toutes les valeurs
                       sont à 0 (ex: Subs nets sans variation), le point pulsant (halo r=6)
                       collé à y=0 débordait visuellement sous l'axe X. */}
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.1 : 1; return [dataMin - margin, dataMax + margin]; }} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={statModal.unit != null} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = statModal.unit == null ? Math.max(1, Math.ceil(range * 0.1)) : (range > 0 ? range * 0.1 : 1); return [dataMin - margin, dataMax + margin]; }} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (statModal.unit == null ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
