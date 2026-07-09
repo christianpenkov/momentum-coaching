@@ -11,6 +11,7 @@ import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logChatScroll } from '@/lib/chatScrollDebug';
 import { logAudio } from '@/lib/audioDebug';
+import { installScrollProbe, getScrollProbeLogs } from '@/lib/scrollProbe';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
@@ -1087,6 +1088,7 @@ export default function PageClientMessages() {
   // à jour même si la liste a scrollé ou reçu de nouveaux messages entre-temps.
   const bubbleRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [actionError, setActionError] = useState<string | null>(null);
+  const [scrollLogsCopied, setScrollLogsCopied] = useState(false);
   // Force un re-render périodique pour que les boutons Modifier/Supprimer
   // disparaissent au bon moment même si l'utilisateur reste immobile sur la page.
   const [, forceTick] = useState(0);
@@ -1304,6 +1306,17 @@ export default function PageClientMessages() {
   }, [globalChannel]);
 
 
+
+  // Sonde de diagnostic TEMPORAIRE — installée dès que la zone est montée et que le
+  // premier chargement des messages est terminé. Capture scrollHeight/scrollTop en continu,
+  // les events tactiles, le chargement des polices et les layout shifts. À retirer une fois
+  // le bug de scroll confirmé et corrigé.
+  useEffect(() => {
+    if (loading) return;
+    const el = chatZoneRef.current;
+    if (!el) return;
+    return installScrollProbe(el, 'client');
+  }, [loading]);
 
   // ── Scroll bas — instant au chargement, ancré tant que l'utilisateur ne scrolle pas ──
   const initialScrollDone = useRef(false);
@@ -1910,6 +1923,20 @@ export default function PageClientMessages() {
           </div>
           {/* Bouton activation notifications — géré par PushInit */}
           {userId && <PushInit userId={userId} />}
+          {/* Bouton debug TEMPORAIRE — copie les logs de la sonde de scroll. À retirer. */}
+          <button
+            onClick={async () => {
+              const logs = getScrollProbeLogs() || '(aucun log)';
+              try { await navigator.clipboard.writeText(logs); setScrollLogsCopied(true); setTimeout(() => setScrollLogsCopied(false), 2000); } catch {}
+            }}
+            style={{
+              flexShrink: 0, padding: '6px 10px', fontSize: 11, fontWeight: 600,
+              borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)',
+              color: 'var(--muted)', cursor: 'pointer',
+            }}
+          >
+            {scrollLogsCopied ? 'Copié !' : 'Logs scroll'}
+          </button>
         </div>
 
         {/* ── Zone messages ── */}
