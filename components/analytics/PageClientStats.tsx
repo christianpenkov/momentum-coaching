@@ -1038,7 +1038,11 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                       toute la hauteur du graphique pour une variation de quelques unités —
                       une marge de 5% du range (ou 1 unité mini si le range est nul) évite
                       cet effet de "marche" trompeur. */}
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.05); return [Math.floor(dataMin - margin), Math.ceil(dataMax + margin)] as [number, number]; }} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
+                  {/* Borne basse jamais sous 0 si toutes les valeurs réelles sont positives
+                      (compteur type Abonnés) — descend sous 0 seulement si de vraies valeurs
+                      négatives existent dans la série. Rend le graphique responsive à la
+                      forme réelle des données plutôt qu'une marge symétrique fixe. */}
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.05); const lo = Math.floor(dataMin - margin); return [dataMin >= 0 ? Math.max(0, lo) : lo, Math.ceil(dataMax + margin)] as [number, number]; }} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
