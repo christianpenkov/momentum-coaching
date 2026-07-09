@@ -944,7 +944,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                   </div>
                 );
               }} />
-              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={todayDotFactory(ACCENT, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         </Card>
@@ -1763,6 +1763,8 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   // ── Fenêtre temporelle de la période sélectionnée (bornes calendaires réelles) ──
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
+  const todayUTCStrFunnel = new Date().toISOString().split('T')[0];
+  const isFutureDayFunnel = (date: string) => date > todayUTCStrFunnel;
   const callsInWindow = calls.filter(c => {
     const t = new Date(c.scheduled_at).getTime();
     return t >= periodStart.getTime() && t <= periodEnd.getTime();
@@ -1891,6 +1893,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       d.setUTCDate(d.getUTCDate() + 1);
     }
     return days.map(iso => {
+      if (isFutureDayFunnel(iso)) return { date: iso, v: null as any };
       const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
       const booked = cs.filter(c => c.status === 'active').length;
       const honored = cs.filter(c => c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show).length;
@@ -2038,6 +2041,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                         d2.setUTCDate(d2.getUTCDate() + 1);
                       }
                       return dates2.map(date => {
+                        if (isFutureDayFunnel(date)) return { date, v: null as any };
                         const dayStart = new Date(date).getTime();
                         const dayEnd = dayStart + 86400000;
                         const daySubset = subset.filter(c => {

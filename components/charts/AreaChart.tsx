@@ -63,10 +63,24 @@ const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean
 };
 
 export default function AreaChart({ data, areas, xKey, height = 220, formatter, showWeekday }: AreaChartProps) {
+  // Coupe la ligne aux jours futurs (date > aujourd'hui) — sans ça, une source de
+  // données qui pose 0 plutôt que null pour les jours sans ligne (ex: igDays) trace la
+  // courbe à plat jusqu'à la fin du mois/semaine calendaire au lieu de s'arrêter à
+  // aujourd'hui, comme déjà géré ailleurs via isFutureDay/v:null.
+  const todayStr = new Date().toISOString().split('T')[0];
+  const safeData = data.map(d => {
+    const dateVal = d[xKey];
+    if (typeof dateVal === 'string' && dateVal > todayStr) {
+      const cut = { ...d };
+      for (const a of areas) cut[a.key] = null;
+      return cut;
+    }
+    return d;
+  });
   return (
     <div className="chart-wrapper" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <ReAreaChart data={data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+        <ReAreaChart data={safeData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
           <defs>
             {areas.map((a, i) => {
               const color = a.color || COLORS[i % COLORS.length];
