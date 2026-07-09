@@ -835,7 +835,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
               onClick={() => onOpenLightbox(msg.audio_url!)}
             >
               <img
-                src={msg.audio_url} alt=""
+                src={msg.thumbnail_url || msg.audio_url} alt=""
                 style={{ maxWidth: '100%', maxHeight: 260, borderRadius: 12, display: 'block' }}
               />
               <div style={{

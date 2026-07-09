@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import { NextRequest, NextResponse } from 'next/server';
 import { isPdfFile, generatePdfThumbnail } from '@/lib/pdfThumbnail';
+import sharp from 'sharp';
 
 // Force Node.js runtime (pdf-to-img → pdfjs-dist, incompatible avec Edge).
 export const runtime = 'nodejs';
@@ -61,6 +62,25 @@ export async function POST(req: NextRequest) {
       if (!thumbErr) {
         thumbnailUrl = supabase.storage.from('chat-medias').getPublicUrl(thumbPath).data.publicUrl;
       }
+    }
+  } else if (isImage) {
+    // Miniature basse résolution pour un chargement rapide du feed — l'original (uploadé
+    // ci-dessus) reste utilisé pour le lightbox plein écran (voir onOpenLightbox côté client).
+    try {
+      const thumbBuffer = await sharp(Buffer.from(bytes))
+        .resize({ width: 800, withoutEnlargement: true })
+        .webp({ quality: 70 })
+        .toBuffer();
+      const thumbPath = `${clientId}/thumbs/${baseName}.webp`;
+      const { error: thumbErr } = await supabase.storage
+        .from('chat-medias')
+        .upload(thumbPath, thumbBuffer, { contentType: 'image/webp' });
+      if (!thumbErr) {
+        thumbnailUrl = supabase.storage.from('chat-medias').getPublicUrl(thumbPath).data.publicUrl;
+      }
+    } catch {
+      // Format d'image non supporté par sharp (rare) — thumbnailUrl reste null, le feed
+      // retombe sur l'original (msg.thumbnail_url || msg.audio_url), pas de crash.
     }
   }
 
