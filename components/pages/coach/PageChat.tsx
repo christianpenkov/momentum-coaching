@@ -420,19 +420,39 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 // composant appelant si pas assez de place en dessous). Position toujours EN
 // DESSOUS du message, jamais au-dessus — voir docs/architecture-messagerie.md.
 
-function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, canDelete, menuOnly, onReply, onCopy, onEdit, onDelete, onReact, onClose }: {
+function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, canDelete, menuOnly, reactionDetail, reactorAvatarUrl, reactorInitials, reactorName, reactionEmoji, onReactionRemove, onReply, onCopy, onEdit, onDelete, onReact, onClose }: {
   rect: DOMRect; bubbleHtml: string; isMe: boolean; isTextMessage: boolean; canEdit: boolean; canDelete: boolean; menuOnly: boolean;
+  reactionDetail?: boolean; reactorAvatarUrl?: string | null; reactorInitials?: string; reactorName?: string;
+  reactionEmoji?: string | null; onReactionRemove?: () => void;
   onReply: () => void; onCopy: () => void; onEdit: () => void; onDelete: () => void; onReact: (emoji: string) => void; onClose: () => void;
 }) {
   if (typeof document === 'undefined') return null;
   const items = buildMenuItems(isMe, isTextMessage, canEdit, canDelete);
-  const menuHeight = (menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
+  // Le panneau de détail de réaction (avatar + "Cliquez pour supprimer") remplace la
+  // barre d'emojis + la liste d'actions quand on clique sur un badge existant — même
+  // calcul de position que le menu normal, pour ne plus dupliquer (et mal reproduire)
+  // la logique de lift/clamp dans un système séparé.
+  const belowHeight = reactionDetail
+    ? REACTION_DETAIL_HEIGHT
+    : (menuOnly ? 0 : items.length * MENU_ITEM_HEIGHT) + REACTION_BAR_HEIGHT + MENU_GAP;
   // Toujours en dessous — l'appelant (openMenu) a déjà remonté le message (lift)
   // si la place manquait, donc rect.bottom + GAP tient toujours dans l'écran ici.
-  const top = Math.min(rect.bottom + MENU_GAP, window.innerHeight - menuHeight - MENU_SCREEN_MARGIN);
+  const top = Math.min(rect.bottom + MENU_GAP, window.innerHeight - belowHeight - MENU_SCREEN_MARGIN);
   const reactionBarTop = Math.max(MENU_SCREEN_MARGIN, rect.top - REACTION_BAR_HEIGHT - MENU_GAP);
   const left = Math.min(Math.max(rect.right - CTX_MENU_WIDTH, 8), window.innerWidth - CTX_MENU_WIDTH - 8);
   const reactionBarLeft = Math.min(Math.max(rect.right - REACTION_BAR_WIDTH, 8), window.innerWidth - REACTION_BAR_WIDTH - 8);
+  const detailLeft = Math.min(Math.max(rect.right - REACTION_DETAIL_WIDTH, MENU_SCREEN_MARGIN / 2), window.innerWidth - REACTION_DETAIL_WIDTH - MENU_SCREEN_MARGIN / 2);
+  // Le clone HTML peut avoir capturé le bouton chevron hover si la souris survolait la
+  // bulle au moment du clic (isMenuTarget devient vrai seulement après ce commit React,
+  // donc pas encore reflété dans l'outerHTML figé) — on le retire avant l'injection pour
+  // que le clone affiche le message "tel quel", jamais avec un contrôle d'interface dessus.
+  const cleanBubbleHtml = (() => {
+    if (typeof document === 'undefined') return bubbleHtml;
+    const wrapper = document.createElement('div');
+    wrapper.innerHTML = bubbleHtml;
+    wrapper.querySelector('.msg-hover-arrow')?.remove();
+    return wrapper.innerHTML;
+  })();
   return createPortal(
     <>
       <div
@@ -446,23 +466,34 @@ function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, ca
           apparaît, pendant que l'original est masqué (visibility:hidden, voir isMenuTarget). */}
       <div
         style={{ position: 'fixed', left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 10000, pointerEvents: 'none' }}
-        dangerouslySetInnerHTML={{ __html: bubbleHtml }}
+        dangerouslySetInnerHTML={{ __html: cleanBubbleHtml }}
       />
-      <ReactionBar top={reactionBarTop} left={reactionBarLeft} isMe={isMe} onReact={emoji => { onReact(emoji); onClose(); }} />
-      {!menuOnly && items.length > 0 && (
-        <div style={{
-          position: 'fixed', left, top, zIndex: 10000,
-          background: 'var(--surface)', border: '1px solid var(--border)',
-          borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
-          minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 14,
-        }}>
-          {items.map(item => renderMenuItem(item.key, {
-            onReply: () => { onReply(); onClose(); },
-            onCopy: () => { onCopy(); onClose(); },
-            onEdit: () => { onEdit(); onClose(); },
-            onDelete: () => { onDelete(); onClose(); },
-          }))}
-        </div>
+      {reactionDetail && reactionEmoji ? (
+        <ReactionDetail
+          top={top} left={detailLeft}
+          avatarUrl={reactorAvatarUrl} initials={reactorInitials || '?'} name={reactorName || ''}
+          emoji={reactionEmoji}
+          onRemove={onReactionRemove ? () => { onReactionRemove(); onClose(); } : undefined}
+        />
+      ) : (
+        <>
+          <ReactionBar top={reactionBarTop} left={reactionBarLeft} isMe={isMe} onReact={emoji => { onReact(emoji); onClose(); }} />
+          {!menuOnly && items.length > 0 && (
+            <div style={{
+              position: 'fixed', left, top, zIndex: 10000,
+              background: 'var(--surface)', border: '1px solid var(--border)',
+              borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
+              minWidth: CTX_MENU_WIDTH, overflow: 'hidden', fontSize: 14,
+            }}>
+              {items.map(item => renderMenuItem(item.key, {
+                onReply: () => { onReply(); onClose(); },
+                onCopy: () => { onCopy(); onClose(); },
+                onEdit: () => { onEdit(); onClose(); },
+                onDelete: () => { onDelete(); onClose(); },
+              }))}
+            </div>
+          )}
+        </>
       )}
     </>,
     document.body
@@ -1817,44 +1848,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
         if (!msg) return null;
         const msgIsMe = msg.sender_id === userId;
         const isTextMessage = !msg.type || msg.type === 'text';
-        if (ctxMenu.reactionDetail && msg.reaction_emoji) {
-          // Affiche toujours qui a réagi (avatar + nom) au clic sur un badge — comme
-          // WhatsApp. "Cliquez pour supprimer" et le retrait au clic n'apparaissent que
-          // si c'est SA PROPRE réaction. Même clamp robuste que MessageContextMenu
-          // (openMenu a déjà remonté le message si besoin avec la vraie hauteur
-          // REACTION_DETAIL_HEIGHT, donc rect.bottom + GAP tient toujours dans l'écran
-          // ici — mais on garde un clamp défensif).
-          const reactorIsMe = msg.reaction_by === userId;
-          const detailTop = Math.min(
-            ctxMenu.rect.bottom + MENU_GAP,
-            window.innerHeight - REACTION_DETAIL_HEIGHT - MENU_SCREEN_MARGIN
-          );
-          const detailLeft = Math.min(
-            Math.max(ctxMenu.rect.right - REACTION_DETAIL_WIDTH, MENU_SCREEN_MARGIN / 2),
-            window.innerWidth - REACTION_DETAIL_WIDTH - MENU_SCREEN_MARGIN / 2
-          );
-          return (
-            <>
-              <div
-                style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,.35)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', animation: 'fadeIn 120ms ease-out' }}
-                onMouseDown={() => setCtxMenu(null)}
-                onTouchEnd={e => { e.preventDefault(); setCtxMenu(null); }}
-              />
-              <div
-                style={{ position: 'fixed', left: ctxMenu.rect.left, top: ctxMenu.rect.top, width: ctxMenu.rect.width, height: ctxMenu.rect.height, zIndex: 10000, pointerEvents: 'none' }}
-                dangerouslySetInnerHTML={{ __html: ctxMenu.bubbleHtml }}
-              />
-              <ReactionDetail
-                top={detailTop} left={detailLeft}
-                avatarUrl={reactorIsMe ? myAvatarUrl : clientAvatarUrl}
-                initials={(reactorIsMe ? myInitials : clientInitials) || '?'}
-                name={reactorIsMe ? 'Vous' : clientName}
-                emoji={msg.reaction_emoji}
-                onRemove={reactorIsMe ? () => { clearReaction(msg.id); setCtxMenu(null); } : undefined}
-              />
-            </>
-          );
-        }
+        const reactorIsMe = msg.reaction_by === userId;
         return (
           <MessageContextMenu
             rect={ctxMenu.rect}
@@ -1863,6 +1857,12 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
             menuOnly={ctxMenu.menuOnly}
             isTextMessage={isTextMessage}
             canEdit={canEditMsg(msg)} canDelete={canDeleteMsg(msg)}
+            reactionDetail={ctxMenu.reactionDetail}
+            reactorAvatarUrl={reactorIsMe ? myAvatarUrl : clientAvatarUrl}
+            reactorInitials={(reactorIsMe ? myInitials : clientInitials) || '?'}
+            reactorName={reactorIsMe ? 'Vous' : clientName}
+            reactionEmoji={msg.reaction_emoji}
+            onReactionRemove={reactorIsMe ? () => clearReaction(msg.id) : undefined}
             onReply={() => setReplyingTo(msg)}
             onCopy={() => copyMessageText(msg.text)}
             onEdit={() => {
