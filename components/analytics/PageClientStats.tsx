@@ -1166,6 +1166,8 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   // Filtre par vraie date calendaire (pas .slice(-N), qui suppose chartData aligné
   // sur aujourd'hui).
   const { periodStart: ytPeriodStart, periodEnd: ytPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
+  const todayUTCStrYT = new Date().toISOString().split('T')[0];
+  const isFutureDayYT = (date: string) => date > todayUTCStrYT;
   const ytDaysRaw = yt.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= ytPeriodStart.getTime() && t <= ytPeriodEnd.getTime();
@@ -1206,12 +1208,17 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   const viewsPerSubShorts = subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
   const viewsPerSubLong = subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
   const mockFromTotalYT = (total: number, seed: number) => {
-    if (total === 0) return ytDays.map(d => ({ date: d.date, v: 0 }));
-    const pts = ytDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
+    // Répartition (simulée) uniquement sur les jours déjà écoulés — sans ça, une part du
+    // total se retrouvait étalée sur des jours futurs, et la ligne continuait au-delà
+    // du point pulsant jusqu'à la fin du mois/semaine calendaire.
+    const pastDays = ytDays.filter(d => !isFutureDayYT(d.date));
+    if (total === 0 || pastDays.length === 0) return ytDays.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : 0 }));
+    const pts = pastDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
     const sum = pts.reduce((a, b) => a + b, 0);
     let vals = pts.map(p => Math.round((p / sum) * total));
     vals[vals.length - 1] += total - vals.reduce((a, b) => a + b, 0);
-    return ytDays.map((d, i) => ({ date: d.date, v: vals[i] }));
+    const valByDate = new Map(pastDays.map((d, i) => [d.date, vals[i]]));
+    return ytDays.map(d => ({ date: d.date, v: valByDate.has(d.date) ? valByDate.get(d.date)! : (null as any) }));
   };
 
   const videosInPeriod = yt.videos.filter(v => {
@@ -1241,15 +1248,15 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
     : null;
 
   const mockAroundAvgYT = (avg: number, seed: number, variancePct = 0.2) => {
-    if (!avg) return ytDays.map(d => ({ date: d.date, v: 0 }));
-    return ytDays.map((_, i) => ({
-      date: ytDays[i].date,
-      v: Math.round(avg * (1 + Math.sin(i * 1.7 + seed) * variancePct)),
+    if (!avg) return ytDays.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : 0 }));
+    return ytDays.map((d, i) => ({
+      date: d.date,
+      v: isFutureDayYT(d.date) ? (null as any) : Math.round(avg * (1 + Math.sin(i * 1.7 + seed) * variancePct)),
     }));
   };
 
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
-    'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: d.shorts + d.longues })), color: YT_COLOR },
+    'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts + d.longues })), color: YT_COLOR },
     'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views })), color: RED },
     'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
     'Watch time moyen':   { data: mockFromTotalYT(avgWatchShorts ?? 0, 5), color: '#f43f5e', unit: 's' },
@@ -1260,7 +1267,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
     'Commentaires':       { data: mockFromTotalYT(yt.comments30d, 2), color: BLUE },
     'Partages':           { data: mockFromTotalYT(yt.shares30d, 3), color: GREEN },
     'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: ACCENT, unit: '%' },
-    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: d.subsGained ?? 0 })), color: RED },
+    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: RED },
     'Vues all-time':      { data: mockFromTotalYT(yt.totalViews, 7), color: RED },
   };
 
@@ -1278,8 +1285,8 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
     }
     if (label === 'Vidéos publiées') {
       setStatModal({
-        label, value, color: '#e8a838', data: ytPubsByDay.map(d => ({ date: d.date, v: d.shorts })),
-        label2: 'Vidéos longues', data2: ytPubsByDay.map(d => ({ date: d.date, v: d.longues })), color2: '#64748b',
+        label, value, color: '#e8a838', data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts })),
+        label2: 'Vidéos longues', data2: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.longues })), color2: '#64748b',
       });
     } else {
       setStatModal({ label, value, color: s.color, data: s.data, unit: s.unit });
