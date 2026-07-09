@@ -25,15 +25,28 @@ interface AreaChartProps {
 
 const COLORS = ['var(--accent)', '#3f8a52', '#b58025'];
 
-// Point du jour (aujourd'hui) mis en évidence par une pulsation — pour le repérer
-// immédiatement quand il n'y a par exemple qu'un seul point réel visible (début de
-// semaine/mois calendaire, ex: lundi ou le 1er du mois).
-export function todayDotFactory(color: string, xKey: string) {
-  const todayStr = new Date().toISOString().split('T')[0];
+// Trouve la date du dernier point ayant une vraie valeur (non null/undefined) dans une
+// série — c'est ce point-là qui pulse, pas forcément "aujourd'hui" au sens calendaire.
+// Certaines sources (ex: API YouTube Analytics) ont un délai de traitement de quelques
+// jours : la dernière donnée disponible n'est pas toujours celle du jour courant, et
+// faire pulser une date sans vraie donnée serait trompeur.
+export function lastRealPointKey(data: Record<string, unknown>[], xKey: string, dataKey: string): string | null {
+  for (let i = data.length - 1; i >= 0; i--) {
+    const v = data[i][dataKey];
+    if (v !== null && v !== undefined) return String(data[i][xKey]);
+  }
+  return null;
+}
+
+// Point le plus récent avec une vraie donnée, mis en évidence par une pulsation — pour
+// le repérer immédiatement quand il n'y a par exemple qu'un seul point réel visible
+// (début de semaine/mois calendaire, ex: lundi ou le 1er du mois).
+export function todayDotFactory(color: string, xKey: string, lastKey?: string | null) {
+  const targetStr = lastKey ?? new Date().toISOString().split('T')[0];
   return (props: any) => {
     const { cx, cy, payload } = props;
     if (cx == null || cy == null) return <g key={props.key} />;
-    const isToday = payload?.[xKey] === todayStr;
+    const isToday = payload?.[xKey] === targetStr;
     if (!isToday) {
       return <circle key={props.key} cx={cx} cy={cy} r={3} fill={color} stroke="none" />;
     }
@@ -105,6 +118,7 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
           {areas.map((a, i) => {
             const color = a.color || COLORS[i % COLORS.length];
+            const lastKey = lastRealPointKey(safeData, xKey, a.key);
             return (
               <Area
                 key={a.key}
@@ -117,8 +131,10 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
                 // Point visible sur chaque valeur réelle (pas juste au survol) — sans ça,
                 // un seul point de donnée (ex: uniquement "aujourd'hui" en début de
                 // semaine/mois calendaire) ne trace aucun segment et reste invisible.
-                // Le point du jour actuel pulse pour être repéré immédiatement.
-                dot={todayDotFactory(color, xKey)}
+                // Le dernier point réel pulse pour être repéré immédiatement (pas
+                // forcément "aujourd'hui" — certaines sources ont un délai de quelques
+                // jours avant que la donnée la plus récente soit disponible).
+                dot={todayDotFactory(color, xKey, lastKey)}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 animationDuration={400}
               />

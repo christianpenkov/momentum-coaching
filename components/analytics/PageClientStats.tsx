@@ -6,7 +6,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
-import AreaChart, { todayDotFactory } from '@/components/charts/AreaChart';
+import AreaChart, { todayDotFactory, lastRealPointKey } from '@/components/charts/AreaChart';
 import BarChart from '@/components/charts/BarChart';
 import Heatmap from '@/components/charts/Heatmap';
 import {
@@ -944,7 +944,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                   </div>
                 );
               }} />
-              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={todayDotFactory(ACCENT, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={todayDotFactory(ACCENT, 'date', lastRealPointKey(igDays, 'date', 'followerCount'))} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         </Card>
@@ -1022,7 +1022,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                   {/* type="linear" (pas "monotone") : relie les vrais points entiers sans
                       interpolation lissante — "monotone" créait le zigzag décimal trompeur
                       qu'on a retiré (moyenne mobile 3 jours arrondie). */}
-                  <Area type="linear" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal-net)" dot={todayDotFactory(statModal.color, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
+                  <Area type="linear" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal-net)" dot={todayDotFactory(statModal.color, 'date', lastRealPointKey(statModal.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
                 </ReAreaChart>
               ) : (
                 <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
@@ -1043,7 +1043,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
                   }} />
-                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal)" dot={todayDotFactory(statModal.color, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal)" dot={todayDotFactory(statModal.color, 'date', lastRealPointKey(statModal.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
                 </ReAreaChart>
               )}
             </ResponsiveContainer>
@@ -1544,8 +1544,8 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                           </div>
                         );
                       }} />
-                      <Area type="monotone" dataKey="shorts" name="Shorts" stroke={color1} strokeWidth={2} fill="url(#grad-yt-shorts)" dot={todayDotFactory(color1, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: color1 }} isAnimationActive={false} />
-                      <Area type="monotone" dataKey="longues" name="Vidéos longues" stroke={color2} strokeWidth={2} fill="url(#grad-yt-longues)" dot={todayDotFactory(color2, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: color2 }} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="shorts" name="Shorts" stroke={color1} strokeWidth={2} fill="url(#grad-yt-shorts)" dot={todayDotFactory(color1, 'date', lastRealPointKey(merged, 'date', 'shorts'))} activeDot={{ r: 4, strokeWidth: 0, fill: color1 }} isAnimationActive={false} />
+                      <Area type="monotone" dataKey="longues" name="Vidéos longues" stroke={color2} strokeWidth={2} fill="url(#grad-yt-longues)" dot={todayDotFactory(color2, 'date', lastRealPointKey(merged, 'date', 'longues'))} activeDot={{ r: 4, strokeWidth: 0, fill: color2 }} isAnimationActive={false} />
                     </ReAreaChart>
                   </ResponsiveContainer>
                 </>
@@ -1565,7 +1565,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
                   }} />
-                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-yt-stat-modal)" dot={todayDotFactory(statModal.color, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
+                  <Area type="monotone" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-yt-stat-modal)" dot={todayDotFactory(statModal.color, 'date', lastRealPointKey(statModal.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
                 </ReAreaChart>
               </ResponsiveContainer>
             )}
@@ -2102,7 +2102,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                             if (!active || !payload?.length) return null;
                             return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{chart.fmtV(payload[0].value as number)}</strong></div></div>;
                           }} />
-                          <Area type="monotone" dataKey="v" stroke={chart.color} strokeWidth={2} fill="url(#grad-hero-modal)" dot={todayDotFactory(chart.color, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: chart.color }} isAnimationActive={false} />
+                          <Area type="monotone" dataKey="v" stroke={chart.color} strokeWidth={2} fill="url(#grad-hero-modal)" dot={todayDotFactory(chart.color, 'date', lastRealPointKey(chart.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: chart.color }} isAnimationActive={false} />
                         </ReAreaChart>
                       </ResponsiveContainer>
                     </>);
@@ -2200,7 +2200,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                   if (!active || !payload?.length) return null;
                   return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{Math.round(payload[0].value as number)}</strong></div></div>;
                 }} />
-                <Area type="monotone" dataKey="v" stroke={expandedEff.color} strokeWidth={2} fill="url(#grad-eff-modal)" dot={todayDotFactory(expandedEff.color, 'date')} activeDot={{ r: 4, strokeWidth: 0, fill: expandedEff.color }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="v" stroke={expandedEff.color} strokeWidth={2} fill="url(#grad-eff-modal)" dot={todayDotFactory(expandedEff.color, 'date', lastRealPointKey(expandedEff.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: expandedEff.color }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           </div>
@@ -3212,8 +3212,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     </div>
                   );
                 }} />
-                <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={todayDotFactory('#F06292', 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
-                <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory('#B91C1C', 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={todayDotFactory('#F06292', 'date', lastRealPointKey(chartData, 'date', 'ig'))} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory('#B91C1C', 'date', lastRealPointKey(chartData, 'date', 'yt'))} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           ) : chartFilter === 'dm' ? (
@@ -3244,8 +3244,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     </div>
                   );
                 }} />
-                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={todayDotFactory(BLUE, 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
-                <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={todayDotFactory(AMBER, 'date')} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={todayDotFactory(BLUE, 'date', lastRealPointKey(chartData, 'date', 'calendly'))} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={todayDotFactory(AMBER, 'date', lastRealPointKey(chartData, 'date', 'lm'))} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           ) : null}
@@ -3280,8 +3280,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </div>
                 )} />
                 <Legend wrapperStyle={{ fontSize: 11 }} />
-                <Area type="monotone" dataKey="lm" name="LM" stroke={AMBER} strokeWidth={2} fill="none" dot={todayDotFactory(AMBER, 'date')} isAnimationActive={false} />
-                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="none" dot={todayDotFactory(BLUE, 'date')} isAnimationActive={false} />
+                <Area type="monotone" dataKey="lm" name="LM" stroke={AMBER} strokeWidth={2} fill="none" dot={todayDotFactory(AMBER, 'date', lastRealPointKey(activationSeries, 'date', 'lm'))} isAnimationActive={false} />
+                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="none" dot={todayDotFactory(BLUE, 'date', lastRealPointKey(activationSeries, 'date', 'calendly'))} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           </div>
