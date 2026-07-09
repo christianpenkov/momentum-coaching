@@ -3,26 +3,24 @@ import { Inter, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './Providers';
 
-// display: 'optional' (et non 'swap') — évite le FOUT qui faisait sauter le scroll de la
-// messagerie : avec 'swap', le texte s'affiche en police système puis BASCULE vers Inter
-// quand elle finit de charger (premières secondes), ce qui change la hauteur des messages
-// donc le scrollHeight APRÈS le premier paint. 'optional' laisse ~100ms au navigateur puis
-// garde la police de repli pour la session si elle n'est pas prête — plus aucune bascule
-// tardive, donc plus de changement de hauteur après coup. next/font génère déjà un
-// adjustFontFallback (metrics de la police de repli calées sur Inter) pour minimiser
-// l'écart visuel. Les volets scroll (ResizeObserver sur le contenu, tap qui ne coupe plus
-// la compensation) protègent en plus contre tout autre reflow tardif (images, vocaux).
+// display: 'swap' — le texte s'affiche immédiatement en police système puis bascule vers
+// Inter quand elle charge. Ce swap agrandit le contenu de la messagerie APRÈS le premier
+// paint (scrollHeight qui grandit), ce qui faisait "sauter" le scroll — mais ce n'est plus
+// un problème depuis la refonte column-reverse de la messagerie : le navigateur ancre en
+// bas nativement, donc le grossissement du contenu reste invisible (il pousse vers le haut
+// hors-champ au lieu de décaler la vue). 'swap' garantit qu'Inter s'affiche toujours (vs
+// 'optional' qui gardait la police système pour la session si Inter ne chargeait pas en 100ms).
 const inter = Inter({
   subsets: ['latin'],
   variable: '--font-inter',
-  display: 'optional',
+  display: 'swap',
 });
 
 const ibmPlexMono = IBM_Plex_Mono({
   subsets: ['latin'],
   weight: ['400', '500', '600'],
   variable: '--font-mono',
-  display: 'optional',
+  display: 'swap',
 });
 
 export const metadata: Metadata = {

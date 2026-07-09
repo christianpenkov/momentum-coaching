@@ -9,9 +9,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
-import { logChatScroll } from '@/lib/chatScrollDebug';
 import { logAudio } from '@/lib/audioDebug';
-import { installScrollProbe, getScrollProbeLogs } from '@/lib/scrollProbe';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
@@ -1088,12 +1086,10 @@ export default function PageClientMessages() {
   // à jour même si la liste a scrollé ou reçu de nouveaux messages entre-temps.
   const bubbleRefsMap = useRef<Map<string, HTMLDivElement>>(new Map());
   const [actionError, setActionError] = useState<string | null>(null);
-  const [scrollLogsCopied, setScrollLogsCopied] = useState(false);
   // Force un re-render périodique pour que les boutons Modifier/Supprimer
   // disparaissent au bon moment même si l'utilisateur reste immobile sur la page.
   const [, forceTick] = useState(0);
 
-  const bottomRef = useRef<HTMLDivElement>(null);
   const chatZoneRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -1307,277 +1303,79 @@ export default function PageClientMessages() {
 
 
 
-  // Sonde de diagnostic TEMPORAIRE — installée dès que la zone est montée et que le
-  // premier chargement des messages est terminé. Capture scrollHeight/scrollTop en continu,
-  // les events tactiles, le chargement des polices et les layout shifts. À retirer une fois
-  // le bug de scroll confirmé et corrigé.
-  useEffect(() => {
-    if (loading) return;
-    const el = chatZoneRef.current;
-    if (!el) return;
-    return installScrollProbe(el, 'client');
-  }, [loading]);
+  // ── Scroll : refonte column-reverse ──────────────────────────────────────────
+  // La zone .chat-messages-zone est en `flex-direction: column-reverse` (voir CSS) et le
+  // contenu est rendu en ordre inversé (dernier message = premier enfant DOM). Le navigateur
+  // ANCRE alors nativement en bas : un contenu qui grandit après le premier paint (polices
+  // web qui basculent via display:swap, images/vocaux qui chargent tard) pousse vers le haut
+  // hors-champ AU LIEU de décaler la vue. Fini le bug historique du scroll qui "saute" au 1er
+  // tap (prouvé : scrollHeight +1810px au chargement des polices, scrollTop figé, invisible à
+  // toute instrumentation JS). Plus besoin d'aucune boucle rAF, settlingRef, ResizeObserver de
+  // rattrapage, stickTo*, ni handlers de geste — tout supprimé, le navigateur fait le travail.
 
-  // ── Scroll bas — instant au chargement, ancré tant que l'utilisateur ne scrolle pas ──
-  const initialScrollDone = useRef(false);
-  // La zone de messages reste masquée (visibility:hidden, garde le layout pour scrollHeight)
-  // tant que le scroll initial n'a pas été posé — sinon le navigateur peint une frame avec
-  // scrollTop:0 (tout en haut) avant que notre effect ne corrige la position, visible comme
-  // un flash d'un instant à l'ouverture de la conversation.
-  const [contentReady, setContentReady] = useState(false);
-  // IDs déjà présents au premier chargement de la conversation — ces messages ne jouent pas
-  // l'animation d'entrée (msg-bubble-in), sinon leur translateY/opacity donne l'impression
-  // d'un scroll même quand la position finale est déjà correcte. Seuls les messages qui
-  // arrivent APRÈS ce premier rendu (nouveaux messages en direct) sont animés.
+  // IDs déjà présents au premier chargement — ces messages ne jouent pas l'animation d'entrée
+  // (sinon translateY/opacity donne l'impression d'un mouvement). Inchangé par column-reverse.
   const knownIdsRef = useRef<Set<string> | null>(null);
-  // Premier message non lu (du coach) au moment du chargement initial — figé une fois pour
-  // toutes, sinon il disparaîtrait dès que markMessageRead commence à marquer les messages
-  // lus au fil du scroll. Comme WhatsApp/Telegram : si des messages non lus existent,
-  // l'ouverture de la conversation atterrit dessus plutôt que tout en bas.
+  // Premier message non lu (du coach) au chargement — figé une fois, sinon il disparaîtrait
+  // dès que markMessageRead marque les messages lus. Sert au séparateur "Nouveaux messages"
+  // et à l'atterrissage dessus (comme WhatsApp/Telegram).
   const [firstUnreadId, setFirstUnreadId] = useState<string | null>(null);
   const firstUnreadComputedRef = useRef(false);
-  // Tant que l'utilisateur n'a pas scrollé lui-même, on reste ancré en bas — y compris quand
-  // des images/audio finissent de charger après coup et changent la hauteur du contenu
-  // (setTimeout à délai fixe ne suffit pas : ResizeObserver réagit au vrai changement de taille).
-  const stickToBottomRef = useRef(true);
-  // Ancrage sur le séparateur "Nouveaux messages" (cas landedOnUnread) — protège la position
-  // pendant la stabilisation exactement comme stickToBottomRef protège le bas absolu. Sans ça,
-  // le reflow post-paint (constaté : léger recul de quelques messages au-dessus du divider)
-  // n'était corrigé nulle part, car la boucle rAF de stabilisation ne recollait qu'au bas.
-  const stickToDividerRef = useRef(false);
-  // Pendant la phase de stabilisation (hard refresh : viewport mobile qui rétrécit quand la
-  // barre d'adresse se replie, fonts qui swap, hydration) le navigateur peut émettre un event
-  // "scroll" natif alors que l'utilisateur n'a rien touché — on ignore onScroll pendant cette
-  // fenêtre pour ne pas désarmer stickToBottomRef par erreur.
-  const settlingRef = useRef(true);
-  // Réinitialiser à chaque nouveau chargement (retour sur la page en PWA)
-  useEffect(() => {
-    if (loading) { initialScrollDone.current = false; stickToBottomRef.current = true; settlingRef.current = true; knownIdsRef.current = null; firstUnreadComputedRef.current = false; setFirstUnreadId(null); setContentReady(false); suppressAutoReadRef.current = true; }
-  }, [loading]);
-  // Le reset ci-dessus ne se déclenche qu'au tout premier chargement (loading passe à true
-  // une seule fois par montage du composant) — si l'app PWA n'est jamais complètement fermée
-  // (mise en arrière-plan puis réouverte), `loading` reste `false` pour toujours et
-  // firstUnreadComputedRef.current reste bloqué à `true` depuis la première ouverture : le
-  // calcul du premier non-lu ne se refait jamais, même en revenant des heures plus tard avec
-  // plein de nouveaux messages (constaté : le séparateur "Nouveaux messages" n'apparaît jamais
-  // dans ce scénario). On refait donc le même reset sur un retour au premier plan après une
-  // absence significative (seuil de 5s pour ignorer les micro-blur/focus, ex: notification
-  // rapide, changement d'app puis retour immédiat).
+  const initialLandingDoneRef = useRef(false);
+  // Masque la zone (visibility:hidden) juste le temps de poser l'atterrissage sur le divider
+  // non-lus — sans non-lus, column-reverse ancre nativement en bas dès le 1er paint, donc pas
+  // de flash à masquer (contentReady passe alors à true immédiatement).
+  const [contentReady, setContentReady] = useState(false);
+
+  // Recalcul du premier non-lu au chargement ET au retour d'arrière-plan (PWA jamais fermée :
+  // `loading` reste false, il faut re-détecter les nouveaux non-lus arrivés pendant l'absence).
   const hiddenAtRef = useRef<number | null>(null);
-  // Compteur incrémenté à CHAQUE reset (pas un booléen/valeur qui peut retomber sur elle-même) —
-  // ajouté aux dépendances du useLayoutEffect juste en dessous pour GARANTIR sa ré-exécution.
-  // Bug corrigé : setFirstUnreadId(null) seul ne redéclenche l'effet que si firstUnreadId était
-  // déjà non-null — s'il était déjà null (cas fréquent : pas de non-lu à l'ouverture), React
-  // bail-out (Object.is égal) et ne re-render pas, donc l'effet ne se redéclenche JAMAIS, donc
-  // contentReady reste bloqué à false pour toujours → container en visibility:hidden en
-  // permanence → scroll tactile bloqué par le navigateur sur un élément invisible (constaté :
-  // plus aucun scroll possible après un simple changement d'onglet/verrouillage, PC ET mobile,
-  // y compris après seulement 1-2 minutes) + boucle rAF de stabilisation jamais désarmée.
-  const [resetTick, setResetTick] = useState(0);
+  const resetLanding = useCallback(() => {
+    firstUnreadComputedRef.current = false;
+    initialLandingDoneRef.current = false;
+    knownIdsRef.current = null;
+    suppressAutoReadRef.current = true;
+    setFirstUnreadId(null);
+    setContentReady(false);
+  }, []);
   useEffect(() => {
-    const handleBackgroundReturn = () => {
+    if (loading) resetLanding();
+  }, [loading, resetLanding]);
+  useEffect(() => {
+    const onVisibility = () => {
       if (document.visibilityState === 'hidden') { hiddenAtRef.current = Date.now(); return; }
-      // visible
       const wasHiddenFor = hiddenAtRef.current ? Date.now() - hiddenAtRef.current : 0;
       hiddenAtRef.current = null;
-      if (wasHiddenFor < 5000) return;
-      initialScrollDone.current = false;
-      stickToBottomRef.current = true;
-      settlingRef.current = true;
-      knownIdsRef.current = null;
-      firstUnreadComputedRef.current = false;
-      setFirstUnreadId(null);
-      setContentReady(false);
-      suppressAutoReadRef.current = true;
-      setResetTick(t => t + 1);
+      if (wasHiddenFor >= 5000) resetLanding();
     };
-    document.addEventListener('visibilitychange', handleBackgroundReturn);
-    return () => document.removeEventListener('visibilitychange', handleBackgroundReturn);
-  }, []);
-  // useLayoutEffect (pas useEffect) : s'exécute de façon SYNCHRONE avant que le navigateur
-  // peigne le DOM. Avec useEffect, un premier paint pouvait survenir avec scrollTop:0 (haut
-  // de la conversation) avant que le scroll ne soit corrigé — flash intermittent constaté en
-  // usage réel malgré le masquage visibility (le masquage lui-même n'était appliqué qu'au
-  // paint SUIVANT ce premier paint fautif). useLayoutEffect élimine la fenêtre elle-même.
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => document.removeEventListener('visibilitychange', onVisibility);
+  }, [resetLanding]);
+
+  // Atterrissage initial. useLayoutEffect (synchrone avant paint) : calcule firstUnread une
+  // fois, puis pose la position AVANT le premier paint pour éviter tout flash.
+  // - Avec non-lus : scrollIntoView(center) sur le divider (reste valide en column-reverse).
+  // - Sans non-lus : rien à faire, column-reverse est déjà ancré en bas nativement.
   useLayoutEffect(() => {
     if (loading) return;
     const container = chatZoneRef.current;
     if (!container) return;
     if (!knownIdsRef.current) knownIdsRef.current = new Set(messages.map(m => m.id));
     else messages.forEach(m => knownIdsRef.current!.add(m.id));
+
     if (!firstUnreadComputedRef.current) {
-      // On calcule le premier non-lu et on attend le re-render suivant (le séparateur
-      // "Nouveaux messages" doit être monté dans le DOM avant qu'on puisse scroller dessus).
-      // Toujours synchrone : setFirstUnreadId déclenche un re-render + ce même
-      // useLayoutEffect avant le prochain paint, donc pas de fenêtre de flash entre les deux.
       firstUnreadComputedRef.current = true;
       const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
-      logChatScroll('firstUnread computed', { found: !!firstUnread, id: firstUnread?.id, totalMsgs: messages.length });
-      if (firstUnread) { setFirstUnreadId(firstUnread.id); return; }
+      if (firstUnread) { setFirstUnreadId(firstUnread.id); return; } // re-render → divider monté
     }
-    if (!initialScrollDone.current) {
-      // Message non lu trouvé : on cible son séparateur "Nouveaux messages" plutôt que
-      // le tout-en-bas — comme WhatsApp/Telegram, pour ne rater aucun message précédent.
-      const target = firstUnreadId ? document.getElementById(`unread-divider-${clientId}`) : null;
-      if (target) {
-        target.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
-      } else {
-        // behavior: 'instant' outrepasse scroll-behavior:smooth (CSS) sur .chat-messages-zone —
-        // une simple affectation scrollTop serait animée par le navigateur et provoquerait un défilement visible.
-        container.scrollTo({ top: container.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      }
-      initialScrollDone.current = true;
-      // Ancrage bas désactivé si on a atterri sur un message non lu au milieu de l'historique —
-      // sinon le premier nouveau message réassocié par le ResizeObserver nous forcerait en bas.
-      // On protège alors la position du divider à la place (stickToDividerRef).
-      stickToBottomRef.current = !target;
-      stickToDividerRef.current = !!target;
-      logChatScroll('initial scroll', { firstUnreadId, landedOnUnread: !!target, scrollHeight: container.scrollHeight, scrollTop: container.scrollTop, clientHeight: container.clientHeight, gap: container.scrollHeight - container.scrollTop - container.clientHeight });
-      setContentReady(true);
-      // Le calcul du premier non-lu (firstUnread) est fait — on peut désormais laisser
-      // l'IntersectionObserver de chaque bulle marquer les messages lus normalement au fil du
-      // scroll, sans risquer d'avoir marqué prématurément un message reçu pendant l'absence.
-      suppressAutoReadRef.current = false;
-      // BUG CRITIQUE CORRIGÉ : ce setTimeout était posé DANS ce useLayoutEffect (dépendances
-      // [messages, ...]) avec un cleanup `return () => clearTimeout(t)`. React exécute ce
-      // cleanup à CHAQUE redéclenchement de l'effet (donc à chaque nouveau message) — mais un
-      // nouveau timer n'était reposé que dans la branche `if (!initialScrollDone.current)`, qui
-      // ne se reproduit jamais après le tout premier passage. Résultat : dès qu'un 2e message
-      // arrivait dans les 2.5s suivant l'ouverture, le timer était annulé sans jamais être
-      // reposé — settlingRef.current restait bloqué à `true` pour toujours, et la boucle rAF de
-      // stabilisation (qui vérifie settlingRef à chaque frame) tournait indéfiniment à 60fps,
-      // saturant le thread principal (confirmé : app totalement figée, PC et mobile, nécessitant
-      // un hard refresh / fermeture complète). Le timer vit maintenant dans un effect séparé,
-      // dé-corrélé du cycle de vie de CE useLayoutEffect (voir plus bas).
-    } else if (stickToBottomRef.current) {
-      const gapBefore = container.scrollHeight - container.scrollTop - container.clientHeight;
-      logChatScroll('new message → stick scroll', { messageCount: messages.length, gapBefore });
-      container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
-    } else {
-      logChatScroll('new message, NOT sticking (user scrolled up)', { messageCount: messages.length });
-    }
-  }, [messages, coachTyping, loading, firstUnreadId, clientId, userId, resetTick]);
-
-  // Timer de fin de fenêtre de stabilisation — posé UNE SEULE FOIS quand contentReady passe à
-  // true, indépendant des re-déclenchements de l'effet de scroll ci-dessus (voir commentaire
-  // détaillé plus haut sur le bug corrigé : app figée après un 2e message dans les 2.5s).
-  useEffect(() => {
-    if (!settlingRef.current) return;
-    const t = setTimeout(() => { settlingRef.current = false; }, 2500);
-    return () => clearTimeout(t);
-  }, [contentReady]);
-
-  // Boucle rAF active en continu pendant toute la fenêtre de stabilisation (settlingRef,
-  // 2.5s) — ne dépend d'AUCUN événement navigateur (ResizeObserver, onScroll, visualViewport).
-  // Un seul scrollTo() par notification ResizeObserver s'est révélé insuffisant en pratique
-  // (constaté : écart de plusieurs messages malgré des logs indiquant gap:0 juste avant — le
-  // contenu continue de grandir entre deux notifications regroupées par le navigateur). Cette
-  // boucle vérifie et corrige à CHAQUE frame tant qu'on est en phase de stabilisation, ancré
-  // en bas OU ancré sur le divider "Nouveaux messages" (cas landedOnUnread), donc aucune
-  // fenêtre de croissance non détectée n'est possible dans les deux cas.
-  useEffect(() => {
-    if (loading || !settlingRef.current) return;
-    // Dès qu'un menu contextuel est ouvert (l'utilisateur interagit activement avec un
-    // message précis, ex: clic sur une réaction), on arrête définitivement cette boucle
-    // et on marque la stabilisation comme terminée — sans ça, un scrollIntoView "instant"
-    // pouvait se déclencher PENDANT que le menu est déjà affiché, recentrant la vue sur
-    // un tout autre message et donnant l'impression d'un scroll auto vers le haut alors
-    // que l'utilisateur vient de cliquer sur une réaction.
-    if (ctxMenu) { settlingRef.current = false; return; }
-    let rafId: number | null = null;
-    const tick = () => {
-      const c = chatZoneRef.current;
-      if (!c || !settlingRef.current || ctxMenu) { rafId = null; return; }
-      if (stickToBottomRef.current) {
-        const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-        if (gap > 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      } else if (stickToDividerRef.current) {
-        const target = document.getElementById(`unread-divider-${clientId}`);
-        if (target) target.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
-      } else {
-        rafId = null;
-        return;
-      }
-      rafId = requestAnimationFrame(tick);
-    };
-    rafId = requestAnimationFrame(tick);
-    return () => { if (rafId !== null) cancelAnimationFrame(rafId); };
-  }, [loading, messages, clientId, ctxMenu]);
-
-  // Filet de sécurité — rattrape le scroll bas quand le CONTENU grandit après le premier
-  // paint (polices web qui basculent, images/vocaux qui chargent tard).
-  //
-  // Piège corrigé (cause racine du bug de scroll qui saute) : avant, ce ResizeObserver
-  // observait `container` (.chat-messages-zone), qui a une hauteur flex FIXE — un
-  // ResizeObserver ne se déclenche QUE quand la boîte de sa cible change, jamais quand
-  // c'est seulement le scrollHeight (contenu interne) qui grandit. Le filet ne voyait donc
-  // jamais le grossissement du texte au chargement des polices. On observe désormais les
-  // ENFANTS DIRECTS de la zone (les groupes de messages), dont la hauteur cumulée EST le
-  // contenu qui grandit — le callback se déclenche enfin au bon moment. Réobservé à chaque
-  // changement de `messages` (nouveaux enfants).
-  useEffect(() => {
-    const container = chatZoneRef.current;
-    if (!container || loading) return;
-    const ro = new ResizeObserver(() => {
-      const c = chatZoneRef.current;
-      if (!c) return;
-      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      // Ré-ancre seulement si on était déjà proche du bas (gap < 200) — sinon l'utilisateur
-      // a délibérément scrollé vers le haut et on ne doit surtout pas le ramener en bas.
-      if (gap > 0 && gap < 200 && stickToBottomRef.current) {
-        logChatScroll('ResizeObserver fired (content grew)', { gapBefore: gap });
-        c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      }
-    });
-    // Observer le contenu (enfants directs = groupes de messages), pas le conteneur fixe.
-    Array.from(container.children).forEach(child => ro.observe(child));
-    return () => ro.disconnect();
-  }, [loading, messages]);
-
-  // Le shell mobile (voir useViewportShellHeight) recalcule sa hauteur via visualViewport
-  // APRÈS le premier paint — la barre d'adresse finit de se replier un instant après le
-  // scroll initial du chat, ce qui réduit .chat-messages-zone après coup et donne
-  // l'impression que la conversation "remonte" juste après être arrivée en bas. Ce resize
-  // n'est jamais un geste utilisateur : on force le rescroll bas sans passer par settlingRef.
-  useEffect(() => {
-    if (loading) return;
-    const vv = window.visualViewport;
-    if (!vv) return;
-    // Deux gardes, pratique standard pour distinguer un vrai repli de barre d'adresse d'un
-    // resize parasite (cf. iOS Safari address bar quirks) :
-    // 1. Fenêtre de grâce de quelques secondes après l'ouverture — passé ce délai, on
-    //    désactive complètement ce mécanisme.
-    // 2. Seuil de magnitude — un vrai repli de barre d'adresse Safari change vv.height
-    //    d'au moins ~50-60px ; sous ce seuil, ce n'est que du bruit (clavier qui vibre,
-    //    micro-ajustement) qu'il ne faut surtout pas traiter comme un signal de rescroll.
-    // Sans ces deux gardes, N'IMPORTE QUEL tap sur mobile qui fait à peine bouger la barre
-    // d'adresse (même longtemps après l'ouverture) forçait un rescroll brutal en bas —
-    // donnant l'impression d'un scroll auto "au hasard" au moindre tap sur l'écran.
-    const graceUntil = Date.now() + 4000;
-    const RESIZE_THRESHOLD_PX = 40;
-    let lastHeight = vv.height;
-    let rafId: number | null = null;
-    let stopAt = 0;
-    const tick = () => {
-      const c = chatZoneRef.current;
-      if (!c || !stickToBottomRef.current || Date.now() > stopAt) { rafId = null; return; }
-      const gap = c.scrollHeight - c.scrollTop - c.clientHeight;
-      if (gap !== 0) c.scrollTo({ top: c.scrollHeight, behavior: 'instant' as ScrollBehavior });
-      rafId = requestAnimationFrame(tick);
-    };
-    const onViewportResize = () => {
-      const heightDelta = Math.abs(vv!.height - lastHeight);
-      lastHeight = vv!.height;
-      if (!stickToBottomRef.current || Date.now() > graceUntil || heightDelta < RESIZE_THRESHOLD_PX) return;
-      logChatScroll('visualViewport resize', { vvHeight: vv!.height, heightDelta });
-      // Le resize peut continuer sur quelques frames (clavier/barre d'adresse qui finit son
-      // animation) — on corrige en continu pendant 500ms au lieu d'une seule fois.
-      stopAt = Date.now() + 500;
-      if (rafId === null) rafId = requestAnimationFrame(tick);
-    };
-    vv.addEventListener('resize', onViewportResize);
-    return () => { vv.removeEventListener('resize', onViewportResize); if (rafId !== null) cancelAnimationFrame(rafId); };
-  }, [loading]);
+    if (initialLandingDoneRef.current) return;
+    initialLandingDoneRef.current = true;
+    const divider = firstUnreadId ? document.getElementById(`unread-divider-${clientId}`) : null;
+    if (divider) divider.scrollIntoView({ behavior: 'instant' as ScrollBehavior, block: 'center' });
+    // (sans divider : column-reverse ancre déjà en bas, rien à faire)
+    setContentReady(true);
+    suppressAutoReadRef.current = false;
+  }, [messages, loading, firstUnreadId, clientId, userId]);
 
   // ── Envoi texte ────────────────────────────────────────────────────────────
   async function sendMessage(text: string) {
@@ -1648,15 +1446,7 @@ export default function PageClientMessages() {
     // moment où on mesure ; une mesure synchrone immédiate peut donc capturer une
     // position pas encore stabilisée, surtout left/x qui n'est jamais recorrigé après
     // coup (seul top l'est pour le lift) — d'où un décalage horizontal visible du clone.
-    // Si la conversation vient tout juste de s'ouvrir, une boucle rAF distincte (voir
-    // settlingRef) réajuste activement le scroll pendant ~2.5s pour compenser des images/
-    // polices qui finissent de charger — un clic dans cette fenêtre mesurait une position
-    // qui continuait de bouger sous les pieds de l'utilisateur (le message "remontait" de
-    // plusieurs rangs juste après l'ouverture du menu). On attend la fin de cette
-    // stabilisation (généralement quelques dizaines de ms, rarement les 2.5s pleines)
-    // avant de mesurer quoi que ce soit.
     const measureWhenSettled = () => {
-      if (settlingRef.current) { requestAnimationFrame(measureWhenSettled); return; }
       const rawRect = bubbleEl.getBoundingClientRect();
       // Le panneau de détail de réaction n'affiche jamais la barre d'emojis complète —
       // utiliser REACTION_BAR_HEIGHT ici sous-évaluait la place nécessaire dans certains
@@ -1831,49 +1621,15 @@ export default function PageClientMessages() {
   // Piège corrigé : avant, un simple touchstart/mousedown (un TAP, sans aucun mouvement)
   // coupait settlingRef instantanément. Or pendant les premières secondes, les polices web
   // finissent de charger (display:'swap' historique → FOUT) et agrandissent le texte, donc
-  // le scrollHeight grandit APRÈS le premier paint. La boucle rAF de settlingRef compensait
-  // ça en re-scrollant en bas — mais un tap la coupait net, laissant le contenu grandir sans
-  // compensation → les messages "sautaient" vers le haut. Aucune écriture scrollTop JS n'était
-  // impliquée (le navigateur ne fait que peindre un layout plus grand), d'où l'invisibilité
-  // totale à l'instrumentation.
-  //
-  // Fix : un tap seul (pointer down sans déplacement) n'arme que userGestureRef, il ne coupe
-  // PAS settlingRef. Seul un vrai geste de scroll — molette, ou touchmove au-delà d'un seuil
-  // de mouvement — désarme la compensation (l'utilisateur veut réellement scroller).
-  const userGestureRef = useRef(false);
-  const touchStartYRef = useRef<number | null>(null);
-  const TOUCH_MOVE_THRESHOLD = 10; // même seuil que lib/useLongPress.ts
-  function handlePointerDown(e: React.PointerEvent<HTMLDivElement> | React.MouseEvent<HTMLDivElement>) {
-    userGestureRef.current = true;
-    touchStartYRef.current = 'clientY' in e ? e.clientY : null;
-  }
-  function handleTouchStart(e: React.TouchEvent<HTMLDivElement>) {
-    userGestureRef.current = true;
-    touchStartYRef.current = e.touches[0]?.clientY ?? null;
-  }
-  function handleTouchMove(e: React.TouchEvent<HTMLDivElement>) {
-    if (touchStartYRef.current === null) return;
-    const dy = Math.abs((e.touches[0]?.clientY ?? touchStartYRef.current) - touchStartYRef.current);
-    if (dy > TOUCH_MOVE_THRESHOLD) settlingRef.current = false; // vrai scroll tactile
-  }
-  function handleWheel() {
-    // La molette est toujours une intention de scroll délibérée — désarme immédiatement.
-    userGestureRef.current = true;
-    settlingRef.current = false;
-  }
+  // En column-reverse, "bas" = scrollTop ≈ 0 (Chrome/Firefox utilisent des valeurs négatives,
+  // WebKit reste positif historiquement — Math.abs couvre les deux sans détection navigateur).
   function handleChatScroll(e: React.UIEvent<HTMLDivElement>) {
     const el = e.currentTarget;
-    const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const distanceFromBottom = Math.abs(el.scrollTop);
     setShowScrollArrow(distanceFromBottom > 120);
-    // Pendant la stabilisation (settlingRef) SANS geste utilisateur détecté, un "scroll"
-    // natif peut venir du navigateur lui-même (reflow viewport/fonts) — on ignore ce cas
-    // pour ne pas désarmer l'ancrage bas par erreur. Un vrai geste (userGestureRef) prime.
-    if (userGestureRef.current || !settlingRef.current) stickToBottomRef.current = distanceFromBottom < 40;
   }
   function scrollToBottom() {
-    const el = chatZoneRef.current;
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
-    stickToBottomRef.current = true;
+    chatZoneRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   // ── Groupes par jour ───────────────────────────────────────────────────────
@@ -1923,34 +1679,31 @@ export default function PageClientMessages() {
           </div>
           {/* Bouton activation notifications — géré par PushInit */}
           {userId && <PushInit userId={userId} />}
-          {/* Bouton debug TEMPORAIRE — copie les logs de la sonde de scroll. À retirer. */}
-          <button
-            onClick={async () => {
-              const logs = getScrollProbeLogs() || '(aucun log)';
-              try { await navigator.clipboard.writeText(logs); setScrollLogsCopied(true); setTimeout(() => setScrollLogsCopied(false), 2000); } catch {}
-            }}
-            style={{
-              flexShrink: 0, padding: '6px 10px', fontSize: 11, fontWeight: 600,
-              borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)',
-              color: 'var(--muted)', cursor: 'pointer',
-            }}
-          >
-            {scrollLogsCopied ? 'Copié !' : 'Logs scroll'}
-          </button>
         </div>
 
         {/* ── Zone messages ── */}
+        {/* column-reverse : le navigateur ancre nativement en bas, immunisé contre tout
+            reflow de contenu post-paint (polices, images, vocaux qui chargent tard). Le
+            JSX est donc rendu en ordre INVERSE (dernier message = premier enfant DOM) pour
+            retrouver l'ordre de lecture correct à l'écran. */}
         <div ref={chatZoneRef} onScroll={handleChatScroll}
-          onTouchStart={handleTouchStart} onTouchMove={handleTouchMove}
-          onMouseDown={handlePointerDown} onWheel={handleWheel}
           className="chat-messages-zone" style={{
           flex: 1, overflowY: 'auto', overflowX: 'hidden',
-          padding: '16px 16px 8px', display: 'flex', flexDirection: 'column', gap: 2,
+          padding: '16px 16px 8px', display: 'flex', flexDirection: 'column-reverse', gap: 2,
           WebkitOverflowScrolling: 'touch',
-          // Masqué (mais toujours mesurable pour scrollHeight) tant que le scroll initial
-          // n'est pas posé — évite le flash "tout en haut" avant correction de la position.
+          // Masqué (mais toujours mesurable) le temps de poser l'atterrissage sur le divider
+          // non-lus — sans non-lus, column-reverse ancre déjà en bas au 1er paint (pas de flash).
           visibility: (!loading && messages.length > 0 && !contentReady) ? 'hidden' : 'visible',
         } as React.CSSProperties}>
+          {/* Indicateur de frappe — premier enfant DOM = visuellement en bas grâce à
+              column-reverse. Pas de msg-bubble-in ici : ce conteneur reste monté en continu
+              tant que coachTyping est true, l'animation d'entrée n'a donc pas lieu d'être. */}
+          {coachTyping && (
+            <div style={{ marginTop: 8 }}>
+              <TypingIndicator />
+            </div>
+          )}
+
           {loading ? (
             <InlineLoader />
           ) : messages.length === 0 ? (
@@ -1963,35 +1716,16 @@ export default function PageClientMessages() {
               <div style={{ fontWeight: 600, color: 'var(--ink-2)', fontSize: 14, marginBottom: 4 }}>Aucun message</div>
               <div style={{ fontSize: 12, color: 'var(--muted)' }}>Commence la conversation avec ton coach</div>
             </div>
-          ) : messageGroups.map((group) => (
-            <div key={group.dateLabel} style={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-              {/* Séparateur date */}
-              <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0 6px' }}>
-                <span style={{
-                  fontSize: 11, color: 'var(--muted)',
-                  background: 'var(--surface-2)', padding: '3px 10px',
-                  borderRadius: 20, border: '1px solid var(--border-soft)',
-                }}>
-                  {group.dateLabel}
-                </span>
-              </div>
-
-              {group.msgs.map((msg, msgIdx) => {
+          ) : messageGroups.slice().reverse().map((group) => (
+            <div key={group.dateLabel} style={{ display: 'flex', flexDirection: 'column-reverse', gap: 3 }}>
+              {group.msgs.slice().reverse().map((msg, revIdx, revArr) => {
+                const msgIdx = revArr.length - 1 - revIdx;
                 const prevMsg = group.msgs[msgIdx - 1];
                 const isContinued = prevMsg && prevMsg.sender_id === msg.sender_id;
                 const nextMsg = group.msgs[msgIdx + 1];
                 const isLast = !nextMsg || nextMsg.sender_id !== msg.sender_id;
                 return (
                   <Fragment key={msg.id}>
-                    {firstUnreadId === msg.id && (
-                      <div id={`unread-divider-${clientId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
-                        <div style={{ flex: 1, height: 1, background: 'var(--red-soft)' }} />
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', background: 'var(--red-soft)', padding: '3px 10px', borderRadius: 20 }}>
-                          Nouveaux messages
-                        </span>
-                        <div style={{ flex: 1, height: 1, background: 'var(--red-soft)' }} />
-                      </div>
-                    )}
                     <MessageBubble
                       msg={msg}
                       userId={userId ?? ''}
@@ -2026,24 +1760,32 @@ export default function PageClientMessages() {
                       }}
                       animate={knownIdsRef.current ? !knownIdsRef.current.has(msg.id) : false}
                     />
+                    {firstUnreadId === msg.id && (
+                      <div id={`unread-divider-${clientId}`} style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '10px 0 6px' }}>
+                        <div style={{ flex: 1, height: 1, background: 'var(--red-soft)' }} />
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--red)', background: 'var(--red-soft)', padding: '3px 10px', borderRadius: 20 }}>
+                          Nouveaux messages
+                        </span>
+                        <div style={{ flex: 1, height: 1, background: 'var(--red-soft)' }} />
+                      </div>
+                    )}
                   </Fragment>
                 );
               })}
+
+              {/* Séparateur date — dernier enfant DOM du groupe = visuellement au-dessus
+                  grâce à column-reverse (reste au-dessus du groupe comme avant). */}
+              <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0 6px' }}>
+                <span style={{
+                  fontSize: 11, color: 'var(--muted)',
+                  background: 'var(--surface-2)', padding: '3px 10px',
+                  borderRadius: 20, border: '1px solid var(--border-soft)',
+                }}>
+                  {group.dateLabel}
+                </span>
+              </div>
             </div>
           ))}
-
-          {/* Indicateur de frappe — pas de msg-bubble-in ici : ce conteneur reste monté en
-              continu tant que coachTyping est true (ne se démonte qu'à l'extinction), l'animation
-              d'entrée n'a donc pas lieu d'être et pouvait, sur certains navigateurs mobiles,
-              interagir avec l'animation infinie des points et donner une impression de
-              clignotement au lieu d'un mouvement continu des 3 points. */}
-          {coachTyping && (
-            <div style={{ marginTop: 8 }}>
-              <TypingIndicator />
-            </div>
-          )}
-
-          <div ref={bottomRef} />
         </div>
 
         {/* ── Flèche scroll bas ── */}
