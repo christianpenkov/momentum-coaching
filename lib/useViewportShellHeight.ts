@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, RefObject } from 'react';
+import { logScroll, shortStack } from '@/lib/scrollDebug';
 
 /**
  * Corrige la hauteur du shell mobile via visualViewport (barre d'adresse qui se replie,
@@ -17,7 +18,7 @@ export function useViewportShellHeight(shellRef: RefObject<HTMLDivElement | null
     // Hauteur de référence sans clavier (screen.height est stable sur iOS, innerHeight non)
     const baseH = window.screen.height;
 
-    function update() {
+    function update(eventType: string) {
       const vvh = vv!.height;
       const kbH = Math.max(0, baseH - vvh);
       const isKeyboardOpen = kbH > 100;
@@ -33,6 +34,15 @@ export function useViewportShellHeight(shellRef: RefObject<HTMLDivElement | null
       // sur la position de lecture de l'utilisateur.
       const chatZone = document.querySelector<HTMLElement>('.chat-messages-zone');
       const gapBefore = chatZone ? chatZone.scrollHeight - chatZone.scrollTop - chatZone.clientHeight : null;
+      const shellHeightBefore = shellRef.current?.style.height;
+
+      logScroll('shellHeight update() called', {
+        eventType, vvh, kbH, isKeyboardOpen, shellHeightBefore,
+        chatZoneScrollTop: chatZone?.scrollTop, chatZoneScrollHeight: chatZone?.scrollHeight,
+        chatZoneClientHeight: chatZone?.clientHeight, gapBefore,
+        activeElement: document.activeElement?.tagName,
+        stack: shortStack(),
+      });
 
       // Hauteur du shell = hauteur visuelle réelle
       if (shellRef.current) {
@@ -40,7 +50,10 @@ export function useViewportShellHeight(shellRef: RefObject<HTMLDivElement | null
       }
 
       if (chatZone && gapBefore !== null) {
-        chatZone.scrollTop = chatZone.scrollHeight - chatZone.clientHeight - gapBefore;
+        const newScrollTop = chatZone.scrollHeight - chatZone.clientHeight - gapBefore;
+        logScroll('shellHeight restoring chatZone scrollTop', { newScrollTop, actualBefore: chatZone.scrollTop });
+        chatZone.scrollTop = newScrollTop;
+        logScroll('shellHeight after restore', { actualAfter: chatZone.scrollTop });
       }
 
       // Classe CSS sur body — plus propre et sans race condition avec l'animation iOS
@@ -55,12 +68,15 @@ export function useViewportShellHeight(shellRef: RefObject<HTMLDivElement | null
       }
     }
 
-    update();
-    vv.addEventListener('resize', update);
-    vv.addEventListener('scroll', update);
+    logScroll('useViewportShellHeight mounted', { baseH, initialVvh: vv.height });
+    update('mount');
+    const onResize = () => update('resize');
+    const onScroll = () => update('scroll');
+    vv.addEventListener('resize', onResize);
+    vv.addEventListener('scroll', onScroll);
     return () => {
-      vv.removeEventListener('resize', update);
-      vv.removeEventListener('scroll', update);
+      vv.removeEventListener('resize', onResize);
+      vv.removeEventListener('scroll', onScroll);
     };
   }, [shellRef]);
 }
