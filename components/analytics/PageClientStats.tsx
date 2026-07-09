@@ -1166,10 +1166,28 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   // Filtre par vraie date calendaire (pas .slice(-N), qui suppose chartData aligné
   // sur aujourd'hui).
   const { periodStart: ytPeriodStart, periodEnd: ytPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
-  const ytDays = yt.chartData.filter(d => {
+  const ytDaysRaw = yt.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= ytPeriodStart.getTime() && t <= ytPeriodEnd.getTime();
   });
+  // ytDays : TOUS les jours calendaires de la période (comme igDays) — sinon l'axe X du
+  // graphique s'arrête à la dernière ligne connue en base (souvent en retard de 2-3
+  // jours côté API YouTube Analytics) au lieu de couvrir tout le mois/semaine avec les
+  // jours sans donnée simplement vides.
+  const ytDayByDate = new Map(ytDaysRaw.map(d => [d.date, d]));
+  const ytDaysNoDataSet = new Set<string>();
+  const ytDays: typeof ytDaysRaw = (() => {
+    const days: typeof ytDaysRaw = [];
+    const d = new Date(ytPeriodStart);
+    while (d.getTime() <= ytPeriodEnd.getTime()) {
+      const iso = d.toISOString().split('T')[0];
+      const existing = ytDayByDate.get(iso);
+      if (!existing) ytDaysNoDataSet.add(iso);
+      days.push(existing ?? { date: iso, views: 0, watchTime: 0, subsGained: 0, subsLost: 0, netSubs: 0 });
+      d.setUTCDate(d.getUTCDate() + 1);
+    }
+    return days;
+  })();
   // Valeurs sur la période sélectionnée depuis chartData
   const ytViewsP = ytDays.reduce((s, d) => s + d.views, 0);
   const ytWatchTimeP = ytDays.reduce((s, d) => s + d.watchTime, 0);
@@ -1232,12 +1250,12 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
 
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: d.shorts + d.longues })), color: YT_COLOR },
-    'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: d.views })), color: RED },
-    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
+    'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views })), color: RED },
+    'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
     'Watch time moyen':   { data: mockFromTotalYT(avgWatchShorts ?? 0, 5), color: '#f43f5e', unit: 's' },
-    'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: d.subsGained ?? 0 })), color: GREEN },
-    'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: d.subsLost ?? 0 })), color: RED },
-    'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: d.netSubs ?? 0 })), color: yt.netSubs30d >= 0 ? GREEN : RED },
+    'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
+    'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
+    'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
     'Likes':              { data: mockFromTotalYT(yt.likes30d, 1), color: ACCENT },
     'Commentaires':       { data: mockFromTotalYT(yt.comments30d, 2), color: BLUE },
     'Partages':           { data: mockFromTotalYT(yt.shares30d, 3), color: GREEN },
