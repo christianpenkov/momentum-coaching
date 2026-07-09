@@ -1317,6 +1317,48 @@ export default function PageClientMessages() {
     return watchScrollTop(el, 'client');
   }, []);
 
+  // Filet de sécurité supplémentaire — watchScrollTop n'intercepte que les écritures
+  // JS de scrollTop, PAS le scroll natif du navigateur (momentum/rebond iOS, focus
+  // auto-scroll) qui peut bouger scrollTop sans jamais passer par un setter JS. On
+  // écoute l'événement scroll natif directement (se déclenche peu importe la cause)
+  // ET tous les événements tactiles bruts sur la zone, pour capturer un scroll qui
+  // échapperait complètement à l'instrumentation JS.
+  useEffect(() => {
+    const el = chatZoneRef.current;
+    if (!el) return;
+    let lastLoggedAt = 0;
+    const onNativeScroll = () => {
+      const now = Date.now();
+      if (now - lastLoggedAt < 80) return; // throttle — un scroll natif tire beaucoup d'events
+      lastLoggedAt = now;
+      logScroll('NATIVE scroll event', { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight, clientHeight: el.clientHeight });
+    };
+    const onTouchStart = (e: TouchEvent) => {
+      const target = e.target as HTMLElement;
+      logScroll('touchstart on chatZone', {
+        targetTag: target.tagName, targetClass: target.className?.toString().slice(0, 80),
+        scrollTopAtTouch: el.scrollTop, touches: e.touches.length,
+      });
+    };
+    const onTouchEnd = () => {
+      logScroll('touchend on chatZone', { scrollTopAtTouchEnd: el.scrollTop });
+    };
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement;
+      logScroll('focusin (auto-scroll risk)', { targetTag: target.tagName, targetType: (target as HTMLInputElement).type });
+    };
+    el.addEventListener('scroll', onNativeScroll, { passive: true });
+    el.addEventListener('touchstart', onTouchStart, { passive: true, capture: true });
+    el.addEventListener('touchend', onTouchEnd, { passive: true, capture: true });
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      el.removeEventListener('scroll', onNativeScroll);
+      el.removeEventListener('touchstart', onTouchStart, { capture: true } as EventListenerOptions);
+      el.removeEventListener('touchend', onTouchEnd, { capture: true } as EventListenerOptions);
+      document.removeEventListener('focusin', onFocusIn);
+    };
+  }, []);
+
   // ── Scroll bas — instant au chargement, ancré tant que l'utilisateur ne scrolle pas ──
   const initialScrollDone = useRef(false);
   // La zone de messages reste masquée (visibility:hidden, garde le layout pour scrollHeight)
