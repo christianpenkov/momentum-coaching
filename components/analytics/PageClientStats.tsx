@@ -1570,7 +1570,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
               );
             })() : (
               <ResponsiveContainer width="100%" height={220}>
-                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
                   <defs>
                     <linearGradient id="grad-yt-stat-modal" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
@@ -1578,7 +1578,10 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={['auto', 'auto']} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
+                  {/* domain avec marge basse fixe (pas 'auto' pur) : quand toutes les valeurs
+                      sont à 0 (ex: Subs nets sans variation), le point pulsant (halo r=6)
+                      collé à y=0 débordait visuellement sous l'axe X. */}
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.1 : 1; return [dataMin - margin, dataMax + margin]; }} allowDataOverflow tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;

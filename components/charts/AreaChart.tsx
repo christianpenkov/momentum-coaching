@@ -25,15 +25,22 @@ interface AreaChartProps {
 
 const COLORS = ['var(--accent)', '#3f8a52', '#b58025'];
 
-// Trouve la date du dernier point ayant une vraie valeur (non null/undefined) dans une
-// série — c'est ce point-là qui pulse, pas forcément "aujourd'hui" au sens calendaire.
-// Certaines sources (ex: API YouTube Analytics) ont un délai de traitement de quelques
-// jours : la dernière donnée disponible n'est pas toujours celle du jour courant, et
-// faire pulser une date sans vraie donnée serait trompeur.
+// Trouve la date du dernier point ayant une vraie valeur (non null/undefined, et pas un
+// jour futur) dans une série — c'est ce point-là qui pulse, pas forcément "aujourd'hui"
+// au sens calendaire strict. Certaines sources (ex: API YouTube Analytics) ont un délai
+// de traitement de quelques jours : la dernière donnée disponible n'est pas toujours
+// celle du jour courant, et faire pulser une date sans vraie donnée serait trompeur.
+// Le filtre "pas futur" est nécessaire pour les séries où 0 est une valeur légitime
+// (ex: "0 vidéo publiée ce jour-là") plutôt qu'une absence de donnée — sans lui, le
+// dernier jour de la période (même dans le futur, à 0) serait pris à tort.
 export function lastRealPointKey(data: Record<string, unknown>[], xKey: string, dataKey: string): string | null {
+  const todayStr = new Date().toISOString().split('T')[0];
   for (let i = data.length - 1; i >= 0; i--) {
     const v = data[i][dataKey];
-    if (v !== null && v !== undefined) return String(data[i][xKey]);
+    const dateVal = data[i][xKey];
+    if (v === null || v === undefined) continue;
+    if (typeof dateVal === 'string' && dateVal > todayStr) continue;
+    return String(dateVal);
   }
   return null;
 }
