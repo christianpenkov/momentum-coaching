@@ -1545,7 +1545,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 return videosSortDir === 'desc' ? bv - av : av - bv;
               })
               .map(v => (
-              <tr key={v.id} onClick={() => { setSelectedVideo(v); setJobCreatedAt(null); setVideoCtr(null); setCtrPending(false); loadRetention(v.id, v.publishedAt); }}
+              <tr key={v.id} onClick={() => { setSelectedVideo(v); setJobCreatedAt(null); setVideoCtr(null); setCtrPending(false); setRetention(null); setRetentionSummary(null); loadRetention(v.id, v.publishedAt); }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
                 onMouseLeave={e => (e.currentTarget.style.background = '')}>
