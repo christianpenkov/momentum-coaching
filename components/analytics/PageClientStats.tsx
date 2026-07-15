@@ -488,7 +488,10 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       const honored = callsBooked - noShowCount;
       const noShowPct = callsBooked > 0 ? Math.round((noShowCount / callsBooked) * 100) : null;
       const closedPct = honored > 0 ? Math.round((closedCount / honored) * 100) : null;
-      const avgWatchTimeMin = v.watchTime30d && v.views30d > 0 ? Math.round(v.watchTime30d / v.views30d / 60 * 10) / 10 : null;
+      // v.watchTime30d est déjà en minutes (row.watch_time_min) — pas de /60 ici, contrairement
+      // à la branche IG ci-dessus (avgWatchTimeMs en ms) : diviser aussi par 60 donnait un résultat
+      // 60x trop petit (ex: 0.0 min affiché au lieu de 2.5 min).
+      const avgWatchTimeMin = v.watchTime30d && v.views30d > 0 ? Math.round(v.watchTime30d / v.views30d * 10) / 10 : null;
       const viewsLifetimeYT = ytLiveViewsByIdOv.get(v.id) ?? null;
       return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: Math.round(v.watchTime30d / 60), avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
     }),
@@ -1265,11 +1268,14 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
 
   const shortsVideos = yt.videos.filter(v => v.isShort);
   const longVideos = yt.videos.filter(v => !v.isShort);
+  // v.watchTime30d vient de row.watch_time_min (des minutes, cf. ligne ~4903) — *60 pour
+  // repasser en secondes avant division, sinon fmtSec() (qui attend des secondes) affiche
+  // toujours "0m00s" (ex: 500min de watch time / 10000 vues = 0.05 arrondi à 0).
   const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + v.views30d, 0) > 0
-    ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d, 0) / shortsVideos.reduce((s,v) => s + v.views30d, 0))
+    ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / shortsVideos.reduce((s,v) => s + v.views30d, 0))
     : null;
   const avgWatchLong = longVideos.length > 0 && longVideos.reduce((s,v) => s + v.views30d, 0) > 0
-    ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d, 0) / longVideos.reduce((s,v) => s + v.views30d, 0))
+    ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / longVideos.reduce((s,v) => s + v.views30d, 0))
     : null;
 
   const mockAroundAvgYT = (avg: number, seed: number, variancePct = 0.2) => {
@@ -1540,10 +1546,14 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
               const color1 = statModal.color;
               const color2 = statModal.color2 || '#64748b';
               const isWatchTime = statModal.label.includes('Watch time');
+              // Pas de "?? 0" sur longues : ça écrasait le null posé en amont (isFutureDayYT)
+              // sur les jours futurs, retransformant un vrai "pas de donnée" en faux zéro —
+              // la ligne "Vidéos longues" continuait alors à plat jusqu'à fin de période au
+              // lieu de s'arrêter au point pulsant, contrairement à "shorts" (déjà correct).
               const merged = statModal.data.map((d, i) => ({
                 date: d.date,
                 shorts: d.v,
-                longues: statModal.data2![i]?.v ?? 0,
+                longues: statModal.data2![i]?.v ?? null,
               }));
               const formatVal = (v: number) => isWatchTime ? fmtSec(v) : fmt(v);
               const val1 = isWatchTime ? (avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—') : `${fmt(ytShortsCount)}`;
@@ -1657,7 +1667,8 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 ['Vues totales', fmt(selectedVideo.views)],
-                ['Watch time total', selectedVideo.watchTime30d >= 3600 ? `${Math.round(selectedVideo.watchTime30d / 3600)}h` : `${Math.round(selectedVideo.watchTime30d / 60)}min`],
+                // watchTime30d est en minutes (row.watch_time_min) — pas de /60 supplémentaire ici.
+                ['Watch time total', selectedVideo.watchTime30d >= 60 ? `${Math.round(selectedVideo.watchTime30d / 60)}h` : `${Math.round(selectedVideo.watchTime30d)}min`],
                 ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
                 ...(!selectedVideo.isShort && !loadingRetention ? (() => {
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
@@ -4117,7 +4128,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     {row.platform === 'YT' && ytVideo && (() => {
                       const metrics: [string, any][] = [
                         ['Vues', ytVideo.views], ['Likes', ytVideo.likes], ['Commentaires', ytVideo.comments],
-                        ['Partages', ytVideo.shares30d], ['Watch time moy.', (() => { const sec = Math.round(ytVideo.watchTime30d / (ytVideo.views30d || 1)); return sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`; })()],
+                        ['Partages', ytVideo.shares30d], ['Watch time moy.', (() => { const sec = Math.round(ytVideo.watchTime30d * 60 / (ytVideo.views30d || 1)); return sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`; })()],
                         ['% vu moy.', `${ytVideo.avgViewPct}%`], ['CTR miniature', '4,2%'],
                       ];
                       return metrics.map(([label, val], i) => (
