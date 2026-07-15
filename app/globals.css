@@ -1715,13 +1715,23 @@ a { color: inherit; text-decoration: none; }
     background: var(--red);
   }
 
-  /* Nav coach (5 items) — léger espace à gauche d'Aujourd'hui seulement. Un padding
-     symétrique (gauche + droite) élargit visiblement l'écart Calls↔Plus car Plus est
-     déjà le dernier item collé au bord ; padding-left seul évite ce déséquilibre.
+  /* Nav coach (5 items) — léger espace à gauche d'Aujourd'hui, et les 4 premiers items
+     rapprochés visuellement de "Plus". Mesure pixel sur capture réelle : l'espacement
+     géométrique entre icônes était déjà parfaitement égal (228px partout) — l'écart
+     perçu vient du poids visuel plus léger de l'icône "•••" (3 points fins) face aux
+     icônes pleines des 4 autres boutons. Un flex-grow légèrement réduit sur "Plus"
+     (0.8 vs 1.05) compense cette illusion en rapprochant Calls de Plus, sans casser
+     l'égalité stricte des zones tactiles (différence minime, ~5%).
      Élève (.bottom-nav seul, 4 items) non affecté puisque .bottom-nav-coach est une
      classe additionnelle. */
   .bottom-nav-coach {
     padding-left: 10px;
+  }
+  .bottom-nav-coach .bottom-nav-item:last-child {
+    flex: 0.8;
+  }
+  .bottom-nav-coach .bottom-nav-item:not(:last-child) {
+    flex: 1.05;
   }
 }
 
