@@ -79,7 +79,7 @@ export default function BottomNavCoach({ onMoreClick }: { onMoreClick: () => voi
         onClick={onMoreClick}
         className={`bottom-nav-item${isMoreActive ? ' active' : ''}`}
         aria-current={isMoreActive ? 'page' : undefined}
-        style={{ background: 'none', border: 'none', font: 'inherit' }}
+        style={{ background: 'none', border: 'none', font: 'inherit', margin: 0, appearance: 'none' }}
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
           <circle cx="12" cy="12" r="1" />
