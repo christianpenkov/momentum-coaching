@@ -813,7 +813,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
   const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= cutoffIg).length;
   const pubsByDay = igDays.map(d => ({
     date: d.date,
-    v: ig.posts.filter(p => p.timestamp.startsWith(d.date)).length,
+    v: igDaysNoDataSet.has(d.date) ? (null as any) : ig.posts.filter(p => p.timestamp.startsWith(d.date)).length,
   }));
 
   // Interactions par jour = vraie donnée quotidienne (ig_total_interactions en DB,
@@ -836,7 +836,11 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
       // Delta brut jour J vs J-1 (nombre entier réel, pas de lissage) — très bruyant
       // sur un petit compte (±1-2/jour), affiché en barres plutôt qu'une ligne pour
       // rester honnête sur le fait que chaque jour est une valeur indépendante.
+      // Jours futurs (igDaysNoDataSet) : v=null explicite — sans cette garde, le ?? prev
+      // du calcul de delta reconduit la dernière valeur connue et retombe sur 0 (curr-prev)
+      // au lieu de couper la ligne, la faisant continuer plate jusqu'à fin de période.
       return igDays.map((d, i, arr) => {
+        if (igDaysNoDataSet.has(d.date)) return { date: d.date, v: null as any };
         const prev = arr[i - 1]?.followerCount ?? d.followerCount ?? 0;
         const curr = d.followerCount ?? prev;
         return { date: d.date, v: i === 0 ? 0 : (curr - (prev ?? curr)) };
@@ -922,18 +926,20 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${period} jours`}>
-          <AreaChart data={igDays} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={200} showWeekday={period === 7} />
+          <AreaChart data={igDays} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={220} showWeekday={period === 7} />
         </Card>
         <Card title="Abonnés / jour" sub={`${period} jours`}>
-          <ResponsiveContainer width="100%" height={200}>
-            <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+          <ResponsiveContainer width="100%" height={220}>
+            <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={ACCENT} stopOpacity={0.2} />
                   <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+              {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
+                  régulier des labels de dates — même logique que le wrapper AreaChart. */}
+              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : Math.max(1, Math.ceil(igDays.length / 9) - 1)} />
               <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;

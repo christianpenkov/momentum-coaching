@@ -97,10 +97,16 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
     }
     return d;
   });
+  // Intervalle de labels calculé explicitement (pas 'preserveStartEnd', qui laisse
+  // Recharts choisir lui-même selon la largeur de texte disponible — produit un
+  // espacement visuellement irrégulier entre les labels affichés). Vise ~9 labels
+  // maximum en vue mois, régulièrement espacés en nombre de jours ; en vue semaine
+  // (showWeekday), tous les jours sont déjà affichés (interval 0).
+  const tickInterval = showWeekday ? 0 : Math.max(1, Math.ceil(safeData.length / 9) - 1);
   return (
     <div className="chart-wrapper" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <ReAreaChart data={safeData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+        <ReAreaChart data={safeData} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
           <defs>
             {areas.map((a, i) => {
               const color = a.color || COLORS[i % COLORS.length];
@@ -119,7 +125,7 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
             return showWeekday
               ? d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })
               : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
-          }} interval={showWeekday ? 0 : 'preserveStartEnd'} />
+          }} interval={tickInterval} />
           <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
