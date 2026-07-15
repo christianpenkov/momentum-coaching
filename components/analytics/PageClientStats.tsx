@@ -954,7 +954,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
               {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
                   régulier des labels de dates — même logique que le wrapper AreaChart. */}
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : Math.max(1, Math.ceil(igDays.length / 9) - 1)} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} width={40} />
+              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={['auto', 'auto']} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(Math.round(v))} width={40} />
               <Tooltip content={({ active, payload, label }) => {
                 if (!active || !payload?.length) return null;
                 return (
@@ -1062,7 +1062,11 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                       (compteur type Abonnés) — descend sous 0 seulement si de vraies valeurs
                       négatives existent dans la série. Rend le graphique responsive à la
                       forme réelle des données plutôt qu'une marge symétrique fixe. */}
-                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.05); const lo = Math.floor(dataMin - margin); return [dataMin >= 0 ? Math.max(0, lo) : lo, Math.ceil(dataMax + margin)] as [number, number]; }} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : String(v)} />
+                  {/* allowDecimals={false} sur les compteurs (Publications, Reach, Abonnés —
+                      statModal.unit absent) : sans ça, Recharts génère des ticks "nice"
+                      fractionnaires (0.5, 1.5...) sur les petites plages, absurdes pour des
+                      quantités entières. Les métriques avec unit (%, s...) gardent les décimales. */}
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={statModal.unit != null} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.05); const lo = Math.floor(dataMin - margin); return [dataMin >= 0 ? Math.max(0, lo) : lo, Math.ceil(dataMax + margin)] as [number, number]; }} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (statModal.unit == null ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}{statModal.unit ?? ''}</strong></div></div>;
@@ -1456,19 +1460,36 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
         </Card>
       </div>
 
-      {ytDays.some(d => d.netSubs !== undefined) && (
-        <Card title="Abonnés nets / jour" sub={`${period} jours · données J-3`}>
-          <ResponsiveContainer width="100%" height={160}>
-            <ComposedChart data={ytDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
-              <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="netSubs" name="Subs nets" fill={GREEN} radius={[2, 2, 0, 0]} opacity={0.85} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </Card>
-      )}
+      <Card title="Abonnés nets / jour" sub={`${period} jours · données J-3`}>
+        {(() => {
+          // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
+          // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
+          // bug que sur les autres graphiques YT de cette page.
+          const netSubsForChart = ytDays.map(d => ({
+            date: d.date,
+            netSubs: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0),
+          }));
+          const hasMovement = netSubsForChart.some(d => d.netSubs !== null && d.netSubs !== 0);
+          if (!hasMovement) return <Empty msg="Pas de mouvement d'abonnés sur cette période" />;
+          return (
+            <ResponsiveContainer width="100%" height={160}>
+              <ReAreaChart data={netSubsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="grad-yt-netsubs" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor={GREEN} stopOpacity={0.18} />
+                    <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="netSubs" name="Subs nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+              </ReAreaChart>
+            </ResponsiveContainer>
+          );
+        })()}
+      </Card>
 
       <Card title={`Vidéos (${yt.videos.length})`} sub="Clic → courbe de rétention">
         <table className="table" style={{ width: '100%' }}>

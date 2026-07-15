@@ -127,13 +127,19 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
               : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
           }} interval={tickInterval} />
           {/* Domain avec marge explicite — sans ça, Recharts colle le domaine "auto" pile
-              sur [min, max] des données : un point à la valeur min (souvent 0) se retrouve
-              collé au bord bas de la zone de tracé, et son halo de pulsation (todayDotFactory)
-              déborde visuellement hors du graphique malgré la marge du conteneur. Pas de
-              Math.max(0, ...) sur la borne basse — confirmé par inspection DOM réelle que ce
-              clamp écrasait systématiquement la marge à 0 dès que dataMin valait déjà 0 (cas
-              fréquent), laissant le point collé pile au tick "0" sans aucune respiration. */}
-          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [dataMin - margin, dataMax + margin]; }} />
+              sur [min, max] des données : un point à la valeur min se retrouve collé au bord
+              bas de la zone de tracé, et son halo de pulsation (todayDotFactory) déborde
+              visuellement hors du graphique malgré la marge du conteneur. La marge basse peut
+              descendre sous 0 pour les séries à valeurs réellement négatives (dataMin < 0),
+              mais reste clampée à 0 pour les compteurs qui ne sont jamais négatifs (Reach,
+              Clics...) — sinon l'axe affiche des ticks négatifs absurdes (ex: "-1" personne).
+              Le clipping Recharts qui rognait visuellement le point à 0 (cause du bug de
+              chevauchement avec les labels) venait de allowDataOverflow, retiré séparément —
+              ce clamp à 0 est donc à nouveau sûr. */}
+          {/* allowDecimals={false} : toutes les séries passées à ce composant partagé sont
+              des compteurs entiers (Reach, Clics, Leads...) — sans ça, Recharts génère des
+              ticks "nice" fractionnaires (0.5, 1.5...) sur les petites plages de valeurs. */}
+          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
           {areas.map((a, i) => {
