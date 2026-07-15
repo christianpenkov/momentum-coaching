@@ -133,7 +133,7 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
               Math.max(0, ...) sur la borne basse — confirmé par inspection DOM réelle que ce
               clamp écrasait systématiquement la marge à 0 dès que dataMin valait déjà 0 (cas
               fréquent), laissant le point collé pile au tick "0" sans aucune respiration. */}
-          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [dataMin - margin, dataMax + margin]; }} allowDataOverflow />
+          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [dataMin - margin, dataMax + margin]; }} />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
           {areas.map((a, i) => {
