@@ -316,5 +316,38 @@ export async function GET(request: Request) {
     results.relative_retention_performance = { note: 'Pas de videoId dispo pour tester (video_analytics vide)' };
   }
 
+  // 18 — Diagnostic du bug "modal vidéo affiche n'importe quoi" : requête groupée
+  // (comme video-retention/route.ts) vs requêtes séparées par métrique, sur les 3
+  // vidéos données par Chris. Compare aussi le lifetime (startDate=2020-01-01) au
+  // startDate=publishedAt réel de chaque vidéo pour écarter un souci de fenêtre.
+  const diagVideoIds = ['vMCX8srWkjo', 'oM7qrjjHvlw', 'DABmJUjKEcE'];
+  results.modal_bug_diagnosis = {};
+  for (const vid of diagVideoIds) {
+    const groupedRes = await fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage,estimatedMinutesWatched,likes,comments,shares&filters=video==${vid}`,
+      { headers: h }
+    );
+    const groupedData = await groupedRes.json();
+
+    const separateResults: Record<string, any> = {};
+    for (const metric of ['averageViewDuration', 'averageViewPercentage', 'estimatedMinutesWatched', 'likes', 'comments', 'shares']) {
+      const sepRes = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=${metric}&filters=video==${vid}`,
+        { headers: h }
+      );
+      const sepData = await sepRes.json();
+      separateResults[metric] = { error: sepData.error?.message || null, value: sepData.rows?.[0]?.[0] ?? null };
+    }
+
+    (results.modal_bug_diagnosis as Record<string, any>)[vid] = {
+      grouped: {
+        error: groupedData.error?.message || null,
+        columnHeaders: groupedData.columnHeaders?.map((c: any) => c.name),
+        row: groupedData.rows?.[0] ?? null,
+      },
+      separate: separateResults,
+    };
+  }
+
   return NextResponse.json(results, { status: 200 });
 }
