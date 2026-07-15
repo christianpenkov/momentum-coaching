@@ -118,16 +118,14 @@ export async function GET(request: Request) {
     relativeRetention: relRetByRatio.get(r[0]) ?? null,
   }));
 
-  // "Durée moyenne d'une vue" + "% moyen de vidéo regardé" (bandeau Studio) — la page
-  // vidéo de Studio affiche ces 2 chiffres sur une fenêtre par défaut de 28 derniers
-  // jours glissants (pas "depuis publication"/lifetime, confirmé par la doc officielle
-  // Studio). Fenêtre différente de la courbe de rétention ci-dessus (qui reste en
-  // lifetime depuis publication — sa forme est stable et n'a pas besoin de matcher
-  // Studio au jour près). Sans ce fix, l'écart avec Studio était significatif (confirmé
-  // par Chris) car startDate=publishedAt agrégeait tout l'historique de la vidéo.
-  const summaryStartDate = getStartDate(28);
+  // "Durée moyenne d'une vue" + "% moyen de vidéo regardé" (bandeau Studio) — correction
+  // du fix précédent : la fenêtre "28 derniers jours" était une hypothèse fausse (c'est
+  // le défaut de l'onglet Overview du CHANNEL, pas de la page détail d'une vidéo
+  // spécifique, qui est en lifetime "depuis publication" — confirmé par le %
+  // aberrant de 102,8% que donnait la fenêtre 28j glissants sur une vieille vidéo avec
+  // peu de vues récentes). Retour à startDate=publishedAt, comme la courbe de rétention.
   const summaryRes = await fetch(
-    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${summaryStartDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage&filters=video==${videoId}`,
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage&filters=video==${videoId}`,
     { headers: authHeader }
   );
   const summaryData = await summaryRes.json();
