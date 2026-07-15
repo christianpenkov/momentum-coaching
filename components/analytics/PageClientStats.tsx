@@ -941,7 +941,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         </Card>
         <Card title="Abonnés / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={220}>
-            <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+            <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="5%" stopColor={ACCENT} stopOpacity={0.2} />
@@ -1022,7 +1022,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
             <div style={{ fontSize: 36, fontWeight: 800, color: statModal.color, marginBottom: 20 }}>{statModal.value}</div>
             <ResponsiveContainer width="100%" height={220}>
               {statModal.label === 'Abonnés nets' ? (
-                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                   <defs>
                     <linearGradient id="grad-ig-stat-modal-net" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
@@ -1042,7 +1042,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                   <Area type="linear" dataKey="v" stroke={statModal.color} strokeWidth={2} fill="url(#grad-ig-stat-modal-net)" dot={todayDotFactory(statModal.color, 'date', lastRealPointKey(statModal.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: statModal.color }} isAnimationActive={false} />
                 </ReAreaChart>
               ) : (
-                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                   <defs>
                     <linearGradient id="grad-ig-stat-modal" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
@@ -1568,7 +1568,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                     </div>
                   </div>
                   <ResponsiveContainer width="100%" height={220}>
-                    <ReAreaChart data={merged} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+                    <ReAreaChart data={merged} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                       <defs>
                         <linearGradient id="grad-yt-shorts" x1="0" y1="0" x2="0" y2="1">
                           <stop offset="5%" stopColor={color1} stopOpacity={0.15} />
@@ -1621,7 +1621,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 : undefined;
               return (
               <ResponsiveContainer width="100%" height={220}>
-                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+                <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                   <defs>
                     <linearGradient id="grad-yt-stat-modal" x1="0" y1="0" x2="0" y2="1">
                       <stop offset="5%" stopColor={statModal.color} stopOpacity={0.2} />
@@ -1697,7 +1697,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 }));
                 return (
                 <ResponsiveContainer width="100%" height={160}>
-                  <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+                  <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                     <defs>
                       <linearGradient id="grad-retention" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor={GREEN} stopOpacity={0.18} />
@@ -2159,7 +2159,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                       </div>
                       <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)', marginBottom: 16 }}>{heroSnapshot?.value}</div>
                       <ResponsiveContainer width="100%" height={220}>
-                        <ReAreaChart data={chart.data} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+                        <ReAreaChart data={chart.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                           <defs>
                             <linearGradient id="grad-hero-modal" x1="0" y1="0" x2="0" y2="1">
                               <stop offset="5%" stopColor={chart.color} stopOpacity={0.2} />
@@ -2257,7 +2257,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
             </div>
             <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--ink)', marginBottom: 20 }}>{expandedEff.value}</div>
             <ResponsiveContainer width="100%" height={220}>
-              <ReAreaChart data={expandedEff.data} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+              <ReAreaChart data={expandedEff.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-eff-modal" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={expandedEff.color} stopOpacity={0.2} />
@@ -3256,7 +3256,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             </div>
           ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
             <ResponsiveContainer width="100%" height={160}>
-              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#F06292" stopOpacity={0.15} />
@@ -3290,7 +3290,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             </ResponsiveContainer>
           ) : chartFilter === 'dm' ? (
             <ResponsiveContainer width="100%" height={160}>
-              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-dm-calendly" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={BLUE} stopOpacity={0.15} />
@@ -3341,7 +3341,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         {selectedMetric === 'activation' && (
           <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
             <ResponsiveContainer width="100%" height={160}>
-              <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+              <ReAreaChart data={activationSeries} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} padding={{ left: 0, right: 0 }} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} unit="%" domain={[-4, 100]} allowDataOverflow />
                 <Tooltip content={({ active, payload, label }) => !active || !payload?.length ? null : (

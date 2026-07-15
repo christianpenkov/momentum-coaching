@@ -106,7 +106,7 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
   return (
     <div className="chart-wrapper" style={{ height }}>
       <ResponsiveContainer width="100%" height="100%">
-        <ReAreaChart data={safeData} margin={{ top: 4, right: 8, left: 0, bottom: 8 }}>
+        <ReAreaChart data={safeData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
           <defs>
             {areas.map((a, i) => {
               const color = a.color || COLORS[i % COLORS.length];
