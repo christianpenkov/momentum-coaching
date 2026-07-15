@@ -251,5 +251,39 @@ export async function GET(request: Request) {
     };
   }
 
+  // 17 — TEST "Ont continué de regarder" (relativeRetentionPerformance, Studio-only ?)
+  // Nécessite un video_id réel — on prend celui de results.video_analytics si dispo.
+  const testVideoId = vaData.rows?.[0]?.[0];
+  if (testVideoId) {
+    const relRetRes = await fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=relativeRetentionPerformance&filters=video==${testVideoId}`,
+      { headers: h }
+    );
+    const relRetData = await relRetRes.json();
+    results.relative_retention_performance = {
+      note: 'Tentative "Ont continué de regarder" via relativeRetentionPerformance',
+      videoIdTested: testVideoId,
+      error: relRetData.error || null,
+      columnHeaders: relRetData.columnHeaders,
+      rows: relRetData.rows,
+    };
+
+    // Variante avec dimension elapsedVideoTimeRatio (comme la courbe de rétention)
+    const relRetDimRes = await fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=relativeRetentionPerformance&dimensions=elapsedVideoTimeRatio&filters=video==${testVideoId}`,
+      { headers: h }
+    );
+    const relRetDimData = await relRetDimRes.json();
+    results.relative_retention_performance_by_ratio = {
+      note: 'Variante avec dimensions=elapsedVideoTimeRatio',
+      error: relRetDimData.error || null,
+      columnHeaders: relRetDimData.columnHeaders,
+      rowCount: relRetDimData.rows?.length,
+      sample_rows: relRetDimData.rows?.slice(0, 5),
+    };
+  } else {
+    results.relative_retention_performance = { note: 'Pas de videoId dispo pour tester (video_analytics vide)' };
+  }
+
   return NextResponse.json(results, { status: 200 });
 }
