@@ -7,10 +7,8 @@ import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
 
 const MORE_NAV: { href: string; icon: IconName; label: string }[] = [
-  { href: '/analytics', icon: 'bar-chart', label: 'Analytics' },
   { href: '/calendar', icon: 'calendar', label: 'Calendrier' },
   { href: '/ressources', icon: 'folder', label: 'Ressources' },
-  { href: '/ai', icon: 'sparkle', label: 'Assistant IA' },
   { href: '/settings', icon: 'settings', label: 'Réglages' },
 ];
 

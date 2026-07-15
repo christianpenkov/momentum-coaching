@@ -314,9 +314,9 @@ export default function PageSettings() {
                 transition: 'background 0.4s ease',
                 background: isSaved ? '#f0fdf4' : 'transparent',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
+                <div className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
                   <Icon name={cfg.icon as any} size={20} color={integ ? 'var(--green)' : 'var(--muted)'} />
-                  <div style={{ flex: 1 }}>
+                  <div style={{ flex: 1, minWidth: 140 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</span>
                       {cfg.mode === 'oauth' && (
@@ -330,19 +330,19 @@ export default function PageSettings() {
                   </div>
 
                   {integ ? (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
+                    <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
                       {cfg.mode === 'oauth' && (
-                        <a href={cfg.oauthPath} className="btn-ghost" style={{ fontSize: 12 }}>
+                        <a href={cfg.oauthPath} className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>
                           Reconnecter
                         </a>
                       )}
                       {cfg.mode === 'apikey' && (
-                        <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                        <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                           Modifier
                         </button>
                       )}
-                      <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} type="button" onClick={() => disconnect(cfg.provider)}>
+                      <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px' }} type="button" onClick={() => disconnect(cfg.provider)}>
                         Déconnecter
                       </button>
                     </div>

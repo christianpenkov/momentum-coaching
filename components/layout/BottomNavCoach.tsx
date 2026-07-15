@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 
-const MORE_ROUTES = ['/analytics', '/calendar', '/ressources', '/ai', '/settings'];
+const MORE_ROUTES = ['/calendar', '/ressources', '/settings'];
 
 const NAV = [
   {
@@ -55,7 +55,7 @@ export default function BottomNavCoach({ onMoreClick }: { onMoreClick: () => voi
   const isMoreActive = MORE_ROUTES.some(r => pathname.startsWith(r));
 
   return (
-    <nav className="bottom-nav" role="navigation" aria-label="Navigation principale coach">
+    <nav className="bottom-nav bottom-nav-coach" role="navigation" aria-label="Navigation principale coach">
       {NAV.map(item => {
         const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
         return (

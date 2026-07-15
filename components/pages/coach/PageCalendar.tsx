@@ -149,7 +149,7 @@ export default function PageCalendar() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 300px', gap: 20, alignItems: 'start' }}>
+      <div className="calendar-layout">
         {/* Calendrier */}
         <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
           {/* Navigation */}
