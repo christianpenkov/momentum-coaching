@@ -13,6 +13,7 @@ import { logAudio } from '@/lib/audioDebug';
 import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
+import { compressImageIfNeeded } from '@/lib/compressImage';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1603,10 +1604,21 @@ export default function PageClientMessages() {
   // ── Envoi fichier ──────────────────────────────────────────────────────────
   async function sendFile(file: File) {
     if (!clientId || !userId) return;
-    const isImage = file.type.startsWith('image/');
-    const maxSize = isImage ? 5 * 1024 * 1024 : 20 * 1024 * 1024;
-    if (file.size > maxSize) return;
     setIsSendingFile(true);
+    let isImage = file.type.startsWith('image/');
+    // Compression AVANT le check de taille : les photos iPhone/Android récentes dépassent
+    // souvent 5 Mo, et la route API (Vercel Serverless Node.js) plafonne à 4.5 Mo — voir
+    // compressImage.ts. Sans ça, sendFile() retournait silencieusement (bug : clic sur
+    // "Envoyer" sans aucun feedback).
+    if (isImage) {
+      try { file = await compressImageIfNeeded(file); } catch { /* compression échouée — on tente l'envoi tel quel */ }
+    }
+    const maxSize = isImage ? 5 * 1024 * 1024 : 20 * 1024 * 1024;
+    if (file.size > maxSize) {
+      setIsSendingFile(false);
+      setActionError(isImage ? 'Image trop lourde, réessaie avec une autre photo' : 'Fichier trop volumineux (max 20 Mo)');
+      return;
+    }
     const replyId = replyingTo?.id ?? null;
     // Upload via la route serveur (pas d'upload direct navigateur→Storage) : elle
     // génère la miniature PDF + compte les pages (pdf-to-img, Node.js uniquement)
@@ -1615,9 +1627,17 @@ export default function PageClientMessages() {
     formData.append('file', file);
     formData.append('client_id', clientId);
     if (replyId) formData.append('reply_to_id', replyId);
-    const res = await fetch('/api/messages/upload-file', { method: 'POST', body: formData });
-    const json = await res.json();
-    if (res.ok && json.message) setMessages(prev => [...prev, json.message as Msg]);
+    try {
+      const res = await fetch('/api/messages/upload-file', { method: 'POST', body: formData });
+      const json = await res.json();
+      if (res.ok && json.message) {
+        setMessages(prev => [...prev, json.message as Msg]);
+      } else {
+        setActionError('Envoi échoué, réessaie');
+      }
+    } catch {
+      setActionError('Envoi échoué, vérifie ta connexion');
+    }
     setIsSendingFile(false);
     setReplyingTo(null);
     setPendingFile(prev => { if (prev?.previewUrl) URL.revokeObjectURL(prev.previewUrl); return null; });
