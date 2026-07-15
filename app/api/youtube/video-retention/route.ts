@@ -138,6 +138,11 @@ export async function GET(request: Request) {
   return NextResponse.json({
     videoId, retentionCurve,
     avgViewDurationSec, avgViewPercentage, watchTimeMin, likes, comments, shares,
-    debug: { startDate, endDate: getToday(), rowCount: retentionCurve.length, apiError: retentionData.error || relRetData.error || summaryData.error || null },
+    debug: {
+      startDate, endDate: getToday(), rowCount: retentionCurve.length,
+      apiError: retentionData.error || relRetData.error || summaryData.error || null,
+      summaryColumnHeaders: summaryData.columnHeaders,
+      summaryRawRow: summaryRow,
+    },
   });
 }
