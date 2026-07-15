@@ -1795,7 +1795,13 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                       </linearGradient>
                     </defs>
                     <XAxis dataKey="x" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
-                    <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} tickFormatter={(v: number) => `${v}%`} />
+                    {/* Domaine plafonné à 100% : audienceWatchRatio peut légitimement
+                        dépasser 100% en tout début de vidéo (spectateurs qui rewatch les
+                        premières secondes plusieurs fois) — sans plafond, un seul pic à
+                        160% écrase l'échelle et rend illisible tout le reste de la courbe
+                        (0-100%, la plage utile). YouTube Studio fait pareil : la courbe
+                        sort du cadre en haut plutôt que d'étirer l'axe. */}
+                    <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} domain={[0, 100]} tickFormatter={(v: number) => `${v}%`} />
                     <Tooltip content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
                       return (
