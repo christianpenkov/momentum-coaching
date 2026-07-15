@@ -1742,10 +1742,6 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                   if (min === null) return '—';
                   return min >= 60 ? `${Math.round(min / 60)}h` : `${Math.round(min)}min`;
                 })()],
-                ['Rétention moy.', (() => {
-                  const pct = retentionSummary?.avgViewPercentage ?? (loadingRetention ? selectedVideo.avgViewPct : null);
-                  return pct ? fmtPct(pct) : '—';
-                })()],
                 ...(!selectedVideo.isShort && !loadingRetention ? (() => {
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
                   if (isOlderThanJob) return [];
@@ -1755,7 +1751,6 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 ['Likes', fmt(retentionSummary?.likes ?? (loadingRetention ? selectedVideo.likes : 0))],
                 ['Commentaires', fmt(retentionSummary?.comments ?? (loadingRetention ? selectedVideo.comments : 0))],
                 ['Partages', fmt(retentionSummary?.shares ?? (loadingRetention ? selectedVideo.shares30d : 0))],
-                ['Durée moyenne d\'une vue', retentionSummary?.avgViewDurationSec != null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
               ].map(([label, value], i) => (
                 <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
@@ -1763,6 +1758,21 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 </div>
               ))}
             </div>
+            {/* Bandeau séparé pour Rétention moy. + Durée moyenne d'une vue, comme avant
+                la fusion dans la grille du dessus. */}
+            {!loadingRetention && retentionSummary && (
+              <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
+                {[
+                  ['Rétention moy.', retentionSummary.avgViewPercentage !== null ? fmtPct(retentionSummary.avgViewPercentage) : '—'],
+                  ['Durée moyenne d\'une vue', retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
+                ].map(([label, value], i) => (
+                  <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
               ? (() => {
