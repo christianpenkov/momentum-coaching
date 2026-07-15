@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import DesktopOnly from '@/components/ui/DesktopOnly';
 
 const TOOLS = [
   {
@@ -46,6 +47,10 @@ const TOOLS = [
 type Result = { status: number; data: unknown; duration: number };
 
 export default function MetricsPage() {
+  return <DesktopOnly><MetricsPageContent /></DesktopOnly>;
+}
+
+function MetricsPageContent() {
   const [activeTool, setActiveTool] = useState(TOOLS[0].key);
   const [results, setResults] = useState<Record<string, Result>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});

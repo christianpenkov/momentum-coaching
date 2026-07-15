@@ -6,18 +6,7 @@ import Icon from '@/components/ui/Icon';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
 import type { Call } from '@/lib/supabase/types';
-
-function useIsMobile() {
-  const [isMobile, setIsMobile] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    setIsMobile(mq.matches);
-    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
-    mq.addEventListener('change', handler);
-    return () => mq.removeEventListener('change', handler);
-  }, []);
-  return isMobile;
-}
+import { useIsMobile } from '@/lib/useIsMobile';
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
 function toDateKey(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }

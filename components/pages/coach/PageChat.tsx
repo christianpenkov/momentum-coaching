@@ -13,6 +13,7 @@ import { logAudio } from '@/lib/audioDebug';
 import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
+import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1001,10 +1002,11 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
 
 // ─── Zone de conversation ─────────────────────────────────────────────────────
 
-function ConversationThread({ clientId, userId, clientName, clientInitials, clientAvatarUrl, isOnline, supabase, presenceCh }: {
+function ConversationThread({ clientId, userId, clientName, clientInitials, clientAvatarUrl, isOnline, supabase, presenceCh, onBack }: {
   clientId: string; userId: string; clientName: string; clientInitials: string; clientAvatarUrl?: string | null;
   isOnline: boolean; supabase: ReturnType<typeof createClient>;
   presenceCh: ReturnType<typeof supabase.channel> | null;
+  onBack?: () => void;
 }) {
   const { user } = useUser();
   const myAvatarUrl = user?.avatar_url ?? null;
@@ -1470,6 +1472,16 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
 
         {/* Header */}
         <div style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0, background: 'var(--surface)' }}>
+          {onBack && (
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label="Retour à la liste"
+              style={{ background: 'none', border: 'none', padding: 4, margin: '0 -4px 0 -8px', cursor: 'pointer', color: 'var(--ink)', flexShrink: 0, display: 'flex' }}
+            >
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+            </button>
+          )}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <Avatar initials={clientInitials} avatarUrl={clientAvatarUrl} size={40} />
             <div style={{ position: 'absolute', bottom: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
@@ -1884,6 +1896,7 @@ export default function PageChat() {
   const { clients, loading } = useSupabaseClients();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
+  const isMobile = useIsMobile();
   // En ligne/hors ligne = présence plateforme entière (voir lib/GlobalPresenceContext.tsx),
   // pas seulement "a la messagerie ouverte" — plus précis pour l'utilisateur.
   // Le broadcast "typing" utilise désormais le MÊME canal que la présence globale
@@ -1899,6 +1912,10 @@ export default function PageChat() {
   }, [supabase]);
 
   useEffect(() => {
+    // GAP 1 (revue) : sur mobile on ouvre la liste, jamais une conversation.
+    // isMobile (state) est false au premier paint — lire matchMedia en direct
+    // pour ne pas laisser fuiter une auto-sélection avant que le state se mette à jour.
+    if (isMobileViewport()) return;
     if (clients.length > 0 && !activeId) setActiveId(clients[0].id);
   }, [clients, activeId]);
 
@@ -1917,60 +1934,70 @@ export default function PageChat() {
 
   const activeClient = clients.find(c => c.id === activeId);
 
+  // Sur mobile : liste plein écran si aucune conversation ouverte, thread plein écran
+  // sinon (avec bouton retour). Sur desktop : liste + thread côte à côte, inchangé.
+  const showList = !isMobile || !activeId;
+  const showThread = !isMobile || !!activeId;
+
   return (
     <div className="chat-shell" style={{ display: 'flex', flexDirection: 'row', background: 'var(--bg)' }}>
 
       {/* Sidebar clients */}
-      <div style={{ width: 260, borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--surface)', flexShrink: 0 }}>
-        <div style={{ padding: '16px 16px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>Messages</div>
-        </div>
-        <div style={{ flex: 1, overflowY: 'auto' }}>
-          {clients.map(cl => {
-            const isActive = cl.id === activeId;
-            const isOnline = isClientOnline(cl.id);
-            const initials = cl.initials || cl.name.slice(0, 2).toUpperCase();
-            return (
-              <div key={cl.id} onClick={() => setActiveId(cl.id)} style={{
-                padding: '11px 16px', cursor: 'pointer',
-                background: isActive ? 'var(--surface-2)' : 'transparent',
-                borderLeft: `3px solid ${isActive ? 'var(--ink)' : 'transparent'}`,
-                display: 'flex', gap: 10, alignItems: 'center',
-                transition: 'background 100ms',
-              }}>
-                <div style={{ position: 'relative', flexShrink: 0 }}>
-                  <Avatar initials={initials} avatarUrl={cl.avatar_url} size={34} />
-                  <div style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
-                </div>
-                <div style={{ minWidth: 0, flex: 1 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cl.name}</div>
-                  <div style={{ fontSize: 11, color: isOnline ? 'var(--green)' : 'var(--muted)' }}>
-                    {isOnline ? 'En ligne' : `Semaine ${cl.week}`}
+      {showList && (
+        <div style={{ width: isMobile ? '100%' : 260, borderRight: isMobile ? 'none' : '1px solid var(--border)', display: 'flex', flexDirection: 'column', overflow: 'hidden', background: 'var(--surface)', flexShrink: 0 }}>
+          <div style={{ padding: '16px 16px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+            <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>Messages</div>
+          </div>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {clients.map(cl => {
+              const isActive = cl.id === activeId;
+              const isOnline = isClientOnline(cl.id);
+              const initials = cl.initials || cl.name.slice(0, 2).toUpperCase();
+              return (
+                <div key={cl.id} onClick={() => setActiveId(cl.id)} style={{
+                  padding: '11px 16px', cursor: 'pointer',
+                  background: !isMobile && isActive ? 'var(--surface-2)' : 'transparent',
+                  borderLeft: `3px solid ${!isMobile && isActive ? 'var(--ink)' : 'transparent'}`,
+                  display: 'flex', gap: 10, alignItems: 'center',
+                  transition: 'background 100ms',
+                }}>
+                  <div style={{ position: 'relative', flexShrink: 0 }}>
+                    <Avatar initials={initials} avatarUrl={cl.avatar_url} size={34} />
+                    <div style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
+                  </div>
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cl.name}</div>
+                    <div style={{ fontSize: 11, color: isOnline ? 'var(--green)' : 'var(--muted)' }}>
+                      {isOnline ? 'En ligne' : `Semaine ${cl.week}`}
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Thread */}
-      {activeId && userId && activeClient ? (
-        <ConversationThread
-          key={activeId}
-          clientId={activeId}
-          userId={userId}
-          clientName={activeClient.name}
-          clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
-          clientAvatarUrl={activeClient.avatar_url}
-          isOnline={isClientOnline(activeId)}
-          supabase={supabase}
-          presenceCh={presenceCh}
-        />
-      ) : (
-        <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
-          Sélectionne un client
-        </div>
+      {showThread && (
+        activeId && userId && activeClient ? (
+          <ConversationThread
+            key={activeId}
+            clientId={activeId}
+            userId={userId}
+            clientName={activeClient.name}
+            clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
+            clientAvatarUrl={activeClient.avatar_url}
+            isOnline={isClientOnline(activeId)}
+            supabase={supabase}
+            presenceCh={presenceCh}
+            onBack={isMobile ? () => setActiveId(null) : undefined}
+          />
+        ) : !isMobile ? (
+          <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
+            Sélectionne un client
+          </div>
+        ) : null
       )}
     </div>
   );

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import DesktopOnly from '@/components/ui/DesktopOnly';
 
 // ─── Section Data Range ───────────────────────────────────────────────────────
 function DataRangeSection() {
@@ -216,6 +217,10 @@ function CopyButton({ data }: { data: unknown }) {
 }
 
 export default function ApiDebugPage() {
+  return <DesktopOnly><ApiDebugPageContent /></DesktopOnly>;
+}
+
+function ApiDebugPageContent() {
   const [results, setResults] = useState<Record<string, Result>>({});
   const [loading, setLoading] = useState<Record<string, boolean>>({});
 

@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import DesktopOnly from '@/components/ui/DesktopOnly';
 
 type LogEvent = {
   ts: string;
@@ -37,6 +38,10 @@ const TYPE_LABELS: Record<string, string> = {
 };
 
 export default function IgLivePage() {
+  return <DesktopOnly><IgLivePageContent /></DesktopOnly>;
+}
+
+function IgLivePageContent() {
   const [events, setEvents] = useState<LogEvent[]>([]);
   const [connected, setConnected] = useState(false);
   const [subStatus, setSubStatus] = useState<any>(null);
