@@ -809,6 +809,17 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
     return days;
   })();
 
+  // Série "reach" nettoyée pour le graphique carte "Reach par jour" — igDays pose
+  // reach:0 (vrai zéro numérique) sur les jours sans ligne en base, pas null. Passée
+  // brute à Recharts, ça trace une fausse portion plate à 0 (écrasée visuellement par
+  // l'échelle du vrai reach) ET fait poser le point pulsant sur un jour sans vraie
+  // donnée (lastRealPointKey traite tout nombre, même 0, comme "réel"). Même pattern
+  // que pubsByDay/interactionsByDay/igStatSeries['Reach'] plus bas dans ce fichier.
+  const igDaysForChart = igDays.map(d => ({
+    ...d,
+    reach: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach,
+  }));
+
   // Publications par jour depuis les vrais timestamps des posts
   const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= cutoffIg).length;
   const pubsByDay = igDays.map(d => ({
@@ -926,7 +937,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${period} jours`}>
-          <AreaChart data={igDays} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={220} showWeekday={period === 7} />
+          <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={220} showWeekday={period === 7} />
         </Card>
         <Card title="Abonnés / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={220}>
