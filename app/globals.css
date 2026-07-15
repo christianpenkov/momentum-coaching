@@ -1715,10 +1715,13 @@ a { color: inherit; text-decoration: none; }
     background: var(--red);
   }
 
-  /* Nav coach (5 items) — léger resserrement vers le centre, élève (.bottom-nav seul,
-     4 items) non affecté puisque .bottom-nav-coach est une classe additionnelle. */
+  /* Nav coach (5 items) — léger espace à gauche d'Aujourd'hui seulement. Un padding
+     symétrique (gauche + droite) élargit visiblement l'écart Calls↔Plus car Plus est
+     déjà le dernier item collé au bord ; padding-left seul évite ce déséquilibre.
+     Élève (.bottom-nav seul, 4 items) non affecté puisque .bottom-nav-coach est une
+     classe additionnelle. */
   .bottom-nav-coach {
-    padding: 0 10px;
+    padding-left: 10px;
   }
 }
 
