@@ -118,24 +118,26 @@ export async function GET(request: Request) {
     relativeRetention: relRetByRatio.get(r[0]) ?? null,
   }));
 
-  // "Durée moyenne d'une vue" + "% moyen de vidéo regardé" (bandeau Studio) — correction
-  // du fix précédent : la fenêtre "28 derniers jours" était une hypothèse fausse (c'est
-  // le défaut de l'onglet Overview du CHANNEL, pas de la page détail d'une vidéo
-  // spécifique, qui est en lifetime "depuis publication" — confirmé par le %
-  // aberrant de 102,8% que donnait la fenêtre 28j glissants sur une vieille vidéo avec
-  // peu de vues récentes). Retour à startDate=publishedAt, comme la courbe de rétention.
+  // Toutes les stats du modal doivent être "depuis publication" (lifetime), pas un
+  // mélange avec les valeurs 30j du cron poll-leads (avg_view_pct, watch_time_min,
+  // likes/comments/shares en DB) — demande explicite de Chris. Un seul appel en plus
+  // de la courbe de rétention, même fenêtre startDate=publishedAt.
   const summaryRes = await fetch(
-    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage&filters=video==${videoId}`,
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage,estimatedMinutesWatched,likes,comments,shares&filters=video==${videoId}`,
     { headers: authHeader }
   );
   const summaryData = await summaryRes.json();
   const summaryRow = summaryData?.rows?.[0] || null;
   const avgViewDurationSec: number | null = summaryRow ? summaryRow[0] : null;
   const avgViewPercentage: number | null = summaryRow ? summaryRow[1] : null;
+  const watchTimeMin: number | null = summaryRow ? summaryRow[2] : null;
+  const likes: number | null = summaryRow ? summaryRow[3] : null;
+  const comments: number | null = summaryRow ? summaryRow[4] : null;
+  const shares: number | null = summaryRow ? summaryRow[5] : null;
 
   return NextResponse.json({
     videoId, retentionCurve,
-    avgViewDurationSec, avgViewPercentage,
+    avgViewDurationSec, avgViewPercentage, watchTimeMin, likes, comments, shares,
     debug: { startDate, endDate: getToday(), rowCount: retentionCurve.length, apiError: retentionData.error || relRetData.error || summaryData.error || null },
   });
 }

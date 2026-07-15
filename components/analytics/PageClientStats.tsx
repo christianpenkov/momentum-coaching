@@ -1155,7 +1155,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number; relativeRetention: number | null }[] | null>(null);
-  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null } | null>(null);
+  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; watchTimeMin: number | null; likes: number | null; comments: number | null; shares: number | null } | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
@@ -1176,6 +1176,10 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
       setRetentionSummary({
         avgViewDurationSec: retData.avgViewDurationSec ?? null,
         avgViewPercentage: retData.avgViewPercentage ?? null,
+        watchTimeMin: retData.watchTimeMin ?? null,
+        likes: retData.likes ?? null,
+        comments: retData.comments ?? null,
+        shares: retData.shares ?? null,
       });
       if (ctrRes.ok) {
         const ctrData = await ctrRes.json();
@@ -1724,21 +1728,34 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
               </div>
               <button onClick={() => { setSelectedVideo(null); setRetention(null); setRetentionSummary(null); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
+            {/* Toutes les stats de cette grille sont "depuis publication" (lifetime),
+                pas les 30 derniers jours — demande explicite de Chris. Vient de
+                retentionSummary (appel live YT Analytics, même fenêtre startDate=
+                publishedAt que la courbe de rétention) une fois chargé ; repli sur
+                les valeurs DB (30j, cron poll-leads) uniquement pendant le chargement
+                pour éviter un flash "—" à l'ouverture du modal. */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 ['Vues totales', fmt(selectedVideo.views)],
-                // watchTime30d est en minutes (row.watch_time_min) — pas de /60 supplémentaire ici.
-                ['Watch time total', selectedVideo.watchTime30d >= 60 ? `${Math.round(selectedVideo.watchTime30d / 60)}h` : `${Math.round(selectedVideo.watchTime30d)}min`],
-                ['Rétention moy.', selectedVideo.avgViewPct ? fmtPct(selectedVideo.avgViewPct) : '—'],
+                ['Watch time total', (() => {
+                  const min = retentionSummary?.watchTimeMin ?? (loadingRetention ? selectedVideo.watchTime30d : null);
+                  if (min === null) return '—';
+                  return min >= 60 ? `${Math.round(min / 60)}h` : `${Math.round(min)}min`;
+                })()],
+                ['Rétention moy.', (() => {
+                  const pct = retentionSummary?.avgViewPercentage ?? (loadingRetention ? selectedVideo.avgViewPct : null);
+                  return pct ? fmtPct(pct) : '—';
+                })()],
                 ...(!selectedVideo.isShort && !loadingRetention ? (() => {
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
                   if (isOlderThanJob) return [];
                   if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, string]];
                   return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, string]];
                 })() : []),
-                ['Likes', fmt(selectedVideo.likes)],
-                ['Commentaires', fmt(selectedVideo.comments)],
-                ['Partages', fmt(selectedVideo.shares30d)],
+                ['Likes', fmt(retentionSummary?.likes ?? (loadingRetention ? selectedVideo.likes : 0))],
+                ['Commentaires', fmt(retentionSummary?.comments ?? (loadingRetention ? selectedVideo.comments : 0))],
+                ['Partages', fmt(retentionSummary?.shares ?? (loadingRetention ? selectedVideo.shares30d : 0))],
+                ['Durée moyenne d\'une vue', retentionSummary?.avgViewDurationSec != null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
               ].map(([label, value], i) => (
                 <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
@@ -1746,25 +1763,6 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 </div>
               ))}
             </div>
-            {/* Bandeau partiel façon YouTube Studio — 2 des 3 chiffres seulement.
-                "Ont continué de regarder" retiré : c'est en réalité une métrique Shorts
-                Studio ("Viewed vs Swiped Away") sans équivalent dans l'API Analytics
-                publique — relativeRetentionPerformance (affiché en overlay sur la courbe
-                plus bas) est un rang comparatif, pas un vrai %, et une moyenne de ce rang
-                donnait un chiffre qui ne correspondait pas à Studio (confirmé par Chris). */}
-            {!loadingRetention && retentionSummary && (
-              <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
-                {[
-                  ['Durée moyenne d\'une vue', retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
-                  ['Pourcentage moyen de vidéo regardé', retentionSummary.avgViewPercentage !== null ? `${retentionSummary.avgViewPercentage.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %` : '—'],
-                ].map(([label, value], i) => (
-                  <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
-                  </div>
-                ))}
-              </div>
-            )}
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
               ? (() => {
