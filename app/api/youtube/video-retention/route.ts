@@ -97,25 +97,9 @@ export async function GET(request: Request) {
   );
   const retentionData = await retentionRes.json();
 
-  // relativeRetentionPerformance : PAS un % de spectateurs qui continuent à regarder
-  // (contrairement à "Ont continué de regarder" dans Studio, qui est en réalité une
-  // métrique Shorts "Viewed vs Swiped Away" sans équivalent dans l'API publique —
-  // confirmé via la doc officielle Google, aucune métrique de ce type n'existe côté
-  // Analytics API). C'est un rang comparatif 0-1 : 0 = pire rétention de toutes les
-  // vidéos de durée similaire, 1 = meilleure, 0.5 = médiane. Affiché comme overlay
-  // "Vs vidéos similaires" sur la courbe de rétention, pas comme un chiffre agrégé
-  // trompeur (une moyenne de rangs comparatifs n'a pas de sens en tant que "%").
-  const relRetRes = await fetch(
-    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=relativeRetentionPerformance&dimensions=elapsedVideoTimeRatio&filters=video==${videoId}`,
-    { headers: authHeader }
-  );
-  const relRetData = await relRetRes.json();
-  const relRetByRatio = new Map<number, number>((relRetData?.rows || []).map((r: any) => [r[0], r[1]]));
-
   const retentionCurve = (retentionData?.rows || []).map((r: any) => ({
     ratio: r[0],
     watchRatio: r[1],
-    relativeRetention: relRetByRatio.get(r[0]) ?? null,
   }));
 
   // Toutes les stats du modal doivent être "depuis publication" (lifetime), pas un
@@ -140,7 +124,7 @@ export async function GET(request: Request) {
     avgViewDurationSec, avgViewPercentage, watchTimeMin, likes, comments, shares,
     debug: {
       startDate, endDate: getToday(), rowCount: retentionCurve.length,
-      apiError: retentionData.error || relRetData.error || summaryData.error || null,
+      apiError: retentionData.error || summaryData.error || null,
       summaryColumnHeaders: summaryData.columnHeaders,
       summaryRawRow: summaryRow,
     },

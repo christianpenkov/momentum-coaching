@@ -1154,7 +1154,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
-  const [retention, setRetention] = useState<{ ratio: number; watchRatio: number; relativeRetention: number | null }[] | null>(null);
+  const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; watchTimeMin: number | null; likes: number | null; comments: number | null; shares: number | null } | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
@@ -1782,9 +1782,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 const retData = retention.map(p => ({
                   x: totalSec > 0 ? fmtSec(p.ratio * totalSec) : `${Math.round(p.ratio * 100)}%`,
                   pct: Math.round(p.watchRatio * 100),
-                  relPct: p.relativeRetention !== null ? Math.round(p.relativeRetention * 100) : null,
                 }));
-                const hasRelRet = retData.some(p => p.relPct !== null);
                 return (
                 <ResponsiveContainer width="100%" height={160}>
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
@@ -1807,9 +1805,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                         </div>
                       );
                     }} />
-                    {hasRelRet && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
                     <Area type="monotone" dataKey="pct" name="Cette vidéo" stroke={GREEN} strokeWidth={2} fill="url(#grad-retention)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
-                    {hasRelRet && <Area type="monotone" dataKey="relPct" name="Vs vidéos similaires" stroke={AMBER} strokeWidth={2} fill="none" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />}
                   </ReAreaChart>
                 </ResponsiveContainer>
                 );
