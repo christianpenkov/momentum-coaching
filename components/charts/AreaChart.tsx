@@ -126,7 +126,11 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
               ? d.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })
               : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }).replace('.', '');
           }} interval={tickInterval} />
-          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} />
+          {/* Domain avec marge explicite — sans ça, Recharts colle le domaine "auto" pile
+              sur [min, max] des données : un point à la valeur min (souvent 0) se retrouve
+              collé au bord bas de la zone de tracé, et son halo de pulsation (todayDotFactory)
+              déborde visuellement hors du graphique malgré la marge du conteneur. */}
+          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : 1; return [dataMin >= 0 ? Math.max(0, dataMin - margin) : dataMin - margin, dataMax + margin]; }} allowDataOverflow />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
           {areas.map((a, i) => {
