@@ -15,6 +15,7 @@ import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
 import { compressImageIfNeeded } from '@/lib/compressImage';
+import { useUnreadCountsByClient } from '@/lib/useUnreadCountsByClient';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1926,6 +1927,7 @@ export default function PageChat() {
   // ("ClientPresenceRateLimitReached") et causant un clignotement en ligne/hors ligne.
   const { isClientOnline, getChannel } = useGlobalCoachPresence();
   const supabase = useRef(createClient()).current;
+  const unreadCounts = useUnreadCountsByClient(clients.map(c => c.id));
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
@@ -1973,6 +1975,7 @@ export default function PageChat() {
               const isActive = cl.id === activeId;
               const isOnline = isClientOnline(cl.id);
               const initials = cl.initials || cl.name.slice(0, 2).toUpperCase();
+              const unread = unreadCounts[cl.id] || 0;
               return (
                 <div key={cl.id} onClick={() => setActiveId(cl.id)} style={{
                   padding: '11px 16px', cursor: 'pointer',
@@ -1991,6 +1994,15 @@ export default function PageChat() {
                       {isOnline ? 'En ligne' : `Semaine ${cl.week}`}
                     </div>
                   </div>
+                  {unread > 0 && (
+                    <span style={{
+                      flexShrink: 0, fontSize: 11, fontWeight: 700, color: '#fff', background: 'var(--red)',
+                      borderRadius: 999, minWidth: 18, height: 18, padding: '0 5px',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {unread > 9 ? '9+' : unread}
+                    </span>
+                  )}
                 </div>
               );
             })}
