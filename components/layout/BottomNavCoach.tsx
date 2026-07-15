@@ -81,10 +81,10 @@ export default function BottomNavCoach({ onMoreClick }: { onMoreClick: () => voi
         aria-current={isMoreActive ? 'page' : undefined}
         style={{ background: 'none', border: 'none', font: 'inherit', margin: 0, appearance: 'none' }}
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-          <circle cx="12" cy="12" r="1" />
-          <circle cx="19" cy="12" r="1" />
-          <circle cx="5" cy="12" r="1" />
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <circle cx="12" cy="12" r="1.6" />
+          <circle cx="19" cy="12" r="1.6" />
+          <circle cx="5" cy="12" r="1.6" />
         </svg>
         <span className="bnav-label">Plus</span>
       </button>
