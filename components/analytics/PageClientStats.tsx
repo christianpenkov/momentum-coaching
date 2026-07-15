@@ -1154,7 +1154,8 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
-  const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
+  const [retention, setRetention] = useState<{ ratio: number; watchRatio: number; relativeRetention: number | null }[] | null>(null);
+  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; continuedWatchingPct: number | null } | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
@@ -1172,6 +1173,11 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
       ]);
       const retData = await retRes.json();
       setRetention(retData.retentionCurve || []);
+      setRetentionSummary({
+        avgViewDurationSec: retData.avgViewDurationSec ?? null,
+        avgViewPercentage: retData.avgViewPercentage ?? null,
+        continuedWatchingPct: retData.continuedWatchingPct ?? null,
+      });
       if (ctrRes.ok) {
         const ctrData = await ctrRes.json();
         const jca: string | null = ctrData.jobCreatedAt ?? null;
@@ -1188,7 +1194,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
           }
         }
       }
-    } catch { setRetention([]); }
+    } catch { setRetention([]); setRetentionSummary(null); }
     finally { setLoadingRetention(false); }
   }, [profileId]);
 
@@ -1709,7 +1715,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
       )}
 
       {selectedVideo && (
-        <ModalOverlay onClose={() => { setSelectedVideo(null); setRetention(null); }} maxWidth={640}>
+        <ModalOverlay onClose={() => { setSelectedVideo(null); setRetention(null); setRetentionSummary(null); }} maxWidth={640}>
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', gap: 14, marginBottom: 16 }}>
               {selectedVideo.thumbnail ? <img src={selectedVideo.thumbnail} alt="" style={{ width: 120, height: 68, objectFit: 'cover', borderRadius: 8, flexShrink: 0 }} /> : <div style={{ width: 120, height: 68, borderRadius: 8, background: 'var(--surface-2)', flexShrink: 0 }} />}
@@ -1717,7 +1723,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 <div style={{ fontSize: 14, fontWeight: 700, lineHeight: 1.3, marginBottom: 4 }}>{selectedVideo.title}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)' }}>{new Date(selectedVideo.publishedAt).toLocaleDateString('fr-FR', { dateStyle: 'long' })} · {selectedVideo.duration} · {selectedVideo.isShort ? 'Short' : 'Vidéo'}</div>
               </div>
-              <button onClick={() => { setSelectedVideo(null); setRetention(null); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
+              <button onClick={() => { setSelectedVideo(null); setRetention(null); setRetentionSummary(null); }} style={{ marginLeft: 'auto', background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
@@ -1741,6 +1747,23 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 </div>
               ))}
             </div>
+            {/* Bandeau façon YouTube Studio — mêmes 3 chiffres que dans le screenshot de
+                référence, calculés à partir de averageViewDuration/averageViewPercentage
+                (agrégés) et de la moyenne de la courbe relativeRetentionPerformance. */}
+            {!loadingRetention && retentionSummary && (
+              <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
+                {[
+                  ['Ont continué de regarder', retentionSummary.continuedWatchingPct !== null ? `${retentionSummary.continuedWatchingPct.toLocaleString('fr-FR')} %` : '—'],
+                  ['Durée moyenne d\'une vue', retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
+                  ['Pourcentage moyen de vidéo regardé', retentionSummary.avgViewPercentage !== null ? `${retentionSummary.avgViewPercentage.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %` : '—'],
+                ].map(([label, value], i) => (
+                  <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                    <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
               ? (() => {
@@ -1760,7 +1783,9 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 const retData = retention.map(p => ({
                   x: totalSec > 0 ? fmtSec(p.ratio * totalSec) : `${Math.round(p.ratio * 100)}%`,
                   pct: Math.round(p.watchRatio * 100),
+                  relPct: p.relativeRetention !== null ? Math.round(p.relativeRetention * 100) : null,
                 }));
+                const hasRelRet = retData.some(p => p.relPct !== null);
                 return (
                 <ResponsiveContainer width="100%" height={160}>
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
@@ -1774,9 +1799,18 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                     <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} tickFormatter={(v: number) => `${v}%`} />
                     <Tooltip content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
-                      return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{payload[0].value}%</strong></div></div>;
+                      return (
+                        <div className="chart-tooltip">
+                          <div className="chart-tooltip-label">{label}</div>
+                          {payload.map((p: any, i: number) => p.value !== null && (
+                            <div key={i} className="chart-tooltip-row">{p.name}: <strong>{p.value}%</strong></div>
+                          ))}
+                        </div>
+                      );
                     }} />
-                    <Area type="monotone" dataKey="pct" stroke={GREEN} strokeWidth={2} fill="url(#grad-retention)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+                    {hasRelRet && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
+                    <Area type="monotone" dataKey="pct" name="Cette vidéo" stroke={GREEN} strokeWidth={2} fill="url(#grad-retention)" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+                    {hasRelRet && <Area type="monotone" dataKey="relPct" name="Vs vidéos similaires" stroke={AMBER} strokeWidth={2} fill="none" dot={false} activeDot={{ r: 4, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />}
                   </ReAreaChart>
                 </ResponsiveContainer>
                 );

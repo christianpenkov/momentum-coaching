@@ -95,18 +95,30 @@ export async function GET(request: Request) {
     `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=audienceWatchRatio&dimensions=elapsedVideoTimeRatio&filters=video==${videoId}`,
     { headers: authHeader }
   );
-
   const retentionData = await retentionRes.json();
+
+  // "Ont continué de regarder" (bandeau Studio) = relativeRetentionPerformance, la
+  // performance de rétention de cette vidéo comparée aux autres vidéos YouTube de
+  // durée similaire. Confirmé disponible via l'API uniquement avec la même dimension
+  // elapsedVideoTimeRatio (pas de valeur agrégée directe) — donc récupéré comme 2e
+  // courbe fusionnée avec audienceWatchRatio point par point (même dimension), pas
+  // comme un rapport séparé.
+  const relRetRes = await fetch(
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=relativeRetentionPerformance&dimensions=elapsedVideoTimeRatio&filters=video==${videoId}`,
+    { headers: authHeader }
+  );
+  const relRetData = await relRetRes.json();
+  const relRetByRatio = new Map<number, number>((relRetData?.rows || []).map((r: any) => [r[0], r[1]]));
 
   const retentionCurve = (retentionData?.rows || []).map((r: any) => ({
     ratio: r[0],
     watchRatio: r[1],
+    relativeRetention: relRetByRatio.get(r[0]) ?? null,
   }));
 
-  // Mêmes 3 chiffres que YouTube Studio ("Ont continué de regarder", "Durée moyenne
-  // d'une vue", "% moyen de vidéo regardé") — pas de dimension ici (une seule ligne
-  // agrégée sur toute la période filtrée par cette vidéo), contrairement à la courbe
-  // de rétention ci-dessus qui a besoin de elapsedVideoTimeRatio comme dimension.
+  // "Durée moyenne d'une vue" + "% moyen de vidéo regardé" (bandeau Studio) — pas de
+  // dimension ici (une seule ligne agrégée sur toute la période filtrée par cette
+  // vidéo), contrairement aux courbes ci-dessus qui ont besoin de elapsedVideoTimeRatio.
   const summaryRes = await fetch(
     `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage&filters=video==${videoId}`,
     { headers: authHeader }
@@ -115,17 +127,16 @@ export async function GET(request: Request) {
   const summaryRow = summaryData?.rows?.[0] || null;
   const avgViewDurationSec: number | null = summaryRow ? summaryRow[0] : null;
   const avgViewPercentage: number | null = summaryRow ? summaryRow[1] : null;
-  // "Ont continué de regarder" (relativeRetentionPerformance) n'a pas d'équivalent
-  // direct côté API Reports — c'est calculé par YouTube Studio en comparant la courbe
-  // de cette vidéo à des vidéos similaires (pas exposé). Ce qu'on peut donner de plus
-  // proche : le point de la courbe de rétention à ratio proche de 1 (fin de vidéo).
-  const continuedWatchingPct = retentionCurve.length > 0
-    ? Math.round(retentionCurve[retentionCurve.length - 1].watchRatio * 1000) / 10
+  // Moyenne de la courbe relativeRetentionPerformance — reproduit le chiffre unique
+  // du bandeau Studio ("Ont continué de regarder") à partir des 100 points récupérés.
+  const relRetValues = retentionCurve.map((p: any) => p.relativeRetention).filter((v: any): v is number => v !== null);
+  const continuedWatchingPct = relRetValues.length > 0
+    ? Math.round((relRetValues.reduce((s: number, v: number) => s + v, 0) / relRetValues.length) * 1000) / 10
     : null;
 
   return NextResponse.json({
     videoId, retentionCurve,
     avgViewDurationSec, avgViewPercentage, continuedWatchingPct,
-    debug: { startDate, endDate: getToday(), rowCount: retentionCurve.length, apiError: retentionData.error || summaryData.error || null },
+    debug: { startDate, endDate: getToday(), rowCount: retentionCurve.length, apiError: retentionData.error || relRetData.error || summaryData.error || null },
   });
 }
