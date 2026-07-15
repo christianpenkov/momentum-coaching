@@ -281,6 +281,37 @@ export async function GET(request: Request) {
       rowCount: relRetDimData.rows?.length,
       sample_rows: relRetDimData.rows?.slice(0, 5),
     };
+
+    // TEST engagedViews — piste "Ont continué de regarder" via views vs engagedViews
+    // (nouvelles métriques Shorts 2025 : views = affichages dans le feed, engagedViews
+    // = spectateurs restés au-delà des premières secondes). Par vidéo, sans dimension.
+    const engagedRes = await fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,engagedViews&filters=video==${testVideoId}`,
+      { headers: h }
+    );
+    const engagedData = await engagedRes.json();
+    results.engaged_views_test = {
+      note: 'Tentative "Ont continué de regarder" via engagedViews/views (nouvelles métriques Shorts 2025)',
+      videoIdTested: testVideoId,
+      error: engagedData.error || null,
+      columnHeaders: engagedData.columnHeaders,
+      rows: engagedData.rows,
+    };
+
+    // Variante par jour (dimensions=day) pour voir si engagedViews existe mais pas
+    // en filtre vidéo seul, ou par vidéo (dimensions=video, sans filtre) sur tout le
+    // channel pour confirmer la disponibilité au niveau vidéo individuelle.
+    const engagedByVideoRes = await fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,engagedViews&dimensions=video&sort=-views&maxResults=5`,
+      { headers: h }
+    );
+    const engagedByVideoData = await engagedByVideoRes.json();
+    results.engaged_views_by_video = {
+      note: 'engagedViews avec dimensions=video (sans filtre)',
+      error: engagedByVideoData.error || null,
+      columnHeaders: engagedByVideoData.columnHeaders,
+      rows: engagedByVideoData.rows,
+    };
   } else {
     results.relative_retention_performance = { note: 'Pas de videoId dispo pour tester (video_analytics vide)' };
   }

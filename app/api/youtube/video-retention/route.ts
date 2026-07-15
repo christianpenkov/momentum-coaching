@@ -97,12 +97,14 @@ export async function GET(request: Request) {
   );
   const retentionData = await retentionRes.json();
 
-  // "Ont continué de regarder" (bandeau Studio) = relativeRetentionPerformance, la
-  // performance de rétention de cette vidéo comparée aux autres vidéos YouTube de
-  // durée similaire. Confirmé disponible via l'API uniquement avec la même dimension
-  // elapsedVideoTimeRatio (pas de valeur agrégée directe) — donc récupéré comme 2e
-  // courbe fusionnée avec audienceWatchRatio point par point (même dimension), pas
-  // comme un rapport séparé.
+  // relativeRetentionPerformance : PAS un % de spectateurs qui continuent à regarder
+  // (contrairement à "Ont continué de regarder" dans Studio, qui est en réalité une
+  // métrique Shorts "Viewed vs Swiped Away" sans équivalent dans l'API publique —
+  // confirmé via la doc officielle Google, aucune métrique de ce type n'existe côté
+  // Analytics API). C'est un rang comparatif 0-1 : 0 = pire rétention de toutes les
+  // vidéos de durée similaire, 1 = meilleure, 0.5 = médiane. Affiché comme overlay
+  // "Vs vidéos similaires" sur la courbe de rétention, pas comme un chiffre agrégé
+  // trompeur (une moyenne de rangs comparatifs n'a pas de sens en tant que "%").
   const relRetRes = await fetch(
     `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=relativeRetentionPerformance&dimensions=elapsedVideoTimeRatio&filters=video==${videoId}`,
     { headers: authHeader }
@@ -116,27 +118,26 @@ export async function GET(request: Request) {
     relativeRetention: relRetByRatio.get(r[0]) ?? null,
   }));
 
-  // "Durée moyenne d'une vue" + "% moyen de vidéo regardé" (bandeau Studio) — pas de
-  // dimension ici (une seule ligne agrégée sur toute la période filtrée par cette
-  // vidéo), contrairement aux courbes ci-dessus qui ont besoin de elapsedVideoTimeRatio.
+  // "Durée moyenne d'une vue" + "% moyen de vidéo regardé" (bandeau Studio) — la page
+  // vidéo de Studio affiche ces 2 chiffres sur une fenêtre par défaut de 28 derniers
+  // jours glissants (pas "depuis publication"/lifetime, confirmé par la doc officielle
+  // Studio). Fenêtre différente de la courbe de rétention ci-dessus (qui reste en
+  // lifetime depuis publication — sa forme est stable et n'a pas besoin de matcher
+  // Studio au jour près). Sans ce fix, l'écart avec Studio était significatif (confirmé
+  // par Chris) car startDate=publishedAt agrégeait tout l'historique de la vidéo.
+  const summaryStartDate = getStartDate(28);
   const summaryRes = await fetch(
-    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage&filters=video==${videoId}`,
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${summaryStartDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage&filters=video==${videoId}`,
     { headers: authHeader }
   );
   const summaryData = await summaryRes.json();
   const summaryRow = summaryData?.rows?.[0] || null;
   const avgViewDurationSec: number | null = summaryRow ? summaryRow[0] : null;
   const avgViewPercentage: number | null = summaryRow ? summaryRow[1] : null;
-  // Moyenne de la courbe relativeRetentionPerformance — reproduit le chiffre unique
-  // du bandeau Studio ("Ont continué de regarder") à partir des 100 points récupérés.
-  const relRetValues = retentionCurve.map((p: any) => p.relativeRetention).filter((v: any): v is number => v !== null);
-  const continuedWatchingPct = relRetValues.length > 0
-    ? Math.round((relRetValues.reduce((s: number, v: number) => s + v, 0) / relRetValues.length) * 1000) / 10
-    : null;
 
   return NextResponse.json({
     videoId, retentionCurve,
-    avgViewDurationSec, avgViewPercentage, continuedWatchingPct,
+    avgViewDurationSec, avgViewPercentage,
     debug: { startDate, endDate: getToday(), rowCount: retentionCurve.length, apiError: retentionData.error || relRetData.error || summaryData.error || null },
   });
 }

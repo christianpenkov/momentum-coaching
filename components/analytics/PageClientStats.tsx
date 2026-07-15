@@ -1155,7 +1155,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number; relativeRetention: number | null }[] | null>(null);
-  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; continuedWatchingPct: number | null } | null>(null);
+  const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null } | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
   const [jobCreatedAt, setJobCreatedAt] = useState<string | null>(null);
@@ -1176,7 +1176,6 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
       setRetentionSummary({
         avgViewDurationSec: retData.avgViewDurationSec ?? null,
         avgViewPercentage: retData.avgViewPercentage ?? null,
-        continuedWatchingPct: retData.continuedWatchingPct ?? null,
       });
       if (ctrRes.ok) {
         const ctrData = await ctrRes.json();
@@ -1747,13 +1746,15 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                 </div>
               ))}
             </div>
-            {/* Bandeau façon YouTube Studio — mêmes 3 chiffres que dans le screenshot de
-                référence, calculés à partir de averageViewDuration/averageViewPercentage
-                (agrégés) et de la moyenne de la courbe relativeRetentionPerformance. */}
+            {/* Bandeau partiel façon YouTube Studio — 2 des 3 chiffres seulement.
+                "Ont continué de regarder" retiré : c'est en réalité une métrique Shorts
+                Studio ("Viewed vs Swiped Away") sans équivalent dans l'API Analytics
+                publique — relativeRetentionPerformance (affiché en overlay sur la courbe
+                plus bas) est un rang comparatif, pas un vrai %, et une moyenne de ce rang
+                donnait un chiffre qui ne correspondait pas à Studio (confirmé par Chris). */}
             {!loadingRetention && retentionSummary && (
               <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
                 {[
-                  ['Ont continué de regarder', retentionSummary.continuedWatchingPct !== null ? `${retentionSummary.continuedWatchingPct.toLocaleString('fr-FR')} %` : '—'],
                   ['Durée moyenne d\'une vue', retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
                   ['Pourcentage moyen de vidéo regardé', retentionSummary.avgViewPercentage !== null ? `${retentionSummary.avgViewPercentage.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} %` : '—'],
                 ].map(([label, value], i) => (
