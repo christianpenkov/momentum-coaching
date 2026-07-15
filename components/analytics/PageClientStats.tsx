@@ -1151,6 +1151,9 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
 
 function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
+  const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
+  const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
+  const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [loadingRetention, setLoadingRetention] = useState(false);
   const [videoCtr, setVideoCtr] = useState<number | null>(null);
@@ -1492,16 +1495,47 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
       </Card>
 
       <Card title={`Vidéos (${yt.videos.length})`} sub="Clic → courbe de rétention">
+        {/* Filtre Short / Vidéo / Tous */}
+        <div style={{ display: 'flex', gap: 3, background: 'var(--surface-2)', borderRadius: 7, padding: 3, marginBottom: 12, width: 'fit-content' }}>
+          {([['all', 'Tous'], ['short', 'Short'], ['long', 'Vidéo']] as const).map(([key, label]) => (
+            <button key={key} onClick={() => setVideosTypeFilter(key)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 5, cursor: 'pointer', border: 'none', background: videosTypeFilter === key ? 'var(--surface)' : 'transparent', color: videosTypeFilter === key ? 'var(--ink)' : 'var(--faint)', transition: 'all .15s' }}>
+              {label}
+            </button>
+          ))}
+        </div>
         <table className="table" style={{ width: '100%' }}>
           <thead>
             <tr>
-              {['', 'Titre', 'Type', 'Vues totales', 'Vues 30j', 'Rétention', 'Durée', 'Likes', 'Date'].map((h, i) => (
-                <th key={i} style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '8px 10px' }}>{h}</th>
-              ))}
+              {([
+                ['', null],
+                ['Titre', null],
+                ['Type', null],
+                ['Vues totales', 'views'],
+                ['Vues 30j', 'views30d'],
+                ['Rétention', 'avgViewPct'],
+                ['Durée', null],
+                ['Likes', 'likes'],
+                ['Date', 'publishedAt'],
+              ] as [string, typeof videosSortKey | null][]).map(([h, key]) => {
+                const active = key !== null && videosSortKey === key;
+                return (
+                  <th key={h} onClick={key ? () => { if (active) setVideosSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setVideosSortKey(key); setVideosSortDir('desc'); } } : undefined}
+                    style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: active ? BLUE : 'var(--muted)', padding: '8px 10px', cursor: key ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                    {h} {active ? (videosSortDir === 'desc' ? '↓' : '↑') : ''}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>
-            {yt.videos.map(v => (
+            {yt.videos
+              .filter(v => videosTypeFilter === 'all' ? true : videosTypeFilter === 'short' ? v.isShort : !v.isShort)
+              .sort((a, b) => {
+                const av = videosSortKey === 'publishedAt' ? new Date(a.publishedAt).getTime() : (a[videosSortKey] ?? 0);
+                const bv = videosSortKey === 'publishedAt' ? new Date(b.publishedAt).getTime() : (b[videosSortKey] ?? 0);
+                return videosSortDir === 'desc' ? bv - av : av - bv;
+              })
+              .map(v => (
               <tr key={v.id} onClick={() => { setSelectedVideo(v); setJobCreatedAt(null); setVideoCtr(null); setCtrPending(false); loadRetention(v.id, v.publishedAt); }}
                 style={{ cursor: 'pointer' }}
                 onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
