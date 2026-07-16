@@ -70,6 +70,16 @@ async function fetchAnalytics(h: Record<string, string>, params: string) {
   return { error: data.error?.message || null, columnHeaders: data.columnHeaders?.map((c: any) => c.name), rows: data.rows ?? null };
 }
 
+// Pour les séries dimension=day sur lifetime : des milliers de lignes à 0 (chaîne
+// jeune/petite) noient le JSON de réponse. Ne garde que les jours avec au moins une
+// vue — assez pour analyser l'activité réelle sans traîner les zéros.
+async function fetchAnalyticsByDayNonZero(h: Record<string, string>, params: string) {
+  const full = await fetchAnalytics(h, params);
+  if (!full.rows) return full;
+  const nonZeroRows = full.rows.filter((r: any[]) => r.slice(1).some((v) => v !== 0));
+  return { ...full, totalDaysInRange: full.rows.length, daysWithActivity: nonZeroRows.length, rows: nonZeroRows };
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
 
@@ -120,7 +130,9 @@ export async function GET(request: Request) {
   channel.analytics_lifetime = await fetchAnalytics(h,
     `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,dislikes,comments,shares`);
 
-  channel.analytics_lifetime_by_day = await fetchAnalytics(h,
+  // dimension=day sur lifetime (6+ ans) génère des milliers de lignes à 0 pour une
+  // petite chaîne — ne garde que les jours avec activité (voir fetchAnalyticsByDayNonZero).
+  channel.analytics_lifetime_by_day = await fetchAnalyticsByDayNonZero(h,
     `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,comments,shares&dimensions=day&sort=day`);
 
   channel.traffic_sources_lifetime = await fetchAnalytics(h,
@@ -152,7 +164,7 @@ export async function GET(request: Request) {
 
   // impressions/CTR : nécessite le scope yt-analytics-monetary ou peut échouer sans
   // monétisation activée sur la chaîne — erreur attendue et normale dans ce cas.
-  channel.impressions_ctr_lifetime = await fetchAnalytics(h,
+  channel.impressions_ctr_lifetime = await fetchAnalyticsByDayNonZero(h,
     `startDate=${lifetimeStart}&endDate=${today}&metrics=impressions,impressionClickThroughRate&dimensions=day&sort=day`);
 
   const playlistsRes = await fetch(
@@ -200,7 +212,7 @@ export async function GET(request: Request) {
     video.analytics_lifetime = await fetchAnalytics(h,
       `startDate=${publishedStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,dislikes,comments,shares,subscribersGained,subscribersLost&filters=video==${videoId}`);
 
-    video.analytics_lifetime_by_day = await fetchAnalytics(h,
+    video.analytics_lifetime_by_day = await fetchAnalyticsByDayNonZero(h,
       `startDate=${publishedStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares&dimensions=day&sort=day&filters=video==${videoId}`);
 
     // Courbe de rétention — seule combinaison supportée pour ce niveau de détail.
