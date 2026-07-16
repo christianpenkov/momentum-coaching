@@ -120,29 +120,29 @@ export async function GET(request: Request) {
   channel.analytics_lifetime = await fetchAnalytics(h,
     `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,dislikes,comments,shares`);
 
-  channel.analytics_last30d_by_day = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,comments,shares&dimensions=day&sort=day`);
+  channel.analytics_lifetime_by_day = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,subscribersGained,subscribersLost,likes,comments,shares&dimensions=day&sort=day`);
 
-  channel.traffic_sources_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`);
+  channel.traffic_sources_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`);
 
-  channel.demographics_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=viewerPercentage&dimensions=ageGroup,gender`);
+  channel.demographics_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=viewerPercentage&dimensions=ageGroup,gender`);
 
-  channel.geography_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched,subscribersGained&dimensions=country&sort=-views&maxResults=25`);
+  channel.geography_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,subscribersGained&dimensions=country&sort=-views&maxResults=25`);
 
-  channel.devices_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`);
+  channel.devices_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`);
 
-  channel.operating_systems_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=operatingSystem&sort=-views`);
+  channel.operating_systems_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=operatingSystem&sort=-views`);
 
-  channel.subscription_status_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=subscribedStatus`);
+  channel.subscription_status_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=subscribedStatus`);
 
-  channel.playback_locations_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=insightPlaybackLocationType&sort=-views`);
+  channel.playback_locations_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=insightPlaybackLocationType&sort=-views`);
 
   channel.top_videos_lifetime = await fetchAnalytics(h,
     `startDate=${lifetimeStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares,subscribersGained&dimensions=video&sort=-views&maxResults=20`);
@@ -152,8 +152,8 @@ export async function GET(request: Request) {
 
   // impressions/CTR : nécessite le scope yt-analytics-monetary ou peut échouer sans
   // monétisation activée sur la chaîne — erreur attendue et normale dans ce cas.
-  channel.impressions_ctr_30d = await fetchAnalytics(h,
-    `startDate=${last30}&endDate=${today}&metrics=impressions,impressionClickThroughRate&dimensions=day&sort=day`);
+  channel.impressions_ctr_lifetime = await fetchAnalytics(h,
+    `startDate=${lifetimeStart}&endDate=${today}&metrics=impressions,impressionClickThroughRate&dimensions=day&sort=day`);
 
   const playlistsRes = await fetch(
     'https://www.googleapis.com/youtube/v3/playlists?part=snippet,contentDetails&mine=true&maxResults=25',
@@ -200,8 +200,8 @@ export async function GET(request: Request) {
     video.analytics_lifetime = await fetchAnalytics(h,
       `startDate=${publishedStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,dislikes,comments,shares,subscribersGained,subscribersLost&filters=video==${videoId}`);
 
-    video.analytics_last30d_by_day = await fetchAnalytics(h,
-      `startDate=${last30}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares&dimensions=day&sort=day&filters=video==${videoId}`);
+    video.analytics_lifetime_by_day = await fetchAnalytics(h,
+      `startDate=${publishedStart}&endDate=${today}&metrics=views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,likes,comments,shares&dimensions=day&sort=day&filters=video==${videoId}`);
 
     // Courbe de rétention — seule combinaison supportée pour ce niveau de détail.
     video.retention_curve = await fetchAnalytics(h,
@@ -226,9 +226,9 @@ export async function GET(request: Request) {
     video.devices_lifetime = await fetchAnalytics(h,
       `startDate=${publishedStart}&endDate=${today}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views&filters=video==${videoId}`);
 
-    // impressions/CTR par vidéo — même limite que channel.impressions_ctr_30d.
+    // impressions/CTR par vidéo — même limite que channel.impressions_ctr_lifetime.
     video.impressions_ctr = await fetchAnalytics(h,
-      `startDate=${last30}&endDate=${today}&metrics=videoThumbnailImpressions,videoThumbnailImpressionsClickRate&filters=video==${videoId}`);
+      `startDate=${publishedStart}&endDate=${today}&metrics=videoThumbnailImpressions,videoThumbnailImpressionsClickRate&filters=video==${videoId}`);
   }
 
   return NextResponse.json({ channel, video, meta: { lifetimeStart, last30, today } }, { status: 200 });
