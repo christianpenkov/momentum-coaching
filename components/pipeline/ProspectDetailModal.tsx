@@ -35,6 +35,20 @@ const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; co
 
 const DEFAULT_STYLE = { icon: 'message-circle' as const, color: '#6b6a66' };
 
+// ── resolveIgPostLink ────────────────────────────────────────────────────────
+// Construit le lien cliquable vers un post/reel Instagram à partir de ses
+// métadonnées résolues (légende, permalink, thumbnail). Certains posts n'ont
+// aucune légende sur Instagram (caption null) — dans ce cas on garde quand même
+// le lien cliquable (avec un libellé générique) et la miniature, plutôt que de
+// tout masquer faute de texte.
+function resolveIgPostLink(meta: { caption: string | null; permalink: string | null; thumbnail: string | null } | null | undefined) {
+  if (!meta?.permalink) return {};
+  const caption = meta.caption
+    ? (meta.caption.length > 60 ? `${meta.caption.slice(0, 60)}…` : meta.caption)
+    : 'Voir le post';
+  return { linkLabel: caption, linkUrl: meta.permalink, thumbnail: meta.thumbnail };
+}
+
 // ── buildProspectTimeline ────────────────────────────────────────────────────
 // Assemble la timeline d'un prospect : d'abord les prospect_events réels (source
 // fiable), puis injecte les événements dérivés absents de prospect_events, déduits
@@ -58,8 +72,35 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
     events.push({ id: e.id, type: e.event_type, occurredAt: e.occurred_at, source: 'event', label });
   }
 
-  // Commentaire / détection initiale du lead (pas un prospect_event à part, dérivé de detected_at)
-  if (ctx.lead?.detected_at) {
+  // Chaque lead magnet réclamé, à sa propre date (detected_at) — un lead peut en
+  // réclamer plusieurs sur des posts différents ; chacun apparaît séparément dans la
+  // chronologie avec le post/reel source (miniature + lien cliquable), jamais un bloc
+  // à part. Ne fait jamais bouger la card (voir instagram_leads upsert : detected_at
+  // du LEAD reste figé à la 1ère détection, indépendamment de cet historique).
+  // Le tout premier LM réclamé correspond à la détection initiale du lead
+  // (ctx.lead.detected_at = min(lmHistory.detected_at)) — on ne le pousse qu'une fois
+  // via cette boucle pour éviter un doublon visuel avec "Commentaire détecté".
+  const firstLmId = ctx.lmHistory[0]?.id ?? null; // lmHistory trié croissant par resolveProspectContext
+  for (const lm of ctx.lmHistory) {
+    const meta = lm.media_id ? ctx.igPostMeta[lm.media_id] : null;
+    const link = resolveIgPostLink(meta);
+    const isFirst = lm.id === firstLmId;
+    events.push({
+      id: `lm-${lm.id}`,
+      type: 'hook_replied',
+      occurredAt: lm.detected_at,
+      source: 'event',
+      label: isFirst
+        ? (lm.keyword_matched ? `Commentaire détecté (#${lm.keyword_matched})` : 'Commentaire détecté')
+        : (lm.keyword_matched ? `Lead magnet réclamé (#${lm.keyword_matched})` : 'Lead magnet réclamé'),
+      ...link,
+    });
+  }
+
+  // Fallback : si aucun historique LM n'est disponible (lead ancien, avant l'ajout de
+  // instagram_lead_lm_history, ou hors Instagram), garder l'ancien affichage basé sur
+  // detected_at du lead.
+  if (ctx.lmHistory.length === 0 && ctx.lead?.detected_at) {
     events.push({
       id: `lead-detected-${ctx.lead.id}`,
       type: 'hook_replied',
@@ -85,17 +126,17 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
         : null;
       const ytTitle = ytVideoId ? ctx.ytVideoTitles[ytVideoId] : null;
 
-      // Source post Instagram : lien Calendly placé en description d'un post/reel
+      // Source post Instagram : lien Calendly placé en description d'un post/reel.
+      // resolveIgPostLink garde le lien cliquable même si le post n'a aucune légende
+      // sur Instagram (caption null) — le permalink/miniature restent affichables.
       const igMediaId = call.source === 'ig_description' && call.utm_content ? call.utm_content : null;
       const igMeta = igMediaId ? ctx.igPostMeta[igMediaId] : null;
-      const igCaption = igMeta?.caption ? (igMeta.caption.length > 60 ? `${igMeta.caption.slice(0, 60)}…` : igMeta.caption) : null;
+      const igLink = resolveIgPostLink(igMeta);
 
-      const sourceLabel = ytTitle ? 'Call booké depuis ' : (igCaption ? 'Call booké depuis ' : 'Call booké');
       const sourceLink = ytTitle && ytVideoId
         ? { linkLabel: ytTitle, linkUrl: `https://www.youtube.com/watch?v=${ytVideoId}` }
-        : (igCaption && igMeta?.permalink
-          ? { linkLabel: igCaption, linkUrl: igMeta.permalink, thumbnail: igMeta.thumbnail }
-          : {});
+        : igLink;
+      const sourceLabel = 'linkUrl' in sourceLink ? 'Call booké depuis ' : 'Call booké';
 
       events.push({
         id: `${call.id}-booked`,
@@ -282,50 +323,10 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
           )}
         </div>
 
-        {/* Lead magnets réclamés — un lead peut en réclamer plusieurs sur des posts
-            différents ; chacun est listé séparément avec son contenu source, sans
-            jamais faire reculer ni bouger la card (detected_at reste figé à la 1ère
-            détection, voir instagram_leads upsert). */}
-        {context.lmHistory.length > 0 && (
-          <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 8 }}>
-              Lead magnets réclamés ({context.lmHistory.length})
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {context.lmHistory.map(lm => {
-                const meta = lm.media_id ? context.igPostMeta[lm.media_id] : null;
-                const caption = meta?.caption
-                  ? (meta.caption.length > 50 ? `${meta.caption.slice(0, 50)}…` : meta.caption)
-                  : null;
-                return (
-                  <div key={lm.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {meta?.thumbnail && (
-                      <img src={meta.thumbnail} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
-                    )}
-                    <div style={{ minWidth: 0, flex: 1 }}>
-                      <div style={{ fontSize: 12, color: 'var(--ink)' }}>
-                        {lm.keyword_matched ? `#${lm.keyword_matched}` : 'Lead magnet'}
-                        {caption && meta?.permalink ? (
-                          <>
-                            {' — '}
-                            <a href={meta.permalink} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', textDecoration: 'underline' }}>
-                              {caption}
-                            </a>
-                          </>
-                        ) : caption ? ` — ${caption}` : null}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--faint)' }}>
-                        {new Date(lm.detected_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Timeline */}
+        {/* Timeline — inclut les lead magnets réclamés (buildProspectTimeline), chacun
+            à sa vraie date, avec le post/reel source. Ne fait jamais bouger la card
+            (detected_at du LEAD reste figé à la 1ère détection, voir instagram_leads
+            upsert) — c'est un historique en lecture seule. */}
         <div style={{ padding: '20px 24px', maxHeight: '50vh', overflowY: 'auto' }}>
           {error ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '20px 0' }}>
