@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { isYtVideoId } from '@/lib/ytId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -120,9 +121,6 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
     .select('link_id, link_type, link_category, original_url')
     .eq('profile_id', profileId)
     .gte('date', since30d);
-
-  // ID YouTube = exactement 11 chars dans [A-Za-z0-9_-]
-  const isYtVideoId = (s: string) => /^[A-Za-z0-9_-]{11}$/.test(s);
 
   const dbByLinkId = new Map<string, { linkType: string | null; linkCategory: string | null; postPlatform: string | null }>();
   for (const row of dbRows ?? []) {

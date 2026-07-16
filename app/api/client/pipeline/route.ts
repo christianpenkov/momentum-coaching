@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { resolveYtVideoTitles } from '@/lib/ytVideoTitles';
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -77,6 +78,13 @@ export async function GET() {
     humanClicks30d: p.short_url ? (clicksByUrl.get(p.short_url) ?? 0) : 0,
   }));
 
+  // Titres des vidéos YouTube associées aux calls (utm_content = video_id quand
+  // utm_medium === 'description') — cache DB, oEmbed seulement pour les IDs manquants.
+  const ytVideoIds = (callsRes.data ?? [])
+    .filter((c: any) => c.utm_medium === 'description' && c.utm_content)
+    .map((c: any) => c.utm_content as string);
+  const ytVideoTitles = await resolveYtVideoTitles(user.id, ytVideoIds);
+
   return NextResponse.json({
     leads: leadsRes.data ?? [],
     prospects,
@@ -84,6 +92,7 @@ export async function GET() {
     calls: callsRes.data ?? [],
     overrides: overridesRes.data ?? [],
     events: eventsRes.data ?? [],
+    ytVideoTitles,
   });
 }
 

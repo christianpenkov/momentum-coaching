@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import type { ProspectContext } from './PagePipeline';
+import { isYtVideoId } from '@/lib/ytId';
 
 // ── TimelineEvent ────────────────────────────────────────────────────────────
 
@@ -14,6 +15,8 @@ interface TimelineEvent {
   source: 'event' | 'derived';
   label: string;
   detail?: string;
+  linkLabel?: string; // partie cliquable du label (ex: titre de la vidéo YouTube source)
+  linkUrl?: string;
 }
 
 const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; color: string }> = {
@@ -71,6 +74,12 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
     // pour ce call précis (event_type call_booked + call_id) — évite le doublon visuel.
     const hasRealBookedEvent = ctx.events.some(e => e.event_type === 'call_booked' && e.call_id === call.id);
     if (!hasRealBookedEvent) {
+      // Source vidéo YouTube : lien Calendly placé en description d'une vidéo
+      const ytVideoId = call.utm_medium === 'description' && call.utm_content && isYtVideoId(call.utm_content)
+        ? call.utm_content
+        : null;
+      const ytTitle = ytVideoId ? ctx.ytVideoTitles[ytVideoId] : null;
+
       events.push({
         id: `${call.id}-booked`,
         type: 'call_booked',
@@ -79,8 +88,9 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
         // timeline APRÈS son propre honoré/closé (les deux basés sur scheduled_at).
         occurredAt: bookedAt,
         source: 'derived',
-        label: 'Call booké',
+        label: ytTitle ? 'Call booké depuis ' : 'Call booké',
         detail: call.scheduled_at ? `Prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : undefined,
+        ...(ytTitle && ytVideoId ? { linkLabel: ytTitle, linkUrl: `https://www.youtube.com/watch?v=${ytVideoId}` } : {}),
       });
     }
 
@@ -167,7 +177,19 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
             </div>
             <div style={{ paddingBottom: 20, minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{ev.label}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
+                  {ev.label}
+                  {ev.linkUrl && (
+                    <a
+                      href={ev.linkUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{ color: '#2563EB', textDecoration: 'underline' }}
+                    >
+                      {ev.linkLabel}
+                    </a>
+                  )}
+                </span>
               </div>
               {isClosedHighlight && ev.detail ? (
                 <div style={{ fontSize: 20, fontWeight: 800, color: '#3f8a52', marginTop: 4 }}>{ev.detail}</div>

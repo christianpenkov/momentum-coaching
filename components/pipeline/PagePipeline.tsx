@@ -6,6 +6,7 @@ import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModal';
 import ProspectDetailModal from './ProspectDetailModal';
+import { isYtVideoId } from '@/lib/ytId';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -100,6 +101,7 @@ interface PipelineData {
   calls: Call[];
   overrides: Override[];
   events: ProspectEvent[];
+  ytVideoTitles: Record<string, string>; // video_id → titre, résolu côté API (cache DB + oEmbed)
 }
 
 export type { IgLead, ProspectLink, Call, ProspectEvent, PipelineData };
@@ -159,6 +161,25 @@ function avatarInitials(name: string): string {
   return name.replace(/^@/, '').split(/[\s._-]/).map(w => w[0] || '').join('').toUpperCase().slice(0, 2) || '??';
 }
 
+// ── resolveYtSource ───────────────────────────────────────────────────────────
+// Résout le titre de la vidéo YouTube (via ytVideoTitles) quand le call vient d'un
+// lien Calendly en description YouTube (utm_medium === 'description' + utm_content
+// = ID vidéo valide). Fallback sur l'ancien affichage (utm_medium/source brut) sinon.
+
+function resolveYtSource(
+  call: Pick<Call, 'utm_medium' | 'utm_content' | 'source'>,
+  ytVideoTitles: Record<string, string>,
+): { label: string; videoId: string | null; title: string | null } {
+  if (call.utm_medium === 'description' && call.utm_content && isYtVideoId(call.utm_content)) {
+    const title = ytVideoTitles[call.utm_content] ?? null;
+    if (title) return { label: title, videoId: call.utm_content, title };
+  }
+  const label = call.utm_medium
+    ? `${call.utm_medium}${call.utm_content ? ` · ${call.utm_content.slice(0, 12)}` : ''}`
+    : (call.source ?? '');
+  return { label, videoId: null, title: null };
+}
+
 // ── resolveStage ──────────────────────────────────────────────────────────────
 
 function resolveStage(
@@ -210,6 +231,7 @@ export interface ProspectContext {
   prospect: ProspectLink | null;
   calls: Call[]; // tous les calls rattachés à ce prospect, triés scheduled_at desc
   events: ProspectEvent[]; // tous les prospect_events rattachés à ce prospect
+  ytVideoTitles: Record<string, string>; // video_id → titre, pour résoudre la source d'un call
 }
 
 export function resolveProspectContext(
@@ -223,7 +245,7 @@ export function resolveProspectContext(
       const callId = cardKey.slice('ig_link_'.length);
       const call = data.calls.find(c => c.id === callId);
       if (!call) return null;
-      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [] };
+      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [], ytVideoTitles: data.ytVideoTitles };
     }
 
     const username = cardKey.toLowerCase();
@@ -247,7 +269,7 @@ export function resolveProspectContext(
     });
 
     if (!lead && !prospect && matchingCalls.length === 0) return null;
-    return { platform, cardKey, lead, prospect, calls: matchingCalls, events: matchingEvents };
+    return { platform, cardKey, lead, prospect, calls: matchingCalls, events: matchingEvents, ytVideoTitles: data.ytVideoTitles };
   }
 
   // YT / Autre : cardKey = prospect_id, ou call.id en fallback (prospect_id absent)
@@ -257,7 +279,7 @@ export function resolveProspectContext(
   if (calls.length === 0) return null;
 
   const events = data.events.filter(e => e.platform === platform && e.prospect_key === cardKey);
-  return { platform, cardKey, lead: null, prospect: null, calls, events };
+  return { platform, cardKey, lead: null, prospect: null, calls, events, ytVideoTitles: data.ytVideoTitles };
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────────
@@ -1313,12 +1335,15 @@ export default function PagePipeline() {
 
       const noSource = !latestCall.source && !latestCall.utm_medium && !latestCall.utm_content;
 
+      const ytSource = resolveYtSource(latestCall, data.ytVideoTitles);
+      const sub = ytSource.title
+        ? (ytSource.title.length > 35 ? `${ytSource.title.slice(0, 35)}…` : ytSource.title)
+        : ytSource.label;
+
       const card: CardData = {
         key: prospectKey,
         name: latestCall.invitee_name || 'Prospect',
-        sub: latestCall.utm_medium
-          ? `${latestCall.utm_medium}${latestCall.utm_content ? ` · ${latestCall.utm_content.slice(0, 12)}` : ''}`
-          : (latestCall.source ?? ''),
+        sub,
         date: timeAgo(latestCall.scheduled_at),
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
