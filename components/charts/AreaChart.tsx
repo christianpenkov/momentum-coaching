@@ -10,6 +10,7 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
+import { parisDateStr } from '@/lib/period';
 
 interface AreaChartProps {
   data: Record<string, unknown>[];
@@ -34,7 +35,7 @@ const COLORS = ['var(--accent)', '#3f8a52', '#b58025'];
 // (ex: "0 vidéo publiée ce jour-là") plutôt qu'une absence de donnée — sans lui, le
 // dernier jour de la période (même dans le futur, à 0) serait pris à tort.
 export function lastRealPointKey(data: Record<string, unknown>[], xKey: string, dataKey: string): string | null {
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = parisDateStr(new Date());
   for (let i = data.length - 1; i >= 0; i--) {
     const v = data[i][dataKey];
     const dateVal = data[i][xKey];
@@ -49,7 +50,7 @@ export function lastRealPointKey(data: Record<string, unknown>[], xKey: string, 
 // le repérer immédiatement quand il n'y a par exemple qu'un seul point réel visible
 // (début de semaine/mois calendaire, ex: lundi ou le 1er du mois).
 export function todayDotFactory(color: string, xKey: string, lastKey?: string | null) {
-  const targetStr = lastKey ?? new Date().toISOString().split('T')[0];
+  const targetStr = lastKey ?? parisDateStr(new Date());
   return (props: any) => {
     const { cx, cy, payload } = props;
     if (cx == null || cy == null) return <g key={props.key} />;
@@ -87,7 +88,7 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
   // données qui pose 0 plutôt que null pour les jours sans ligne (ex: igDays) trace la
   // courbe à plat jusqu'à la fin du mois/semaine calendaire au lieu de s'arrêter à
   // aujourd'hui, comme déjà géré ailleurs via isFutureDay/v:null.
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = parisDateStr(new Date());
   const safeData = data.map(d => {
     const dateVal = d[xKey];
     if (typeof dateVal === 'string' && dateVal > todayStr) {

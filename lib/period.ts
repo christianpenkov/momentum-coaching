@@ -27,12 +27,33 @@ const PARIS_TZ = 'Europe/Paris';
 
 // Décompose un instant en composantes Y/M/D telles que vues depuis Paris (gère
 // automatiquement heure d'été/hiver via Intl, pas de table d'offset à maintenir).
-function parisDateParts(d: Date): { y: number; m: number; day: number } {
+export function parisDateParts(d: Date): { y: number; m: number; day: number } {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: PARIS_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(d);
   const get = (type: string) => Number(parts.find(p => p.type === type)?.value);
   return { y: get('year'), m: get('month'), day: get('day') };
+}
+
+// Date calendaire "YYYY-MM-DD" telle que vue depuis Paris — remplace
+// d.toISOString().split('T')[0] (qui donne le jour UTC, faux depuis que
+// periodStart/periodEnd ne tombent plus pile sur minuit UTC) partout où le code
+// génère/compare des clés de jour calendaire pour les graphiques et snapshots.
+export function parisDateStr(d: Date): string {
+  const { y, m, day } = parisDateParts(d);
+  return `${y}-${String(m).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+// Ajoute des jours à un instant en respectant le calendrier Paris (pas juste +24h en
+// UTC, qui peut sauter ou répéter un jour civil autour des transitions DST). Utile
+// pour itérer jour par jour sur une période (ex: while (d <= periodEnd) { ...;
+// d = parisAddDays(d, 1) }).
+export function parisAddDays(d: Date, delta: number): Date {
+  const { y, m, day } = parisDateParts(d);
+  const next = addDaysToParts(y, m, day, delta);
+  // Milieu de journée pour rester loin des bords DST — seule la date (Y/M/D) compte
+  // pour les usages de cette fonction, jamais l'heure exacte.
+  return parisWallTimeToUTC(next.y, next.m, next.day, 12, 0, 0, 0);
 }
 
 // Construit l'instant UTC correspondant à une heure locale donnée à Paris (Y/M/D

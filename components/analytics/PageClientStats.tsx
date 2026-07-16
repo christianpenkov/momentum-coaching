@@ -14,7 +14,7 @@ import {
   ResponsiveContainer, Legend, PieChart, Pie, Cell,
   AreaChart as ReAreaChart, Area,
 } from 'recharts';
-import { getPeriodWindow } from '@/lib/period';
+import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
 function usePortalMounted() {
@@ -801,13 +801,18 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
   const igDaysNoDataSet = new Set<string>();
   const igDays: typeof igDaysSlice = (() => {
     const days: typeof igDaysSlice = [];
-    const d = new Date(igPeriodStart);
+    let d = igPeriodStart;
     while (d.getTime() <= igPeriodEnd.getTime()) {
-      const iso = d.toISOString().split('T')[0];
+      // parisDateStr (pas toISOString) : igPeriodStart/End sont des instants UTC
+      // correspondant à minuit/23:59:59.999 HEURE DE PARIS (getPeriodWindow), pas
+      // minuit UTC — toISOString().split('T')[0] donnait le jour UTC, décalé d'un
+      // jour civil Paris autour de 22h-minuit UTC (ex: 30 juin fantôme en tête du
+      // mois de juillet).
+      const iso = parisDateStr(d);
       const existing = igDayByDate.get(iso);
       if (!existing) igDaysNoDataSet.add(iso);
       days.push(existing ?? { date: iso, reach: 0, followerCount: null, accountsEngaged: 0, totalInteractions: 0, websiteClicks: 0, reachFollower: null, reachNonFollower: null } as any);
-      d.setUTCDate(d.getUTCDate() + 1);
+      d = parisAddDays(d, 1);
     }
     return days;
   })();
@@ -1206,7 +1211,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   // Filtre par vraie date calendaire (pas .slice(-N), qui suppose chartData aligné
   // sur aujourd'hui).
   const { periodStart: ytPeriodStart, periodEnd: ytPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
-  const todayUTCStrYT = new Date().toISOString().split('T')[0];
+  const todayUTCStrYT = parisDateStr(new Date());
   const isFutureDayYT = (date: string) => date > todayUTCStrYT;
   const ytDaysRaw = yt.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
@@ -1220,13 +1225,13 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
   const ytDaysNoDataSet = new Set<string>();
   const ytDays: typeof ytDaysRaw = (() => {
     const days: typeof ytDaysRaw = [];
-    const d = new Date(ytPeriodStart);
+    let d = ytPeriodStart;
     while (d.getTime() <= ytPeriodEnd.getTime()) {
-      const iso = d.toISOString().split('T')[0];
+      const iso = parisDateStr(d);
       const existing = ytDayByDate.get(iso);
       if (!existing) ytDaysNoDataSet.add(iso);
       days.push(existing ?? { date: iso, views: 0, watchTime: 0, subsGained: 0, subsLost: 0, netSubs: 0 });
-      d.setUTCDate(d.getUTCDate() + 1);
+      d = parisAddDays(d, 1);
     }
     return days;
   })();
@@ -1388,7 +1393,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
               {s.value}
               {s.label === 'Subs nets' && (
-                <span style={{ fontSize: 13, fontWeight: 700 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {' ('}
                   <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP)}</span>
                   {' '}
@@ -1949,7 +1954,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   // ── Fenêtre temporelle de la période sélectionnée (bornes calendaires réelles) ──
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
-  const todayUTCStrFunnel = new Date().toISOString().split('T')[0];
+  const todayUTCStrFunnel = parisDateStr(new Date());
   const isFutureDayFunnel = (date: string) => date > todayUTCStrFunnel;
   const callsInWindow = calls.filter(c => {
     const t = new Date(c.scheduled_at).getTime();
@@ -2073,10 +2078,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // Données jour par jour pour les modals d'efficacité par plateforme
   function buildEffDayData(platformCalls: CallRecord[], metricIdx: number, reachByDate?: Map<string, number>): { date: string; v: number }[] {
     const days: string[] = [];
-    const d = new Date(periodStart);
+    let d = periodStart;
     while (d.getTime() <= periodEnd.getTime()) {
-      days.push(d.toISOString().split('T')[0]);
-      d.setUTCDate(d.getUTCDate() + 1);
+      days.push(parisDateStr(d));
+      d = parisAddDays(d, 1);
     }
     return days.map(iso => {
       if (isFutureDayFunnel(iso)) return { date: iso, v: null as any };
@@ -2221,10 +2226,10 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
                     const toCallsData = (subset: CallRecord[], key: 'booked' | 'honored' | 'closed' | 'rev') => {
                       const dates2: string[] = [];
-                      const d2 = new Date(periodStart);
+                      let d2 = periodStart;
                       while (d2.getTime() <= periodEnd.getTime()) {
-                        dates2.push(d2.toISOString().split('T')[0]);
-                        d2.setUTCDate(d2.getUTCDate() + 1);
+                        dates2.push(parisDateStr(d2));
+                        d2 = parisAddDays(d2, 1);
                       }
                       return dates2.map(date => {
                         if (isFutureDayFunnel(date)) return { date, v: null as any };
@@ -2550,17 +2555,20 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   // calendaire variable) — pas une longueur fixe supposée depuis `period`. Plafonné à
   // aujourd'hui : en milieu de semaine/mois, periodEnd peut être dans le futur, ce qui
   // afficherait sinon des jours à 0€ qui n'ont pas encore eu lieu.
-  const todayUTCRev = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate()));
-  const effectivePeriodEnd = periodEnd.getTime() > todayUTCRev.getTime() ? todayUTCRev : periodEnd;
-  const periodDaysCount = Math.round((effectivePeriodEnd.getTime() - periodStart.getTime()) / 86400000) + 1;
-  const revenueByDay: { date: string; ca: number; contracte: number }[] = Array.from({ length: periodDaysCount }, (_, i) => {
-    const d = new Date(periodStart);
-    d.setUTCDate(d.getUTCDate() + i);
-    const iso = d.toISOString().split('T')[0];
-    const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
-    const contracte = dealsClosed.filter(c => c.scheduled_at.startsWith(iso)).reduce((s, c) => s + (c.revenue || 0), 0);
-    return { date: iso, ca, contracte };
-  });
+  const revenueByDay: { date: string; ca: number; contracte: number }[] = (() => {
+    const todayStr = parisDateStr(new Date());
+    const rows: { date: string; ca: number; contracte: number }[] = [];
+    let d = periodStart;
+    while (d.getTime() <= periodEnd.getTime()) {
+      const iso = parisDateStr(d);
+      if (iso > todayStr) break; // plafonne à aujourd'hui, comme avant (pas de jours futurs à 0€)
+      const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
+      const contracte = dealsClosed.filter(c => c.scheduled_at.startsWith(iso)).reduce((s, c) => s + (c.revenue || 0), 0);
+      rows.push({ date: iso, ca, contracte });
+      d = parisAddDays(d, 1);
+    }
+    return rows;
+  })();
 
   return (
     <div className="stack">
@@ -2594,7 +2602,7 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       </div>
 
       <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · deals closés & paiements Stripe` : `${periodLabel(period, periodIndex)} · deals closés & paiements Stripe`}>
-        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--ink)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(periodDaysCount / 7) - 1} />
+        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--ink)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(revenueByDay.length / 7) - 1} />
       </Card>
 
       <div className="card">
@@ -2705,7 +2713,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 }) {
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const _pIdx = periodIndex ?? 0;
-  const utcDateStr = (d: Date) => d.toISOString().split('T')[0];
+  // Malgré le nom historique "utc", produit la date calendaire vue depuis Paris —
+  // cohérent avec periodStart/periodEnd (getPeriodWindow) qui ne tombent plus sur
+  // minuit UTC. Gardé sous ce nom pour ne pas re-toucher tous les appels ci-dessous.
+  const utcDateStr = (d: Date) => parisDateStr(d);
   // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) via
   // lib/period.ts, cohérent avec fetchSnapshot et tous les autres calculateurs de
   // bornes du fichier.
@@ -2956,14 +2967,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // la ligne s'arrête visuellement, pas l'axe lui-même.
   const dayRange: string[] = (() => {
     const days: string[] = [];
-    const d = new Date(periodStart);
+    let d = periodStart;
     while (d.getTime() <= periodEnd.getTime()) {
       days.push(utcDateStr(d));
-      d.setUTCDate(d.getUTCDate() + 1);
+      d = parisAddDays(d, 1);
     }
     return days;
   })();
-  const todayUTCStr = utcDateStr(new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth(), new Date().getUTCDate())));
+  const todayUTCStr = utcDateStr(new Date());
   const isFutureDay = (date: string) => date > todayUTCStr;
 
   // 1. Clics totaux — déjà par jour dans shortioChartHistory, filtrer sur la fenêtre
@@ -4819,8 +4830,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // rencontrée par le passé (cf. bug remonté 2026-07-06).
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
-  const startDateStr = periodStart.toISOString().split('T')[0];
-  const endDateStr   = periodEnd.toISOString().split('T')[0];
+  // parisDateStr (pas toISOString) : les colonnes date/snapshot_date filtrées ci-dessous
+  // sont écrites en heure de Paris par le cron (isoDate(), voir docs/cron-poll-leads-
+  // dates.md) — periodStart/periodEnd (getPeriodWindow) sont aussi calées sur Paris,
+  // toISOString().split('T')[0] donnerait le jour UTC, décalé d'un jour civil autour
+  // de 22h-minuit UTC.
+  const startDateStr = parisDateStr(periodStart);
+  const endDateStr   = parisDateStr(periodEnd);
 
   // Toutes les requêtes en parallèle pour ne pas dépasser 2s
   const [
@@ -5116,8 +5132,8 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   // graphiques plutôt qu'une fenêtre glissante indépendante (cf. bug remonté
   // "bio calendly ig" 2026-07-06).
   const { periodStart: _periodStart, periodEnd: _periodEnd } = getPeriodWindow(0, period === 7 ? 'week' : 'month');
-  const since30d = _periodStart.toISOString().slice(0, 10);
-  const until30d = _periodEnd.toISOString().slice(0, 10);
+  const since30d = parisDateStr(_periodStart);
+  const until30d = parisDateStr(_periodEnd);
 
   const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes, shortioChartHistoryRes] = await Promise.all([
     supabase.from('instagram_leads')
@@ -5305,11 +5321,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   // pas une fenêtre glissante indépendante (cf. bug remonté "clics totaux à 0" 2026-07-06).
   const shortioChartHistory: { date: string; clicks: number }[] = [];
   {
-    const d = new Date(_periodStart);
+    let d = _periodStart;
     while (d.getTime() <= _periodEnd.getTime()) {
-      const dateStr = d.toISOString().slice(0, 10);
+      const dateStr = parisDateStr(d);
       shortioChartHistory.push({ date: dateStr, clicks: chartByDate.get(dateStr) ?? 0 });
-      d.setUTCDate(d.getUTCDate() + 1);
+      d = parisAddDays(d, 1);
     }
   }
 
