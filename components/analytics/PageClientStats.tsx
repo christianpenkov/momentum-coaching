@@ -1354,7 +1354,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
         {[
           { label: 'Abonnés', value: fmt(yt.subscribers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés YT' },
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
-          { label: 'Subs nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j — +${fmt(ytSubsGainedP)} / -${fmt(ytSubsLostP)}`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Subs nets' },
+          { label: 'Subs nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Subs nets' },
           { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
           null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
@@ -1385,7 +1385,18 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
               <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>{s.value}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
+              {s.value}
+              {s.label === 'Subs nets' && (
+                <span style={{ fontSize: 13, fontWeight: 700 }}>
+                  {' ('}
+                  <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP)}</span>
+                  {' '}
+                  <span style={{ color: RED }}>-{fmt(ytSubsLostP)}</span>
+                  {')'}
+                </span>
+              )}
+            </div>
             {s.label === 'Vidéos publiées' && (
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'nowrap', marginTop: 4 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
