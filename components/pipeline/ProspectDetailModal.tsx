@@ -15,8 +15,9 @@ interface TimelineEvent {
   source: 'event' | 'derived';
   label: string;
   detail?: string;
-  linkLabel?: string; // partie cliquable du label (ex: titre de la vidéo YouTube source)
+  linkLabel?: string; // partie cliquable du label (ex: titre de la vidéo YouTube, légende du post IG)
   linkUrl?: string;
+  thumbnail?: string | null; // miniature du post/vidéo source, affichée à côté du lien
 }
 
 const EVENT_STYLE: Record<string, { icon: Parameters<typeof Icon>[0]['name']; color: string }> = {
@@ -69,7 +70,11 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
   }
 
   for (const call of ctx.calls) {
-    const bookedAt = call.scheduled_at ?? call.created_at;
+    // Moment réel de la réservation (booked_at, rempli par le webhook/sync Calendly via
+    // invitee.created_at) — distinct de scheduled_at (heure du call, dans le futur au
+    // moment de la réservation). Fallback sur l'ancien comportement si absent (calls
+    // anciens créés avant l'ajout de cette colonne, ou calls manuels sans Calendly).
+    const bookedAt = call.booked_at ?? call.scheduled_at ?? call.created_at;
     // "Call booké" n'est ajouté que s'il n'existe pas déjà en tant que prospect_event réel
     // pour ce call précis (event_type call_booked + call_id) — évite le doublon visuel.
     const hasRealBookedEvent = ctx.events.some(e => e.event_type === 'call_booked' && e.call_id === call.id);
@@ -80,17 +85,28 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
         : null;
       const ytTitle = ytVideoId ? ctx.ytVideoTitles[ytVideoId] : null;
 
+      // Source post Instagram : lien Calendly placé en description d'un post/reel
+      const igMediaId = call.source === 'ig_description' && call.utm_content ? call.utm_content : null;
+      const igMeta = igMediaId ? ctx.igPostMeta[igMediaId] : null;
+      const igCaption = igMeta?.caption ? (igMeta.caption.length > 60 ? `${igMeta.caption.slice(0, 60)}…` : igMeta.caption) : null;
+
+      const sourceLabel = ytTitle ? 'Call booké depuis ' : (igCaption ? 'Call booké depuis ' : 'Call booké');
+      const sourceLink = ytTitle && ytVideoId
+        ? { linkLabel: ytTitle, linkUrl: `https://www.youtube.com/watch?v=${ytVideoId}` }
+        : (igCaption && igMeta?.permalink
+          ? { linkLabel: igCaption, linkUrl: igMeta.permalink, thumbnail: igMeta.thumbnail }
+          : {});
+
       events.push({
         id: `${call.id}-booked`,
         type: 'call_booked',
-        // Même base que "Call honoré"/"Deal closé" (scheduled_at en priorité) — sinon
-        // un call créé juste après l'heure prévue du call pouvait apparaître dans la
-        // timeline APRÈS son propre honoré/closé (les deux basés sur scheduled_at).
         occurredAt: bookedAt,
         source: 'derived',
-        label: ytTitle ? 'Call booké depuis ' : 'Call booké',
+        label: sourceLabel,
+        // Toujours afficher l'heure du call prévue — distincte du moment de réservation
+        // (occurredAt ci-dessus) affiché en bas de la carte timeline.
         detail: call.scheduled_at ? `Prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}` : undefined,
-        ...(ytTitle && ytVideoId ? { linkLabel: ytTitle, linkUrl: `https://www.youtube.com/watch?v=${ytVideoId}` } : {}),
+        ...sourceLink,
       });
     }
 
@@ -176,7 +192,14 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
               {!isLast && <div style={{ width: 1.5, flex: 1, minHeight: 24, background: 'var(--border)' }} />}
             </div>
             <div style={{ paddingBottom: 20, minWidth: 0, flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                {ev.thumbnail && (
+                  <img
+                    src={ev.thumbnail}
+                    alt=""
+                    style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
+                  />
+                )}
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
                   {ev.label}
                   {ev.linkUrl && (
@@ -258,6 +281,49 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{latestCall.invitee_email}</div>
           )}
         </div>
+
+        {/* Lead magnets réclamés — un lead peut en réclamer plusieurs sur des posts
+            différents ; chacun est listé séparément avec son contenu source, sans
+            jamais faire reculer ni bouger la card (detected_at reste figé à la 1ère
+            détection, voir instagram_leads upsert). */}
+        {context.lmHistory.length > 0 && (
+          <div style={{ padding: '14px 24px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: 0.3, marginBottom: 8 }}>
+              Lead magnets réclamés ({context.lmHistory.length})
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {context.lmHistory.map(lm => {
+                const meta = lm.media_id ? context.igPostMeta[lm.media_id] : null;
+                const caption = meta?.caption
+                  ? (meta.caption.length > 50 ? `${meta.caption.slice(0, 50)}…` : meta.caption)
+                  : null;
+                return (
+                  <div key={lm.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    {meta?.thumbnail && (
+                      <img src={meta.thumbnail} alt="" style={{ width: 28, height: 28, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+                    )}
+                    <div style={{ minWidth: 0, flex: 1 }}>
+                      <div style={{ fontSize: 12, color: 'var(--ink)' }}>
+                        {lm.keyword_matched ? `#${lm.keyword_matched}` : 'Lead magnet'}
+                        {caption && meta?.permalink ? (
+                          <>
+                            {' — '}
+                            <a href={meta.permalink} target="_blank" rel="noopener noreferrer" style={{ color: '#2563EB', textDecoration: 'underline' }}>
+                              {caption}
+                            </a>
+                          </>
+                        ) : caption ? ` — ${caption}` : null}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--faint)' }}>
+                        {new Date(lm.detected_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
 
         {/* Timeline */}
         <div style={{ padding: '20px 24px', maxHeight: '50vh', overflowY: 'auto' }}>

@@ -316,7 +316,8 @@ export async function syncCalendlyEleve(
               prospect_key:     igLead.ig_username.toLowerCase(),
               platform:         'ig',
               event_type:       'call_booked',
-              occurred_at:      scheduledAt ?? new Date().toISOString(),
+              // Moment réel de la réservation (bookedAt), pas l'heure du call (scheduledAt).
+              occurred_at:      bookedAt ?? new Date().toISOString(),
               ig_lead_id:       effectiveIgLeadId,
               prospect_link_id: finalProspectLinkId,
               call_id:          callRow.id,

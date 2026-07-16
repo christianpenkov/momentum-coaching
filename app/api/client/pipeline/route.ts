@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { resolveYtVideoTitles } from '@/lib/ytVideoTitles';
+import { resolveIgPostMeta } from '@/lib/igPostMeta';
 
 const supa = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -24,7 +25,7 @@ export async function GET() {
   const calendlyConnectedAt: string | null = integRow?.connected_at ?? null;
 
   let callsQuery = supa.from('calls')
-    .select('id, invitee_name, invitee_email, scheduled_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up')
+    .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up')
     .eq('coach_id', user.id)
     .not('calendly_event_uuid', 'is', null)
     .neq('ignored', true)
@@ -35,7 +36,7 @@ export async function GET() {
     callsQuery = callsQuery.gte('scheduled_at', cutoff);
   }
 
-  const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes] = await Promise.all([
+  const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes, lmHistoryRes] = await Promise.all([
     supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source, avatar_url')
       .eq('profile_id', user.id)
@@ -61,6 +62,10 @@ export async function GET() {
       .select('id, prospect_key, platform, event_type, occurred_at, ig_lead_id, prospect_link_id, call_id')
       .eq('profile_id', user.id)
       .order('occurred_at', { ascending: false }),
+    supa.from('instagram_lead_lm_history')
+      .select('id, ig_username, ig_user_id, keyword_matched, media_id, detected_at')
+      .eq('profile_id', user.id)
+      .order('detected_at', { ascending: false }),
   ]);
 
   if (clicksRes.error) console.warn('[pipeline] shortio_link_daily_snapshots fetch failed:', clicksRes.error.message);
@@ -85,6 +90,20 @@ export async function GET() {
     .map((c: any) => c.utm_content as string);
   const ytVideoTitles = await resolveYtVideoTitles(user.id, ytVideoIds);
 
+  // Métadonnées des posts Instagram (légende, permalink, thumbnail) : à la fois pour les
+  // calls venant d'un lien en description de post (utm_content = media_id), et pour
+  // l'historique des lead magnets réclamés (instagram_lead_lm_history.media_id) — cache
+  // DB, Graph API à la demande seulement pour les media_id manquants.
+  const igMediaIds = [
+    ...(callsRes.data ?? [])
+      .filter((c: any) => c.source === 'ig_description' && c.utm_content)
+      .map((c: any) => c.utm_content as string),
+    ...(lmHistoryRes.data ?? [])
+      .filter((l: any) => l.media_id)
+      .map((l: any) => l.media_id as string),
+  ];
+  const igPostMeta = await resolveIgPostMeta(user.id, igMediaIds);
+
   return NextResponse.json({
     leads: leadsRes.data ?? [],
     prospects,
@@ -92,7 +111,9 @@ export async function GET() {
     calls: callsRes.data ?? [],
     overrides: overridesRes.data ?? [],
     events: eventsRes.data ?? [],
+    lmHistory: lmHistoryRes.data ?? [],
     ytVideoTitles,
+    igPostMeta,
   });
 }
 

@@ -57,6 +57,9 @@ export async function POST(request: NextRequest) {
     const inviteeEmail = resource.email || resource.invitee?.email || null;
     const inviteeName = resource.name || resource.invitee?.name || null;
     const eventName = resource.scheduled_event?.name || resource.event_type_name || 'Call coaching';
+    // Moment réel où le prospect a réservé (distinct de scheduledAt = heure du call) —
+    // même champ que invitee.created_at utilisé côté sync-calendly (edge function).
+    const bookedAt = resource.created_at || resource.invitee?.created_at || null;
     const utmSource = resource.tracking?.utm_source || null;
     const utmMedium = resource.tracking?.utm_medium || null;
     const utmCampaign = resource.tracking?.utm_campaign || null;
@@ -230,6 +233,7 @@ export async function POST(request: NextRequest) {
     if (igLeadId)      baseUpsert.ig_lead_id = igLeadId;
     if (prospectLinkId) baseUpsert.prospect_link_id = prospectLinkId;
     if (prospectId)    baseUpsert.prospect_id = prospectId;
+    if (bookedAt)      baseUpsert.booked_at = bookedAt;
 
     const { data: callRow } = await serviceSupabase.from('calls').upsert(
       baseUpsert,
@@ -259,7 +263,9 @@ export async function POST(request: NextRequest) {
         prospect_key:     prospectKey,
         platform,
         event_type:       'call_booked',
-        occurred_at:      scheduledAt ?? new Date().toISOString(),
+        // Moment réel de la réservation (booked_at), pas l'heure du call (scheduledAt) —
+        // ce sont deux instants distincts sauf coïncidence.
+        occurred_at:      bookedAt ?? new Date().toISOString(),
         ig_lead_id:       igLeadId,
         prospect_link_id: prospectLinkId,
         call_id:          callRow.id,

@@ -44,6 +44,7 @@ interface Call {
   invitee_name: string;
   invitee_email: string;
   scheduled_at: string;
+  booked_at: string | null; // moment réel de la réservation, distinct de scheduled_at (heure du call)
   status: string;
   no_show: boolean | null;
   no_show_at: string | null;
@@ -94,6 +95,21 @@ interface ProspectEvent {
   call_id: string | null;
 }
 
+interface LmHistoryEntry {
+  id: string;
+  ig_username: string;
+  ig_user_id: string;
+  keyword_matched: string | null;
+  media_id: string | null;
+  detected_at: string;
+}
+
+export interface IgPostMeta {
+  caption: string | null;
+  permalink: string | null;
+  thumbnail: string | null;
+}
+
 interface PipelineData {
   leads: IgLead[];
   prospects: ProspectLink[];
@@ -101,10 +117,12 @@ interface PipelineData {
   calls: Call[];
   overrides: Override[];
   events: ProspectEvent[];
+  lmHistory: LmHistoryEntry[];
   ytVideoTitles: Record<string, string>; // video_id → titre, résolu côté API (cache DB + oEmbed)
+  igPostMeta: Record<string, IgPostMeta>; // media_id → légende/permalink/thumbnail, résolu côté API (cache DB + Graph API)
 }
 
-export type { IgLead, ProspectLink, Call, ProspectEvent, PipelineData };
+export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, PipelineData };
 
 // ── Colonnes ──────────────────────────────────────────────────────────────────
 
@@ -231,7 +249,9 @@ export interface ProspectContext {
   prospect: ProspectLink | null;
   calls: Call[]; // tous les calls rattachés à ce prospect, triés scheduled_at desc
   events: ProspectEvent[]; // tous les prospect_events rattachés à ce prospect
+  lmHistory: LmHistoryEntry[]; // tous les lead magnets réclamés par ce lead (1 ligne par contenu)
   ytVideoTitles: Record<string, string>; // video_id → titre, pour résoudre la source d'un call
+  igPostMeta: Record<string, IgPostMeta>; // media_id → légende/permalink/thumbnail
 }
 
 export function resolveProspectContext(
@@ -245,7 +265,7 @@ export function resolveProspectContext(
       const callId = cardKey.slice('ig_link_'.length);
       const call = data.calls.find(c => c.id === callId);
       if (!call) return null;
-      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [], ytVideoTitles: data.ytVideoTitles };
+      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [], lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta };
     }
 
     const username = cardKey.toLowerCase();
@@ -268,8 +288,12 @@ export function resolveProspectContext(
       return true;
     });
 
+    const matchingLmHistory = data.lmHistory
+      .filter(l => l.ig_username.toLowerCase() === username)
+      .sort((a, b) => new Date(a.detected_at).getTime() - new Date(b.detected_at).getTime());
+
     if (!lead && !prospect && matchingCalls.length === 0) return null;
-    return { platform, cardKey, lead, prospect, calls: matchingCalls, events: matchingEvents, ytVideoTitles: data.ytVideoTitles };
+    return { platform, cardKey, lead, prospect, calls: matchingCalls, events: matchingEvents, lmHistory: matchingLmHistory, ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta };
   }
 
   // YT / Autre : cardKey = prospect_id, ou call.id en fallback (prospect_id absent)
@@ -279,7 +303,7 @@ export function resolveProspectContext(
   if (calls.length === 0) return null;
 
   const events = data.events.filter(e => e.platform === platform && e.prospect_key === cardKey);
-  return { platform, cardKey, lead: null, prospect: null, calls, events, ytVideoTitles: data.ytVideoTitles };
+  return { platform, cardKey, lead: null, prospect: null, calls, events, lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta };
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────────
