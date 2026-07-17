@@ -24,7 +24,7 @@ interface AreaChartProps {
   showWeekday?: boolean;
 }
 
-const COLORS = ['var(--accent)', '#3f8a52', '#b58025'];
+const COLORS = ['var(--accent-brand)', '#3f8a52', '#b58025'];
 
 // Trouve la date du dernier point ayant une vraie valeur (non null/undefined, et pas un
 // jour futur) dans une série — c'est ce point-là qui pulse, pas forcément "aujourd'hui"

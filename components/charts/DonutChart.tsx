@@ -18,7 +18,7 @@ interface DonutChartProps {
   formatter?: (value: number) => string;
 }
 
-const FALLBACK_COLORS = ['var(--accent)', '#3f8a52', '#b58025', '#cd5b3f', '#6b7cde'];
+const FALLBACK_COLORS = ['var(--accent-brand)', '#3f8a52', '#b58025', '#cd5b3f', '#6b7cde'];
 
 const CustomTooltip = ({ active, payload, formatter }: { active?: boolean; payload?: { name: string; value: number; payload: DonutSlice }[]; formatter?: (v: number) => string }) => {
   if (!active || !payload?.length) return null;
@@ -67,7 +67,7 @@ export default function DonutChart({ data, height = 200, innerRadius = 55, outer
           textAlign: 'center',
           pointerEvents: 'none',
         }}>
-          {centerLabel && <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>{centerLabel}</div>}
+          {centerLabel && <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent-brand)' }}>{centerLabel}</div>}
           {centerSub && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{centerSub}</div>}
         </div>
       )}

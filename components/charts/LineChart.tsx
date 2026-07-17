@@ -20,7 +20,7 @@ interface LineChartProps {
   yLabel?: string;
 }
 
-const COLORS = ['var(--accent)', '#3f8a52', '#b58025', '#cd5b3f', '#6b7cde', '#8b5cf6'];
+const COLORS = ['var(--accent-brand)', '#3f8a52', '#b58025', '#cd5b3f', '#6b7cde', '#8b5cf6'];
 
 const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string; formatter?: (v: number) => string }) => {
   if (!active || !payload?.length) return null;

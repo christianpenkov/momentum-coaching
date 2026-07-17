@@ -201,16 +201,23 @@ function StatGrid({ children }: { children: React.ReactNode }) {
 }
 
 function Tabs({ tabs, active, onChange }: { tabs: string[]; active: number; onChange: (i: number) => void }) {
+  const [hovered, setHovered] = useState<number | null>(null);
   return (
     <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 28 }}>
       {tabs.map((t, i) => (
-        <button key={i} onClick={() => onChange(i)} style={{
-          padding: '10px 16px', fontSize: 13, fontWeight: active === i ? 600 : 400,
-          color: active === i ? 'var(--ink)' : 'var(--muted)',
-          background: 'none', border: 'none', cursor: 'pointer',
-          borderBottom: active === i ? '2px solid var(--ink)' : '2px solid transparent',
-          marginBottom: -1, transition: 'all .15s',
-        }}>{t}</button>
+        <button
+          key={i}
+          onClick={() => onChange(i)}
+          onMouseEnter={() => setHovered(i)}
+          onMouseLeave={() => setHovered(null)}
+          style={{
+            padding: '10px 16px', fontSize: 13, fontWeight: active === i ? 600 : 400,
+            color: active === i || hovered === i ? 'var(--ink)' : 'var(--muted)',
+            background: 'none', border: 'none', cursor: 'pointer',
+            borderBottom: active === i ? '2px solid var(--accent-brand)' : '2px solid transparent',
+            marginBottom: -1,
+            transition: `color var(--dur-quick) var(--ease-out), border-color var(--dur-quick) var(--ease-out)`,
+          }}>{t}</button>
       ))}
     </div>
   );
@@ -288,12 +295,25 @@ function LeverCard({ label, value, formula }: { label: string; value: string; fo
 }
 
 type SignalType = 'green' | 'amber' | 'red';
-function Signal({ type, text }: { type: SignalType; text: string }) {
+function Signal({ type, text, isLast }: { type: SignalType; text: string; isLast?: boolean }) {
   const dot = type === 'green' ? GREEN : type === 'amber' ? AMBER : RED;
   return (
-    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderBottom: '1px solid var(--border-soft)' }}>
+    <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 0', borderBottom: isLast ? 'none' : '1px solid var(--border-soft)' }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: dot, marginTop: 3, flexShrink: 0 }} />
       <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.4 }}>{text}</div>
+    </div>
+  );
+}
+
+// Cellule KPI individuelle réutilisant le style .kpi-card/.kpi-label/.kpi-value (KpiRibbon)
+// à l'intérieur d'une grille .kpi-ribbon faite main — nécessaire quand une carte custom
+// (ex. Publications, 2 sous-compteurs) doit s'insérer au milieu d'une même rangée de KPI.
+function KpiCardCell({ label, value, sub, color, formatter }: { label: string; value: number; sub?: string; color?: string; formatter: (n: number) => string }) {
+  return (
+    <div className="kpi-card">
+      <div className="kpi-label">{label}</div>
+      <div className="kpi-value" style={color ? { color } : undefined}>{formatter(value)}</div>
+      {sub && <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{sub}</div>}
     </div>
   );
 }
@@ -527,59 +547,41 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     <div className="stack">
 
       {/* ── BLOC 1 : KPIs — 2 lignes de 5 ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-        {([
-          { label: 'Abonnés IG', value: fmt(ig?.followers || 0), sub: 'total', color: IG_COLOR },
-          { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
-          null, // carte Publications custom
-          { label: 'Clics lien', value: fmt(shortioClicks), sub: `${period}j — vers Calendly`, color: BLUE },
-          { label: 'Calls bookés', value: fmt(callsBookes), sub: `${period}j`, color: 'var(--ink)' as string },
-        ] as const).map((item, i) => {
-          if (item === null) return (
-            <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>
-                <span>Publications</span>
-                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
-              </div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 8 }}>{fmt(totalPosts)}</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: IG_COLOR, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(igPostsInPeriod)}</span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>IG</span>
-                </div>
-                <div style={{ width: 1, height: 12, background: 'var(--border)', flexShrink: 0 }} />
-                <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
-                  <span style={{ width: 7, height: 7, borderRadius: '50%', background: YT_COLOR, flexShrink: 0 }} />
-                  <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ytVideosInPeriodOv)}</span>
-                  <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>YT</span>
-                </div>
-              </div>
-            </div>
-          );
-          return (
-            <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
-              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 10 }}>
-        {[
-          { label: 'Calls honorés', value: fmt(callsHonores), sub: `${period}j`, color: AMBER },
-          { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
-          { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
-          { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
-          { label: 'Revenue', value: fmtEur(mrr || totalRev), sub: `${period}j`, color: GREEN },
-        ].map((item, i) => (
-          <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
-            <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
-            <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      <div className="kpi-ribbon">
+        <KpiCardCell label="Abonnés IG" value={ig?.followers || 0} sub="total" color={IG_COLOR} formatter={fmt} />
+        <KpiCardCell label="Abonnés YT" value={yt?.subscribers || 0} sub="total" color={YT_COLOR} formatter={fmt} />
+        {/* Carte Publications — structure custom (2 sous-compteurs IG/YT), hors KpiItem simple */}
+        <div className="kpi-card">
+          <div className="eyebrow kpi-label" style={{ color: 'var(--faint)' }}>
+            <span>Publications</span>
+            <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5, textTransform: 'none', letterSpacing: 'normal' }}>{period}j</span>
           </div>
-        ))}
+          <div className="kpi-value" style={{ marginBottom: 8 }}>{fmt(totalPosts)}</div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: IG_COLOR, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(igPostsInPeriod)}</span>
+              <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>IG</span>
+            </div>
+            <div style={{ width: 1, height: 12, background: 'var(--border)', flexShrink: 0 }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, minWidth: 0 }}>
+              <span style={{ width: 7, height: 7, borderRadius: '50%', background: YT_COLOR, flexShrink: 0 }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>{fmt(ytVideosInPeriodOv)}</span>
+              <span style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>YT</span>
+            </div>
+          </div>
+        </div>
+        <KpiCardCell label="Clics lien" value={shortioClicks} sub={`${period}j — vers Calendly`} color={BLUE} formatter={fmt} />
+        <KpiCardCell label="Calls bookés" value={callsBookes} sub={`${period}j`} formatter={fmt} />
+      </div>
+      <div className="kpi-ribbon">
+        <KpiCardCell label="Calls honorés" value={callsHonores} sub={`${period}j`} color={AMBER} formatter={fmt} />
+        <KpiCardCell label="No-show" value={noShowRate} sub={`${noShows} calls`} color={noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN} formatter={(n) => `${fmt(n, 0)} %`} />
+        <KpiCardCell label="Closing" value={closingRate} sub={`${dealsCloses} deals closés`} color={closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED} formatter={(n) => `${fmt(n, 0)} %`} />
+        <KpiCardCell label="Rev / call" value={revPerCall} sub="par call booké" color={GREEN} formatter={fmtEur} />
+        <KpiCardCell label="Revenue" value={mrr || totalRev} sub={`${period}j`} color={GREEN} formatter={fmtEur} />
+      </div>
       </div>
 
       {/* ── BLOC 2 : Santé contenu — 2 sparklines côte à côte ── */}
@@ -588,10 +590,10 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: igChartSlice.map(d => ({ date: d.date, v: d.reach })) },
           { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: ytChartSlice.map(d => ({ date: d.date, v: d.views })) },
         ].map((item, i) => (
-          <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
+          <div key={i} className="dc-liftrow" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 4 }}>{item.label}</div>
+                <div className="eyebrow" style={{ marginBottom: 4 }}>{item.label}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                   <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{item.value}</span>
                   <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>
@@ -848,7 +850,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
 
   const igStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Publications': { data: pubsByDay, color: IG_COLOR },
-    'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: ACCENT },
+    'Reach': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach })), color: 'var(--accent-brand)' },
     'Abonnés': { data: igDays.map(d => ({ date: d.date, v: igDaysNoDataSet.has(d.date) ? (null as any) : (d.followerCount ?? 0) })), color: IG_COLOR },
     'Interactions posts': { data: interactionsByDay, color: GREEN },
     'Abonnés nets': { data: (() => {
@@ -912,9 +914,9 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
           <div key={s.key} onClick={s.key ? () => openStatModal(s.key!, s.value) : undefined} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: s.key ? 'pointer' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
-            <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
-              {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
+            <div className="eyebrow" style={{ marginBottom: 8 }}>
+              <span>{s.label}</span>
+              {s.sub && <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5, textTransform: 'none', letterSpacing: 'normal' }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
           </div>
@@ -934,9 +936,9 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
             style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: (s.key || (s as any).tooltip) ? 'help' : 'default', transition: 'background .15s' }}
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
-            <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
-              {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
+            <div className="eyebrow" style={{ marginBottom: 8 }}>
+              <span>{s.label}</span>
+              {s.sub && <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5, textTransform: 'none', letterSpacing: 'normal' }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
           </div>
@@ -945,15 +947,15 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${period} jours`}>
-          <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: ACCENT }]} xKey="date" height={220} showWeekday={period === 7} />
+          <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} />
         </Card>
         <Card title="Abonnés / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={220}>
             <ReAreaChart data={igDays} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
               <defs>
                 <linearGradient id="grad-ig-subs" x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="5%" stopColor={ACCENT} stopOpacity={0.2} />
-                  <stop offset="95%" stopColor={ACCENT} stopOpacity={0} />
+                  <stop offset="5%" stopColor="var(--accent-brand)" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="var(--accent-brand)" stopOpacity={0} />
                 </linearGradient>
               </defs>
               {/* Intervalle calculé explicitement (pas 'preserveStartEnd') pour un espacement
@@ -969,7 +971,7 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
                   </div>
                 );
               }} />
-              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke={ACCENT} strokeWidth={2} fill="url(#grad-ig-subs)" dot={todayDotFactory(ACCENT, 'date', lastRealPointKey(igDays, 'date', 'followerCount'))} activeDot={{ r: 4, strokeWidth: 0, fill: ACCENT }} isAnimationActive={false} />
+              <Area type="monotone" dataKey="followerCount" name="Abonnés" stroke="var(--accent-brand)" strokeWidth={2} fill="url(#grad-ig-subs)" dot={todayDotFactory('var(--accent-brand)', 'date', lastRealPointKey(igDays, 'date', 'followerCount'))} activeDot={{ r: 4, strokeWidth: 0, fill: 'var(--accent-brand)' }} isAnimationActive={false} />
             </ReAreaChart>
           </ResponsiveContainer>
         </Card>
@@ -1315,10 +1317,10 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
     'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
     'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
     'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
-    'Likes':              { data: mockFromTotalYT(yt.likes30d, 1), color: ACCENT },
+    'Likes':              { data: mockFromTotalYT(yt.likes30d, 1), color: 'var(--accent-brand)' },
     'Commentaires':       { data: mockFromTotalYT(yt.comments30d, 2), color: BLUE },
     'Partages':           { data: mockFromTotalYT(yt.shares30d, 3), color: GREEN },
-    'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: ACCENT, unit: '%' },
+    'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: 'var(--accent-brand)', unit: '%' },
     'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: RED },
     'Vues all-time':      { data: mockFromTotalYT(yt.totalViews, 7), color: RED },
   };
@@ -1472,7 +1474,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
               <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
               <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
               <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="views" name="Vues" fill={ACCENT} radius={[2, 2, 0, 0]} opacity={0.8} />
+              <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
             </ComposedChart>
           </ResponsiveContainer>
         </Card>
@@ -1572,7 +1574,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
                   <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{v.title}</div>
                 </td>
                 <td style={{ padding: '10px' }}>
-                  <span style={{ fontSize: 10, background: v.isShort ? RED + '20' : ACCENT + '20', color: v.isShort ? RED : ACCENT, borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>
+                  <span style={{ fontSize: 10, background: v.isShort ? RED + '20' : '#3a6a8620', color: v.isShort ? RED : 'var(--accent-brand)', borderRadius: 4, padding: '2px 6px', fontWeight: 600 }}>
                     {v.isShort ? 'Short' : 'Vidéo'}
                   </span>
                 </td>
@@ -1594,7 +1596,7 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', width: 90, textTransform: 'capitalize' }}>{s.name}</div>
               <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
-                <div style={{ height: 6, width: `${pct(s.views, trafficData[0]?.views || 1)}%`, background: ACCENT, borderRadius: 3 }} />
+                <div style={{ height: 6, width: `${pct(s.views, trafficData[0]?.views || 1)}%`, background: 'var(--accent-brand)', borderRadius: 3 }} />
               </div>
               <div style={{ fontSize: 11, fontWeight: 600, width: 40, textAlign: 'right' }}>{fmt(s.views)}</div>
             </div>
@@ -1849,8 +1851,8 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
 
 // ─── TAB 4 : Funnel & Calls ───────────────────────────────────────────────────
 
-const IG_COLOR = '#E1306C';
-const YT_COLOR = '#FF0000';
+const IG_COLOR = '#c1355e';
+const YT_COLOR = '#dc2626';
 
 function FunnelHorizontal({ platform, color, steps }: {
   platform: string;
@@ -2578,31 +2580,15 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
           {refreshing ? 'Actualisation…' : 'Actualiser'}
         </button>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashContracte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals closés ({dealsClosed.length})</div>
-        </div>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({succeeded.length})</div>
-        </div>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>par paiement réussi</div>
-        </div>
-        <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
-          <div style={{ fontSize: 22, fontWeight: 800, color: cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED, lineHeight: 1 }}>{cashCollectePct}%</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>collecté / contracté</div>
-        </div>
+      <div className="kpi-ribbon" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+        <KpiCardCell label="Cash contracté" value={cashContracte} sub={`deals closés (${dealsClosed.length})`} formatter={fmtEur} />
+        <KpiCardCell label="Cash collecté" value={cashCollecte} sub={`paiements reçus (${succeeded.length})`} color={GREEN} formatter={fmtEur} />
+        <KpiCardCell label="Panier moyen" value={Math.round(avgBasket)} sub="par paiement réussi" formatter={fmtEur} />
+        <KpiCardCell label="Taux de cash collecté" value={cashCollectePct} sub="collecté / contracté" color={cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED} formatter={(n) => `${n}%`} />
       </div>
 
       <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · deals closés & paiements Stripe` : `${periodLabel(period, periodIndex)} · deals closés & paiements Stripe`}>
-        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--ink)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(revenueByDay.length / 7) - 1} />
+        <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--accent-brand)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(revenueByDay.length / 7) - 1} />
       </Card>
 
       <div className="card">
@@ -3386,12 +3372,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#F06292" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#F06292" stopOpacity={0} />
+                    <stop offset="5%" stopColor={IG_COLOR} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={IG_COLOR} stopOpacity={0} />
                   </linearGradient>
                   <linearGradient id="grad-chart-yt" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#B91C1C" stopOpacity={0.15} />
-                    <stop offset="95%" stopColor="#B91C1C" stopOpacity={0} />
+                    <stop offset="5%" stopColor={YT_COLOR} stopOpacity={0.15} />
+                    <stop offset="95%" stopColor={YT_COLOR} stopOpacity={0} />
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
@@ -3412,8 +3398,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     </div>
                   );
                 }} />
-                <Area type="monotone" dataKey="ig" name="Instagram" stroke="#F06292" strokeWidth={2} fill="url(#grad-chart-ig)" dot={todayDotFactory('#F06292', 'date', lastRealPointKey(chartData, 'date', 'ig'))} activeDot={{ r: 3, strokeWidth: 0, fill: '#F06292' }} isAnimationActive={false} />
-                <Area type="monotone" dataKey="yt" name="YouTube" stroke="#B91C1C" strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory('#B91C1C', 'date', lastRealPointKey(chartData, 'date', 'yt'))} activeDot={{ r: 3, strokeWidth: 0, fill: '#B91C1C' }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="ig" name="Instagram" stroke={IG_COLOR} strokeWidth={2} fill="url(#grad-chart-ig)" dot={todayDotFactory(IG_COLOR, 'date', lastRealPointKey(chartData, 'date', 'ig'))} activeDot={{ r: 3, strokeWidth: 0, fill: IG_COLOR }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="yt" name="YouTube" stroke={YT_COLOR} strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory(YT_COLOR, 'date', lastRealPointKey(chartData, 'date', 'yt'))} activeDot={{ r: 3, strokeWidth: 0, fill: YT_COLOR }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           ) : chartFilter === 'dm' ? (
@@ -4755,7 +4741,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedA
       <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={periodIndex === 0}
         style={{ background: 'none', border: 'none', cursor: periodIndex === 0 ? 'default' : 'pointer', fontSize: 20, color: periodIndex === 0 ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>›</button>
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
-      <div style={{ display: 'flex', gap: 2, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
+      <div style={{ display: 'flex', gap: 2, background: 'var(--surface-chat-field)', borderRadius: 8, padding: 3 }}>
         {([7, 30] as Period[]).map(p => (
           <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(() => 0); }} style={{
             padding: '4px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
@@ -4792,7 +4778,7 @@ function SectionControls({ period, setPeriod, periodIndex, setPeriodIndex }: {
       <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={periodIndex === 0}
         style={{ background: 'none', border: 'none', cursor: periodIndex === 0 ? 'default' : 'pointer', fontSize: 16, color: periodIndex === 0 ? 'var(--faint)' : 'var(--muted)', padding: '0 2px', lineHeight: 1 }}>›</button>
       <div style={{ width: 1, height: 18, background: 'var(--border)', margin: '0 2px' }} />
-      <div style={{ display: 'flex', gap: 2, background: 'var(--surface-2)', borderRadius: 6, padding: 2 }}>
+      <div style={{ display: 'flex', gap: 2, background: 'var(--surface-chat-field)', borderRadius: 6, padding: 2 }}>
         {([7, 30] as Period[]).map(p => (
           <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(() => 0); }} style={{
             padding: '3px 9px', fontSize: 11, fontWeight: 600, borderRadius: 4, cursor: 'pointer', border: 'none',
@@ -5575,7 +5561,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
 
 
   return (
-    <div className="page-content">
+    <div className="page-content page-client-stats">
 
       {/* Banner backfill en cours */}
       {backfillInProgress && (
