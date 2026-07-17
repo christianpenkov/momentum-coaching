@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import type { ProspectContext } from './PagePipeline';
@@ -137,7 +137,9 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
       const sourceLink = ytTitle && ytVideoId
         ? { linkLabel: ytTitle, linkUrl: `https://www.youtube.com/watch?v=${ytVideoId}` }
         : igLink;
-      const sourceLabel = 'linkUrl' in sourceLink ? 'Call booké depuis ' : 'Call booké';
+      const sourceLabel = 'linkUrl' in sourceLink
+        ? 'Call booké depuis '
+        : (call.source === 'ig_dm' ? 'Call booké depuis DM' : 'Call booké');
 
       events.push({
         id: `${call.id}-booked`,
@@ -215,14 +217,13 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
     return <div style={{ fontSize: 12, color: 'var(--muted)', padding: '16px 0' }}>Aucun événement enregistré pour ce prospect.</div>;
   }
 
-  // column-reverse + items rendus en ordre inversé : le scroll ancre nativement en bas
-  // au premier paint (dernier événement visible directement), sans scrollIntoView ni
-  // rAF de rattrapage — même technique que la messagerie (PageClientMessages.tsx),
-  // robuste aux reflows tardifs (miniatures IG/YT qui chargent après coup).
+  // Ordre chronologique normal (ancien en haut, récent en bas) — le scroll en bas à
+  // l'ouverture est forcé via timelineRef (voir ProspectDetailModal), pas column-reverse
+  // (qui n'ancrerait en bas que si le contenu dépasse déjà la maxHeight du conteneur,
+  // ce qui laisserait un vide au-dessus des timelines courtes).
   return (
-    <div style={{ display: 'flex', flexDirection: 'column-reverse' }}>
-      {timeline.slice().reverse().map((ev, revIdx, revArr) => {
-        const i = revArr.length - 1 - revIdx; // index chronologique d'origine
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {timeline.map((ev, i) => {
         const style = EVENT_STYLE[ev.type] ?? DEFAULT_STYLE;
         const isLast = i === timeline.length - 1;
         const isClosedHighlight = ev.type === 'closed' && isLast;
@@ -250,14 +251,17 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
                 <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>
                   {ev.label}
                   {ev.linkUrl && (
-                    <a
-                      href={ev.linkUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      style={{ color: '#2563EB', textDecoration: 'underline' }}
-                    >
-                      {ev.linkLabel}
-                    </a>
+                    <>
+                      {' '}
+                      <a
+                        href={ev.linkUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: '#2563EB', textDecoration: 'underline' }}
+                      >
+                        {ev.linkLabel}
+                      </a>
+                    </>
                   )}
                 </span>
               </div>
@@ -289,6 +293,18 @@ interface Props {
 
 export default function ProspectDetailModal({ context, displayName, stageLabel, stageColor, onClose }: Props) {
   const [error, setError] = useState(false);
+  const timelineRef = useRef<HTMLDivElement>(null);
+
+  // Ouvre la timeline scrollée sur le dernier événement (en bas), pas le tout premier —
+  // une seule fois au montage (pas à chaque render), pour ne pas re-forcer le scroll si
+  // l'utilisateur a remonté manuellement lire un ancien événement. useLayoutEffect
+  // (avant paint) pour éviter le flash "en haut puis saute en bas".
+  useLayoutEffect(() => {
+    const el = timelineRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   if (typeof document === 'undefined') return null;
 
   let timeline: TimelineEvent[] = [];
@@ -350,8 +366,12 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
         {/* Timeline — inclut les lead magnets réclamés (buildProspectTimeline), chacun
             à sa vraie date, avec le post/reel source. Ne fait jamais bouger la card
             (detected_at du LEAD reste figé à la 1ère détection, voir instagram_leads
-            upsert) — c'est un historique en lecture seule. */}
-        <div style={{ padding: '20px 24px', maxHeight: '50vh', overflowY: 'auto' }}>
+            upsert) — c'est un historique en lecture seule.
+            maxHeight (pas height fixe) pour que le conteneur se contracte proprement
+            quand la timeline est courte (pas de vide géant au-dessus) ; le scroll en
+            bas est forcé au montage via timelineRef ci-dessous plutôt que column-reverse
+            seul, qui n'ancrerait en bas que si le contenu dépassait déjà maxHeight. */}
+        <div ref={timelineRef} style={{ padding: '20px 24px', maxHeight: '50vh', overflowY: 'auto' }}>
           {error ? (
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, padding: '20px 0' }}>
               <div style={{ fontSize: 12, color: 'var(--muted)', textAlign: 'center' }}>
