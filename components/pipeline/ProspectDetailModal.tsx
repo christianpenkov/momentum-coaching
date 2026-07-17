@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import type { ProspectContext } from './PagePipeline';
+import { avatarColor, avatarInitials } from './PagePipeline';
 import { isYtVideoId } from '@/lib/ytId';
 
 // ── TimelineEvent ────────────────────────────────────────────────────────────
@@ -214,9 +215,14 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
     return <div style={{ fontSize: 12, color: 'var(--muted)', padding: '16px 0' }}>Aucun événement enregistré pour ce prospect.</div>;
   }
 
+  // column-reverse + items rendus en ordre inversé : le scroll ancre nativement en bas
+  // au premier paint (dernier événement visible directement), sans scrollIntoView ni
+  // rAF de rattrapage — même technique que la messagerie (PageClientMessages.tsx),
+  // robuste aux reflows tardifs (miniatures IG/YT qui chargent après coup).
   return (
-    <div style={{ display: 'flex', flexDirection: 'column' }}>
-      {timeline.map((ev, i) => {
+    <div style={{ display: 'flex', flexDirection: 'column-reverse' }}>
+      {timeline.slice().reverse().map((ev, revIdx, revArr) => {
+        const i = revArr.length - 1 - revIdx; // index chronologique d'origine
         const style = EVENT_STYLE[ev.type] ?? DEFAULT_STYLE;
         const isLast = i === timeline.length - 1;
         const isClosedHighlight = ev.type === 'closed' && isLast;
@@ -312,7 +318,25 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
           }}>
             {stageLabel}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            {context.lead?.avatar_url ? (
+              <img
+                src={context.lead.avatar_url}
+                alt={displayName}
+                width={36}
+                height={36}
+                style={{ borderRadius: 10, flexShrink: 0, objectFit: 'cover', display: 'block' }}
+                onError={e => { e.currentTarget.style.display = 'none'; }}
+              />
+            ) : (
+              <div style={{
+                width: 36, height: 36, borderRadius: 10, background: avatarColor(displayName), flexShrink: 0,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 13, fontWeight: 700, color: '#fff', letterSpacing: '.03em',
+              }}>
+                {avatarInitials(displayName)}
+              </div>
+            )}
             <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--ink)' }}>{displayName}</div>
           </div>
           {context.lead?.keyword_matched && (
