@@ -251,39 +251,6 @@ function TodayStat({ label, value, delta, deltaLabel }: { label: string; value: 
   );
 }
 
-interface FunnelStageProps {
-  label: string;
-  value: number | string;
-  sub?: string;
-  convRate?: number;
-  isLast?: boolean;
-  highlight?: boolean;
-}
-
-function FunnelStage({ label, value, sub, convRate, isLast, highlight }: FunnelStageProps) {
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', flex: 1 }}>
-      <div style={{
-        width: '100%', padding: '20px 12px 16px',
-        background: highlight ? 'var(--accent)10' : 'var(--surface)',
-        border: `1px solid ${highlight ? 'var(--accent)' : 'var(--border)'}`,
-        borderRadius: 10,
-        textAlign: 'center',
-      }}>
-        <div style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: highlight ? 'var(--accent)' : 'var(--muted)', marginBottom: 6 }}>{label}</div>
-        <div style={{ fontSize: 28, fontWeight: 800, color: highlight ? 'var(--accent)' : 'var(--ink)', lineHeight: 1 }}>{typeof value === 'number' ? fmt(value) : value}</div>
-        {sub && <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 4 }}>{sub}</div>}
-      </div>
-      {!isLast && convRate !== undefined && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'absolute', right: -22, top: '50%', transform: 'translateY(-50%)', zIndex: 1 }}>
-          <div style={{ fontSize: 16, color: 'var(--border)', lineHeight: 1 }}>→</div>
-          <div style={{ fontSize: 10, fontWeight: 700, color: convRate < 5 ? RED : convRate < 20 ? AMBER : GREEN, marginTop: 2, whiteSpace: 'nowrap' }}>{fmt(convRate, 1)}%</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function LeverCard({ label, value, formula }: { label: string; value: string; formula: string }) {
   return (
     <div style={{ padding: '16px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
@@ -639,7 +606,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
             {SORT_LABELS_V2.map(s => (
               <button key={s.key} onClick={() => setContentSort(s.key)} style={{
                 padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)',
-                background: contentSort === s.key ? 'var(--accent)' : 'transparent',
+                background: contentSort === s.key ? 'var(--accent-brand)' : 'transparent',
                 color: contentSort === s.key ? '#fff' : 'var(--muted)',
                 transition: 'all .15s',
               }}>{s.label}</button>
@@ -684,7 +651,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                     <div style={{ fontSize: 12, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: hasLink ? 'var(--accent)' : 'var(--ink)' }}>{c.title}</div>
                   </td>
                   <td style={{ padding: '8px 8px', textAlign: 'right' }}>
-                    <span style={{ fontSize: 10, fontWeight: 600, color: c.platform === 'IG' ? ACCENT : RED, background: c.platform === 'IG' ? ACCENT + '15' : RED + '15', borderRadius: 4, padding: '2px 6px' }}>{c.platform} · {c.type}</span>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: c.platform === 'IG' ? IG_COLOR : YT_COLOR, background: c.platform === 'IG' ? IG_COLOR + '15' : YT_COLOR + '15', borderRadius: 4, padding: '2px 6px' }}>{c.platform} · {c.type}</span>
                   </td>
                   {contentSort === 'views' && (
                     <td style={{ padding: '8px 8px', textAlign: 'right', fontSize: 13, fontWeight: 700 }}>{fmt(c.totalViews)}</td>
@@ -733,7 +700,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       {signalData.length > 0 && (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>Signaux récents</div>
-          {signalData.map((s, i) => <Signal key={i} type={s.type} text={s.text} />)}
+          {signalData.map((s, i) => <Signal key={i} type={s.type} text={s.text} isLast={i === signalData.length - 1} />)}
         </div>
       )}
 
@@ -3274,8 +3241,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
 
           const cardStyle = (metric: NonNullable<typeof selectedMetric>) => ({
-            background: selectedMetric === metric ? BLUE + '10' : 'var(--surface-2)',
-            border: selectedMetric === metric ? `1px solid ${BLUE}` : '1px solid transparent',
+            background: selectedMetric === metric ? '#3a6a8610' : 'var(--surface-2)',
+            border: selectedMetric === metric ? '1px solid var(--accent-brand)' : '1px solid transparent',
             borderRadius: 10, padding: '12px 14px', flex: 1, cursor: 'pointer', transition: 'all .12s',
           });
           const toggleMetric = (metric: typeof selectedMetric) => setSelectedMetric(metric);
@@ -3370,7 +3337,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <>
           <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
             {([['all', 'Tous les clics'], ['dm', 'DM uniquement'], ['content', 'Contenu uniquement'], ['bio', 'Bio uniquement']] as const).map(([k, label]) => (
-              <button key={k} onClick={() => setChartFilter(k)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${chartFilter === k ? BLUE : 'var(--border)'}`, background: chartFilter === k ? BLUE + '12' : 'transparent', color: chartFilter === k ? BLUE : 'var(--muted)', transition: 'all .12s' }}>
+              <button key={k} onClick={() => setChartFilter(k)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: `1px solid ${chartFilter === k ? 'var(--accent-brand)' : 'var(--border)'}`, background: chartFilter === k ? '#3a6a8612' : 'transparent', color: chartFilter === k ? 'var(--accent-brand)' : 'var(--muted)', transition: 'all .12s' }}>
                 {label}
               </button>
             ))}
@@ -3378,7 +3345,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           {chartFilter === 'all' ? (
             clicsSeriesHasData || clicsSeries.some(d => (d.v ?? 0) > 0) ? (
               <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: BLUE }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
+                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: 'var(--accent-brand)' }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
               </div>
             ) : (
               <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
