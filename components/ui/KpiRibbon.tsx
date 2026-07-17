@@ -10,6 +10,7 @@ export interface KpiItem {
   delta?: number;
   deltaLabel?: string;
   color?: string;
+  viz?: React.ReactNode;
 }
 
 interface KpiRibbonProps {
@@ -38,6 +39,7 @@ export default function KpiRibbon({ items }: KpiRibbonProps) {
               {item.deltaLabel && <span> {item.deltaLabel}</span>}
             </div>
           )}
+          {item.viz && <div style={{ marginTop: 12 }}>{item.viz}</div>}
         </div>
       ))}
     </div>

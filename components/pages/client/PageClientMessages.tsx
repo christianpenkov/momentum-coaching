@@ -308,7 +308,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   }, [seekTo]);
 
   const trackBg = isMe ? 'rgba(255,255,255,0.2)' : 'var(--border)';
-  const fillColor = isMe ? 'rgba(255,255,255,0.9)' : 'var(--ink)';
+  const fillColor = isMe ? 'rgba(255,255,255,0.9)' : 'var(--accent-brand)';
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
   // Calcule l'index de la barre de progression dans la waveform
@@ -352,12 +352,12 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
             <path d="M12 9v4M12 17h.01M10.29 3.86l-8.18 14.14A2 2 0 004.02 21h15.96a2 2 0 001.91-2.99L13.71 3.86a2 2 0 00-3.42 0z"/>
           </svg>
         ) : playing ? (
-          <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}>
+          <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--accent-brand)'}>
             <rect x="6" y="4" width="4" height="16" rx="1"/>
             <rect x="14" y="4" width="4" height="16" rx="1"/>
           </svg>
         ) : (
-          <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}>
+          <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--accent-brand)'} style={{ marginLeft: 1 }}>
             <polygon points="6 3 20 12 6 21 6 3"/>
           </svg>
         )}
@@ -384,7 +384,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           {progress > 0 && (
             <div style={{
               position: 'absolute', top: '50%', left: `${progress}%`, width: 14, height: 14, borderRadius: '50%',
-              background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 4px rgba(0,0,0,.4)',
+              background: 'var(--accent-brand)', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 4px rgba(0,0,0,.4)',
               transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
             }} />
           )}
@@ -422,26 +422,26 @@ function MessageStatus({ isMe, msgId, readAt, isAudio, listenedAt }: {
   if (isOptimistic) {
     return (
       <svg width="16" height="11" viewBox="0 0 16 11" fill="none" style={{ flexShrink: 0, opacity: 0.65 }}>
-        <path d="M1 5.5l4 4L14 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M1 5.5l4 4L14 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     );
   }
 
   if (isRead) {
-    // Deux coches blanches pleines = lu
+    // Deux coches pleines accent-brand = lu
     return (
       <svg width="20" height="11" viewBox="0 0 20 11" fill="none" style={{ flexShrink: 0 }}>
-        <path d="M1 5.5l4 4L13 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-        <path d="M6 5.5l4 4L18 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M1 5.5l4 4L13 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        <path d="M6 5.5l4 4L18 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
       </svg>
     );
   }
 
-  // Deux coches blanches semi-transparentes = envoyé
+  // Deux coches accent-brand semi-transparentes = envoyé
   return (
     <svg width="20" height="11" viewBox="0 0 20 11" fill="none" style={{ flexShrink: 0, opacity: 0.5 }}>
-      <path d="M1 5.5l4 4L13 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M6 5.5l4 4L18 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M1 5.5l4 4L13 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 5.5l4 4L18 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
@@ -1759,7 +1759,7 @@ export default function PageClientMessages() {
             <div style={{
               position: 'absolute', bottom: 1, right: 1,
               width: 9, height: 9, borderRadius: '50%',
-              background: isCoachOnline ? 'var(--green)' : 'var(--faint)',
+              background: isCoachOnline ? 'var(--accent-brand)' : 'var(--faint)',
               border: '2px solid var(--surface)',
               transition: 'background 0.4s ease',
             }} />
@@ -1767,7 +1767,7 @@ export default function PageClientMessages() {
           <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
             <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--ink)', lineHeight: 1.2 }}>{coachName}</div>
             <div style={{
-              fontSize: 11, color: isCoachOnline ? 'var(--green)' : 'var(--muted)',
+              fontSize: 11, color: isCoachOnline ? 'var(--accent-brand)' : 'var(--muted)',
               marginTop: 1, transition: 'color 0.4s ease',
             }}>
               {coachTyping ? 'En train d\'écrire…' : isCoachOnline ? 'En ligne' : 'Hors ligne'}
@@ -2052,7 +2052,7 @@ export default function PageClientMessages() {
           }}>
             <button type="button" onClick={() => fileInputRef.current?.click()} style={{
               width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)',
-              background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
+              background: 'var(--surface-chat-field)', display: 'flex', alignItems: 'center',
               justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
             }}>
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -2087,7 +2087,7 @@ export default function PageClientMessages() {
                 flex: 1, resize: 'none', border: '1px solid var(--border)',
                 borderRadius: 22, padding: '10px 14px', fontSize: 14,
                 fontFamily: 'inherit', lineHeight: 1.5, outline: 'none',
-                background: 'var(--surface-2)', color: 'var(--ink)',
+                background: 'var(--surface-chat-field)', color: 'var(--ink)',
                 minHeight: 42, maxHeight: 120,
               }}
               rows={1}
@@ -2096,7 +2096,7 @@ export default function PageClientMessages() {
             {mediaRecorderSupported && !input.trim() && (
               <button type="button" onClick={startRecording} className="tap-scale" style={{
                 width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)',
-                background: 'var(--surface-2)', display: 'flex', alignItems: 'center',
+                background: 'var(--surface-chat-field)', display: 'flex', alignItems: 'center',
                 justifyContent: 'center', cursor: 'pointer', flexShrink: 0,
               }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round">
@@ -2109,7 +2109,7 @@ export default function PageClientMessages() {
             )}
 
             {input.trim() && (
-              <button className="btn-primary tap-scale" onClick={() => sendMessage(input)} type="button" style={{
+              <button className="btn-primary btn-primary-brand tap-scale" onClick={() => sendMessage(input)} type="button" style={{
                 width: 40, height: 40, borderRadius: '50%', padding: 0,
                 display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
               }}>

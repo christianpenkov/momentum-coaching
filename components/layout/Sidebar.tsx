@@ -35,10 +35,10 @@ export default function Sidebar() {
         {NAV.map(({ href, icon, label, highlight }) => {
           const active = pathname === href || (href !== '/dashboard' && pathname.startsWith(href));
           return (
-            <Link key={href} href={href} className={`nav-item${active ? ' active' : ''}`} style={highlight && !active ? { color: 'var(--accent)' } : undefined}>
+            <Link key={href} href={href} className={`nav-item${active ? ' active' : ''}`} style={highlight && !active ? { color: 'var(--accent-brand)' } : undefined}>
               <Icon name={icon} size={16} />
               <span>{label}</span>
-              {highlight && !active && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>IA</span>}
+              {highlight && !active && <span style={{ fontSize: 9, fontWeight: 700, background: 'var(--accent-brand)', color: '#fff', borderRadius: 4, padding: '1px 5px', marginLeft: 'auto' }}>IA</span>}
               {href === '/messages' && unreadCount > 0 && (
                 <span style={{ fontSize: 10, fontWeight: 700, background: 'var(--red)', color: '#fff', borderRadius: 999, minWidth: 16, height: 16, padding: '0 4px', display: 'flex', alignItems: 'center', justifyContent: 'center', marginLeft: 'auto' }}>
                   {unreadCount > 9 ? '9+' : unreadCount}

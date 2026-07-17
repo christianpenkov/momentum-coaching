@@ -17,6 +17,7 @@ import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
 import { compressImageIfNeeded } from '@/lib/compressImage';
 import { useUnreadCountsByClient } from '@/lib/useUnreadCountsByClient';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
+import ChatContextPanel from '@/components/pages/coach/ChatContextPanel';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -292,7 +293,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
   }, [seekTo]);
 
   const progressIdx = Math.round((progress / 100) * (WAVEFORM.length - 1));
-  const fillColor = isMe ? 'rgba(255,255,255,0.9)' : 'var(--ink)';
+  const fillColor = isMe ? 'rgba(255,255,255,0.9)' : 'var(--accent-brand)';
   const trackBg = isMe ? 'rgba(255,255,255,0.2)' : 'var(--border)';
   const mutedColor = isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)';
 
@@ -328,8 +329,8 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
         {playError
           ? <svg viewBox="0 0 24 24" fill="none" stroke="var(--red)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 9v4M12 17h.01M10.29 3.86l-8.18 14.14A2 2 0 004.02 21h15.96a2 2 0 001.91-2.99L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
           : playing
-          ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-          : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--ink)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
+          ? <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--accent-brand)'}><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+          : <svg viewBox="0 0 24 24" fill={isMe ? '#fff' : 'var(--accent-brand)'} style={{ marginLeft: 1 }}><polygon points="6 3 20 12 6 21 6 3"/></svg>}
       </button>
       <div className="audio-wave-col" style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 2 }}>
         <div
@@ -348,7 +349,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
           {progress > 0 && (
             <div style={{
               position: 'absolute', top: '50%', left: `${progress}%`, width: 14, height: 14, borderRadius: '50%',
-              background: '#3b82f6', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 4px rgba(0,0,0,.4)',
+              background: 'var(--accent-brand)', transform: 'translate(-50%, -50%)', boxShadow: '0 1px 4px rgba(0,0,0,.4)',
               transition: playing ? 'left 0.1s linear' : 'none', pointerEvents: 'none',
             }} />
           )}
@@ -377,19 +378,19 @@ function MessageStatus({ isMe, msgId, readAt, isAudio, listenedAt }: {
   const isOptimistic = msgId.startsWith('opt-');
   if (isOptimistic) return (
     <svg width="16" height="11" viewBox="0 0 16 11" fill="none" style={{ flexShrink: 0, opacity: 0.65 }}>
-      <path d="M1 5.5l4 4L14 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M1 5.5l4 4L14 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   if (isRead) return (
     <svg width="20" height="11" viewBox="0 0 20 11" fill="none" style={{ flexShrink: 0 }}>
-      <path d="M1 5.5l4 4L13 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M6 5.5l4 4L18 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M1 5.5l4 4L13 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 5.5l4 4L18 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
   return (
     <svg width="20" height="11" viewBox="0 0 20 11" fill="none" style={{ flexShrink: 0, opacity: 0.5 }}>
-      <path d="M1 5.5l4 4L13 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-      <path d="M6 5.5l4 4L18 1.5" stroke="#fff" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M1 5.5l4 4L13 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M6 5.5l4 4L18 1.5" stroke="#6aa0c4" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   );
 }
@@ -1505,11 +1506,11 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
           )}
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <Avatar initials={clientInitials} avatarUrl={clientAvatarUrl} size={40} />
-            <div style={{ position: 'absolute', bottom: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
+            <div style={{ position: 'absolute', bottom: 1, right: 1, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--accent-brand)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', minWidth: 0, overflow: 'hidden' }}>
             <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{clientName}</div>
-            <div style={{ fontSize: 11, color: isOnline ? 'var(--green)' : 'var(--muted)', transition: 'color 0.4s', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            <div style={{ fontSize: 11, color: isOnline ? 'var(--accent-brand)' : 'var(--muted)', transition: 'color 0.4s', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
               {clientTyping ? 'En train d\'écrire…' : isOnline ? 'En ligne' : 'Hors ligne'}
             </div>
           </div>
@@ -1784,16 +1785,16 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
               placeholder={`Écrire à ${clientName}…`}
               autoComplete="off" autoCorrect="off" autoCapitalize="sentences"
               spellCheck={false} inputMode="text" name="chat-momentum-coach-x7k"
-              style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 22, padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', lineHeight: 1.5, outline: 'none', background: 'var(--surface-2)', color: 'var(--ink)', minHeight: 42, maxHeight: 120 }}
+              style={{ flex: 1, resize: 'none', border: '1px solid var(--border)', borderRadius: 22, padding: '10px 14px', fontSize: 14, fontFamily: 'inherit', lineHeight: 1.5, outline: 'none', background: 'var(--surface-chat-field)', color: 'var(--ink)', minHeight: 42, maxHeight: 120 }}
               rows={1}
             />
             {mediaRecorderSupported && !input.trim() && (
-              <button type="button" onClick={startRecording} className="tap-scale" style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
+              <button type="button" onClick={startRecording} className="tap-scale" style={{ width: 40, height: 40, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface-chat-field)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}>
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
               </button>
             )}
             {input.trim() && (
-              <button className="btn-primary tap-scale" onClick={() => sendMessage(input)} type="button" style={{ width: 40, height: 40, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <button className="btn-primary btn-primary-brand tap-scale" onClick={() => sendMessage(input)} type="button" style={{ width: 40, height: 40, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                 <Icon name="send" size={15} />
               </button>
             )}
@@ -1914,7 +1915,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
 // ─── PageChat principal ───────────────────────────────────────────────────────
 
 export default function PageChat() {
-  const { clients, loading } = useSupabaseClients();
+  const { clients, calls, loading } = useSupabaseClients();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const isMobile = useIsMobile();
@@ -1979,18 +1980,18 @@ export default function PageChat() {
               return (
                 <div key={cl.id} onClick={() => setActiveId(cl.id)} style={{
                   padding: '11px 16px', cursor: 'pointer',
-                  background: !isMobile && isActive ? 'var(--surface-2)' : 'transparent',
-                  borderLeft: `3px solid ${!isMobile && isActive ? 'var(--ink)' : 'transparent'}`,
+                  background: !isMobile && isActive ? 'var(--accent-brand-soft)' : 'transparent',
+                  borderLeft: `3px solid ${!isMobile && isActive ? 'var(--accent-brand)' : 'transparent'}`,
                   display: 'flex', gap: 10, alignItems: 'center',
                   transition: 'background 100ms',
                 }}>
                   <div style={{ position: 'relative', flexShrink: 0 }}>
                     <Avatar initials={initials} avatarUrl={cl.avatar_url} size={34} />
-                    <div style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--green)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
+                    <div style={{ position: 'absolute', bottom: 0, right: 0, width: 9, height: 9, borderRadius: '50%', background: isOnline ? 'var(--accent-brand)' : 'var(--faint)', border: '2px solid var(--surface)', transition: 'background 0.4s' }} />
                   </div>
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cl.name}</div>
-                    <div style={{ fontSize: 11, color: isOnline ? 'var(--green)' : 'var(--muted)' }}>
+                    <div style={{ fontSize: 11, color: isOnline ? 'var(--accent-brand)' : 'var(--muted)' }}>
                       {isOnline ? 'En ligne' : `Semaine ${cl.week}`}
                     </div>
                   </div>
@@ -2013,18 +2014,21 @@ export default function PageChat() {
       {/* Thread */}
       {showThread && (
         activeId && userId && activeClient ? (
-          <ConversationThread
-            key={activeId}
-            clientId={activeId}
-            userId={userId}
-            clientName={activeClient.name}
-            clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
-            clientAvatarUrl={activeClient.avatar_url}
-            isOnline={isClientOnline(activeId)}
-            supabase={supabase}
-            presenceCh={presenceCh}
-            onBack={isMobile ? () => setActiveId(null) : undefined}
-          />
+          <>
+            <ConversationThread
+              key={activeId}
+              clientId={activeId}
+              userId={userId}
+              clientName={activeClient.name}
+              clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
+              clientAvatarUrl={activeClient.avatar_url}
+              isOnline={isClientOnline(activeId)}
+              supabase={supabase}
+              presenceCh={presenceCh}
+              onBack={isMobile ? () => setActiveId(null) : undefined}
+            />
+            {!isMobile && <ChatContextPanel client={activeClient} calls={calls} />}
+          </>
         ) : !isMobile ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
             Sélectionne un client
