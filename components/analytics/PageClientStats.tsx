@@ -3503,8 +3503,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
           // Calls depuis lien bio — source de vérité : table calls filtrée par source
           // Les calls bio n'ont pas de ig_lead_id, ils sont trackés via utm_medium=bio
-          const bioIGCalls = (calls ?? []).filter(c => c.source === 'ig_bio');
-          const bioYTCalls = (calls ?? []).filter(c => c.source === 'yt_bio');
+          // isInPeriod(scheduled_at) manquait ici — tous les autres calculs du fichier
+          // (callsInWindow, postCalls...) filtrent par période, mais bioIGCalls/bioYTCalls
+          // prenaient TOUS les calls source=ig_bio/yt_bio sans borner à la période affichée.
+          // Un call bio hors du mois sélectionné gonflait le breakdown par source sans
+          // apparaître dans le KPI "Calls bookés" du haut de page (lui bien filtré).
+          const bioIGCalls = (calls ?? []).filter(c => c.source === 'ig_bio' && isInPeriod(c.scheduled_at));
+          const bioYTCalls = (calls ?? []).filter(c => c.source === 'yt_bio' && isInPeriod(c.scheduled_at));
           const bioIGBooked = bioIGCalls.filter(c => c.status === 'active').length;
           const bioIGHonored = bioIGCalls.filter(c => c.status === 'active' && !c.no_show).length;
           const bioIGClosed = bioIGCalls.filter(c => c.deal_closed === true).length;
