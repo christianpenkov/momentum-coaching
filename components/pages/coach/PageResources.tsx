@@ -261,6 +261,9 @@ export default function PageResources() {
             resource={accessResource}
             onClose={() => setAccessResource(null)}
             onChanged={refreshAccessMap}
+            onDefaultChanged={(id, val) => {
+              setResources(prev => prev.map(r => r.id === id ? { ...r, is_default: val } : r));
+            }}
           />
         )}
       </AnimatePresence>

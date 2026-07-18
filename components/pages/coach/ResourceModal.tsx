@@ -436,7 +436,9 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                     Ressource par défaut
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
-                    Donnée automatiquement à tous les nouveaux élèves
+                    Donnée automatiquement à tout nouvel élève qui rejoint.
+                    <br />
+                    Reste active même si tu retires l'accès à un élève existant — seul ce toggle contrôle les futurs élèves.
                   </div>
                 </div>
               </button>

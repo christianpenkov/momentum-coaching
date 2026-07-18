@@ -18,6 +18,8 @@ interface ResourceThumbnailProps {
   videoDuration?: number | null;
   thumbnailUrl?: string | null;
   pageCount?: number | null;
+  // Vue coach uniquement — jamais passé côté élève (badge de gestion, pas d'info pour l'élève)
+  isDefault?: boolean;
 }
 
 function getDomain(url: string): string | null {
@@ -55,6 +57,21 @@ function formatSize(bytes: number | null | undefined): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
+// Badge overlay haut-gauche — symétrique du badge type (IMG/PDF/ext) en haut-droite
+function DefaultBadge() {
+  return (
+    <div style={{ position: 'absolute', top: 10, left: 10 }}>
+      <span style={{
+        fontSize: 9, fontWeight: 800, letterSpacing: '0.07em',
+        padding: '3px 7px', borderRadius: 6,
+        background: 'var(--green)', color: '#fff',
+      }}>
+        PAR DEFAUT
+      </span>
+    </div>
+  );
+}
+
 export default function ResourceThumbnail({
   type,
   videoUrl,
@@ -68,6 +85,7 @@ export default function ResourceThumbnail({
   videoDuration,
   thumbnailUrl,
   pageCount,
+  isDefault,
 }: ResourceThumbnailProps) {
   const [imgError, setImgError] = useState(false);
   const [faviconError, setFaviconError] = useState(false);
@@ -128,6 +146,7 @@ export default function ResourceThumbnail({
             {formatDuration(videoDuration)}
           </div>
         )}
+        {isDefault && <DefaultBadge />}
       </div>
     );
   }
@@ -160,6 +179,7 @@ export default function ResourceThumbnail({
               IMG
             </span>
           </div>
+          {isDefault && <DefaultBadge />}
         </div>
       );
     }
@@ -184,6 +204,7 @@ export default function ResourceThumbnail({
               PDF
             </span>
           </div>
+          {isDefault && <DefaultBadge />}
         </div>
       );
     }
@@ -230,6 +251,7 @@ export default function ResourceThumbnail({
             </div>
           )}
         </div>
+        {isDefault && <DefaultBadge />}
       </div>
     );
   }
@@ -259,6 +281,7 @@ export default function ResourceThumbnail({
             <Icon name={'link' as IconName} size={24} style={{ color: meta.color }} />
           )}
         </div>
+        {isDefault && <DefaultBadge />}
       </div>
     );
   }
@@ -267,6 +290,7 @@ export default function ResourceThumbnail({
   return (
     <div style={{ ...containerStyle, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <Icon name={meta.icon as IconName} size={28} style={{ color: meta.color }} />
+      {isDefault && <DefaultBadge />}
     </div>
   );
 }

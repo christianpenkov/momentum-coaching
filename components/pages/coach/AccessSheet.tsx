@@ -12,6 +12,7 @@ interface Props {
   resource: Resource;
   onClose: () => void;
   onChanged?: () => void;
+  onDefaultChanged?: (resourceId: string, isDefault: boolean) => void;
 }
 
 type ConfirmData = {
@@ -19,7 +20,7 @@ type ConfirmData = {
   losing: string[];
 };
 
-export default function AccessSheet({ resource, onClose, onChanged }: Props) {
+export default function AccessSheet({ resource, onClose, onChanged, onDefaultChanged }: Props) {
   const { clients, loading: clientsLoading } = useSupabaseClients();
   const supabase = createClient();
   const validClients = clients.filter(c => c.profile_id);
@@ -28,6 +29,14 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
   const [draft, setDraft] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [isDefault, setIsDefault] = useState(resource.is_default);
+
+  async function handleToggleDefault() {
+    const next = !isDefault;
+    setIsDefault(next);
+    await supabase.from('resources').update({ is_default: next }).eq('id', resource.id);
+    onDefaultChanged?.(resource.id, next);
+  }
 
   // Écran de confirmation
   const [confirmData, setConfirmData] = useState<ConfirmData | null>(null);
@@ -137,6 +146,45 @@ export default function AccessSheet({ resource, onClose, onChanged }: Props) {
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 6, lineHeight: 0, flexShrink: 0 }}
         >
           <Icon name="x" size={18} />
+        </button>
+      </div>
+
+      {/* Toggle Ressource par défaut — même comportement/texte que ResourceModal.tsx */}
+      <div style={{ padding: '14px 24px 0', flexShrink: 0 }}>
+        <button
+          type="button"
+          onClick={handleToggleDefault}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 12,
+            padding: '12px 14px', borderRadius: 10,
+            background: isDefault ? 'rgba(5,150,105,0.07)' : 'var(--surface-2)',
+            border: `1px solid ${isDefault ? 'rgba(5,150,105,0.25)' : 'var(--border)'}`,
+            cursor: 'pointer', textAlign: 'left', width: '100%',
+            transition: 'background 150ms, border-color 150ms',
+          }}
+        >
+          <div style={{
+            width: 32, height: 18, borderRadius: 9, flexShrink: 0,
+            background: isDefault ? 'var(--green)' : 'var(--border)',
+            position: 'relative', transition: 'background 200ms',
+          }}>
+            <div style={{
+              position: 'absolute', top: 2, left: isDefault ? 16 : 2,
+              width: 14, height: 14, borderRadius: '50%', background: '#fff',
+              boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+              transition: 'left 200ms',
+            }} />
+          </div>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 600, color: isDefault ? 'var(--green)' : 'var(--accent)' }}>
+              Ressource par défaut
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2, lineHeight: 1.4 }}>
+              Donnée automatiquement à tout nouvel élève qui rejoint.
+              <br />
+              Reste active même si tu retires l'accès à un élève existant — seul ce toggle contrôle les futurs élèves.
+            </div>
+          </div>
         </button>
       </div>
 

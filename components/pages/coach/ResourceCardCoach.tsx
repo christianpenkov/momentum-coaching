@@ -49,23 +49,9 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
           videoDuration={resource.video_duration}
           thumbnailUrl={resource.thumbnail_url}
           pageCount={resource.page_count}
+          isDefault={resource.is_default}
         />
       </div>
-
-      {/* Badge par défaut */}
-      {resource.is_default && (
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: 4,
-          padding: '4px 10px', fontSize: 10, fontWeight: 700,
-          color: 'var(--green)',
-          background: 'rgba(5,150,105,0.08)',
-          borderBottom: '1px solid rgba(5,150,105,0.15)',
-          letterSpacing: '0.04em',
-        }}>
-          <Icon name="check" size={10} style={{ color: 'var(--green)' }} />
-          Par défaut
-        </div>
-      )}
 
       {/* Titre + description + boutons actions */}
       <div
