@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Icon, { type IconName } from '@/components/ui/Icon';
+import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
@@ -46,9 +46,9 @@ function SectionFolderCard({ section, count, subCount, onClick }: {
     >
       <span style={{
         width: 40, height: 40, borderRadius: 11, flexShrink: 0,
-        background: `${section.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(58,106,134,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name={(section.icon as IconName) || 'folder'} size={19} style={{ color: section.color }} />
+        <Icon name="folder" size={19} style={{ color: '#3a6a86' }} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -164,12 +164,12 @@ export default function PageResources() {
     setResources(prev => prev.filter(res => res.id !== r.id));
   }
 
-  async function handleCreateSection(name: string, parentId: string | null, icon: IconName) {
+  async function handleCreateSection(name: string, parentId: string | null) {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
     const position = sections.filter(s => s.parent_id === parentId).length;
     const { data, error } = await supabase.from('resource_sections')
-      .insert({ coach_id: user.id, name, parent_id: parentId, icon, position })
+      .insert({ coach_id: user.id, name, parent_id: parentId, icon: 'folder', color: '#3a6a86', position })
       .select().single();
     if (error) { console.error('create section error', error); return; }
     setSections(prev => [...prev, data]);
@@ -178,12 +178,6 @@ export default function PageResources() {
   async function handleRenameSection(id: string, name: string) {
     const { data, error } = await supabase.from('resource_sections').update({ name }).eq('id', id).select().single();
     if (error) { console.error('rename section error', error); return; }
-    setSections(prev => prev.map(s => s.id === id ? data : s));
-  }
-
-  async function handleRestyleSection(id: string, color: string, icon: IconName) {
-    const { data, error } = await supabase.from('resource_sections').update({ color, icon }).eq('id', id).select().single();
-    if (error) { console.error('restyle section error', error); return; }
     setSections(prev => prev.map(s => s.id === id ? data : s));
   }
 
@@ -468,7 +462,6 @@ export default function PageResources() {
               onCreate={handleCreateSection}
               onRename={handleRenameSection}
               onDelete={handleDeleteSection}
-              onRestyle={handleRestyleSection}
             />
           </DrawerShell>
         )}

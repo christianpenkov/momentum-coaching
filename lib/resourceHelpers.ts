@@ -1,27 +1,3 @@
-import type { IconName } from '@/components/ui/Icon';
-
-const SECTION_ICON_KEYWORDS: { keywords: string[]; icon: IconName }[] = [
-  { keywords: ['insta', 'reel', 'story', 'stories', 'feed'], icon: 'camera' },
-  { keywords: ['youtube', 'yt', 'video', 'vidéo', 'tourn'], icon: 'play' },
-  { keywords: ['vente', 'closing', 'sales', 'deal', 'revenu', 'chiffre'], icon: 'trending-up' },
-  { keywords: ['mail', 'email', 'dm', 'message', 'prospect'], icon: 'mail' },
-  { keywords: ['calendrier', 'agenda', 'planning', 'semaine', 'jour'], icon: 'calendar' },
-  { keywords: ['client', 'élève', 'eleve', 'communau', 'audience', 'abonn'], icon: 'users' },
-  { keywords: ['lien', 'link', 'url'], icon: 'link' },
-  { keywords: ['mental', 'motivation', 'mindset', 'psycho'], icon: 'brain' },
-  { keywords: ['technique', 'exercice', 'training', 'sport', 'muscu', 'entrainement', 'entraînement', 'outil', 'tool', 'setup', 'config'], icon: 'zap' },
-  { keywords: ['objectif', 'goal', 'challenge', 'défi', 'defi', 'kpi', 'cible'], icon: 'target' },
-  { keywords: ['favori', 'important', 'top', 'prioritaire', 'premium'], icon: 'star' },
-];
-
-export function guessSectionIcon(name: string): IconName {
-  const n = name.toLowerCase();
-  for (const entry of SECTION_ICON_KEYWORDS) {
-    if (entry.keywords.some(k => n.includes(k))) return entry.icon;
-  }
-  return 'folder';
-}
-
 export function sectionHasChildren(sections: { id: string; parent_id: string | null }[], sectionId: string): boolean {
   return sections.some(s => s.parent_id === sectionId);
 }

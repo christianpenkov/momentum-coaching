@@ -10,7 +10,7 @@ interface Props {
   children: React.ReactNode;
 }
 
-export default function DrawerShell({ onClose, width = 320, children }: Props) {
+export default function DrawerShell({ onClose, width = 240, children }: Props) {
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
     window.addEventListener('keydown', onKey);
@@ -33,13 +33,14 @@ export default function DrawerShell({ onClose, width = 320, children }: Props) {
       }}
     >
       <motion.div
+        className="dc-drawer-panel"
         initial={{ x: '-100%' }}
         animate={{ x: 0 }}
         exit={{ x: '-100%' }}
         transition={{ type: 'spring', stiffness: 380, damping: 34 }}
         onClick={e => e.stopPropagation()}
         style={{
-          position: 'fixed', top: 0, left: 0, bottom: 0, width,
+          position: 'fixed', top: 0, bottom: 0, width,
           maxWidth: '86vw',
           background: 'var(--surface)',
           borderRight: '1px solid var(--border)',

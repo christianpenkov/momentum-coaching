@@ -11,7 +11,6 @@ import { formatSize, getEmbedUrl, TYPE_META, isImageFile, sectionHasChildren, ty
 import ResourceThumbnail from '@/components/pages/coach/ResourceThumbnail';
 import ResourceSectionTree from '@/components/pages/coach/ResourceSectionTree';
 import type { Resource, ResourceSection } from '@/lib/resourceTypes';
-import type { IconName } from '@/components/ui/Icon';
 
 // is_new calculé côté client depuis seen_at (par élève), pas depuis resources.is_new
 interface ResourceWithSeen extends Resource {
@@ -260,9 +259,9 @@ function SectionFolderCard({ section, count, subCount, unseen, onClick }: {
     >
       <span style={{
         width: 40, height: 40, borderRadius: 11, flexShrink: 0, position: 'relative',
-        background: `${section.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(58,106,134,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name={(section.icon as IconName) || 'folder'} size={19} style={{ color: section.color }} />
+        <Icon name="folder" size={19} style={{ color: '#3a6a86' }} />
         {unseen && (
           <span style={{ position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--surface)' }} />
         )}

@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Icon, { type IconName } from '@/components/ui/Icon';
-import { guessSectionIcon, sectionHasUnseenResource } from '@/lib/resourceHelpers';
+import { sectionHasUnseenResource } from '@/lib/resourceHelpers';
 import type { Resource, ResourceSection } from '@/lib/resourceTypes';
 
 interface Props {
@@ -14,45 +14,36 @@ interface Props {
   readOnly: boolean;
   showUnseenDot?: boolean;
   autoCreate?: boolean;
-  onCreate?: (name: string, parentId: string | null, icon: IconName) => Promise<void>;
+  onCreate?: (name: string, parentId: string | null) => Promise<void>;
   onRename?: (id: string, name: string) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
-  onRestyle?: (id: string, color: string, icon: IconName) => Promise<void>;
 }
 
-const ICON_CHOICES: IconName[] = ['folder', 'brain', 'zap', 'target', 'star', 'sparkle'];
-const COLOR_CHOICES = ['#3a6a86', '#cd5b3f', '#b58025', '#3f8a52', '#7a5bd6', '#c1355e'];
+// Icône et couleur uniques pour tous les dossiers — pas de personnalisation.
+const FOLDER_COLOR = '#3a6a86';
 
-function InlineForm({ initialName, initialIcon, onSubmit, onCancel }: {
+function InlineForm({ initialName, onSubmit, onCancel }: {
   initialName: string;
-  initialIcon: IconName;
-  onSubmit: (name: string, icon: IconName) => void;
+  onSubmit: (name: string) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState(initialName);
-  const [icon, setIcon] = useState<IconName>(initialIcon);
-  const [iconTouched, setIconTouched] = useState(initialName.length > 0);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { inputRef.current?.focus(); inputRef.current?.select(); }, []);
 
-  function handleNameChange(v: string) {
-    setName(v);
-    if (!iconTouched) setIcon(guessSectionIcon(v));
-  }
-
   function submit() {
     const trimmed = name.trim();
     if (!trimmed) { onCancel(); return; }
-    onSubmit(trimmed, icon);
+    onSubmit(trimmed);
   }
 
   return (
-    <div style={{ padding: '6px 8px', display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div style={{ padding: '6px 8px' }}>
       <input
         ref={inputRef}
         value={name}
-        onChange={e => handleNameChange(e.target.value)}
+        onChange={e => setName(e.target.value)}
         onKeyDown={e => {
           if (e.key === 'Enter') submit();
           if (e.key === 'Escape') onCancel();
@@ -66,74 +57,6 @@ function InlineForm({ initialName, initialIcon, onSubmit, onCancel }: {
           outline: 'none', boxSizing: 'border-box',
         }}
       />
-      <div style={{ display: 'flex', gap: 4 }}>
-        {ICON_CHOICES.map(ic => (
-          <button
-            key={ic}
-            type="button"
-            onMouseDown={e => { e.preventDefault(); setIcon(ic); setIconTouched(true); }}
-            style={{
-              width: 26, height: 26, borderRadius: 6,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: icon === ic ? 'var(--accent)' : 'var(--surface-2)',
-              border: '1px solid var(--border)', cursor: 'pointer',
-            }}
-          >
-            <Icon name={ic} size={13} style={{ color: icon === ic ? '#fff' : 'var(--muted)' }} />
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-function RestylePanel({ section, onSubmit, onCancel }: {
-  section: ResourceSection;
-  onSubmit: (color: string, icon: IconName) => void;
-  onCancel: () => void;
-}) {
-  const [color, setColor] = useState(section.color);
-  const [icon, setIcon] = useState<IconName>((section.icon as IconName) || 'folder');
-
-  return (
-    <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Couleur</div>
-      <div style={{ display: 'flex', gap: 6 }}>
-        {COLOR_CHOICES.map(c => (
-          <button
-            key={c}
-            type="button"
-            onClick={() => setColor(c)}
-            style={{
-              width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer',
-              border: color === c ? '2px solid var(--ink)' : '2px solid transparent',
-              boxShadow: color === c ? '0 0 0 1px var(--surface)' : 'none',
-            }}
-          />
-        ))}
-      </div>
-      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>Icône</div>
-      <div style={{ display: 'flex', gap: 4 }}>
-        {ICON_CHOICES.map(ic => (
-          <button
-            key={ic}
-            type="button"
-            onClick={() => setIcon(ic)}
-            style={{
-              width: 26, height: 26, borderRadius: 6,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              background: icon === ic ? color : 'var(--surface-2)',
-              border: '1px solid var(--border)', cursor: 'pointer',
-            }}
-          >
-            <Icon name={ic} size={13} style={{ color: icon === ic ? '#fff' : 'var(--muted)' }} />
-          </button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
-        <button type="button" onClick={onCancel} className="btn-ghost" style={{ fontSize: 12 }}>Annuler</button>
-        <button type="button" onClick={() => onSubmit(color, icon)} className="btn-primary-brand" style={{ fontSize: 12 }}>Appliquer</button>
-      </div>
     </div>
   );
 }
@@ -192,12 +115,11 @@ function DeleteConfirm({ section, childCount, resourceCount, destinationLabel, o
   );
 }
 
-function SectionMenu({ anchorRect, onClose, onRename, onCreateSub, onRestyle, onDelete, canCreateSub }: {
+function SectionMenu({ anchorRect, onClose, onRename, onCreateSub, onDelete, canCreateSub }: {
   anchorRect: DOMRect;
   onClose: () => void;
   onRename: () => void;
   onCreateSub?: () => void;
-  onRestyle: () => void;
   onDelete: () => void;
   canCreateSub: boolean;
 }) {
@@ -217,7 +139,6 @@ function SectionMenu({ anchorRect, onClose, onRename, onCreateSub, onRestyle, on
   const items: { label: string; icon: IconName; danger?: boolean; onClick: () => void }[] = [
     { label: 'Renommer', icon: 'edit', onClick: () => { onRename(); onClose(); } },
     ...(canCreateSub ? [{ label: 'Nouvelle sous-section', icon: 'plus' as IconName, onClick: () => { onCreateSub?.(); onClose(); } }] : []),
-    { label: 'Couleur & icône', icon: 'sparkle', onClick: () => { onRestyle(); onClose(); } },
     { label: 'Supprimer', icon: 'trash', danger: true, onClick: () => { onDelete(); onClose(); } },
   ];
 
@@ -293,9 +214,9 @@ function SectionRow({ section, count, active, readOnly, indent, hasChildren, isO
         )
       )}
       {indent ? (
-        <span style={{ width: 6, height: 6, borderRadius: '50%', background: section.color, flexShrink: 0 }} />
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: FOLDER_COLOR, flexShrink: 0 }} />
       ) : (
-        <Icon name={(section.icon as IconName) || 'folder'} size={14} style={{ color: active ? section.color : 'var(--muted)', flexShrink: 0 }} />
+        <Icon name="folder" size={14} style={{ color: active ? FOLDER_COLOR : 'var(--muted)', flexShrink: 0 }} />
       )}
       <span style={{
         flex: 1, minWidth: 0, fontSize: 13, fontWeight: active ? 600 : 500,
@@ -329,12 +250,11 @@ function SectionRow({ section, count, active, readOnly, indent, hasChildren, isO
 
 export default function ResourceSectionTree({
   sections, resources, activeSectionId, onSelect, onClose, readOnly, showUnseenDot, autoCreate,
-  onCreate, onRename, onDelete, onRestyle,
+  onCreate, onRename, onDelete,
 }: Props) {
   const [creatingUnder, setCreatingUnder] = useState<string | null | undefined>(autoCreate ? null : undefined); // undefined = pas de création en cours, null = racine
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [restylingId, setRestylingId] = useState<string | null>(null);
   const [openRoots, setOpenRoots] = useState<Record<string, boolean>>({});
   const [menu, setMenu] = useState<{ sectionId: string; rect: DOMRect } | null>(null);
 
@@ -358,7 +278,6 @@ export default function ResourceSectionTree({
   }
 
   const deletingSection = deletingId ? sections.find(s => s.id === deletingId) : null;
-  const restylingSection = restylingId ? sections.find(s => s.id === restylingId) : null;
   const totalResourceCount = resources.filter(r => r.section_id !== null).length + resources.filter(r => r.section_id === null).length;
 
   return (
@@ -409,8 +328,7 @@ export default function ResourceSectionTree({
         {creatingUnder === null && (
           <InlineForm
             initialName=""
-            initialIcon="folder"
-            onSubmit={async (name, icon) => { await onCreate?.(name, null, icon); setCreatingUnder(undefined); }}
+            onSubmit={async (name) => { await onCreate?.(name, null); setCreatingUnder(undefined); }}
             onCancel={() => setCreatingUnder(undefined)}
           />
         )}
@@ -424,15 +342,8 @@ export default function ResourceSectionTree({
               {renamingId === root.id ? (
                 <InlineForm
                   initialName={root.name}
-                  initialIcon={(root.icon as IconName) || 'folder'}
                   onSubmit={async (name) => { await onRename?.(root.id, name); setRenamingId(null); }}
                   onCancel={() => setRenamingId(null)}
-                />
-              ) : restylingId === root.id && restylingSection ? (
-                <RestylePanel
-                  section={restylingSection}
-                  onSubmit={async (color, icon) => { await onRestyle?.(root.id, color, icon); setRestylingId(null); }}
-                  onCancel={() => setRestylingId(null)}
                 />
               ) : (
                 <SectionRow
@@ -465,18 +376,9 @@ export default function ResourceSectionTree({
                   {renamingId === sub.id ? (
                     <InlineForm
                       initialName={sub.name}
-                      initialIcon={(sub.icon as IconName) || 'folder'}
                       onSubmit={async (name) => { await onRename?.(sub.id, name); setRenamingId(null); }}
                       onCancel={() => setRenamingId(null)}
                     />
-                  ) : restylingId === sub.id && restylingSection ? (
-                    <div style={{ marginLeft: 18 }}>
-                      <RestylePanel
-                        section={restylingSection}
-                        onSubmit={async (color, icon) => { await onRestyle?.(sub.id, color, icon); setRestylingId(null); }}
-                        onCancel={() => setRestylingId(null)}
-                      />
-                    </div>
                   ) : (
                     <SectionRow
                       section={sub}
@@ -509,8 +411,7 @@ export default function ResourceSectionTree({
                 <div style={{ marginLeft: 18 }}>
                   <InlineForm
                     initialName=""
-                    initialIcon="folder"
-                    onSubmit={async (name, icon) => { await onCreate?.(name, root.id, icon); setCreatingUnder(undefined); }}
+                    onSubmit={async (name) => { await onCreate?.(name, root.id); setCreatingUnder(undefined); }}
                     onCancel={() => setCreatingUnder(undefined)}
                   />
                 </div>
@@ -536,7 +437,6 @@ export default function ResourceSectionTree({
             onRename={() => setRenamingId(menu.sectionId)}
             onCreateSub={menuSection.parent_id === null ? () => setCreatingUnder(menu.sectionId) : undefined}
             canCreateSub={menuSection.parent_id === null}
-            onRestyle={() => setRestylingId(menu.sectionId)}
             onDelete={() => setDeletingId(menu.sectionId)}
           />
         );
