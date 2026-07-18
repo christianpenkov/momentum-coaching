@@ -166,7 +166,7 @@ export default function ResourceThumbnail({
             />
           ) : (
             <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Icon name="folder" size={28} style={{ color: meta.color }} />
+              <Icon name="file" size={28} style={{ color: meta.color }} />
             </div>
           )}
           {/* Badge IMG haut droite */}
@@ -237,7 +237,7 @@ export default function ResourceThumbnail({
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             boxShadow: '0 2px 10px rgba(181,128,37,0.12)',
           }}>
-            <Icon name="folder" size={28} style={{ color: meta.color }} />
+            <Icon name="file" size={28} style={{ color: meta.color }} />
           </div>
           {showFileName && (resourceTitle || fileName) && (
             <div style={{

@@ -39,7 +39,8 @@ function InlineForm({ initialName, onSubmit, onCancel }: {
   }
 
   return (
-    <div style={{ padding: '6px 8px' }}>
+    <div style={{ padding: '6px 8px', display: 'flex', alignItems: 'center', gap: 8 }}>
+      <Icon name="folder" size={14} style={{ color: FOLDER_COLOR, flexShrink: 0 }} />
       <input
         ref={inputRef}
         value={name}
@@ -51,7 +52,7 @@ function InlineForm({ initialName, onSubmit, onCancel }: {
         onBlur={() => { if (!name.trim()) onCancel(); }}
         placeholder="Nom du dossier…"
         style={{
-          width: '100%', padding: '7px 10px',
+          flex: 1, minWidth: 0, padding: '7px 10px',
           border: '1px solid var(--accent)', borderRadius: 7,
           background: 'var(--bg)', fontSize: 13, color: 'var(--ink)',
           outline: 'none', boxSizing: 'border-box',
@@ -318,7 +319,7 @@ export default function ResourceSectionTree({
             background: activeSectionId === null ? 'var(--surface-2)' : 'transparent',
           }}
         >
-          <Icon name="list" size={14} style={{ color: activeSectionId === null ? 'var(--accent)' : 'var(--muted)' }} />
+          <Icon name="stack" size={14} style={{ color: activeSectionId === null ? 'var(--accent)' : 'var(--muted)' }} />
           <span style={{ flex: 1, fontSize: 13, fontWeight: activeSectionId === null ? 600 : 500, color: activeSectionId === null ? 'var(--accent)' : 'var(--ink)' }}>
             Toutes les ressources
           </span>
@@ -331,6 +332,12 @@ export default function ResourceSectionTree({
             onSubmit={async (name) => { await onCreate?.(name, null); setCreatingUnder(undefined); }}
             onCancel={() => setCreatingUnder(undefined)}
           />
+        )}
+
+        {!readOnly && sections.length === 0 && creatingUnder === undefined && (
+          <div style={{ fontSize: 12, color: 'var(--muted)', padding: '10px 8px', lineHeight: 1.5 }}>
+            Aucun dossier. Crée-en un avec + Dossier.
+          </div>
         )}
 
         {visibleRoots.map(root => {

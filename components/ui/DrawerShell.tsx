@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { createPortal } from 'react-dom';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 
 interface Props {
   onClose: () => void;
@@ -11,6 +11,8 @@ interface Props {
 }
 
 export default function DrawerShell({ onClose, width = 240, children }: Props) {
+  const reducedMotion = useReducedMotion();
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
     window.addEventListener('keydown', onKey);
@@ -24,12 +26,12 @@ export default function DrawerShell({ onClose, width = 240, children }: Props) {
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      transition={{ duration: 0.15 }}
+      transition={{ duration: reducedMotion ? 0 : 0.22, ease: 'linear' }}
       onClick={onClose}
       style={{
-        position: 'fixed', inset: 0, zIndex: 2500,
-        background: 'rgba(0,0,0,0.4)',
-        backdropFilter: 'blur(2px)',
+        position: 'fixed', top: 48, left: 0, right: 0, bottom: 0, zIndex: 2500,
+        background: 'rgba(0,0,0,0.28)',
+        backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)',
       }}
     >
       <motion.div
@@ -37,17 +39,17 @@ export default function DrawerShell({ onClose, width = 240, children }: Props) {
         initial={{ x: '-100%' }}
         animate={{ x: 0 }}
         exit={{ x: '-100%' }}
-        transition={{ type: 'spring', stiffness: 380, damping: 34 }}
+        transition={{ duration: reducedMotion ? 0 : 0.30, ease: [0.16, 1, 0.3, 1] }}
         onClick={e => e.stopPropagation()}
         style={{
-          position: 'fixed', top: 0, bottom: 0, width,
+          position: 'fixed', top: 48, bottom: 0, width,
           maxWidth: '86vw',
           background: 'var(--surface)',
           borderRight: '1px solid var(--border)',
-          boxShadow: '8px 0 32px rgba(0,0,0,0.18)',
+          boxShadow: '8px 0 30px rgba(0,0,0,0.12)',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
-          zIndex: 2501,
+          zIndex: 2501, willChange: 'transform',
         }}
       >
         {children}

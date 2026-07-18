@@ -213,10 +213,14 @@ export default function PageResources() {
     ? sections.filter(s => s.parent_id === null)
     : drillDownChildren;
 
-  const filtered = showAllFolders ? [] : resources.filter(r =>
-    (!search || r.title.toLowerCase().includes(search.toLowerCase())) &&
-    r.section_id === (activeSectionId as string | null)
-  );
+  const filtered = showAllFolders ? [] : resources.filter(r => {
+    if (search) {
+      const q = search.toLowerCase();
+      return r.title.toLowerCase().includes(q); // recherche = tout le catalogue, peu importe le dossier
+    }
+    if (activeSectionId === null) return true; // "Toutes les ressources" = tout, dossiers confondus
+    return r.section_id === activeSectionId;    // dossier précis (ou "Dans ce dossier" en drill-down)
+  });
 
   if (loading) return (
     <div className="page-content">

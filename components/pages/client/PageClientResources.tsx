@@ -377,11 +377,12 @@ export default function PageClientResources() {
     : [];
 
   const filtered = useMemo(() => {
-    const q = search.toLowerCase();
-    return resources.filter(r =>
-      (!q || r.title.toLowerCase().includes(q)) &&
-      r.section_id === activeSectionId
-    );
+    if (search) {
+      const q = search.toLowerCase();
+      return resources.filter(r => r.title.toLowerCase().includes(q)); // recherche = tout le catalogue
+    }
+    if (activeSectionId === null) return resources; // "Toutes les ressources" = tout, dossiers confondus
+    return resources.filter(r => r.section_id === activeSectionId);
   }, [resources, search, activeSectionId]);
 
   const newCount = resources.filter(r => r.seen_at === null).length;

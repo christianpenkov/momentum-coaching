@@ -39,6 +39,19 @@ const icons = {
   folder: (
     <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
   ),
+  stack: (
+    <>
+      <polygon points="12,2 22,8.5 12,15 2,8.5" />
+      <polyline points="2,14.5 12,21 22,14.5" />
+      <polyline points="2,11.5 12,18 22,11.5" />
+    </>
+  ),
+  file: (
+    <>
+      <path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z" />
+      <polyline points="13,2 13,9 20,9" />
+    </>
+  ),
   settings: (
     <>
       <circle cx="12" cy="12" r="3" />

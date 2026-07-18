@@ -58,7 +58,7 @@ export function formatDuration(seconds: number): string {
 export type ResourceType = 'link' | 'file' | 'video';
 
 export const TYPE_META: Record<ResourceType, { icon: string; label: string; color: string; bg: string }> = {
-  link: { icon: 'link', label: 'Lien', color: '#2563eb', bg: 'rgba(37,99,235,0.08)' },
-  file: { icon: 'folder', label: 'Fichier', color: '#b58025', bg: 'rgba(181,128,37,0.08)' },
+  link: { icon: 'link', label: 'Lien', color: '#3a6a86', bg: 'rgba(58,106,134,0.08)' },
+  file: { icon: 'file', label: 'Fichier', color: '#b58025', bg: 'rgba(181,128,37,0.08)' },
   video: { icon: 'play', label: 'Vidéo', color: '#cd5b3f', bg: 'rgba(205,91,63,0.08)' },
 };
