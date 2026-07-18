@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import { sectionHasUnseenResource } from '@/lib/resourceHelpers';
 import type { Resource, ResourceSection } from '@/lib/resourceTypes';
@@ -143,7 +144,9 @@ function SectionMenu({ anchorRect, onClose, onRename, onCreateSub, onDelete, can
     { label: 'Supprimer', icon: 'trash', danger: true, onClick: () => { onDelete(); onClose(); } },
   ];
 
-  return (
+  if (typeof document === 'undefined') return null;
+
+  return createPortal(
     <div
       ref={menuRef}
       style={{
@@ -169,7 +172,8 @@ function SectionMenu({ anchorRect, onClose, onRename, onCreateSub, onDelete, can
           {item.label}
         </div>
       ))}
-    </div>
+    </div>,
+    document.body
   );
 }
 
