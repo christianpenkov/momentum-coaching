@@ -1,5 +1,13 @@
+-- Une table resource_sections existait déjà avec un schéma incompatible
+-- (title/locked, pas de parent_id, donc aucune hiérarchie possible) et n'était
+-- exploitée par aucun code — remplacée ici par le schéma dossiers/sous-dossiers.
+-- Une ressource pointait dessus ("360 Viral") : on la détache d'abord (remonte à "Toutes les ressources").
+update public.resources set section_id = null where section_id is not null;
+
+drop table if exists public.resource_sections cascade;
+
 -- Dossiers/sous-dossiers de ressources (2 niveaux max, façon Notion)
-create table if not exists public.resource_sections (
+create table public.resource_sections (
   id uuid primary key default gen_random_uuid(),
   coach_id uuid not null references auth.users(id) on delete cascade,
   name text not null,
@@ -35,7 +43,7 @@ create trigger trg_resource_section_depth
   before insert or update of parent_id on public.resource_sections
   for each row execute function public.enforce_resource_section_depth();
 
--- FK sur resources.section_id (colonne déjà existante, non contrainte à ce jour)
+-- FK sur resources.section_id (le drop cascade ci-dessus a supprimé l'ancienne contrainte)
 alter table public.resources
   add constraint resources_section_id_fkey
   foreign key (section_id) references public.resource_sections(id) on delete set null;
@@ -44,8 +52,8 @@ create index if not exists idx_resource_sections_coach_id on public.resource_sec
 create index if not exists idx_resource_sections_parent_id on public.resource_sections(parent_id);
 create index if not exists idx_resources_section_id on public.resources(section_id);
 
--- RLS — hypothèse par analogie avec le pattern observé côté code (coach_id = auth.uid()).
--- À VALIDER contre les policies réelles de `resources` avant application.
+-- RLS — alignée sur les policies réelles de `resources` ("resources coach" = coach_id = auth.uid())
+-- et réutilise la fonction existante client_has_resource_access(resource_id).
 alter table public.resource_sections enable row level security;
 
 create policy "Coach can manage own sections"
@@ -62,17 +70,13 @@ create policy "Client can read sections with unlocked resources"
   using (
     exists (
       select 1 from public.resources r
-      join public.resource_access ra on ra.resource_id = r.id
       where r.section_id = resource_sections.id
-        and ra.client_id = auth.uid()
-        and ra.unlocked = true
+        and public.client_has_resource_access(r.id)
     )
     or exists (
       select 1 from public.resource_sections child
       join public.resources r on r.section_id = child.id
-      join public.resource_access ra on ra.resource_id = r.id
       where child.parent_id = resource_sections.id
-        and ra.client_id = auth.uid()
-        and ra.unlocked = true
+        and public.client_has_resource_access(r.id)
     )
   );
