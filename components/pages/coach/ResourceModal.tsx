@@ -6,29 +6,13 @@ import Icon, { type IconName } from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
 import { getEmbedUrl, stripExtension, type ResourceType } from '@/lib/resourceHelpers';
 import { createClient } from '@/lib/supabase/client';
+import type { Resource, ResourceSection } from '@/lib/resourceTypes';
 
-export interface Resource {
-  id: string;
-  title: string;
-  type: string | null;
-  description: string | null;
-  url: string | null;
-  file_url: string | null;
-  file_name: string | null;
-  file_size: number | null;
-  video_url: string | null;
-  video_duration: number | null;
-  thumbnail_url: string | null;
-  page_count: number | null;
-  markdown_content: string | null;
-  section_id: string | null;
-  position: number;
-  is_new: boolean;
-  is_default: boolean;
-}
+export type { Resource };
 
 interface Props {
   resource?: Resource | null;
+  sections: ResourceSection[];
   onClose: () => void;
   onSaved: (resource: Resource) => void;
 }
@@ -45,7 +29,7 @@ const TYPE_COLOR: Record<ResourceType, string> = {
   video: '#cd5b3f',
 };
 
-export default function ResourceModal({ resource, onClose, onSaved }: Props) {
+export default function ResourceModal({ resource, sections, onClose, onSaved }: Props) {
   const isEdit = !!resource;
   const [step, setStep] = useState<1 | 2>(isEdit ? 2 : 1);
   const [type, setType] = useState<ResourceType>((resource?.type as ResourceType) || 'link');
@@ -60,6 +44,8 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
   const [thumbnailUrl, setThumbnailUrl] = useState<string | null>(resource?.thumbnail_url ?? null);
   const [pageCount, setPageCount] = useState<number | null>(resource?.page_count ?? null);
   const [isDefault, setIsDefault] = useState(resource?.is_default ?? false);
+  const [sectionId, setSectionId] = useState<string | null>(resource?.section_id ?? null);
+  const rootSections = sections.filter(s => s.parent_id === null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [fetchingTitle, setFetchingTitle] = useState(false);
@@ -127,6 +113,7 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
       thumbnail_url: type === 'file' ? thumbnailUrl : null,
       page_count: type === 'file' ? pageCount : null,
       is_default: isDefault,
+      section_id: sectionId,
     };
 
     let result: Resource | null = null;
@@ -442,6 +429,33 @@ export default function ResourceModal({ resource, onClose, onSaved }: Props) {
                   </div>
                 </div>
               </button>
+
+              {/* Dossier */}
+              <div>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                  Dossier
+                </label>
+                <select
+                  value={sectionId ?? ''}
+                  onChange={e => setSectionId(e.target.value || null)}
+                  style={{
+                    width: '100%', padding: '10px 14px',
+                    border: '1px solid var(--border)', borderRadius: 9,
+                    background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                >
+                  <option value="">Aucun dossier</option>
+                  {rootSections.map(root => (
+                    <optgroup key={root.id} label={root.name}>
+                      <option value={root.id}>{root.name}</option>
+                      {sections.filter(s => s.parent_id === root.id).map(sub => (
+                        <option key={sub.id} value={sub.id}>{'   ↳ '}{sub.name}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
 
               {/* Champ Fichier */}
               {type === 'file' && (

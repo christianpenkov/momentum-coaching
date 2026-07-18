@@ -5,28 +5,12 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import ModalShell from '@/components/ui/ModalShell';
+import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
 import { formatSize, getEmbedUrl, TYPE_META, isImageFile, type ResourceType } from '@/lib/resourceHelpers';
 import ResourceThumbnail from '@/components/pages/coach/ResourceThumbnail';
-
-interface Resource {
-  id: string;
-  title: string;
-  type: string | null;
-  description: string | null;
-  url: string | null;
-  file_url: string | null;
-  file_name: string | null;
-  file_size: number | null;
-  video_url: string | null;
-  video_duration: number | null;
-  thumbnail_url: string | null;
-  page_count: number | null;
-  markdown_content: string | null;
-  is_new: boolean;
-  position: number;
-  section_id: string | null;
-}
+import ResourceSectionTree from '@/components/pages/coach/ResourceSectionTree';
+import type { Resource, ResourceSection } from '@/lib/resourceTypes';
 
 // is_new calculé côté client depuis seen_at (par élève), pas depuis resources.is_new
 interface ResourceWithSeen extends Resource {
@@ -258,11 +242,14 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
 
 export default function PageClientResources() {
   const [resources, setResources] = useState<ResourceWithSeen[]>([]);
+  const [sections, setSections] = useState<ResourceSection[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [previewResource, setPreviewResource] = useState<ResourceWithSeen | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [coachName, setCoachName] = useState<string | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
     async function load() {
@@ -282,6 +269,13 @@ export default function PageClientResources() {
       const { data: coachProfile } = await supabase
         .from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle();
       if (coachProfile?.full_name) setCoachName(coachProfile.full_name.split(' ')[0]);
+
+      const { data: sectionsData } = await supabase
+        .from('resource_sections')
+        .select('*')
+        .eq('coach_id', clientRow.coach_id)
+        .order('position');
+      setSections(sectionsData || []);
 
       const { data: accessData } = await supabase
         .from('resource_access')
@@ -340,12 +334,16 @@ export default function PageClientResources() {
   }
 
   const filtered = useMemo(() => {
-    if (!search) return resources;
     const q = search.toLowerCase();
-    return resources.filter(r => r.title.toLowerCase().includes(q));
-  }, [resources, search]);
+    return resources.filter(r =>
+      (!q || r.title.toLowerCase().includes(q)) &&
+      r.section_id === activeSectionId
+    );
+  }, [resources, search, activeSectionId]);
 
   const newCount = resources.filter(r => r.seen_at === null).length;
+  const activeSection = activeSectionId ? sections.find(s => s.id === activeSectionId) : null;
+  const activeParent = activeSection?.parent_id ? sections.find(s => s.id === activeSection.parent_id) : null;
 
   if (loading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
@@ -367,7 +365,36 @@ export default function PageClientResources() {
             )}
           </p>
         </div>
+        {sections.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            title="Dossiers"
+            style={{
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '8px 9px', cursor: 'pointer',
+              color: 'var(--ink)', display: 'flex', alignItems: 'center',
+            }}
+          >
+            <Icon name="list" size={15} />
+          </button>
+        )}
       </div>
+
+      {/* Fil d'ariane */}
+      {activeSectionId && activeSection && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+          <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(null)}>Toutes les ressources</span>
+          {activeParent && (
+            <>
+              <Icon name="arrowR" size={10} />
+              <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(activeParent.id)}>{activeParent.name}</span>
+            </>
+          )}
+          <Icon name="arrowR" size={10} />
+          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeSection.name}</span>
+        </div>
+      )}
 
       {/* Barre de recherche */}
       {resources.length > 0 && (
@@ -410,7 +437,7 @@ export default function PageClientResources() {
       {/* No results */}
       {resources.length > 0 && filtered.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', paddingTop: 32 }}>
-          Aucune ressource ne correspond à ta recherche.
+          {search ? 'Aucune ressource ne correspond à ta recherche.' : 'Ce dossier est vide.'}
         </div>
       )}
 
@@ -436,6 +463,22 @@ export default function PageClientResources() {
             resource={previewResource}
             onClose={() => setPreviewResource(null)}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Tiroir dossiers — lecture seule */}
+      <AnimatePresence>
+        {drawerOpen && (
+          <DrawerShell onClose={() => setDrawerOpen(false)}>
+            <ResourceSectionTree
+              sections={sections}
+              resources={resources}
+              activeSectionId={activeSectionId}
+              onSelect={setActiveSectionId}
+              onClose={() => setDrawerOpen(false)}
+              readOnly={true}
+            />
+          </DrawerShell>
         )}
       </AnimatePresence>
     </div>

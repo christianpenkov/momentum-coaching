@@ -2,15 +2,18 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import Icon from '@/components/ui/Icon';
+import Icon, { type IconName } from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
+import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import ResourceModal, { type Resource } from './ResourceModal';
 import ResourceCardCoach from './ResourceCardCoach';
+import ResourceSectionTree from './ResourceSectionTree';
 import AccessSheet from './AccessSheet';
 import ResourcePreviewModal from './ResourcePreviewModal';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
+import type { ResourceSection } from '@/lib/resourceTypes';
 
 const containerVariants = {
   hidden: {},
@@ -27,9 +30,12 @@ export default function PageResources() {
   const supabase = createClient();
 
   const [resources, setResources] = useState<Resource[]>([]);
+  const [sections, setSections] = useState<ResourceSection[]>([]);
   const [accessMap, setAccessMap] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -55,12 +61,14 @@ export default function PageResources() {
     }
     if (!user) return;
 
-    const [resourcesRes, accessRes] = await Promise.all([
+    const [resourcesRes, accessRes, sectionsRes] = await Promise.all([
       supabase.from('resources').select('*').eq('coach_id', user.id).order('created_at', { ascending: false }),
       supabase.from('resource_access').select('resource_id, client_id').eq('unlocked', true),
+      supabase.from('resource_sections').select('*').eq('coach_id', user.id).order('position'),
     ]);
 
     setResources(resourcesRes.data || []);
+    setSections(sectionsRes.data || []);
 
     const map: Record<string, string[]> = {};
     for (const row of accessRes.data || []) {
@@ -117,9 +125,49 @@ export default function PageResources() {
     setResources(prev => prev.filter(res => res.id !== r.id));
   }
 
+  async function handleCreateSection(name: string, parentId: string | null, icon: IconName) {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+    const position = sections.filter(s => s.parent_id === parentId).length;
+    const { data, error } = await supabase.from('resource_sections')
+      .insert({ coach_id: user.id, name, parent_id: parentId, icon, position })
+      .select().single();
+    if (error) { console.error('create section error', error); return; }
+    setSections(prev => [...prev, data]);
+  }
+
+  async function handleRenameSection(id: string, name: string) {
+    const { data, error } = await supabase.from('resource_sections').update({ name }).eq('id', id).select().single();
+    if (error) { console.error('rename section error', error); return; }
+    setSections(prev => prev.map(s => s.id === id ? data : s));
+  }
+
+  async function handleDeleteSection(id: string) {
+    const section = sections.find(s => s.id === id);
+    if (!section) return;
+    const destinationId = section.parent_id; // remonte au parent, ou null (racine) si c'était un dossier racine
+
+    const { error: subError } = await supabase.from('resource_sections').update({ parent_id: destinationId }).eq('parent_id', id);
+    if (subError) { console.error('move subsections error', subError); return; }
+
+    const { error: resError } = await supabase.from('resources').update({ section_id: destinationId }).eq('section_id', id);
+    if (resError) { console.error('move resources error', resError); return; }
+
+    const { error: delError } = await supabase.from('resource_sections').delete().eq('id', id);
+    if (delError) { console.error('delete section error', delError); return; }
+
+    setSections(prev => prev.filter(s => s.id !== id).map(s => s.parent_id === id ? { ...s, parent_id: destinationId } : s));
+    setResources(prev => prev.map(r => r.section_id === id ? { ...r, section_id: destinationId } : r));
+    if (activeSectionId === id) setActiveSectionId(destinationId);
+  }
+
   const filtered = resources.filter(r =>
-    !search || r.title.toLowerCase().includes(search.toLowerCase())
+    (!search || r.title.toLowerCase().includes(search.toLowerCase())) &&
+    r.section_id === activeSectionId
   );
+
+  const activeSection = activeSectionId ? sections.find(s => s.id === activeSectionId) : null;
+  const activeParent = activeSection?.parent_id ? sections.find(s => s.id === activeSection.parent_id) : null;
 
   if (loading) return (
     <div className="page-content">
@@ -139,6 +187,18 @@ export default function PageResources() {
           </p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            title="Dossiers"
+            style={{
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '8px 9px', cursor: 'pointer',
+              color: 'var(--ink)', display: 'flex', alignItems: 'center',
+            }}
+          >
+            <Icon name="list" size={15} />
+          </button>
           {resources.length > 0 && (
             <div style={{ position: 'relative' }}>
               <Icon name="search" size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
@@ -165,6 +225,21 @@ export default function PageResources() {
           </button>
         </div>
       </div>
+
+      {/* Fil d'ariane */}
+      {activeSectionId && activeSection && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+          <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(null)}>Toutes les ressources</span>
+          {activeParent && (
+            <>
+              <Icon name="arrowR" size={10} />
+              <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(activeParent.id)}>{activeParent.name}</span>
+            </>
+          )}
+          <Icon name="arrowR" size={10} />
+          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeSection.name}</span>
+        </div>
+      )}
 
       {/* Empty state */}
       {resources.length === 0 && (
@@ -202,7 +277,7 @@ export default function PageResources() {
       {/* No results */}
       {resources.length > 0 && filtered.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', paddingTop: 40 }}>
-          Aucune ressource ne correspond à ta recherche.
+          {search ? 'Aucune ressource ne correspond à ta recherche.' : 'Ce dossier est vide.'}
         </div>
       )}
 
@@ -235,6 +310,7 @@ export default function PageResources() {
           <ResourceModal
             key={editingResource?.id ?? 'new'}
             resource={editingResource}
+            sections={sections}
             onClose={closeModal}
             onSaved={handleSaved}
           />
@@ -265,6 +341,25 @@ export default function PageResources() {
               setResources(prev => prev.map(r => r.id === id ? { ...r, is_default: val } : r));
             }}
           />
+        )}
+      </AnimatePresence>
+
+      {/* Tiroir dossiers */}
+      <AnimatePresence>
+        {drawerOpen && (
+          <DrawerShell onClose={() => setDrawerOpen(false)}>
+            <ResourceSectionTree
+              sections={sections}
+              resources={resources}
+              activeSectionId={activeSectionId}
+              onSelect={setActiveSectionId}
+              onClose={() => setDrawerOpen(false)}
+              readOnly={false}
+              onCreate={handleCreateSection}
+              onRename={handleRenameSection}
+              onDelete={handleDeleteSection}
+            />
+          </DrawerShell>
         )}
       </AnimatePresence>
     </div>

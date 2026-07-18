@@ -1,3 +1,20 @@
+import type { IconName } from '@/components/ui/Icon';
+
+const SECTION_ICON_KEYWORDS: { keywords: string[]; icon: IconName }[] = [
+  { keywords: ['mental', 'motivation', 'mindset', 'psycho'], icon: 'brain' },
+  { keywords: ['technique', 'exercice', 'training', 'sport', 'muscu', 'entrainement', 'entraînement'], icon: 'zap' },
+  { keywords: ['objectif', 'goal', 'challenge', 'défi', 'defi'], icon: 'target' },
+  { keywords: ['favori', 'important', 'top', 'prioritaire'], icon: 'star' },
+];
+
+export function guessSectionIcon(name: string): IconName {
+  const n = name.toLowerCase();
+  for (const entry of SECTION_ICON_KEYWORDS) {
+    if (entry.keywords.some(k => n.includes(k))) return entry.icon;
+  }
+  return 'folder';
+}
+
 export function formatSize(bytes: number | null): string {
   if (!bytes) return '';
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} Ko`;
