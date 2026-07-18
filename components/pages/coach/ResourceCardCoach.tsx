@@ -28,8 +28,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
 
   return (
     <motion.div
-      className="card"
-      whileHover={{ y: -3, scale: 1.01, boxShadow: 'var(--shadow-elev)' }}
+      className="card dc-liftrow"
       whileTap={{ scale: 0.985 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       style={{ padding: 0, overflow: 'visible', cursor: 'default', display: 'flex', flexDirection: 'column', height: '100%' }}

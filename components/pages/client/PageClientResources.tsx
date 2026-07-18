@@ -190,7 +190,7 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
   return (
     <motion.div
       variants={itemVariants}
-      className="card"
+      className="card dc-liftrow"
       style={{
         padding: 0, overflow: 'hidden',
         border: isNew ? '1.5px solid var(--green)' : '1px solid var(--border)',
@@ -198,7 +198,6 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
         cursor: 'pointer',
         display: 'flex', flexDirection: 'column', height: '100%',
       }}
-      whileHover={{ y: -3, scale: 1.01, boxShadow: 'var(--shadow-elev)' }}
       whileTap={{ scale: 0.98 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       onClick={() => onOpen(resource)}
