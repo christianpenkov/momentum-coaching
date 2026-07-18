@@ -232,7 +232,7 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link href={`/clients/${id}/brief`} className="btn-primary">
+          <Link href={`/clients/${id}/brief`} className="btn-primary-brand">
             <Icon name="brain" size={14} /> Brief IA
           </Link>
           <Link href={`/clients/${id}/analytics`} className="btn-ghost">
@@ -278,7 +278,7 @@ export default function PageClientDetail({ id }: Props) {
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
               <Ring value={progress} size={44} stroke={4} />
               <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', minWidth: 32 }}>{progress}%</span>
-              <button className="btn-primary" type="button" onClick={() => setModalOpen(true)} style={{ fontSize: 12, padding: '6px 12px', gap: 5 }}>
+              <button className="btn-primary-brand" type="button" onClick={() => setModalOpen(true)} style={{ fontSize: 12, padding: '6px 12px', gap: 5 }}>
                 <Icon name="plus" size={12} /> Ajouter
               </button>
             </div>
@@ -434,7 +434,7 @@ export default function PageClientDetail({ id }: Props) {
             <div className="card-title">Dépôt de contenus</div>
             <div className="card-sub">Scripts, vidéos, posts — déposez et commentez directement</div>
           </div>
-          <button className="btn-primary" type="button" style={{ fontSize: 12, padding: '6px 12px', gap: 5 }} onClick={() => fileInputRef.current?.click()}>
+          <button className="btn-primary-brand" type="button" style={{ fontSize: 12, padding: '6px 12px', gap: 5 }} onClick={() => fileInputRef.current?.click()}>
             <Icon name="upload" size={12} /> Déposer un fichier
           </button>
           <input
@@ -478,7 +478,7 @@ export default function PageClientDetail({ id }: Props) {
                   <div style={{ display: 'flex', gap: 8 }}>
                     <textarea placeholder="Laisser un commentaire sur ce contenu…" value={file.comment} onChange={e => setDepotFiles(prev => prev.map((f, idx) => idx === i ? { ...f, comment: e.target.value } : f))} rows={2}
                       style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', fontSize: 12, color: 'var(--ink)', resize: 'none', fontFamily: 'inherit', outline: 'none', lineHeight: 1.5 }} />
-                    <button type="button" className="btn-primary" disabled={!file.comment.trim()} style={{ fontSize: 12, padding: '6px 12px', alignSelf: 'flex-end', opacity: file.comment.trim() ? 1 : 0.4 }}
+                    <button type="button" className="btn-primary-brand" disabled={!file.comment.trim()} style={{ fontSize: 12, padding: '6px 12px', alignSelf: 'flex-end', opacity: file.comment.trim() ? 1 : 0.4 }}
                       onClick={() => {
                         if (!file.comment.trim()) return;
                         const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
@@ -503,7 +503,7 @@ export default function PageClientDetail({ id }: Props) {
               <div className="card-title">Statistiques — {metrics.length} semaines</div>
               <div className="card-sub">Évolution semaine par semaine</div>
             </div>
-            <Link href={`/clients/${id}/analytics`} className="btn-primary" style={{ fontSize: 12 }}>
+            <Link href={`/clients/${id}/analytics`} className="btn-primary-brand" style={{ fontSize: 12 }}>
               <Icon name="bar-chart" size={13} /> Analytics complet
             </Link>
           </div>

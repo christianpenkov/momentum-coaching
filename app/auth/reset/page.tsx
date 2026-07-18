@@ -128,7 +128,7 @@ export default function ResetPage() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary"
+              className="btn-primary-brand"
               style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '12px', fontSize: 14, opacity: loading ? 0.7 : 1 }}
             >
               {loading ? 'Enregistrement…' : 'Définir le mot de passe'}

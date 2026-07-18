@@ -25,5 +25,6 @@ export interface ResourceSection {
   parent_id: string | null;
   position: number;
   icon: string;
+  color: string;
   created_at: string;
 }

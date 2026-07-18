@@ -86,7 +86,7 @@ export default function LoginPage() {
             {error && (
               <div style={{ fontSize: 13, color: 'var(--red)', padding: '8px 12px', background: 'var(--red-soft)', borderRadius: 8 }}>{error}</div>
             )}
-            <button type="submit" disabled={loading} className="btn-primary"
+            <button type="submit" disabled={loading} className="btn-primary-brand"
               style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '12px', fontSize: 14, opacity: loading ? 0.7 : 1, transition: 'opacity .15s' }}>
               {loading ? 'Connexion…' : 'Se connecter'}
             </button>
@@ -112,7 +112,7 @@ export default function LoginPage() {
             {error && (
               <div style={{ fontSize: 13, color: 'var(--red)', padding: '8px 12px', background: 'var(--red-soft)', borderRadius: 8 }}>{error}</div>
             )}
-            <button type="submit" disabled={loading} className="btn-primary"
+            <button type="submit" disabled={loading} className="btn-primary-brand"
               style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '12px', fontSize: 14, opacity: loading ? 0.7 : 1 }}>
               {loading ? 'Envoi…' : 'Envoyer le lien'}
             </button>

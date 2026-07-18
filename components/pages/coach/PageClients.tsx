@@ -55,7 +55,7 @@ export default function PageClients() {
           <h1 className="page-title">Clients</h1>
           <p className="page-sub">{clients.length} élève{clients.length !== 1 ? 's' : ''} · {filtered.length} affiché{filtered.length !== 1 ? 's' : ''}</p>
         </div>
-        <button className="btn-primary" type="button" onClick={() => setShowModal(true)}>
+        <button className="btn-primary-brand" type="button" onClick={() => setShowModal(true)}>
           <Icon name="plus" size={14} /> Nouveau client
         </button>
       </div>

@@ -431,18 +431,21 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
               </button>
 
               {/* Dossier */}
-              <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
-                  Dossier
-                </label>
+              <div style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10,
+                padding: '11px 14px', position: 'relative',
+              }}>
+                <span style={{ fontSize: 12.5, color: 'var(--ink)' }}>Dossier</span>
+                <span style={{ fontSize: 12.5, fontWeight: 600, color: 'var(--accent)', pointerEvents: 'none' }}>
+                  {sectionId ? (sections.find(s => s.id === sectionId)?.name ?? 'Aucun dossier') : 'Aucun dossier'}
+                </span>
                 <select
                   value={sectionId ?? ''}
                   onChange={e => setSectionId(e.target.value || null)}
                   style={{
-                    width: '100%', padding: '10px 14px',
-                    border: '1px solid var(--border)', borderRadius: 9,
-                    background: 'var(--bg)', fontSize: 14, color: 'var(--ink)',
-                    outline: 'none', boxSizing: 'border-box',
+                    position: 'absolute', inset: 0, width: '100%', height: '100%',
+                    opacity: 0, cursor: 'pointer', border: 'none',
                   }}
                 >
                   <option value="">Aucun dossier</option>
@@ -558,7 +561,7 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
               type="button"
               onClick={handleSave}
               disabled={saving || !title.trim() || uploading}
-              className="btn-primary"
+              className="btn-primary-brand"
               style={{ fontSize: 13, minWidth: 110, opacity: saving || !title.trim() ? 0.6 : 1, justifyContent: 'center', lineHeight: 1 }}
             >
               {saving ? 'Enregistrement…' : (isEdit ? 'Mettre à jour' : 'Enregistrer')}

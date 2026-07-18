@@ -312,7 +312,7 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                     type="button"
                     onClick={handleRequestSave}
                     disabled={loading || clientsLoading}
-                    className="btn-primary"
+                    className="btn-primary-brand"
                     style={{ fontSize: 13, minWidth: 90, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                   >
                     Valider
@@ -322,7 +322,7 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                 <button
                   type="button"
                   onClick={onClose}
-                  className="btn-primary"
+                  className="btn-primary-brand"
                   style={{ fontSize: 13, minWidth: 90, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
                 >
                   Fermer
@@ -417,7 +417,7 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                 type="button"
                 onClick={handleConfirmSave}
                 disabled={saving || !confirmed}
-                className="btn-primary"
+                className="btn-primary-brand"
                 style={{
                   fontSize: 13, minWidth: 120,
                   display: 'inline-flex', alignItems: 'center', justifyContent: 'center',

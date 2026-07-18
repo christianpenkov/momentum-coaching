@@ -52,7 +52,7 @@ export default function PageBriefing({ id }: Props) {
           <Link href={`/clients/${id}`} className="btn-ghost">
             ← Fiche
           </Link>
-          <button className="btn-primary" type="button" onClick={() => window.open('https://calendly.com/app/scheduled_events/upcoming', '_blank')}>
+          <button className="btn-primary-brand" type="button" onClick={() => window.open('https://calendly.com/app/scheduled_events/upcoming', '_blank')}>
             <Icon name="mic" size={14} /> Lancer le call
           </button>
         </div>

@@ -275,7 +275,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
             </div>
             <div style={{ display: 'flex', gap: 10 }}>
               <button type="button" className="btn-ghost" style={{ flex: 1 }} onClick={() => setConfirmClose(false)}>Continuer</button>
-              <button type="button" className="btn-primary" style={{ flex: 1, background: 'var(--red, #ef4444)' }} onClick={onClose}>Fermer quand même</button>
+              <button type="button" className="btn-primary-brand" style={{ flex: 1, background: 'var(--red, #ef4444)' }} onClick={onClose}>Fermer quand même</button>
             </div>
           </div>
         </>
@@ -316,7 +316,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Le lead s'est présenté ?</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Était-il au rendez-vous ?</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleShowUp(true)}>
+                <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleShowUp(true)}>
                   Oui, il était là
                 </button>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)' }} disabled={saving} onClick={() => handleShowUp(false)}>
@@ -335,7 +335,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Le prospect était-il qualifié ?</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Correspond-il au profil recherché (besoin, budget, timing) ?</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleQualified(true)}>
+                <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleQualified(true)}>
                   Oui, qualifié
                 </button>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving} onClick={() => handleQualified(false)}>
@@ -365,7 +365,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{formatDate(foundCall.scheduledAt)}</div>
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatTime(foundCall.scheduledAt)}</div>
               </div>
-              <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => confirmRescheduled()}>
+              <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => confirmRescheduled()}>
                 {saving ? 'Enregistrement…' : 'Confirmer le report'}
               </button>
             </div>
@@ -399,7 +399,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Nouvelle date du call</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>Renseigne les horaires du call reporté.</div>
               <ManualDateForm date={manualDate} setDate={setManualDate} timeStart={manualTimeStart} setTimeStart={setManualTimeStart} timeEnd={manualTimeEnd} setTimeEnd={setManualTimeEnd} />
-              <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginTop: 20 }} disabled={saving || !manualValid}
+              <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginTop: 20 }} disabled={saving || !manualValid}
                 onClick={confirmRescheduledManual}>
                 {saving ? 'Enregistrement…' : 'Enregistrer'}
               </button>
@@ -414,7 +414,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 28, lineHeight: 1.6 }}>
                 Le call est marqué comme reporté. Ton pipeline sera mis à jour automatiquement dès que le nouveau créneau sera confirmé.
               </div>
-              <button className="btn-primary" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700 }} onClick={onClose}>Fermer</button>
+              <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700 }} onClick={onClose}>Fermer</button>
             </div>
           )}
 
@@ -424,7 +424,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Résultat du call ?</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Qu'est-ce qui s'est passé ?</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => setStep('revenue')}>
+                <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => setStep('revenue')}>
                   Oui, lead closé !
                 </button>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
@@ -453,7 +453,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
                 Ce call sera marqué comme suivi (non comptabilisé dans les statistiques).
               </div>
-              <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={confirmSecondCallFound}>
+              <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={confirmSecondCallFound}>
                 {saving ? 'Enregistrement…' : 'Confirmer'}
               </button>
             </div>
@@ -489,7 +489,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               </div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>Renseigne les horaires du prochain appel.</div>
               <ManualDateForm date={manualDate} setDate={setManualDate} timeStart={manualTimeStart} setTimeStart={setManualTimeStart} timeEnd={manualTimeEnd} setTimeEnd={setManualTimeEnd} />
-              <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginTop: 20 }} disabled={saving || !manualValid}
+              <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginTop: 20 }} disabled={saving || !manualValid}
                 onClick={confirmSecondCallManual}>
                 {saving ? 'Enregistrement…' : 'Enregistrer'}
               </button>
@@ -506,7 +506,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 28, lineHeight: 1.6 }}>
                 Ce call est enregistré et ne comptera pas dans les statistiques de calls bookés.
               </div>
-              <button className="btn-primary" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700 }} onClick={onClose}>Fermer</button>
+              <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, fontWeight: 700 }} onClick={onClose}>Fermer</button>
             </div>
           )}
 
@@ -520,7 +520,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                   style={{ flex: 1, fontSize: 20, fontWeight: 700, textAlign: 'right' }} autoFocus inputMode="decimal" />
                 <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>€</span>
               </div>
-              <button className="btn-primary" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={handleRevenue}>
+              <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={handleRevenue}>
                 {saving ? 'Enregistrement…' : 'Enregistrer'}
               </button>
             </div>

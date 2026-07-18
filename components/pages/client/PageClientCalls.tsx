@@ -291,7 +291,7 @@ export default function PageClientCalls() {
                       </div>
                     </div>
                     <button
-                      className="btn-primary"
+                      className="btn-primary-brand"
                       type="button"
                       style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
                       onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
@@ -337,7 +337,7 @@ export default function PageClientCalls() {
                     </div>
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
                       <button
-                        className="btn-primary"
+                        className="btn-primary-brand"
                         type="button"
                         onClick={() => handleAccept(call.id)}
                         disabled={respondingId === call.id}
@@ -372,7 +372,7 @@ export default function PageClientCalls() {
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
             Connecte ton Calendly pour voir tes calls ici automatiquement dès qu'ils sont planifiés.
           </div>
-          <a href="/client/settings" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <a href="/client/settings" className="btn-primary-brand" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="link" size={13} /> Connecter Calendly
           </a>
         </div>
@@ -399,7 +399,7 @@ export default function PageClientCalls() {
               </div>
               {nextCall.join_url && nextCall.status !== 'canceled' && nextCall.status !== 'cancelled' && (
                 <div style={{ marginTop: 16 }}>
-                  <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                  <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary-brand" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                     <Icon name="video" size={14} /> Rejoindre le call
                   </a>
                 </div>
@@ -636,7 +636,7 @@ export default function PageClientCalls() {
                 Annuler
               </button>
               <button
-                className="btn-primary"
+                className="btn-primary-brand"
                 type="button"
                 style={{ flex: 1, background: 'var(--red, #ef4444)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                 onClick={() => handleDecline(declineModal.callId, proposedAt)}

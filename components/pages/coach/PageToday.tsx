@@ -268,7 +268,7 @@ export default function PageToday() {
           <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20 }}>
             Ton premier client apparaîtra ici dès qu'il aura créé son accès via le lien d'invitation.
           </div>
-          <Link href="/clients" className="btn-primary" style={{ fontSize: 13 }}>
+          <Link href="/clients" className="btn-primary-brand" style={{ fontSize: 13 }}>
             <Icon name="plus" size={13} /> Ajouter un client manuellement
           </Link>
         </div>

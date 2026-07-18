@@ -76,7 +76,7 @@ export default function AddClientModal({ open, onClose }: AddClientModalProps) {
           )}
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
             <button type="button" onClick={onClose} className="btn-ghost" style={{ fontSize: 13 }}>Annuler</button>
-            <button type="submit" disabled={saving} className="btn-primary" style={{ fontSize: 13, opacity: saving ? 0.7 : 1 }}>
+            <button type="submit" disabled={saving} className="btn-primary-brand" style={{ fontSize: 13, opacity: saving ? 0.7 : 1 }}>
               {saving ? 'Enregistrement…' : 'Ajouter'}
             </button>
           </div>

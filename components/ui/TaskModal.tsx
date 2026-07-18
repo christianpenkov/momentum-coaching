@@ -179,7 +179,7 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
           <button onClick={onClose} className="btn-ghost" type="button">Annuler</button>
           <button
             onClick={handleSubmit}
-            className="btn-primary"
+            className="btn-primary-brand"
             type="button"
             style={{ gap: 6 }}
           >

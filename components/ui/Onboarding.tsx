@@ -233,7 +233,7 @@ export default function Onboarding({ open, onClose, coachName }: OnboardingProps
           </button>
           <h2 style={{ fontSize: 30, fontWeight: 800, color: 'var(--accent)', marginBottom: 16 }}>{current.title}</h2>
           <p style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 24 }}>{current.subtitle}</p>
-          <button onClick={handleNext} className="btn-primary" type="button">{current.ctaLabel}</button>
+          <button onClick={handleNext} className="btn-primary-brand" type="button">{current.ctaLabel}</button>
         </div>
       </div>
     );

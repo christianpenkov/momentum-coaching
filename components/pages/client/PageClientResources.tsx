@@ -7,10 +7,11 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import ModalShell from '@/components/ui/ModalShell';
 import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
-import { formatSize, getEmbedUrl, TYPE_META, isImageFile, type ResourceType } from '@/lib/resourceHelpers';
+import { formatSize, getEmbedUrl, TYPE_META, isImageFile, sectionHasChildren, type ResourceType } from '@/lib/resourceHelpers';
 import ResourceThumbnail from '@/components/pages/coach/ResourceThumbnail';
 import ResourceSectionTree from '@/components/pages/coach/ResourceSectionTree';
 import type { Resource, ResourceSection } from '@/lib/resourceTypes';
+import type { IconName } from '@/components/ui/Icon';
 
 // is_new calculé côté client depuis seen_at (par élève), pas depuis resources.is_new
 interface ResourceWithSeen extends Resource {
@@ -240,6 +241,45 @@ function ResourceCard({ resource, onOpen }: { resource: ResourceWithSeen; onOpen
   );
 }
 
+function SectionFolderCard({ section, count, subCount, unseen, onClick }: {
+  section: ResourceSection;
+  count: number;
+  subCount: number;
+  unseen: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <motion.div
+      variants={itemVariants}
+      className="card dc-liftrow"
+      onClick={onClick}
+      style={{
+        padding: '15px 16px', display: 'flex', alignItems: 'center', gap: 13,
+        cursor: 'pointer',
+      }}
+    >
+      <span style={{
+        width: 40, height: 40, borderRadius: 11, flexShrink: 0, position: 'relative',
+        background: `${section.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon name={(section.icon as IconName) || 'folder'} size={19} style={{ color: section.color }} />
+        {unseen && (
+          <span style={{ position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--surface)' }} />
+        )}
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {section.name}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+          {count} ressource{count !== 1 ? 's' : ''}{subCount > 0 ? ` · ${subCount} sous-section${subCount !== 1 ? 's' : ''}` : ''}
+        </div>
+      </div>
+      <Icon name="chevR" size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+    </motion.div>
+  );
+}
+
 export default function PageClientResources() {
   const [resources, setResources] = useState<ResourceWithSeen[]>([]);
   const [sections, setSections] = useState<ResourceSection[]>([]);
@@ -333,6 +373,10 @@ export default function PageClientResources() {
     setPreviewResource(resource);
   }
 
+  const drillDownChildren = (activeSectionId && sectionHasChildren(sections, activeSectionId))
+    ? sections.filter(s => s.parent_id === activeSectionId)
+    : [];
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
     return resources.filter(r =>
@@ -353,6 +397,39 @@ export default function PageClientResources() {
 
   return (
     <div className="page-content">
+      {/* Barre de navigation dossiers — ☰ + fil d'ariane, en haut à gauche */}
+      {sections.length > 0 && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen(true)}
+            title="Mes dossiers"
+            style={{
+              background: 'var(--surface-2)', border: '1px solid var(--border)',
+              borderRadius: 8, padding: '8px 9px', cursor: 'pointer',
+              color: 'var(--ink)', display: 'flex', alignItems: 'center', flexShrink: 0,
+            }}
+          >
+            <Icon name="list" size={15} />
+          </button>
+          {activeSectionId && activeSection ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+              <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(null)}>Ressources</span>
+              {activeParent && (
+                <>
+                  <Icon name="chevR" size={10} />
+                  <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(activeParent.id)}>{activeParent.name}</span>
+                </>
+              )}
+              <Icon name="chevR" size={10} />
+              <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeSection.name}</span>
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--muted)' }}>Ressources</div>
+          )}
+        </div>
+      )}
+
       <div className="page-header">
         <div>
           <h1 className="page-title">Ressources</h1>
@@ -365,36 +442,7 @@ export default function PageClientResources() {
             )}
           </p>
         </div>
-        {sections.length > 0 && (
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            title="Dossiers"
-            style={{
-              background: 'var(--surface-2)', border: '1px solid var(--border)',
-              borderRadius: 8, padding: '8px 9px', cursor: 'pointer',
-              color: 'var(--ink)', display: 'flex', alignItems: 'center',
-            }}
-          >
-            <Icon name="list" size={15} />
-          </button>
-        )}
       </div>
-
-      {/* Fil d'ariane */}
-      {activeSectionId && activeSection && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-          <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(null)}>Toutes les ressources</span>
-          {activeParent && (
-            <>
-              <Icon name="arrowR" size={10} />
-              <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(activeParent.id)}>{activeParent.name}</span>
-            </>
-          )}
-          <Icon name="arrowR" size={10} />
-          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeSection.name}</span>
-        </div>
-      )}
 
       {/* Barre de recherche */}
       {resources.length > 0 && (
@@ -435,13 +483,41 @@ export default function PageClientResources() {
       )}
 
       {/* No results */}
-      {resources.length > 0 && filtered.length === 0 && (
+      {resources.length > 0 && drillDownChildren.length === 0 && filtered.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', paddingTop: 32 }}>
           {search ? 'Aucune ressource ne correspond à ta recherche.' : 'Ce dossier est vide.'}
         </div>
       )}
 
-      {/* Grid */}
+      {/* Cartes-dossier (drill-down) */}
+      {drillDownChildren.length > 0 && (
+        <motion.div
+          className="resource-grid"
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+        >
+          {drillDownChildren.map(fc => (
+            <SectionFolderCard
+              key={fc.id}
+              section={fc}
+              count={resources.filter(r => r.section_id === fc.id).length}
+              subCount={sections.filter(s => s.parent_id === fc.id).length}
+              unseen={resources.some(r => r.section_id === fc.id && r.seen_at === null)}
+              onClick={() => setActiveSectionId(fc.id)}
+            />
+          ))}
+        </motion.div>
+      )}
+
+      {/* Intertitre "Dans ce dossier" */}
+      {drillDownChildren.length > 0 && filtered.length > 0 && (
+        <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 10px' }}>
+          Dans ce dossier
+        </div>
+      )}
+
+      {/* Grid ressources */}
       {filtered.length > 0 && (
         <motion.div
           className="resource-grid"
@@ -477,6 +553,7 @@ export default function PageClientResources() {
               onSelect={setActiveSectionId}
               onClose={() => setDrawerOpen(false)}
               readOnly={true}
+              showUnseenDot={true}
             />
           </DrawerShell>
         )}

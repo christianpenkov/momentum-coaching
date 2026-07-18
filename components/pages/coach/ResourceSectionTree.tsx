@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Icon, { type IconName } from '@/components/ui/Icon';
-import { guessSectionIcon } from '@/lib/resourceHelpers';
+import { guessSectionIcon, sectionHasUnseenResource } from '@/lib/resourceHelpers';
 import type { Resource, ResourceSection } from '@/lib/resourceTypes';
 
 interface Props {
@@ -12,12 +12,16 @@ interface Props {
   onSelect: (sectionId: string | null) => void;
   onClose: () => void;
   readOnly: boolean;
+  showUnseenDot?: boolean;
+  autoCreate?: boolean;
   onCreate?: (name: string, parentId: string | null, icon: IconName) => Promise<void>;
   onRename?: (id: string, name: string) => Promise<void>;
   onDelete?: (id: string) => Promise<void>;
+  onRestyle?: (id: string, color: string, icon: IconName) => Promise<void>;
 }
 
 const ICON_CHOICES: IconName[] = ['folder', 'brain', 'zap', 'target', 'star', 'sparkle'];
+const COLOR_CHOICES = ['#3a6a86', '#cd5b3f', '#b58025', '#3f8a52', '#7a5bd6', '#c1355e'];
 
 function InlineForm({ initialName, initialIcon, onSubmit, onCancel }: {
   initialName: string;
@@ -83,6 +87,57 @@ function InlineForm({ initialName, initialIcon, onSubmit, onCancel }: {
   );
 }
 
+function RestylePanel({ section, onSubmit, onCancel }: {
+  section: ResourceSection;
+  onSubmit: (color: string, icon: IconName) => void;
+  onCancel: () => void;
+}) {
+  const [color, setColor] = useState(section.color);
+  const [icon, setIcon] = useState<IconName>((section.icon as IconName) || 'folder');
+
+  return (
+    <div style={{ padding: '10px 12px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Couleur</div>
+      <div style={{ display: 'flex', gap: 6 }}>
+        {COLOR_CHOICES.map(c => (
+          <button
+            key={c}
+            type="button"
+            onClick={() => setColor(c)}
+            style={{
+              width: 22, height: 22, borderRadius: '50%', background: c, cursor: 'pointer',
+              border: color === c ? '2px solid var(--ink)' : '2px solid transparent',
+              boxShadow: color === c ? '0 0 0 1px var(--surface)' : 'none',
+            }}
+          />
+        ))}
+      </div>
+      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>Icône</div>
+      <div style={{ display: 'flex', gap: 4 }}>
+        {ICON_CHOICES.map(ic => (
+          <button
+            key={ic}
+            type="button"
+            onClick={() => setIcon(ic)}
+            style={{
+              width: 26, height: 26, borderRadius: 6,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: icon === ic ? color : 'var(--surface-2)',
+              border: '1px solid var(--border)', cursor: 'pointer',
+            }}
+          >
+            <Icon name={ic} size={13} style={{ color: icon === ic ? '#fff' : 'var(--muted)' }} />
+          </button>
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end', marginTop: 4 }}>
+        <button type="button" onClick={onCancel} className="btn-ghost" style={{ fontSize: 12 }}>Annuler</button>
+        <button type="button" onClick={() => onSubmit(color, icon)} className="btn-primary-brand" style={{ fontSize: 12 }}>Appliquer</button>
+      </div>
+    </div>
+  );
+}
+
 function DeleteConfirm({ section, childCount, resourceCount, destinationLabel, onConfirm, onCancel }: {
   section: ResourceSection;
   childCount: number;
@@ -127,7 +182,7 @@ function DeleteConfirm({ section, childCount, resourceCount, destinationLabel, o
           type="button"
           onClick={onConfirm}
           disabled={hasContent && !checked}
-          className="btn-primary"
+          className="btn-primary-brand"
           style={{ fontSize: 12, opacity: hasContent && !checked ? 0.5 : 1 }}
         >
           Supprimer
@@ -137,32 +192,111 @@ function DeleteConfirm({ section, childCount, resourceCount, destinationLabel, o
   );
 }
 
-function SectionRow({ section, count, active, readOnly, indent, onSelect, onStartRename, onStartDelete, onStartCreateSub }: {
+function SectionMenu({ anchorRect, onClose, onRename, onCreateSub, onRestyle, onDelete, canCreateSub }: {
+  anchorRect: DOMRect;
+  onClose: () => void;
+  onRename: () => void;
+  onCreateSub?: () => void;
+  onRestyle: () => void;
+  onDelete: () => void;
+  canCreateSub: boolean;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function onMouseDown(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener('mousedown', onMouseDown);
+    return () => document.removeEventListener('mousedown', onMouseDown);
+  }, [onClose]);
+
+  const left = Math.min(anchorRect.left, window.innerWidth - 190);
+  const top = anchorRect.bottom + 4;
+
+  const items: { label: string; icon: IconName; danger?: boolean; onClick: () => void }[] = [
+    { label: 'Renommer', icon: 'edit', onClick: () => { onRename(); onClose(); } },
+    ...(canCreateSub ? [{ label: 'Nouvelle sous-section', icon: 'plus' as IconName, onClick: () => { onCreateSub?.(); onClose(); } }] : []),
+    { label: 'Couleur & icône', icon: 'sparkle', onClick: () => { onRestyle(); onClose(); } },
+    { label: 'Supprimer', icon: 'trash', danger: true, onClick: () => { onDelete(); onClose(); } },
+  ];
+
+  return (
+    <div
+      ref={menuRef}
+      style={{
+        position: 'fixed', left, top, zIndex: 3000,
+        minWidth: 178, background: 'var(--surface)', border: '1px solid var(--border)',
+        borderRadius: 11, boxShadow: 'var(--shadow-menu, 0 8px 28px rgba(0,0,0,.16))',
+        overflow: 'hidden', fontSize: 13,
+      }}
+    >
+      {items.map((item, i) => (
+        <div
+          key={item.label}
+          onClick={item.onClick}
+          style={{
+            display: 'flex', alignItems: 'center', gap: 10, padding: '10px 13px', cursor: 'pointer',
+            color: item.danger ? 'var(--red)' : 'var(--ink)',
+            borderTop: i > 0 ? '1px solid var(--border)' : 'none',
+          }}
+          onMouseEnter={e => (e.currentTarget.style.background = 'var(--surface-2)')}
+          onMouseLeave={e => (e.currentTarget.style.background = 'none')}
+        >
+          <Icon name={item.icon} size={14} style={{ color: item.danger ? 'var(--red)' : 'var(--muted)' }} />
+          {item.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SectionRow({ section, count, active, readOnly, indent, hasChildren, isOpen, showUnseenDot, unseen, onSelect, onToggleOpen, onOpenMenu }: {
   section: ResourceSection;
   count: number;
   active: boolean;
   readOnly: boolean;
   indent: boolean;
+  hasChildren: boolean;
+  isOpen: boolean;
+  showUnseenDot: boolean;
+  unseen: boolean;
   onSelect: () => void;
-  onStartRename: () => void;
-  onStartDelete: () => void;
-  onStartCreateSub?: () => void;
+  onToggleOpen: () => void;
+  onOpenMenu: (rect: DOMRect) => void;
 }) {
   const [hover, setHover] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
 
   return (
     <div
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
       style={{
-        display: 'flex', alignItems: 'center', gap: 8,
+        display: 'flex', alignItems: 'center', gap: 7,
         padding: '7px 8px', marginLeft: indent ? 18 : 0,
         borderRadius: 8, cursor: 'pointer',
         background: active ? 'var(--surface-2)' : 'transparent',
       }}
       onClick={onSelect}
     >
-      <Icon name={(section.icon as IconName) || 'folder'} size={14} style={{ color: active ? 'var(--accent)' : 'var(--muted)', flexShrink: 0 }} />
+      {!indent && (
+        hasChildren ? (
+          <span
+            onClick={e => { e.stopPropagation(); onToggleOpen(); }}
+            style={{ width: 16, display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', flexShrink: 0 }}
+          >
+            <Icon name="chevR" size={11} style={{ color: 'var(--muted)', transform: isOpen ? 'rotate(90deg)' : 'none', transition: 'transform 150ms' }} />
+          </span>
+        ) : (
+          <span style={{ width: 16, flexShrink: 0 }} />
+        )
+      )}
+      {indent ? (
+        <span style={{ width: 6, height: 6, borderRadius: '50%', background: section.color, flexShrink: 0 }} />
+      ) : (
+        <Icon name={(section.icon as IconName) || 'folder'} size={14} style={{ color: active ? section.color : 'var(--muted)', flexShrink: 0 }} />
+      )}
       <span style={{
         flex: 1, minWidth: 0, fontSize: 13, fontWeight: active ? 600 : 500,
         color: active ? 'var(--accent)' : 'var(--ink)',
@@ -170,33 +304,39 @@ function SectionRow({ section, count, active, readOnly, indent, onSelect, onStar
       }}>
         {section.name}
       </span>
+      {showUnseenDot && unseen && (
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
+      )}
       <span style={{ fontSize: 11, color: 'var(--muted)', flexShrink: 0 }}>{count}</span>
       {!readOnly && (
-        <div style={{ display: 'flex', gap: 2, flexShrink: 0, opacity: hover ? 1 : 0, transition: 'opacity 120ms' }} onClick={e => e.stopPropagation()}>
-          {!indent && onStartCreateSub && (
-            <button type="button" onClick={onStartCreateSub} title="Nouveau sous-dossier" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3, borderRadius: 5, lineHeight: 0 }}>
-              <Icon name="plus" size={12} />
-            </button>
-          )}
-          <button type="button" onClick={onStartRename} title="Renommer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3, borderRadius: 5, lineHeight: 0 }}>
-            <Icon name="edit" size={12} />
-          </button>
-          <button type="button" onClick={onStartDelete} title="Supprimer" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 3, borderRadius: 5, lineHeight: 0 }}>
-            <Icon name="trash" size={12} />
-          </button>
-        </div>
+        <button
+          ref={menuBtnRef}
+          type="button"
+          onClick={e => { e.stopPropagation(); if (menuBtnRef.current) onOpenMenu(menuBtnRef.current.getBoundingClientRect()); }}
+          title="Options"
+          style={{
+            background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)',
+            padding: 3, borderRadius: 5, lineHeight: 0, flexShrink: 0,
+            opacity: hover ? 1 : 0, transition: 'opacity 120ms',
+          }}
+        >
+          <Icon name="ellipsis" size={14} />
+        </button>
       )}
     </div>
   );
 }
 
 export default function ResourceSectionTree({
-  sections, resources, activeSectionId, onSelect, onClose, readOnly,
-  onCreate, onRename, onDelete,
+  sections, resources, activeSectionId, onSelect, onClose, readOnly, showUnseenDot, autoCreate,
+  onCreate, onRename, onDelete, onRestyle,
 }: Props) {
-  const [creatingUnder, setCreatingUnder] = useState<string | null | undefined>(undefined); // undefined = pas de création en cours, null = racine
+  const [creatingUnder, setCreatingUnder] = useState<string | null | undefined>(autoCreate ? null : undefined); // undefined = pas de création en cours, null = racine
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [restylingId, setRestylingId] = useState<string | null>(null);
+  const [openRoots, setOpenRoots] = useState<Record<string, boolean>>({});
+  const [menu, setMenu] = useState<{ sectionId: string; rect: DOMRect } | null>(null);
 
   const rootSections = sections.filter(s => s.parent_id === null);
   const visibleSections = readOnly
@@ -218,15 +358,34 @@ export default function ResourceSectionTree({
   }
 
   const deletingSection = deletingId ? sections.find(s => s.id === deletingId) : null;
+  const restylingSection = restylingId ? sections.find(s => s.id === restylingId) : null;
+  const totalResourceCount = resources.filter(r => r.section_id !== null).length + resources.filter(r => r.section_id === null).length;
 
   return (
     <>
-      <div style={{ padding: '18px 16px 12px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
+      <div style={{ padding: '15px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>Dossiers</div>
-          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, borderRadius: 6, lineHeight: 0 }}>
-            <Icon name="x" size={16} />
-          </button>
+          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--font-mono, inherit)' }}>
+            {readOnly ? 'Mes dossiers' : 'Dossiers'}
+          </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            {!readOnly && (
+              <button
+                type="button"
+                onClick={() => setCreatingUnder(null)}
+                style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, height: 24, padding: '0 9px',
+                  borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)',
+                  cursor: 'pointer', color: 'var(--accent-brand, var(--accent))', fontSize: 11, fontWeight: 600,
+                }}
+              >
+                <Icon name="plus" size={13} /> Dossier
+              </button>
+            )}
+            <button type="button" onClick={onClose} style={{ width: 24, height: 24, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--muted)' }}>
+              <Icon name="x" size={14} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -244,10 +403,22 @@ export default function ResourceSectionTree({
           <span style={{ flex: 1, fontSize: 13, fontWeight: activeSectionId === null ? 600 : 500, color: activeSectionId === null ? 'var(--accent)' : 'var(--ink)' }}>
             Toutes les ressources
           </span>
+          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{totalResourceCount}</span>
         </div>
+
+        {creatingUnder === null && (
+          <InlineForm
+            initialName=""
+            initialIcon="folder"
+            onSubmit={async (name, icon) => { await onCreate?.(name, null, icon); setCreatingUnder(undefined); }}
+            onCancel={() => setCreatingUnder(undefined)}
+          />
+        )}
 
         {visibleRoots.map(root => {
           const subs = childrenOf(root.id);
+          const hasChildren = subs.length > 0;
+          const isOpen = !!openRoots[root.id];
           return (
             <div key={root.id}>
               {renamingId === root.id ? (
@@ -257,6 +428,12 @@ export default function ResourceSectionTree({
                   onSubmit={async (name) => { await onRename?.(root.id, name); setRenamingId(null); }}
                   onCancel={() => setRenamingId(null)}
                 />
+              ) : restylingId === root.id && restylingSection ? (
+                <RestylePanel
+                  section={restylingSection}
+                  onSubmit={async (color, icon) => { await onRestyle?.(root.id, color, icon); setRestylingId(null); }}
+                  onCancel={() => setRestylingId(null)}
+                />
               ) : (
                 <SectionRow
                   section={root}
@@ -264,10 +441,13 @@ export default function ResourceSectionTree({
                   active={activeSectionId === root.id}
                   readOnly={readOnly}
                   indent={false}
+                  hasChildren={hasChildren}
+                  isOpen={isOpen}
+                  showUnseenDot={!!showUnseenDot}
+                  unseen={sectionHasUnseenResource(root.id, sections, resources)}
                   onSelect={() => select(root.id)}
-                  onStartRename={() => setRenamingId(root.id)}
-                  onStartDelete={() => setDeletingId(root.id)}
-                  onStartCreateSub={() => setCreatingUnder(root.id)}
+                  onToggleOpen={() => setOpenRoots(prev => ({ ...prev, [root.id]: !prev[root.id] }))}
+                  onOpenMenu={rect => setMenu({ sectionId: root.id, rect })}
                 />
               )}
               {deletingId === root.id && deletingSection && (
@@ -280,7 +460,7 @@ export default function ResourceSectionTree({
                   onCancel={() => setDeletingId(null)}
                 />
               )}
-              {subs.map(sub => (
+              {hasChildren && isOpen && subs.map(sub => (
                 <div key={sub.id}>
                   {renamingId === sub.id ? (
                     <InlineForm
@@ -289,6 +469,14 @@ export default function ResourceSectionTree({
                       onSubmit={async (name) => { await onRename?.(sub.id, name); setRenamingId(null); }}
                       onCancel={() => setRenamingId(null)}
                     />
+                  ) : restylingId === sub.id && restylingSection ? (
+                    <div style={{ marginLeft: 18 }}>
+                      <RestylePanel
+                        section={restylingSection}
+                        onSubmit={async (color, icon) => { await onRestyle?.(sub.id, color, icon); setRestylingId(null); }}
+                        onCancel={() => setRestylingId(null)}
+                      />
+                    </div>
                   ) : (
                     <SectionRow
                       section={sub}
@@ -296,9 +484,13 @@ export default function ResourceSectionTree({
                       active={activeSectionId === sub.id}
                       readOnly={readOnly}
                       indent={true}
+                      hasChildren={false}
+                      isOpen={false}
+                      showUnseenDot={!!showUnseenDot}
+                      unseen={sectionHasUnseenResource(sub.id, sections, resources)}
                       onSelect={() => select(sub.id)}
-                      onStartRename={() => setRenamingId(sub.id)}
-                      onStartDelete={() => setDeletingId(sub.id)}
+                      onToggleOpen={() => {}}
+                      onOpenMenu={rect => setMenu({ sectionId: sub.id, rect })}
                     />
                   )}
                   {deletingId === sub.id && deletingSection && (
@@ -326,29 +518,29 @@ export default function ResourceSectionTree({
             </div>
           );
         })}
-
-        {!readOnly && creatingUnder === null && (
-          <InlineForm
-            initialName=""
-            initialIcon="folder"
-            onSubmit={async (name, icon) => { await onCreate?.(name, null, icon); setCreatingUnder(undefined); }}
-            onCancel={() => setCreatingUnder(undefined)}
-          />
-        )}
       </div>
 
-      {!readOnly && creatingUnder === undefined && (
-        <div style={{ padding: '10px 16px 16px', flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={() => setCreatingUnder(null)}
-            className="btn-ghost"
-            style={{ fontSize: 13, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
-          >
-            <Icon name="plus" size={13} /> Nouveau dossier
-          </button>
+      {!readOnly && (
+        <div style={{ padding: '10px 14px', borderTop: '1px solid var(--border)', flexShrink: 0, fontSize: 11, color: 'var(--muted)' }}>
+          {resources.length} ressource{resources.length !== 1 ? 's' : ''} · {sections.length} dossier{sections.length !== 1 ? 's' : ''}
         </div>
       )}
+
+      {menu && (() => {
+        const menuSection = sections.find(s => s.id === menu.sectionId);
+        if (!menuSection) return null;
+        return (
+          <SectionMenu
+            anchorRect={menu.rect}
+            onClose={() => setMenu(null)}
+            onRename={() => setRenamingId(menu.sectionId)}
+            onCreateSub={menuSection.parent_id === null ? () => setCreatingUnder(menu.sectionId) : undefined}
+            canCreateSub={menuSection.parent_id === null}
+            onRestyle={() => setRestylingId(menu.sectionId)}
+            onDelete={() => setDeletingId(menu.sectionId)}
+          />
+        );
+      })()}
     </>
   );
 }

@@ -188,7 +188,7 @@ export default function PageClientCalendar() {
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>{call.topic || 'Call coaching'}</div>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button
-                    className="btn-primary"
+                    className="btn-primary-brand"
                     type="button"
                     onClick={() => handleAccept(call.id)}
                     disabled={respondingId === call.id}
@@ -425,7 +425,7 @@ export default function PageClientCalendar() {
                 Annuler
               </button>
               <button
-                className="btn-primary"
+                className="btn-primary-brand"
                 type="button"
                 style={{ flex: 1, background: '#ef4444', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 5 }}
                 onClick={() => handleDecline(declineModal.callId, proposedAt)}

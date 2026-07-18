@@ -181,7 +181,7 @@ export default function PageClientView() {
                       )}
                     </div>
                     <button
-                      className="btn-primary"
+                      className="btn-primary-brand"
                       type="button"
                       style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
                       onClick={() => setOpenRapport(notif)}

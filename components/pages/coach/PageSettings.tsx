@@ -292,7 +292,7 @@ export default function PageSettings() {
             </div>
           </div>
           <div style={{ marginTop: 16, display: 'flex', justifyContent: 'flex-end' }}>
-            <button className="btn-primary" type="button" onClick={saveProfile}>Sauvegarder</button>
+            <button className="btn-primary-brand" type="button" onClick={saveProfile}>Sauvegarder</button>
           </div>
         </div>
       </div>
@@ -347,11 +347,11 @@ export default function PageSettings() {
                       </button>
                     </div>
                   ) : cfg.mode === 'oauth' ? (
-                    <a href={cfg.oauthPath} className="btn-primary" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                    <a href={cfg.oauthPath} className="btn-primary-brand" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                       <Icon name="link" size={13} /> Connecter
                     </a>
                   ) : (
-                    <button className="btn-primary" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                    <button className="btn-primary-brand" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                       <Icon name="link" size={13} /> Connecter
                     </button>
                   )}
@@ -440,7 +440,7 @@ export default function PageSettings() {
                         autoFocus
                         style={{ flex: 1, padding: '8px 12px', border: `1px solid ${keyError ? '#fca5a5' : 'var(--border)'}`, borderRadius: 8, fontSize: 13, background: 'var(--surface)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none' }}
                       />
-                      <button className="btn-primary" style={{ fontSize: 12, minWidth: 110 }} type="button" disabled={validating || saving || !keyInput.trim()} onClick={() => saveKey(cfg.provider)}>
+                      <button className="btn-primary-brand" style={{ fontSize: 12, minWidth: 110 }} type="button" disabled={validating || saving || !keyInput.trim()} onClick={() => saveKey(cfg.provider)}>
                         {validating ? '⏳ Vérification…' : saving ? 'Sauvegarde…' : 'Connecter'}
                       </button>
                       <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(null); setKeyError(null); }}>

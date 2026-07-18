@@ -7,6 +7,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { sectionHasChildren } from '@/lib/resourceHelpers';
 import ResourceModal, { type Resource } from './ResourceModal';
 import ResourceCardCoach from './ResourceCardCoach';
 import ResourceSectionTree from './ResourceSectionTree';
@@ -25,6 +26,43 @@ const itemVariants = {
   show: { opacity: 1, y: 0, transition: { ease: 'easeOut' as const, duration: 0.35 } },
 };
 
+type SectionSelection = string | null | 'folders';
+
+function SectionFolderCard({ section, count, subCount, onClick }: {
+  section: ResourceSection;
+  count: number;
+  subCount: number;
+  onClick: () => void;
+}) {
+  return (
+    <motion.div
+      variants={itemVariants}
+      className="card dc-liftrow"
+      onClick={onClick}
+      style={{
+        padding: '15px 16px', display: 'flex', alignItems: 'center', gap: 13,
+        cursor: 'pointer',
+      }}
+    >
+      <span style={{
+        width: 40, height: 40, borderRadius: 11, flexShrink: 0,
+        background: `${section.color}18`, display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}>
+        <Icon name={(section.icon as IconName) || 'folder'} size={19} style={{ color: section.color }} />
+      </span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {section.name}
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+          {count} ressource{count !== 1 ? 's' : ''}{subCount > 0 ? ` · ${subCount} sous-section${subCount !== 1 ? 's' : ''}` : ''}
+        </div>
+      </div>
+      <Icon name="chevR" size={16} style={{ color: 'var(--muted)', flexShrink: 0 }} />
+    </motion.div>
+  );
+}
+
 export default function PageResources() {
   const { clients } = useSupabaseClients();
   const supabase = createClient();
@@ -34,8 +72,9 @@ export default function PageResources() {
   const [accessMap, setAccessMap] = useState<Record<string, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
+  const [activeSectionId, setActiveSectionId] = useState<SectionSelection>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [autoCreateFolder, setAutoCreateFolder] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingResource, setEditingResource] = useState<Resource | null>(null);
@@ -142,6 +181,12 @@ export default function PageResources() {
     setSections(prev => prev.map(s => s.id === id ? data : s));
   }
 
+  async function handleRestyleSection(id: string, color: string, icon: IconName) {
+    const { data, error } = await supabase.from('resource_sections').update({ color, icon }).eq('id', id).select().single();
+    if (error) { console.error('restyle section error', error); return; }
+    setSections(prev => prev.map(s => s.id === id ? data : s));
+  }
+
   async function handleDeleteSection(id: string) {
     const section = sections.find(s => s.id === id);
     if (!section) return;
@@ -161,13 +206,23 @@ export default function PageResources() {
     if (activeSectionId === id) setActiveSectionId(destinationId);
   }
 
-  const filtered = resources.filter(r =>
-    (!search || r.title.toLowerCase().includes(search.toLowerCase())) &&
-    r.section_id === activeSectionId
-  );
-
-  const activeSection = activeSectionId ? sections.find(s => s.id === activeSectionId) : null;
+  const activeSection = (activeSectionId && activeSectionId !== 'folders') ? sections.find(s => s.id === activeSectionId) : null;
   const activeParent = activeSection?.parent_id ? sections.find(s => s.id === activeSection.parent_id) : null;
+
+  const showAllFolders = activeSectionId === 'folders';
+  const drillDownChildren = (!showAllFolders && activeSectionId && sectionHasChildren(sections, activeSectionId))
+    ? sections.filter(s => s.parent_id === activeSectionId)
+    : [];
+  const showingFolderCards = showAllFolders || drillDownChildren.length > 0;
+
+  const folderCards = showAllFolders
+    ? sections.filter(s => s.parent_id === null)
+    : drillDownChildren;
+
+  const filtered = showAllFolders ? [] : resources.filter(r =>
+    (!search || r.title.toLowerCase().includes(search.toLowerCase())) &&
+    r.section_id === (activeSectionId as string | null)
+  );
 
   if (loading) return (
     <div className="page-content">
@@ -178,6 +233,39 @@ export default function PageResources() {
 
   return (
     <div className="page-content" style={{ position: 'relative' }}>
+      {/* Barre de navigation dossiers — ☰ + fil d'ariane, en haut à gauche */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          title="Dossiers"
+          style={{
+            background: 'var(--surface-2)', border: '1px solid var(--border)',
+            borderRadius: 8, padding: '8px 9px', cursor: 'pointer',
+            color: 'var(--ink)', display: 'flex', alignItems: 'center', flexShrink: 0,
+          }}
+        >
+          <Icon name="list" size={15} />
+        </button>
+        {activeSectionId && activeSection ? (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+            <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(null)}>Ressources</span>
+            {activeParent && (
+              <>
+                <Icon name="chevR" size={10} />
+                <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(activeParent.id)}>{activeParent.name}</span>
+              </>
+            )}
+            <Icon name="chevR" size={10} />
+            <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeSection.name}</span>
+          </div>
+        ) : activeSectionId === 'folders' ? (
+          <div style={{ fontSize: 12, color: 'var(--accent)', fontWeight: 600 }}>Ressources</div>
+        ) : (
+          <div style={{ fontSize: 12, color: 'var(--muted)' }}>Ressources</div>
+        )}
+      </div>
+
       {/* Header */}
       <div className="page-header">
         <div>
@@ -189,15 +277,19 @@ export default function PageResources() {
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button
             type="button"
-            onClick={() => setDrawerOpen(true)}
-            title="Dossiers"
-            style={{
-              background: 'var(--surface-2)', border: '1px solid var(--border)',
-              borderRadius: 8, padding: '8px 9px', cursor: 'pointer',
-              color: 'var(--ink)', display: 'flex', alignItems: 'center',
-            }}
+            onClick={() => setActiveSectionId('folders')}
+            className="btn-ghost"
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 8 }}
           >
-            <Icon name="list" size={15} />
+            <Icon name="folder" size={14} /> Tous les dossiers
+          </button>
+          <button
+            type="button"
+            onClick={() => { setAutoCreateFolder(true); setDrawerOpen(true); }}
+            className="btn-ghost"
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 8 }}
+          >
+            <Icon name="plus" size={14} /> Dossier
           </button>
           {resources.length > 0 && (
             <div style={{ position: 'relative' }}>
@@ -217,7 +309,7 @@ export default function PageResources() {
           )}
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary-brand"
             onClick={openCreate}
             style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
@@ -225,21 +317,6 @@ export default function PageResources() {
           </button>
         </div>
       </div>
-
-      {/* Fil d'ariane */}
-      {activeSectionId && activeSection && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-          <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(null)}>Toutes les ressources</span>
-          {activeParent && (
-            <>
-              <Icon name="arrowR" size={10} />
-              <span style={{ cursor: 'pointer' }} onClick={() => setActiveSectionId(activeParent.id)}>{activeParent.name}</span>
-            </>
-          )}
-          <Icon name="arrowR" size={10} />
-          <span style={{ color: 'var(--accent)', fontWeight: 600 }}>{activeSection.name}</span>
-        </div>
-      )}
 
       {/* Empty state */}
       {resources.length === 0 && (
@@ -265,7 +342,7 @@ export default function PageResources() {
           </div>
           <button
             type="button"
-            className="btn-primary"
+            className="btn-primary-brand"
             onClick={openCreate}
             style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
@@ -275,14 +352,46 @@ export default function PageResources() {
       )}
 
       {/* No results */}
-      {resources.length > 0 && filtered.length === 0 && (
+      {resources.length > 0 && !showingFolderCards && filtered.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', paddingTop: 40 }}>
           {search ? 'Aucune ressource ne correspond à ta recherche.' : 'Ce dossier est vide.'}
         </div>
       )}
+      {showAllFolders && folderCards.length === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', paddingTop: 40 }}>
+          Aucun dossier créé pour l'instant.
+        </div>
+      )}
 
-      {/* Grid */}
-      {filtered.length > 0 && (
+      {/* Cartes-dossier (Tous les dossiers ou drill-down) */}
+      {showingFolderCards && folderCards.length > 0 && (
+        <motion.div
+          className="resource-grid"
+          variants={containerVariants}
+          initial="hidden"
+          animate="show"
+        >
+          {folderCards.map(fc => (
+            <SectionFolderCard
+              key={fc.id}
+              section={fc}
+              count={resources.filter(r => r.section_id === fc.id).length}
+              subCount={sections.filter(s => s.parent_id === fc.id).length}
+              onClick={() => setActiveSectionId(fc.id)}
+            />
+          ))}
+        </motion.div>
+      )}
+
+      {/* Ressources directes du dossier en drill-down */}
+      {drillDownChildren.length > 0 && filtered.length > 0 && (
+        <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 10px' }}>
+          Dans ce dossier
+        </div>
+      )}
+
+      {/* Grid ressources (flat, ou "dans ce dossier" en drill-down) */}
+      {!showAllFolders && filtered.length > 0 && (
         <motion.div
           className="resource-grid"
           variants={containerVariants}
@@ -347,17 +456,19 @@ export default function PageResources() {
       {/* Tiroir dossiers */}
       <AnimatePresence>
         {drawerOpen && (
-          <DrawerShell onClose={() => setDrawerOpen(false)}>
+          <DrawerShell onClose={() => { setDrawerOpen(false); setAutoCreateFolder(false); }}>
             <ResourceSectionTree
               sections={sections}
               resources={resources}
-              activeSectionId={activeSectionId}
+              activeSectionId={activeSectionId === 'folders' ? null : activeSectionId}
               onSelect={setActiveSectionId}
-              onClose={() => setDrawerOpen(false)}
+              onClose={() => { setDrawerOpen(false); setAutoCreateFolder(false); }}
               readOnly={false}
+              autoCreate={autoCreateFolder}
               onCreate={handleCreateSection}
               onRename={handleRenameSection}
               onDelete={handleDeleteSection}
+              onRestyle={handleRestyleSection}
             />
           </DrawerShell>
         )}

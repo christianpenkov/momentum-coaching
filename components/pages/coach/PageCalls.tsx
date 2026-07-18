@@ -191,7 +191,7 @@ export default function PageCalls() {
             {syncing ? 'Sync…' : 'Sync calls'}
           </button>
           <button
-            className="btn-primary"
+            className="btn-primary-brand"
             type="button"
             onClick={() => { setShowModal(true); setCreateMsg(null); }}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
@@ -530,7 +530,7 @@ export default function PageCalls() {
                 </button>
                 <button
                   type="submit"
-                  className="btn-primary"
+                  className="btn-primary-brand"
                   style={{ flex: 1, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                   disabled={creating}
                 >
@@ -563,7 +563,7 @@ export default function PageCalls() {
                 Retour
               </button>
               <button
-                className="btn-primary"
+                className="btn-primary-brand"
                 type="button"
                 style={{ flex: 1, background: '#ef4444', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}
                 disabled={cancelingId === confirmCancelId}

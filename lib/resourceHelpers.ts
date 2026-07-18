@@ -1,10 +1,17 @@
 import type { IconName } from '@/components/ui/Icon';
 
 const SECTION_ICON_KEYWORDS: { keywords: string[]; icon: IconName }[] = [
+  { keywords: ['insta', 'reel', 'story', 'stories', 'feed'], icon: 'camera' },
+  { keywords: ['youtube', 'yt', 'video', 'vidéo', 'tourn'], icon: 'play' },
+  { keywords: ['vente', 'closing', 'sales', 'deal', 'revenu', 'chiffre'], icon: 'trending-up' },
+  { keywords: ['mail', 'email', 'dm', 'message', 'prospect'], icon: 'mail' },
+  { keywords: ['calendrier', 'agenda', 'planning', 'semaine', 'jour'], icon: 'calendar' },
+  { keywords: ['client', 'élève', 'eleve', 'communau', 'audience', 'abonn'], icon: 'users' },
+  { keywords: ['lien', 'link', 'url'], icon: 'link' },
   { keywords: ['mental', 'motivation', 'mindset', 'psycho'], icon: 'brain' },
-  { keywords: ['technique', 'exercice', 'training', 'sport', 'muscu', 'entrainement', 'entraînement'], icon: 'zap' },
-  { keywords: ['objectif', 'goal', 'challenge', 'défi', 'defi'], icon: 'target' },
-  { keywords: ['favori', 'important', 'top', 'prioritaire'], icon: 'star' },
+  { keywords: ['technique', 'exercice', 'training', 'sport', 'muscu', 'entrainement', 'entraînement', 'outil', 'tool', 'setup', 'config'], icon: 'zap' },
+  { keywords: ['objectif', 'goal', 'challenge', 'défi', 'defi', 'kpi', 'cible'], icon: 'target' },
+  { keywords: ['favori', 'important', 'top', 'prioritaire', 'premium'], icon: 'star' },
 ];
 
 export function guessSectionIcon(name: string): IconName {
@@ -13,6 +20,20 @@ export function guessSectionIcon(name: string): IconName {
     if (entry.keywords.some(k => n.includes(k))) return entry.icon;
   }
   return 'folder';
+}
+
+export function sectionHasChildren(sections: { id: string; parent_id: string | null }[], sectionId: string): boolean {
+  return sections.some(s => s.parent_id === sectionId);
+}
+
+export function sectionHasUnseenResource(
+  sectionId: string,
+  sections: { id: string; parent_id: string | null }[],
+  resources: Array<{ section_id: string | null; seen_at?: string | null }>
+): boolean {
+  const childIds = sections.filter(s => s.parent_id === sectionId).map(s => s.id);
+  const relevantIds = [sectionId, ...childIds];
+  return resources.some(r => r.section_id !== null && relevantIds.includes(r.section_id) && r.seen_at === null);
 }
 
 export function formatSize(bytes: number | null): string {
