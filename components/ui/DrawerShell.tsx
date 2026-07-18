@@ -28,10 +28,11 @@ export default function DrawerShell({ onClose, width = 240, children }: Props) {
       exit={{ opacity: 0 }}
       transition={{ duration: reducedMotion ? 0 : 0.22, ease: 'linear' }}
       onClick={onClose}
+      className="dc-drawer-backdrop"
       style={{
-        position: 'fixed', top: 48, left: 0, right: 0, bottom: 0, zIndex: 2500,
-        background: 'rgba(0,0,0,0.28)',
-        backdropFilter: 'blur(3px)', WebkitBackdropFilter: 'blur(3px)',
+        position: 'fixed', right: 0, bottom: 0, zIndex: 2500,
+        background: 'rgba(0,0,0,0.08)',
+        backdropFilter: 'blur(1px)', WebkitBackdropFilter: 'blur(1px)',
       }}
     >
       <motion.div
@@ -42,7 +43,7 @@ export default function DrawerShell({ onClose, width = 240, children }: Props) {
         transition={{ duration: reducedMotion ? 0 : 0.30, ease: [0.16, 1, 0.3, 1] }}
         onClick={e => e.stopPropagation()}
         style={{
-          position: 'fixed', top: 48, bottom: 0, width,
+          position: 'fixed', bottom: 0, width,
           maxWidth: '86vw',
           background: 'var(--surface)',
           borderRight: '1px solid var(--border)',

@@ -1015,10 +1015,11 @@ a { color: inherit; text-decoration: none; }
 /* Resources page */
 .resource-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; align-items: stretch; grid-auto-rows: max-content; }
 
-/* Tiroir dossiers — démarre à droite de la sidebar desktop (232px), pleine largeur en mobile */
-.dc-drawer-panel { left: 232px; }
+/* Tiroir dossiers — démarre à droite de la sidebar et sous la topbar desktop (48px),
+   pleine largeur et sous la topbar mobile (52px) en mobile */
+.dc-drawer-panel, .dc-drawer-backdrop { left: 232px; top: 48px; }
 @media (max-width: 767px) {
-  .dc-drawer-panel { left: 0; }
+  .dc-drawer-panel, .dc-drawer-backdrop { left: 0; top: 52px; }
 }
 .resource-card {
   background: var(--surface);

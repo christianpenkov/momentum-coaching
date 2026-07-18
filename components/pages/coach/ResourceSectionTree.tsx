@@ -198,7 +198,9 @@ function SectionRow({ section, count, active, readOnly, indent, hasChildren, isO
         display: 'flex', alignItems: 'center', gap: 7,
         padding: '7px 8px', marginLeft: indent ? 18 : 0,
         borderRadius: 8, cursor: 'pointer',
-        background: active ? 'var(--surface-2)' : 'transparent',
+        background: active ? 'var(--surface)' : 'transparent',
+        border: active ? '1px solid var(--border)' : '1px solid transparent',
+        boxShadow: active ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
       }}
       onClick={onSelect}
     >
@@ -316,7 +318,9 @@ export default function ResourceSectionTree({
           style={{
             display: 'flex', alignItems: 'center', gap: 8,
             padding: '7px 8px', borderRadius: 8, cursor: 'pointer', marginBottom: 4,
-            background: activeSectionId === null ? 'var(--surface-2)' : 'transparent',
+            background: activeSectionId === null ? 'var(--surface)' : 'transparent',
+            border: activeSectionId === null ? '1px solid var(--border)' : '1px solid transparent',
+            boxShadow: activeSectionId === null ? '0 1px 3px rgba(0,0,0,0.06)' : 'none',
           }}
         >
           <Icon name="stack" size={14} style={{ color: activeSectionId === null ? 'var(--accent)' : 'var(--muted)' }} />
