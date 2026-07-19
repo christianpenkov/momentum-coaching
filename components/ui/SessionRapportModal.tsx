@@ -91,11 +91,12 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 680, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 16,
+          width: 460, maxWidth: '92vw', minHeight: 420, background: 'var(--surface)', borderRadius: 16,
           border: '1px solid var(--border)',
           boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
           overflow: 'hidden',
           position: 'relative',
+          display: 'flex', flexDirection: 'column',
         }}
       >
         {confirmClose && (
@@ -154,7 +155,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
           <button onClick={requestClose} type="button" className="icon-btn"><Icon name="x" size={15} /></button>
         </div>
 
-        <div style={{ padding: '20px 24px' }}>
+        <div style={{ padding: '20px 24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
           {scheduledAt && step === 'attended' && (
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
               Call du {formatDate(scheduledAt)}
