@@ -151,15 +151,18 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
                     title={c.name}
                     style={{
                       width: 24, height: 24, borderRadius: '50%',
-                      background: avatarColor(i),
+                      background: c.avatar_url ? undefined : avatarColor(i),
                       border: '2px solid var(--surface)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 9, fontWeight: 700, color: '#fff',
                       marginLeft: i === 0 ? 0 : -7,
                       position: 'relative', zIndex: shownClients.length - i,
+                      overflow: 'hidden',
                     }}
                   >
-                    {(c.initials || c.name.slice(0, 2)).toUpperCase()}
+                    {c.avatar_url
+                      ? <img src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                      : (c.initials || c.name.slice(0, 2)).toUpperCase()}
                   </div>
                 ))}
                 {extraCount > 0 && (

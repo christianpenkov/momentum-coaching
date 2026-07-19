@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import Avatar from '@/components/ui/Avatar';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 type Tab = 'upcoming' | 'history';
@@ -224,9 +225,7 @@ export default function PageCalls() {
                       {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                     </div>
                   </div>
-                  <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, fontWeight: 700, flexShrink: 0 }}>
-                    {initials}
-                  </div>
+                  <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={34} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
                       {displayName}
@@ -294,8 +293,8 @@ export default function PageCalls() {
                     </div>
                   </div>
                   <div style={{ width: 1, height: 40, background: 'var(--border)', opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }} />
-                  <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, fontWeight: 700, flexShrink: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
-                    {initials}
+                  <div style={{ flexShrink: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
+                    <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={40} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>
@@ -375,9 +374,7 @@ export default function PageCalls() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700 }}>
-                            {initials}
-                          </div>
+                          <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={28} />
                           <span style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</span>
                         </div>
                       </td>

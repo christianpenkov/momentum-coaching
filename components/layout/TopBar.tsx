@@ -3,6 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import Icon from '../ui/Icon';
+import Avatar from '../ui/Avatar';
 import { useUser } from '@/lib/UserContext';
 import { useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
@@ -52,8 +53,8 @@ export default function TopBar() {
           )}
         </button>
 
-        <div className="avatar" style={{ width: 30, height: 30, fontSize: 11, cursor: 'pointer' }} title={name}>
-          {initials || '?'}
+        <div title={name} style={{ cursor: 'pointer' }}>
+          <Avatar initials={initials || '?'} avatarUrl={user?.avatar_url} size={30} />
         </div>
       </div>
 

@@ -161,7 +161,7 @@ export default function PageClientAnalytics({ id }: Props) {
     <div className="page-content">
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} size={42} />
+          <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={42} />
           <div>
             <h1 className="page-title">Analytics — {client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

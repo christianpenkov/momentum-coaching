@@ -266,7 +266,7 @@ export default function PageClientDetail({ id }: Props) {
       {/* Header */}
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} size={48} />
+          <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={48} />
           <div>
             <h1 className="page-title" style={{ marginBottom: 4 }}>{client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

@@ -272,11 +272,14 @@ export default function PageAnalytics() {
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{
-                            width: 32, height: 32, borderRadius: '50%', background: color,
+                            width: 32, height: 32, borderRadius: '50%', background: c.avatar_url ? undefined : color,
                             display: 'flex', alignItems: 'center', justifyContent: 'center',
                             fontSize: 11, fontWeight: 700, color: '#fff', flexShrink: 0,
+                            overflow: 'hidden',
                           }}>
-                            {initials(c.name)}
+                            {c.avatar_url
+                              ? <img src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                              : initials(c.name)}
                           </div>
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</div>

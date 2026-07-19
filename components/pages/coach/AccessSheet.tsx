@@ -251,15 +251,18 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                           <div style={{ position: 'relative' }}>
                             <div style={{
                               width: 56, height: 56, borderRadius: '50%',
-                              background: color,
+                              background: client.avatar_url ? undefined : color,
                               display: 'flex', alignItems: 'center', justifyContent: 'center',
                               fontSize: 17, fontWeight: 700, color: '#fff',
+                              overflow: 'hidden',
                               filter: hasAccess ? 'none' : 'grayscale(1)',
                               opacity: hasAccess ? 1 : 0.45,
                               boxShadow: hasAccess ? `0 0 0 2.5px var(--surface), 0 0 0 4.5px var(--green)` : 'none',
                               transition: 'opacity 200ms, box-shadow 200ms, filter 200ms',
                             }}>
-                              {initials}
+                              {client.avatar_url
+                                ? <img src={client.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                                : initials}
                             </div>
                             <AnimatePresence>
                               {hasAccess && (
