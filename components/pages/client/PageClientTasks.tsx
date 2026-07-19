@@ -31,7 +31,7 @@ function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boo
   );
 }
 
-function AttachmentsPanel({ taskId }: { taskId: string }) {
+function AttachmentsPanel({ taskId, onCountChange }: { taskId: string; onCountChange?: (count: number) => void }) {
   const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -39,7 +39,11 @@ function AttachmentsPanel({ taskId }: { taskId: string }) {
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/tasks/${taskId}/attachments`);
-    if (res.ok) setAttachments((await res.json()).attachments || []);
+    if (res.ok) {
+      const list = (await res.json()).attachments || [];
+      setAttachments(list);
+      onCountChange?.(list.length);
+    }
   }, [taskId]);
 
   useEffect(() => { load(); }, [load]);
@@ -54,7 +58,11 @@ function AttachmentsPanel({ taskId }: { taskId: string }) {
   }
 
   async function remove(attachmentId: string) {
-    setAttachments(prev => prev.filter(a => a.id !== attachmentId));
+    setAttachments(prev => {
+      const next = prev.filter(a => a.id !== attachmentId);
+      onCountChange?.(next.length);
+      return next;
+    });
     await fetch(`/api/tasks/attachments/${attachmentId}`, { method: 'DELETE' });
   }
 
@@ -165,12 +173,30 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
   onDelete: () => void;
 }) {
   const priority = task.priority ? PRIORITY_CONFIG[task.priority] : null;
+  const [attachmentCount, setAttachmentCount] = useState<number | null>(null);
+  const [confirmNoAttachment, setConfirmNoAttachment] = useState(false);
+
+  useEffect(() => {
+    if (!task.requires_attachment || task.done) return;
+    fetch(`/api/tasks/${task.id}/attachments`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setAttachmentCount((data.attachments || []).length); });
+  }, [task.requires_attachment, task.done, task.id, expanded]);
+
+  function handleToggleClick() {
+    if (!task.done && task.requires_attachment && attachmentCount === 0) {
+      setConfirmNoAttachment(true);
+      return;
+    }
+    onToggle(!task.done);
+  }
+
   return (
     <div style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button
           type="button"
-          onClick={() => onToggle(!task.done)}
+          onClick={handleToggleClick}
           style={{
             width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: 'pointer',
             border: `1.5px solid ${task.done ? 'var(--green)' : 'var(--border)'}`,
@@ -183,6 +209,12 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
         <span style={{ flex: 1, fontSize: 13, color: task.done ? 'var(--muted)' : 'var(--accent)', textDecoration: task.done ? 'line-through' : 'none' }}>
           {task.label}
         </span>
+        {task.requires_attachment && !task.done && (
+          <span title={task.attachment_instructions || 'Document exigé'} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: attachmentCount ? 'var(--green-soft)' : 'var(--amber-soft)', color: attachmentCount ? 'var(--green)' : 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+            <Icon name="upload" size={10} />
+            {attachmentCount ? 'Document déposé' : 'Document exigé'}
+          </span>
+        )}
         <DeadlineBadge deadline={task.deadline} done={task.done} />
         {priority && !task.done && (
           <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: `${priority.color}20`, color: priority.color }}>
@@ -193,10 +225,36 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
           <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={13} />
         </button>
       </div>
+
+      {task.requires_attachment && task.attachment_instructions && !task.done && (
+        <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--amber-soft)', borderRadius: 6, fontSize: 12, color: 'var(--ink-2)', borderLeft: '2px solid var(--amber)' }}>
+          {task.attachment_instructions}
+        </div>
+      )}
+
+      {confirmNoAttachment && (
+        <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--amber)' }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>
+            Cette tâche demande un document et tu n'en as pas encore déposé. Terminer quand même ?
+          </div>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button type="button" className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setConfirmNoAttachment(false)}>Ajouter le document</button>
+            <button
+              type="button"
+              className="btn-primary-brand"
+              style={{ fontSize: 12 }}
+              onClick={() => { setConfirmNoAttachment(false); onToggle(true); }}
+            >
+              Terminer sans déposer
+            </button>
+          </div>
+        </div>
+      )}
+
       {expanded && (
         <>
           <EditFields task={task} onSave={onSave} onDelete={onDelete} />
-          <AttachmentsPanel taskId={task.id} />
+          <AttachmentsPanel taskId={task.id} onCountChange={setAttachmentCount} />
         </>
       )}
     </div>

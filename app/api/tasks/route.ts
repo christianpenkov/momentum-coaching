@@ -104,6 +104,8 @@ export async function POST(request: NextRequest) {
     addedBy = 'client';
   }
 
+  const requiresAttachment = addedBy === 'coach' && body.requires_attachment === true;
+
   const { data, error } = await serviceSupabase
     .from('tasks')
     .insert({
@@ -114,6 +116,10 @@ export async function POST(request: NextRequest) {
       priority: ['high', 'medium', 'low'].includes(body.priority) ? body.priority : 'medium',
       added_by: addedBy,
       created_by: user.id,
+      requires_attachment: requiresAttachment,
+      attachment_instructions: requiresAttachment && typeof body.attachment_instructions === 'string'
+        ? body.attachment_instructions.trim() || null
+        : null,
     })
     .select()
     .single();

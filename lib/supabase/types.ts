@@ -61,6 +61,8 @@ export interface Task {
   priority: 'high' | 'medium' | 'low' | null;
   added_by: 'coach' | 'client' | null;
   created_by?: string | null;
+  requires_attachment?: boolean;
+  attachment_instructions?: string | null;
   created_at: string;
   updated_at?: string;
 }

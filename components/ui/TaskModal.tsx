@@ -21,11 +21,17 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
   const [label, setLabel] = useState('');
   const [deadline, setDeadline] = useState('');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [requiresAttachment, setRequiresAttachment] = useState(false);
+  const [attachmentInstructions, setAttachmentInstructions] = useState('');
   const [error, setError] = useState('');
 
   // Reset à chaque ouverture
   useEffect(() => {
-    if (open) { setLabel(''); setDeadline(''); setPriority('medium'); setError(''); }
+    if (open) {
+      setLabel(''); setDeadline(''); setPriority('medium');
+      setRequiresAttachment(false); setAttachmentInstructions('');
+      setError('');
+    }
   }, [open]);
 
   // Fermer avec Escape
@@ -47,6 +53,8 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
       deadline: deadline || null,
       priority,
       added_by: 'coach',
+      requires_attachment: requiresAttachment,
+      attachment_instructions: requiresAttachment ? (attachmentInstructions.trim() || null) : null,
     });
     onClose();
   }
@@ -148,6 +156,40 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
                 ))}
               </div>
             </div>
+          </div>
+
+          {/* Dépôt de document exigé */}
+          <div style={{ marginBottom: 20 }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={requiresAttachment}
+                onChange={e => setRequiresAttachment(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
+                Exiger un dépôt de document
+              </span>
+            </label>
+            {requiresAttachment && (
+              <div style={{ marginTop: 10 }}>
+                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Ce qui est attendu (facultatif)
+                </label>
+                <textarea
+                  value={attachmentInstructions}
+                  onChange={e => setAttachmentInstructions(e.target.value)}
+                  placeholder="Ex: capture d'écran de tes 3 derniers posts avec les stats"
+                  style={{
+                    width: '100%', minHeight: 70, padding: '10px 12px',
+                    border: '1px solid var(--border)', borderRadius: 10,
+                    fontSize: 13, background: 'var(--surface-2)', color: 'var(--accent)',
+                    resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6,
+                    outline: 'none', boxSizing: 'border-box',
+                  }}
+                />
+              </div>
+            )}
           </div>
 
           {/* Preview */}

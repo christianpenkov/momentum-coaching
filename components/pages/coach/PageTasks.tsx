@@ -4,7 +4,32 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
-import type { Task } from '@/lib/supabase/types';
+import type { Task, TaskAttachment } from '@/lib/supabase/types';
+
+function TaskAttachmentsReadOnly({ taskId }: { taskId: string }) {
+  const [attachments, setAttachments] = useState<TaskAttachment[] | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/tasks/${taskId}/attachments`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => setAttachments(data?.attachments || []));
+  }, [taskId]);
+
+  if (attachments === null) return null;
+  if (attachments.length === 0) {
+    return <div style={{ fontSize: 11, color: 'var(--muted)', width: '100%' }}>Aucun document déposé pour l'instant.</div>;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+      {attachments.map(att => (
+        <a key={att.id} href={att.file_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--surface)', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, color: 'var(--accent-brand)' }}>
+          <Icon name="file" size={13} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{att.file_name}</span>
+        </a>
+      ))}
+    </div>
+  );
+}
 
 interface TaskWithClient extends Task {
   clients: { id: string; name: string; coach_id: string } | { id: string; name: string; coach_id: string }[];
@@ -160,6 +185,13 @@ export default function PageTasks() {
                   {task.label}
                 </span>
 
+                {task.requires_attachment && (
+                  <span title={task.attachment_instructions || 'Document exigé'} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'var(--amber-soft)', color: 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                    <Icon name="upload" size={10} />
+                    Document
+                  </span>
+                )}
+
                 {task.deadline && !task.done && (
                   <span style={{ fontSize: 11, color: overdue ? 'var(--red)' : 'var(--muted)', fontWeight: overdue ? 700 : 400, flexShrink: 0 }}>
                     {new Date(task.deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
@@ -206,6 +238,11 @@ export default function PageTasks() {
                       <Icon name="trash" size={13} style={{ color: 'var(--red)' }} />
                     </button>
                   )}
+                </div>
+              )}
+              {expanded && task.requires_attachment && (
+                <div style={{ marginTop: 10 }}>
+                  <TaskAttachmentsReadOnly taskId={task.id} />
                 </div>
               )}
             </div>
