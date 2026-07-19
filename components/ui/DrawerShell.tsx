@@ -36,23 +36,34 @@ export default function DrawerShell({ onClose, width = 240, children }: Props) {
           backdropFilter: 'blur(1px)', WebkitBackdropFilter: 'blur(1px)',
         }}
       />
-      <motion.div
+      {/* Conteneur clippant — empêche le panel de déborder visuellement
+          dans la sidebar/topbar pendant le slide, quel que soit son z-index */}
+      <div
         className="dc-drawer-panel"
-        initial={{ y: '-100%' }}
-        animate={{ y: 0 }}
-        exit={{ y: '-100%' }}
-        transition={{ duration: reducedMotion ? 0 : 0.30, ease: [0.16, 1, 0.3, 1] }}
         style={{
           position: 'fixed', bottom: 0, width,
           maxWidth: '86vw',
-          background: 'var(--surface)',
-          display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
           zIndex: 2501,
+          pointerEvents: 'none',
         }}
       >
-        {children}
-      </motion.div>
+        <motion.div
+          initial={{ x: '-100%' }}
+          animate={{ x: 0 }}
+          exit={{ x: '-100%' }}
+          transition={{ duration: reducedMotion ? 0 : 0.30, ease: [0.16, 1, 0.3, 1] }}
+          style={{
+            width: '100%', height: '100%',
+            background: 'var(--surface)',
+            display: 'flex', flexDirection: 'column',
+            overflow: 'hidden',
+            pointerEvents: 'auto',
+          }}
+        >
+          {children}
+        </motion.div>
+      </div>
     </>,
     document.body
   );
