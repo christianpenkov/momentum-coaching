@@ -2,12 +2,12 @@
 
 import { useState, useEffect } from 'react';
 import Icon from './Icon';
-import type { Task } from '@/lib/data';
+import type { Task } from '@/lib/supabase/types';
 
 interface Props {
   open: boolean;
   onClose: () => void;
-  onAdd: (task: Task) => void;
+  onAdd: (task: Omit<Task, 'id' | 'client_id' | 'created_at'>) => void;
 }
 
 const PRIORITIES = [
@@ -42,10 +42,10 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
     onAdd({
       label: label.trim(),
       done: false,
-      meta: deadline ? '' : '',
-      deadline: deadline || undefined,
+      meta: null,
+      deadline: deadline || null,
       priority,
-      addedBy: 'coach',
+      added_by: 'coach',
     });
     onClose();
   }

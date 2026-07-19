@@ -2,15 +2,18 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter, useSearchParams } from 'next/navigation';
 import Avatar from '@/components/ui/Avatar';
 import Pill from '@/components/ui/Pill';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
+import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
-import type { Task } from '@/lib/supabase/types';
+import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
+import type { Task, SessionReport } from '@/lib/supabase/types';
 
 interface ResourceForClient {
   id: string;
@@ -153,6 +156,48 @@ export default function PageClientDetail({ id }: Props) {
   const [depotComments, setDepotComments] = useState<{ file: string; text: string; by: 'coach'; time: string }[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Rapport de fin d'appel coach-élève (Google Meet)
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [sessionRapportCallId, setSessionRapportCallId] = useState<string | null>(null);
+  const [sessionReports, setSessionReports] = useState<SessionReport[]>([]);
+  const deepLinkHandled = useRef(false);
+
+  const clientCalls = calls.filter(c => c.client_id === id);
+  const pendingSessionRapports = getPendingSessionRapports(clientCalls);
+
+  const loadSessionReports = useCallback(async () => {
+    const supabase = createSupabase();
+    const { data } = await supabase
+      .from('session_reports')
+      .select('*')
+      .eq('client_id', id)
+      .order('created_at', { ascending: false });
+    setSessionReports(data || []);
+  }, [id]);
+
+  useEffect(() => { loadSessionReports(); }, [loadSessionReports]);
+
+  // Deep link : ?session-rapport=<call_id> → ouvre la modal une seule fois (depuis push notif)
+  useEffect(() => {
+    const callId = searchParams.get('session-rapport');
+    if (!callId || deepLinkHandled.current) return;
+    deepLinkHandled.current = true;
+    setSessionRapportCallId(callId);
+  }, [searchParams]);
+
+  function closeSessionRapportModal() {
+    setSessionRapportCallId(null);
+    const url = new URL(window.location.href);
+    url.searchParams.delete('session-rapport');
+    router.replace(url.pathname + url.search, { scroll: false });
+    loadSessionReports();
+  }
+
+  const sessionRapportCall = pendingSessionRapports.find(c => c.id === sessionRapportCallId)
+    || clientCalls.find(c => c.id === sessionRapportCallId)
+    || null;
+
   // KPIs live depuis les vraies sources (IG/YT API + Supabase instagram_leads + Stripe)
   const [liveKpis, setLiveKpis] = useState<{ posts30: number | null; leads30: number | null; mrr: number | null } | null>(null);
 
@@ -265,7 +310,35 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      <TaskModal open={modalOpen} onClose={() => setModalOpen(false)} onAdd={(t: any) => addTask(id, t)} />
+      <TaskModal open={modalOpen} onClose={() => setModalOpen(false)} onAdd={(t) => addTask(id, { ...t, client_id: id })} />
+      {sessionRapportCallId && (
+        <SessionRapportModal
+          callId={sessionRapportCallId}
+          studentName={client.name}
+          scheduledAt={sessionRapportCall?.scheduled_at ?? null}
+          onClose={closeSessionRapportModal}
+        />
+      )}
+
+      {pendingSessionRapports.length > 0 && (
+        <div className="card" style={{ marginBottom: 24, borderColor: 'var(--amber)', background: 'var(--amber-soft)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <Icon name="phone-call" size={16} style={{ color: 'var(--amber)' }} />
+              <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
+                {pendingSessionRapports.length} rapport{pendingSessionRapports.length > 1 ? 's' : ''} de session en attente
+              </span>
+            </div>
+            <button
+              type="button"
+              className="btn-primary-brand"
+              onClick={() => setSessionRapportCallId(pendingSessionRapports[0].id)}
+            >
+              Remplir le rapport
+            </button>
+          </div>
+        </div>
+      )}
 
       <div className="grid-2">
         {/* Plan de la semaine */}
@@ -424,6 +497,56 @@ export default function PageClientDetail({ id }: Props) {
           <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={saveNote} disabled={noteSaving}>
             {noteSaved ? '✓ Sauvegardé' : noteSaving ? 'Enregistrement…' : 'Sauvegarder'}
           </button>
+        </div>
+      </div>
+
+      {/* Historique des sessions de coaching (calls Google Meet coach-élève) */}
+      <div className="card" style={{ marginTop: 24 }}>
+        <div className="card-head">
+          <div className="card-title">Historique des sessions</div>
+          <div className="card-sub">Rapports de fin d'appel — calls coach-élève</div>
+        </div>
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {sessionReports.length === 0 && pendingSessionRapports.length === 0 && (
+            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune session rapportée pour l'instant.</div>
+          )}
+          {sessionReports.map(report => {
+            const topicLabel = SESSION_TOPICS.find(t => t.value === report.topic)?.label;
+            return (
+              <div key={report.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <Icon name={report.attended === false ? 'x' : 'check'} size={14} style={{ color: report.attended === false ? 'var(--red)' : 'var(--green)', marginTop: 2, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
+                      {new Date(report.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                    </span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+                      background: report.attended === false ? 'var(--red-soft)' : 'var(--green-soft)',
+                      color: report.attended === false ? 'var(--red)' : 'var(--green)',
+                    }}>
+                      {report.attended === false ? 'No-show' : 'Présent'}
+                    </span>
+                    {topicLabel && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{topicLabel}</span>}
+                  </div>
+                  {report.notes && (
+                    <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, whiteSpace: 'pre-wrap' }}>{report.notes}</div>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {pendingSessionRapports.map(call => (
+            <div key={call.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--amber-soft)', borderRadius: 10, border: '1px solid var(--amber)' }}>
+              <Icon name="phone-call" size={14} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--accent)' }}>
+                Call du {call.scheduled_at ? new Date(call.scheduled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—'} — en attente de rapport
+              </span>
+              <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setSessionRapportCallId(call.id)}>
+                Remplir
+              </button>
+            </div>
+          ))}
         </div>
       </div>
 

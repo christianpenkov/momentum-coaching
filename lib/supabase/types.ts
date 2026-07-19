@@ -60,6 +60,20 @@ export interface Task {
   deadline: string | null;
   priority: 'high' | 'medium' | 'low' | null;
   added_by: 'coach' | 'client' | null;
+  created_by?: string | null;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface TaskAttachment {
+  id: string;
+  task_id: string;
+  uploaded_by: string;
+  file_url: string;
+  thumbnail_url: string | null;
+  file_name: string;
+  file_size_bytes: number | null;
+  file_type: string | null;
   created_at: string;
 }
 
@@ -102,6 +116,23 @@ export interface Call {
   rescheduled?: boolean | null;
   rescheduled_at?: string | null;
   lead_deleted?: boolean | null;
+  session_completed?: boolean | null;
+  session_no_show?: boolean | null;
+  session_rapport_reminder_sent?: boolean;
+}
+
+export interface SessionReport {
+  id: string;
+  call_id: string;
+  client_id: string;
+  coach_id: string;
+  attended: boolean | null; // null tant que le coach n'a pas rapporté (rapport et notes élève sont indépendants)
+  topic: 'strategie_contenu' | 'closing_vente' | 'mindset_blocage' | 'technique_outils' | 'autre' | null;
+  notes: string | null;
+  student_notes: string | null;
+  structured_answers: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Integration {

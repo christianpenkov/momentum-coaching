@@ -50,6 +50,61 @@ function formatTime(dateStr: string) {
   return new Date(dateStr).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
+// Notes personnelles de l'élève sur un call de coaching (Google Meet), indépendantes
+// du rapport du coach — toujours affichées et éditables, peu importe si le coach a
+// déjà rapporté ce call ou non (voir lib/sessionRapport.ts / route student-notes).
+function MyCallNotes({ callId, initialNotes, coachHasReported }: { callId: string; initialNotes: string; coachHasReported: boolean }) {
+  const [open, setOpen] = useState(false);
+  const [value, setValue] = useState(initialNotes);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    await fetch(`/api/session-reports/by-call/${callId}/student-notes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ student_notes: value }),
+    });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  return (
+    <div style={{ marginTop: 8 }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ fontSize: 11, color: 'var(--accent-brand)', background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 4 }}
+      >
+        <Icon name={open ? 'chevron-up' : 'chevron-down'} size={11} />
+        Mes notes sur cet appel
+      </button>
+      {open && (
+        <div style={{ marginTop: 8 }}>
+          {!coachHasReported && (
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
+              Ton coach n'a pas encore rapporté ce call.
+            </div>
+          )}
+          <textarea
+            value={value}
+            onChange={e => setValue(e.target.value)}
+            placeholder="Ce que tu veux retenir de cette séance…"
+            style={{ width: '100%', minHeight: 80, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)', fontSize: 12, color: 'var(--accent)', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none', boxSizing: 'border-box' }}
+          />
+          <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
+            <button className="btn-ghost" style={{ fontSize: 11 }} type="button" onClick={save} disabled={saving}>
+              {saved ? '✓ Sauvegardé' : saving ? 'Enregistrement…' : 'Sauvegarder'}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function PageClientCalls() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -71,6 +126,9 @@ export default function PageClientCalls() {
 
   // Modal rapport
   const [rapportModal, setRapportModal] = useState<RapportModal | null>(null);
+
+  // Notes personnelles + statut du rapport coach, par call_id (calls Google coach-élève)
+  const [sessionReportsByCall, setSessionReportsByCall] = useState<Record<string, { student_notes: string | null; attended: boolean | null }>>({});
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -124,6 +182,14 @@ export default function PageClientCalls() {
         .neq('ignored', true)
         .order('scheduled_at', { ascending: false });
       googleCalls = (data as Call[]) || [];
+
+      const { data: reports } = await supabase
+        .from('session_reports')
+        .select('call_id, student_notes, attended')
+        .eq('client_id', clientRow.id);
+      const reportsMap: Record<string, { student_notes: string | null; attended: boolean | null }> = {};
+      for (const r of reports || []) reportsMap[r.call_id] = { student_notes: r.student_notes, attended: r.attended };
+      setSessionReportsByCall(reportsMap);
     }
 
     const allCalls = [...(calendlyCalls as Call[] || []), ...googleCalls];
@@ -521,6 +587,13 @@ export default function PageClientCalls() {
                     <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
                       {call.notes}
                     </div>
+                  )}
+                  {!call.calendly_event_uuid && (
+                    <MyCallNotes
+                      callId={call.id}
+                      initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
+                      coachHasReported={sessionReportsByCall[call.id]?.attended != null}
+                    />
                   )}
                 </div>
               );

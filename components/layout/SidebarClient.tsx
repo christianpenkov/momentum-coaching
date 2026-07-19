@@ -12,6 +12,7 @@ import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/client', icon: 'activity', label: 'Mon espace' },
+  { href: '/client/taches', icon: 'list', label: 'Tâches' },
   { href: '/client/stats', icon: 'bar-chart', label: 'Mes stats' },
   { href: '/client/pipeline', icon: 'trending-up', label: 'Pipeline Leads' },
   { href: '/client/messages', icon: 'message-circle', label: 'Messages' },
