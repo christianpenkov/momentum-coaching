@@ -25,12 +25,21 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
   const [attended, setAttended] = useState<boolean | null>(null);
   const [topic, setTopic] = useState<SessionTopic | null>(null);
   const [notes, setNotes] = useState('');
+  const [confirmClose, setConfirmClose] = useState(false);
+  const [confirmChecked, setConfirmChecked] = useState(false);
+
+  // En plein milieu du rapport (étape topic_notes) : demander confirmation avant de fermer,
+  // pour ne pas perdre la saisie en cours. Sinon (attended, ou terminé) fermeture directe.
+  function requestClose() {
+    if (step === 'topic_notes') { setConfirmChecked(false); setConfirmClose(true); }
+    else onClose();
+  }
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && step !== 'topic_notes') onClose(); };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') requestClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [step, onClose]);
+  }, [step]);
 
   async function submitRapport(body: { attended: boolean; topic?: string; notes?: string }) {
     setSaving(true);
@@ -71,7 +80,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
   return createPortal(
     <div
-      onClick={step === 'done' ? onClose : undefined}
+      onClick={requestClose}
       style={{
         position: 'fixed', inset: 0, zIndex: 1000,
         background: 'rgba(0,0,0,0.35)',
@@ -82,12 +91,58 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 460, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 16,
+          width: 680, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 16,
           border: '1px solid var(--border)',
           boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
           overflow: 'hidden',
+          position: 'relative',
         }}
       >
+        {confirmClose && (
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              position: 'absolute', inset: 0, zIndex: 10,
+              background: 'rgba(255,255,255,0.92)',
+              backdropFilter: 'blur(2px)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              padding: 24,
+            }}
+          >
+            <div style={{ textAlign: 'center', maxWidth: 320 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
+                Quitter le rapport en cours ?
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+                Ce que tu as déjà saisi ne sera pas enregistré.
+              </div>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-2)', marginBottom: 20, cursor: 'pointer', justifyContent: 'center' }}>
+                <input
+                  type="checkbox"
+                  checked={confirmChecked}
+                  onChange={e => setConfirmChecked(e.target.checked)}
+                  style={{ width: 16, height: 16, cursor: 'pointer' }}
+                />
+                Je confirme vouloir quitter sans enregistrer
+              </label>
+              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+                <button type="button" className="btn-ghost" onClick={() => setConfirmClose(false)}>
+                  Continuer le rapport
+                </button>
+                <button
+                  type="button"
+                  className="btn-primary-brand"
+                  style={{ background: confirmChecked ? 'var(--red)' : 'var(--border)', borderColor: confirmChecked ? 'var(--red)' : 'var(--border)', cursor: confirmChecked ? 'pointer' : 'not-allowed', opacity: confirmChecked ? 1 : 0.6 }}
+                  disabled={!confirmChecked}
+                  onClick={onClose}
+                >
+                  Quitter
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -96,7 +151,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
               Rapport de session{studentName ? ` — ${studentName}` : ''}
             </span>
           </div>
-          <button onClick={onClose} type="button" className="icon-btn"><Icon name="x" size={15} /></button>
+          <button onClick={requestClose} type="button" className="icon-btn"><Icon name="x" size={15} /></button>
         </div>
 
         <div style={{ padding: '20px 24px' }}>
