@@ -38,16 +38,14 @@ export default function DrawerShell({ onClose, width = 240, children }: Props) {
       />
       <motion.div
         className="dc-drawer-panel"
-        initial={{ x: '-100%' }}
-        animate={{ x: 0 }}
-        exit={{ x: '-100%' }}
+        initial={{ y: '-100%' }}
+        animate={{ y: 0 }}
+        exit={{ y: '-100%' }}
         transition={{ duration: reducedMotion ? 0 : 0.30, ease: [0.16, 1, 0.3, 1] }}
         style={{
           position: 'fixed', bottom: 0, width,
           maxWidth: '86vw',
           background: 'var(--surface)',
-          borderRight: '1px solid var(--border)',
-          boxShadow: '8px 0 30px rgba(0,0,0,0.12)',
           display: 'flex', flexDirection: 'column',
           overflow: 'hidden',
           zIndex: 2501,
