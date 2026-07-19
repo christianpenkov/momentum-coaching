@@ -10,7 +10,7 @@ const serviceSupabase = createClient(
 const VALID_TOPICS = ['strategie_contenu', 'closing_vente', 'mindset_blocage', 'technique_outils', 'autre'];
 
 // PATCH /api/calls/[id]/session-rapport
-// Body: { attended: boolean, topic?: string, notes?: string }
+// Body: { attended: boolean, topic?: string, topic_custom?: string, notes?: string }
 // Rapport de fin d'appel pour le flux coach-élève (Google Meet uniquement).
 // Distinct de /api/calls/[id]/rapport (flux Calendly élève-prospect, ne pas toucher).
 // Seul le coach du call peut remplir ce rapport.
@@ -46,11 +46,18 @@ export async function PATCH(
   }
 
   let topic: string | null = null;
+  let topicCustom: string | null = null;
   if (body.attended) {
     if (typeof body.topic !== 'string' || !VALID_TOPICS.includes(body.topic)) {
       return NextResponse.json({ error: 'Sujet de session invalide ou manquant' }, { status: 400 });
     }
     topic = body.topic;
+    if (topic === 'autre') {
+      if (typeof body.topic_custom !== 'string' || !body.topic_custom.trim()) {
+        return NextResponse.json({ error: 'Précise le sujet en 2-3 mots' }, { status: 400 });
+      }
+      topicCustom = body.topic_custom.trim().slice(0, 60);
+    }
   }
   const notes: string | null = body.attended && typeof body.notes === 'string' ? body.notes : null;
 
@@ -74,6 +81,7 @@ export async function PATCH(
       coach_id: call.coach_id,
       attended: body.attended,
       topic,
+      topic_custom: topicCustom,
       notes,
     }, { onConflict: 'call_id' });
 

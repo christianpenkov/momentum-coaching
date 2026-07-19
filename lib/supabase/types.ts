@@ -130,6 +130,7 @@ export interface SessionReport {
   coach_id: string;
   attended: boolean | null; // null tant que le coach n'a pas rapporté (rapport et notes élève sont indépendants)
   topic: 'strategie_contenu' | 'closing_vente' | 'mindset_blocage' | 'technique_outils' | 'autre' | null;
+  topic_custom: string | null; // libellé libre tapé par le coach quand topic = 'autre'
   notes: string | null;
   student_notes: string | null;
   structured_answers: Record<string, unknown>;

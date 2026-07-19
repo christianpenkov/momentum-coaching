@@ -511,7 +511,9 @@ export default function PageClientDetail({ id }: Props) {
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune session rapportée pour l'instant.</div>
           )}
           {sessionReports.map(report => {
-            const topicLabel = SESSION_TOPICS.find(t => t.value === report.topic)?.label;
+            const topicLabel = report.topic === 'autre'
+              ? report.topic_custom
+              : SESSION_TOPICS.find(t => t.value === report.topic)?.label;
             return (
               <div key={report.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
                 <Icon name={report.attended === false ? 'x' : 'check'} size={14} style={{ color: report.attended === false ? 'var(--red)' : 'var(--green)', marginTop: 2, flexShrink: 0 }} />

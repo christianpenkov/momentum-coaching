@@ -24,6 +24,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
   const [error, setError] = useState('');
   const [attended, setAttended] = useState<boolean | null>(null);
   const [topic, setTopic] = useState<SessionTopic | null>(null);
+  const [topicCustom, setTopicCustom] = useState('');
   const [notes, setNotes] = useState('');
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmChecked, setConfirmChecked] = useState(false);
@@ -41,7 +42,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
     return () => window.removeEventListener('keydown', handler);
   }, [step]);
 
-  async function submitRapport(body: { attended: boolean; topic?: string; notes?: string }) {
+  async function submitRapport(body: { attended: boolean; topic?: string; topic_custom?: string; notes?: string }) {
     setSaving(true);
     setError('');
     try {
@@ -75,7 +76,13 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
   function handleSubmitTopicNotes() {
     if (!topic) { setError('Choisis un sujet principal.'); return; }
-    submitRapport({ attended: true, topic, notes: notes.trim() || undefined });
+    if (topic === 'autre' && !topicCustom.trim()) { setError('Précise le sujet en 2-3 mots.'); return; }
+    submitRapport({
+      attended: true,
+      topic,
+      topic_custom: topic === 'autre' ? topicCustom.trim() : undefined,
+      notes: notes.trim() || undefined,
+    });
   }
 
   return createPortal(
@@ -103,8 +110,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
             onClick={e => e.stopPropagation()}
             style={{
               position: 'absolute', inset: 0, zIndex: 10,
-              background: 'rgba(255,255,255,0.92)',
-              backdropFilter: 'blur(2px)',
+              background: 'var(--surface)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: 24,
             }}
@@ -194,7 +200,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Sujet principal du call
               </label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: topic === 'autre' ? 12 : 24 }}>
                 {SESSION_TOPICS.map(t => (
                   <button
                     key={t.value}
@@ -213,13 +219,29 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                 ))}
               </div>
 
+              {topic === 'autre' && (
+                <input
+                  autoFocus
+                  value={topicCustom}
+                  onChange={e => { setTopicCustom(e.target.value); setError(''); }}
+                  placeholder="En 2-3 mots : ex. gestion du temps"
+                  maxLength={60}
+                  style={{
+                    width: '100%', padding: '10px 14px', marginBottom: 24,
+                    border: '1px solid var(--border)', borderRadius: 10,
+                    background: 'var(--surface-2)', fontSize: 14, color: 'var(--accent)',
+                    outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+                  }}
+                />
+              )}
+
               <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Notes (facultatif)
+                Notes — impressions / à suivre / tâches <span style={{ textTransform: 'none', fontWeight: 400 }}>(facultatif)</span>
               </label>
               <textarea
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
-                placeholder="Ce qu'il faut retenir de cette séance…"
+                placeholder="Ressenti sur la séance, points à retravailler, idées de tâches à donner…"
                 style={{
                   width: '100%', minHeight: 130, padding: '12px 14px',
                   border: '1px solid var(--border)', borderRadius: 10,
