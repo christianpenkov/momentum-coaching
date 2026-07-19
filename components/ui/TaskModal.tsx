@@ -64,7 +64,7 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 460, background: 'var(--surface)', borderRadius: 16,
+          width: 680, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 16,
           border: '1px solid var(--border)',
           boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
           overflow: 'hidden',
