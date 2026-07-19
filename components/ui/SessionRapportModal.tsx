@@ -91,12 +91,11 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 460, maxWidth: '92vw', minHeight: 420, background: 'var(--surface)', borderRadius: 16,
+          width: 520, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 18,
           border: '1px solid var(--border)',
           boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
           overflow: 'hidden',
           position: 'relative',
-          display: 'flex', flexDirection: 'column',
         }}
       >
         {confirmClose && (
@@ -145,46 +144,46 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         )}
 
         {/* Header */}
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="phone-call" size={16} />
-            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>
+        <div style={{ padding: '26px 30px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <Icon name="phone-call" size={20} />
+            <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
               Rapport de session{studentName ? ` — ${studentName}` : ''}
             </span>
           </div>
-          <button onClick={requestClose} type="button" className="icon-btn"><Icon name="x" size={15} /></button>
+          <button onClick={requestClose} type="button" className="icon-btn"><Icon name="x" size={18} /></button>
         </div>
 
-        <div style={{ padding: '20px 24px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ padding: '26px 30px' }}>
           {scheduledAt && step === 'attended' && (
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+            <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 20 }}>
               Call du {formatDate(scheduledAt)}
             </div>
           )}
 
           {step === 'attended' && (
             <div>
-              <div style={{ fontSize: 13, color: 'var(--ink-2)', marginBottom: 16 }}>
+              <div style={{ fontSize: 16, color: 'var(--ink-2)', marginBottom: 22 }}>
                 L'élève était-il présent à ce call ?
               </div>
-              <div style={{ display: 'flex', gap: 10 }}>
+              <div style={{ display: 'flex', gap: 12 }}>
                 <button
                   type="button"
                   onClick={handlePresent}
                   disabled={saving}
                   className="btn-primary-brand"
-                  style={{ flex: 1, minHeight: 44, gap: 6 }}
+                  style={{ flex: 1, minHeight: 56, fontSize: 15, gap: 8 }}
                 >
-                  <Icon name="check" size={14} /> Présent
+                  <Icon name="check" size={17} /> Présent
                 </button>
                 <button
                   type="button"
                   onClick={handleNoShow}
                   disabled={saving}
                   className="btn-ghost"
-                  style={{ flex: 1, minHeight: 44, gap: 6, borderColor: 'var(--red)', color: 'var(--red)' }}
+                  style={{ flex: 1, minHeight: 56, fontSize: 15, gap: 8, borderColor: 'var(--red)', color: 'var(--red)' }}
                 >
-                  <Icon name="x" size={14} /> No-show
+                  <Icon name="x" size={17} /> No-show
                 </button>
               </div>
             </div>
@@ -192,18 +191,18 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
           {step === 'topic_notes' && (
             <div>
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Sujet principal du call
               </label>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 20 }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 24 }}>
                 {SESSION_TOPICS.map(t => (
                   <button
                     key={t.value}
                     type="button"
                     onClick={() => { setTopic(t.value); setError(''); }}
                     style={{
-                      padding: '8px 12px', borderRadius: 8, fontSize: 12, fontWeight: 600,
-                      cursor: 'pointer', transition: 'all 0.12s', minHeight: 44,
+                      padding: '10px 14px', borderRadius: 9, fontSize: 13, fontWeight: 600,
+                      cursor: 'pointer', transition: 'all 0.12s', minHeight: 48,
                       border: `1.5px solid ${topic === t.value ? 'var(--accent-brand)' : 'var(--border)'}`,
                       background: topic === t.value ? 'var(--accent-brand-soft)' : 'var(--surface-2)',
                       color: topic === t.value ? 'var(--accent-brand)' : 'var(--muted)',
@@ -214,7 +213,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                 ))}
               </div>
 
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Notes (facultatif)
               </label>
               <textarea
@@ -222,42 +221,43 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                 onChange={e => setNotes(e.target.value)}
                 placeholder="Ce qu'il faut retenir de cette séance…"
                 style={{
-                  width: '100%', minHeight: 90, padding: '10px 12px',
-                  border: '1px solid var(--border)', borderRadius: 8,
-                  background: 'var(--surface-2)', fontSize: 13, color: 'var(--accent)',
+                  width: '100%', minHeight: 130, padding: '12px 14px',
+                  border: '1px solid var(--border)', borderRadius: 10,
+                  background: 'var(--surface-2)', fontSize: 14, color: 'var(--accent)',
                   resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6,
                   outline: 'none', boxSizing: 'border-box',
                 }}
               />
 
-              {error && <div role="alert" style={{ fontSize: 11, color: 'var(--red)', marginTop: 8 }}>{error}</div>}
+              {error && <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginTop: 10 }}>{error}</div>}
             </div>
           )}
 
           {step === 'done' && (
-            <div style={{ textAlign: 'center', padding: '12px 0' }}>
-              <div style={{ width: 44, height: 44, borderRadius: '50%', background: 'var(--green-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
-                <Icon name="check" size={20} style={{ color: 'var(--green)' }} />
+            <div style={{ textAlign: 'center', padding: '20px 0' }}>
+              <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--green-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px' }}>
+                <Icon name="check" size={26} style={{ color: 'var(--green)' }} />
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
+              <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>
                 {attended === false ? 'No-show enregistré' : 'Rapport enregistré'}
               </div>
             </div>
           )}
 
           {step === 'attended' && error && (
-            <div role="alert" style={{ fontSize: 11, color: 'var(--red)', marginTop: 12 }}>{error}</div>
+            <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginTop: 14 }}>{error}</div>
           )}
         </div>
 
         {step === 'topic_notes' && (
-          <div style={{ padding: '0 24px 20px', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-            <button onClick={() => setStep('attended')} className="btn-ghost" type="button" disabled={saving}>Retour</button>
+          <div style={{ padding: '0 30px 26px', display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button onClick={() => setStep('attended')} className="btn-ghost" type="button" disabled={saving} style={{ fontSize: 14 }}>Retour</button>
             <button
               onClick={handleSubmitTopicNotes}
               className="btn-primary-brand"
               type="button"
               disabled={saving}
+              style={{ fontSize: 14 }}
             >
               {saving ? 'Enregistrement…' : 'Enregistrer le rapport'}
             </button>
@@ -265,8 +265,8 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         )}
 
         {step === 'done' && (
-          <div style={{ padding: '0 24px 20px', display: 'flex', justifyContent: 'flex-end' }}>
-            <button onClick={onClose} className="btn-primary-brand" type="button">Fermer</button>
+          <div style={{ padding: '0 30px 26px', display: 'flex', justifyContent: 'flex-end' }}>
+            <button onClick={onClose} className="btn-primary-brand" type="button" style={{ fontSize: 14 }}>Fermer</button>
           </div>
         )}
       </div>
