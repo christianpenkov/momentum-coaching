@@ -10,7 +10,9 @@ const serviceSupabase = createClient(
 // GET /api/tasks?client_id=<id>
 // Coach : sans client_id → toutes les tâches de tous ses élèves (vue globale /tasks).
 //         avec client_id → tâches de cet élève précis (doit lui appartenir).
-// Élève : toujours ses propres tâches, client_id ignoré s'il ne correspond pas à son profil.
+//         Ne voit jamais les tâches added_by='client' — privées à l'élève qui les a créées.
+// Élève : toujours ses propres tâches (les siennes + celles du coach), client_id ignoré s'il
+//         ne correspond pas à son profil.
 export async function GET(request: NextRequest) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -29,6 +31,7 @@ export async function GET(request: NextRequest) {
       .from('tasks')
       .select('*, clients!inner(id, name, coach_id)')
       .eq('clients.coach_id', user.id)
+      .eq('added_by', 'coach')
       .order('deadline', { ascending: true, nullsFirst: false });
 
     if (clientIdParam) query = query.eq('client_id', clientIdParam);

@@ -253,7 +253,9 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
 
       {expanded && (
         <>
-          <EditFields task={task} onSave={onSave} onDelete={onDelete} />
+          {/* Tâches assignées par le coach : l'élève ne peut que cocher et déposer des documents,
+              jamais modifier deadline/priorité ni supprimer (cf. règle produit + garde côté API). */}
+          {task.added_by !== 'coach' && <EditFields task={task} onSave={onSave} onDelete={onDelete} />}
           <AttachmentsPanel taskId={task.id} onCountChange={setAttachmentCount} />
         </>
       )}

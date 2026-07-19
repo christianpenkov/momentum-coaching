@@ -53,7 +53,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
           : { data: [], error: null },
         ids.length > 0
-          ? supabase.from('tasks').select('*').in('client_id', ids).order('created_at', { ascending: true })
+          ? supabase.from('tasks').select('*').in('client_id', ids).eq('added_by', 'coach').order('created_at', { ascending: true })
           : { data: [], error: null },
         supabase.from('calls').select('*').eq('coach_id', user.id)
           .neq('ignored', true)
