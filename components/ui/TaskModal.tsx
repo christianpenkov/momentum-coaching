@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from './Icon';
 import type { Task } from '@/lib/supabase/types';
 
@@ -50,7 +51,7 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
     onClose();
   }
 
-  return (
+  return createPortal(
     <div
       onClick={onClose}
       style={{
@@ -187,6 +188,7 @@ export default function TaskModal({ open, onClose, onAdd }: Props) {
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
