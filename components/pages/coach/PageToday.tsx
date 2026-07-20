@@ -9,9 +9,11 @@ import Pill from '@/components/ui/Pill';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import AddClientModal from '@/components/ui/AddClientModal';
+import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
+import { useNotifications, type AppNotif } from '@/lib/useNotifications';
 
 const STATUS_BAR_WIDTH: Record<string, number> = { green: 90, amber: 55, red: 25 };
 const STATUS_BAR_COLOR: Record<string, string> = { green: 'var(--green)', amber: 'var(--amber)', red: 'var(--red)' };
@@ -20,6 +22,10 @@ export default function PageToday() {
   const { clients, calls, loading } = useSupabaseClients();
   const { user } = useUser();
   const [showAddModal, setShowAddModal] = useState(false);
+  const { notifs, refresh: refreshNotifs } = useNotifications(user?.id ?? null, false);
+  const sessionRapportNotifs = notifs.filter(n => n.type === 'session_rapport');
+  const [sessionRapportIdx, setSessionRapportIdx] = useState(0);
+  const [openSessionRapport, setOpenSessionRapport] = useState<AppNotif | null>(null);
 
   const totalMRR = clients.reduce((sum, c) => sum + (c.latestMetrics?.stripe_mrr || 0), 0);
   const activeCount = clients.length;
@@ -97,6 +103,80 @@ export default function PageToday() {
           </button>
         </div>
       </div>
+
+      {/* Rapports de session en attente — carrousel avec flèches latérales (miroir du flux Calendly élève-prospect) */}
+      {sessionRapportNotifs.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            {sessionRapportNotifs.length} rapport{sessionRapportNotifs.length > 1 ? 's' : ''} de session en attente
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <button
+              type="button"
+              onClick={() => setSessionRapportIdx(i => Math.max(0, i - 1))}
+              disabled={sessionRapportIdx === 0 || sessionRapportNotifs.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === 0 ? 'default' : 'pointer', opacity: sessionRapportIdx === 0 || sessionRapportNotifs.length <= 1 ? 0.2 : 1 }}
+            >‹</button>
+
+            {(() => {
+              const notif = sessionRapportNotifs[sessionRapportIdx];
+              if (!notif) return null;
+              const call = calls.find(c => c.id === notif.callId);
+              const client = call ? clients.find(c => c.id === call.client_id) : null;
+              return (
+                <div className="card" style={{ flex: 1, borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+                    <div>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                        RAPPORT DE SESSION{sessionRapportNotifs.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{sessionRapportIdx + 1} / {sessionRapportNotifs.length}</span>}
+                      </div>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
+                        {client?.name ? `Session avec ${client.name}` : 'Session de coaching'}
+                      </div>
+                      {notif.scheduledAt && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
+                          {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                          {' · '}
+                          {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                          {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <button
+                      className="btn-primary-brand"
+                      type="button"
+                      style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
+                      onClick={() => setOpenSessionRapport(notif)}
+                    >
+                      Remplir le rapport
+                    </button>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <button
+              type="button"
+              onClick={() => setSessionRapportIdx(i => Math.min(sessionRapportNotifs.length - 1, i + 1))}
+              disabled={sessionRapportIdx === sessionRapportNotifs.length - 1 || sessionRapportNotifs.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === sessionRapportNotifs.length - 1 ? 'default' : 'pointer', opacity: sessionRapportIdx === sessionRapportNotifs.length - 1 || sessionRapportNotifs.length <= 1 ? 0.2 : 1 }}
+            >›</button>
+          </div>
+        </div>
+      )}
+
+      {openSessionRapport?.callId && (() => {
+        const call = calls.find(c => c.id === openSessionRapport.callId);
+        const client = call ? clients.find(c => c.id === call.client_id) : null;
+        return (
+          <SessionRapportModal
+            callId={openSessionRapport.callId}
+            studentName={client?.name ?? null}
+            scheduledAt={openSessionRapport.scheduledAt ?? null}
+            onClose={() => { setOpenSessionRapport(null); refreshNotifs(); }}
+          />
+        );
+      })()}
 
       <KpiRibbon items={kpis} />
 

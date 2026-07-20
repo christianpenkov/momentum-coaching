@@ -4,31 +4,77 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
-import type { Task, TaskAttachment } from '@/lib/supabase/types';
+import TaskModalMulti from '@/components/ui/TaskModalMulti';
+import type { Task, TaskAttachment, TaskAttachmentItem } from '@/lib/supabase/types';
+import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 
-function TaskAttachmentsReadOnly({ taskId }: { taskId: string }) {
-  const [attachments, setAttachments] = useState<TaskAttachment[] | null>(null);
-
-  useEffect(() => {
-    fetch(`/api/tasks/${taskId}/attachments`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => setAttachments(data?.attachments || []));
-  }, [taskId]);
-
-  if (attachments === null) return null;
+function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
   if (attachments.length === 0) {
-    return <div style={{ fontSize: 11, color: 'var(--muted)', width: '100%' }}>Aucun document déposé pour l'instant.</div>;
+    return <div style={{ fontSize: 11, color: 'var(--muted)' }}>Aucun document déposé pour l'instant.</div>;
   }
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       {attachments.map(att => (
         <a key={att.id} href={att.file_url} target="_blank" rel="noreferrer" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--surface)', borderRadius: 6, border: '1px solid var(--border)', fontSize: 12, color: 'var(--accent-brand)' }}>
-          <Icon name="file" size={13} style={{ flexShrink: 0 }} />
+          {att.thumbnail_url ? (
+            <img src={att.thumbnail_url} alt="" style={{ width: 24, height: 24, borderRadius: 4, objectFit: 'cover', flexShrink: 0 }} />
+          ) : (
+            <Icon name="file" size={13} style={{ flexShrink: 0 }} />
+          )}
           <span style={{ flex: 1, minWidth: 0, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>{att.file_name}</span>
+          <span style={{ fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>
+            {[formatFileSize(att.file_size_bytes), formatRelativeDate(att.created_at)].filter(Boolean).join(' · ')}
+          </span>
         </a>
       ))}
     </div>
   );
+}
+
+// Lecture seule côté coach : une ligne par item structuré avec son statut, ou fallback
+// legacy (dropzone globale d'origine, tâches créées avant ce chantier).
+function TaskAttachmentsReadOnly({ taskId }: { taskId: string }) {
+  const [items, setItems] = useState<TaskAttachmentItem[] | null>(null);
+  const [legacyAttachments, setLegacyAttachments] = useState<TaskAttachment[] | null>(null);
+
+  useEffect(() => {
+    fetch(`/api/tasks/${taskId}/attachment-items`)
+      .then(r => r.ok ? r.json() : null)
+      .then(async data => {
+        const list = data?.items || [];
+        setItems(list);
+        if (list.length === 0) {
+          const legacyRes = await fetch(`/api/tasks/${taskId}/attachments`);
+          setLegacyAttachments(legacyRes.ok ? (await legacyRes.json()).attachments || [] : []);
+        }
+      });
+  }, [taskId]);
+
+  if (items === null) return null;
+
+  if (items.length > 0) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
+        {items.map(item => (
+          <div key={item.id}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
+              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', flex: 1 }}>{item.label}</span>
+              <span style={{
+                fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+                background: (item.task_attachments?.length ?? 0) > 0 ? 'var(--green-soft)' : 'var(--amber-soft)',
+                color: (item.task_attachments?.length ?? 0) > 0 ? 'var(--green)' : 'var(--amber)',
+              }}>
+                {(item.task_attachments?.length ?? 0) > 0 ? 'Déposé' : 'En attente'}
+              </span>
+            </div>
+            <AttachmentList attachments={item.task_attachments || []} />
+          </div>
+        ))}
+      </div>
+    );
+  }
+
+  return <div style={{ width: '100%' }}><AttachmentList attachments={legacyAttachments || []} /></div>;
 }
 
 interface TaskWithClient extends Task {
@@ -61,6 +107,7 @@ export default function PageTasks() {
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch('/api/tasks');
@@ -125,7 +172,12 @@ export default function PageTasks() {
     <div className="page-content">
       <div className="page-header">
         <h1 className="page-title">Tâches</h1>
+        <button type="button" className="btn-primary-brand" onClick={() => setShowCreateModal(true)} style={{ fontSize: 13 }}>
+          <Icon name="plus" size={13} /> Nouvelle tâche
+        </button>
       </div>
+
+      <TaskModalMulti open={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={load} />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <select

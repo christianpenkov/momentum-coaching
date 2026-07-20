@@ -4,6 +4,8 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 
+const MORE_ROUTES = ['/client/liens', '/client/taches', '/client/ressources', '/client/settings'];
+
 const NAV = [
   {
     href: '/client',
@@ -25,16 +27,6 @@ const NAV = [
     ),
   },
   {
-    href: '/client/liens',
-    label: 'Liens',
-    icon: (
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-      </svg>
-    ),
-  },
-  {
     href: '/client/calendar',
     label: 'Calendrier',
     icon: (
@@ -48,9 +40,10 @@ const NAV = [
   },
 ];
 
-export default function BottomNav() {
+export default function BottomNav({ onMoreClick }: { onMoreClick: () => void }) {
   const pathname = usePathname();
   const unreadCount = useUnreadMessagesCount();
+  const isMoreActive = MORE_ROUTES.some(r => pathname.startsWith(r));
 
   return (
     <nav className="bottom-nav" role="navigation" aria-label="Navigation principale">
@@ -74,6 +67,20 @@ export default function BottomNav() {
           </Link>
         );
       })}
+      <button
+        type="button"
+        onClick={onMoreClick}
+        className={`bottom-nav-item${isMoreActive ? ' active' : ''}`}
+        aria-current={isMoreActive ? 'page' : undefined}
+        style={{ background: 'none', border: 'none', font: 'inherit', margin: 0, appearance: 'none' }}
+      >
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="none">
+          <circle cx="12" cy="12" r="1.6" />
+          <circle cx="19" cy="12" r="1.6" />
+          <circle cx="5" cy="12" r="1.6" />
+        </svg>
+        <span className="bnav-label">Plus</span>
+      </button>
     </nav>
   );
 }

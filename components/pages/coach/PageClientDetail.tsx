@@ -144,7 +144,7 @@ function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boo
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
-  const { getClient, addTask, toggleTask: ctxToggle, calls } = useSupabaseClients();
+  const { getClient, toggleTask: ctxToggle, calls, refetch } = useSupabaseClients();
   const client = getClient(id);
   const tasks = client?.tasks || [];
   const [note, setNote] = useState(client?.private_notes || '');
@@ -310,7 +310,7 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      <TaskModal open={modalOpen} onClose={() => setModalOpen(false)} onAdd={(t) => addTask(id, { ...t, client_id: id })} />
+      <TaskModal open={modalOpen} clientId={id} onClose={() => setModalOpen(false)} onCreated={refetch} />
       {sessionRapportCallId && (
         <SessionRapportModal
           callId={sessionRapportCallId}

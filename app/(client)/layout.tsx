@@ -1,9 +1,10 @@
 'use client';
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import TopBar from '@/components/layout/TopBar';
 import SidebarClient from '@/components/layout/SidebarClient';
 import BottomNav from '@/components/layout/BottomNav';
+import ClientMoreSheet from '@/components/layout/ClientMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider, useUser } from '@/lib/UserContext';
 import { GlobalPresenceClientProvider } from '@/lib/GlobalPresenceContext';
@@ -19,6 +20,7 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
 }) {
   const { user } = useUser();
   usePushNotifications(user?.id ?? null);
+  const [moreOpen, setMoreOpen] = useState(false);
   return (
     <div ref={shellRef} className="app-shell-pwa">
       <OrientationLockOverlay />
@@ -31,8 +33,9 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
         </main>
       </div>
       <div ref={navRef} className="bottom-nav-wrapper">
-        <BottomNav />
+        <BottomNav onMoreClick={() => setMoreOpen(true)} />
       </div>
+      {moreOpen && <ClientMoreSheet onClose={() => setMoreOpen(false)} />}
     </div>
   );
 }

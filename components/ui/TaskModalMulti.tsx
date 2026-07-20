@@ -1,13 +1,13 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from './Icon';
 import AttachmentItemsEditor from './AttachmentItemsEditor';
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 interface Props {
   open: boolean;
-  clientId: string;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -18,25 +18,29 @@ const PRIORITIES = [
   { value: 'low',    label: 'Basse',   color: 'var(--green)' },
 ] as const;
 
-export default function TaskModal({ open, clientId, onClose, onCreated }: Props) {
+// Création groupée : le coach assigne la même tâche à plusieurs élèves à la fois.
+// Une ligne `tasks` indépendante est créée par élève sélectionné (voir POST /api/tasks).
+export default function TaskModalMulti({ open, onClose, onCreated }: Props) {
+  const { clients } = useSupabaseClients();
   const [label, setLabel] = useState('');
   const [deadline, setDeadline] = useState('');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [requiresAttachment, setRequiresAttachment] = useState(false);
   const [attachmentItems, setAttachmentItems] = useState<string[]>([]);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [filter, setFilter] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
-  // Reset à chaque ouverture
   useEffect(() => {
     if (open) {
       setLabel(''); setDeadline(''); setPriority('medium');
       setRequiresAttachment(false); setAttachmentItems([]);
+      setSelectedIds(new Set()); setFilter('');
       setError(''); setSaving(false);
     }
   }, [open]);
 
-  // Fermer avec Escape
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
@@ -44,10 +48,25 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
     return () => window.removeEventListener('keydown', handler);
   }, [open, onClose]);
 
+  const filteredClients = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    if (!q) return clients;
+    return clients.filter(c => c.name.toLowerCase().includes(q));
+  }, [clients, filter]);
+
   if (!open) return null;
+
+  function toggleClient(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   async function handleSubmit() {
     if (!label.trim()) { setError('Le titre est obligatoire.'); return; }
+    if (selectedIds.size === 0) { setError('Sélectionne au moins un élève.'); return; }
     setSaving(true);
     setError('');
     try {
@@ -55,7 +74,7 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          client_id: clientId,
+          client_ids: [...selectedIds],
           label: label.trim(),
           deadline: deadline || null,
           priority,
@@ -89,24 +108,22 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
       <div
         onClick={e => e.stopPropagation()}
         style={{
-          width: 680, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 16,
+          width: 720, maxWidth: '92vw', maxHeight: '86vh', background: 'var(--surface)', borderRadius: 16,
           border: '1px solid var(--border)',
           boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
           overflow: 'hidden',
+          display: 'flex', flexDirection: 'column',
         }}
       >
-        {/* Header */}
-        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Icon name="plus" size={16} />
-            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>Nouvelle tâche</span>
+            <Icon name="users" size={16} />
+            <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>Nouvelle tâche pour plusieurs élèves</span>
           </div>
           <button onClick={onClose} type="button" className="icon-btn"><Icon name="x" size={15} /></button>
         </div>
 
-        {/* Body */}
-        <div style={{ padding: '20px 24px' }}>
-          {/* Titre */}
+        <div style={{ padding: '20px 24px', overflowY: 'auto', flex: 1 }}>
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
               Titre de la tâche *
@@ -115,40 +132,35 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
               autoFocus
               value={label}
               onChange={e => { setLabel(e.target.value); setError(''); }}
-              onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
               placeholder="Ex: Publier 3 Reels cette semaine"
               style={{
                 width: '100%', padding: '10px 14px',
-                border: `1px solid ${error ? 'var(--red)' : 'var(--border)'}`,
+                border: `1px solid ${error && !label.trim() ? 'var(--red)' : 'var(--border)'}`,
                 borderRadius: 10, fontSize: 13, background: 'var(--surface-2)',
                 color: 'var(--accent)', outline: 'none', fontFamily: 'inherit',
                 boxSizing: 'border-box',
               }}
             />
-            {error && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{error}</div>}
           </div>
 
-          {/* Deadline + Priorité côte à côte */}
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Deadline
               </label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type="date"
-                  value={deadline}
-                  onChange={e => setDeadline(e.target.value)}
-                  min={new Date().toISOString().split('T')[0]}
-                  style={{
-                    width: '100%', padding: '9px 12px',
-                    border: '1px solid var(--border)', borderRadius: 10,
-                    fontSize: 13, background: 'var(--surface-2)',
-                    color: deadline ? 'var(--accent)' : 'var(--muted)',
-                    outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
-                  }}
-                />
-              </div>
+              <input
+                type="date"
+                value={deadline}
+                onChange={e => setDeadline(e.target.value)}
+                min={new Date().toISOString().split('T')[0]}
+                style={{
+                  width: '100%', padding: '9px 12px',
+                  border: '1px solid var(--border)', borderRadius: 10,
+                  fontSize: 13, background: 'var(--surface-2)',
+                  color: deadline ? 'var(--accent)' : 'var(--muted)',
+                  outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
+                }}
+              />
             </div>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -175,7 +187,6 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
             </div>
           </div>
 
-          {/* Dépôt de document exigé */}
           <div style={{ marginBottom: 20 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
               <input
@@ -198,42 +209,53 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
             )}
           </div>
 
-          {/* Preview */}
-          {label.trim() && (
-            <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)', marginBottom: 20 }}>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>Aperçu</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ width: 16, height: 16, borderRadius: 4, border: '1.5px solid var(--border)', flexShrink: 0 }} />
-                <span style={{ fontSize: 13, color: 'var(--accent)', flex: 1 }}>{label}</span>
-                {deadline && (
-                  <span style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
-                    <Icon name="calendar" size={11} />
-                    {new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                  </span>
-                )}
-                <span style={{
-                  fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
-                  background: `${PRIORITIES.find(p => p.value === priority)?.color}20`,
-                  color: PRIORITIES.find(p => p.value === priority)?.color,
-                }}>
-                  {PRIORITIES.find(p => p.value === priority)?.label}
-                </span>
-              </div>
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Élèves concernés * ({selectedIds.size} sélectionné{selectedIds.size > 1 ? 's' : ''})
+            </label>
+            <input
+              value={filter}
+              onChange={e => setFilter(e.target.value)}
+              placeholder="Rechercher un élève…"
+              style={{
+                width: '100%', padding: '8px 12px', marginBottom: 8,
+                border: '1px solid var(--border)', borderRadius: 8,
+                fontSize: 13, background: 'var(--surface-2)', color: 'var(--accent)',
+                outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box',
+              }}
+            />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 220, overflowY: 'auto', border: '1px solid var(--border)', borderRadius: 10, padding: 6 }}>
+              {filteredClients.length === 0 && (
+                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 6px' }}>Aucun élève trouvé.</div>
+              )}
+              {filteredClients.map(c => (
+                <label
+                  key={c.id}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                    borderRadius: 8, cursor: 'pointer',
+                    background: selectedIds.has(c.id) ? 'var(--accent-brand-soft)' : 'transparent',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(c.id)}
+                    onChange={() => toggleClient(c.id)}
+                    style={{ width: 16, height: 16, cursor: 'pointer' }}
+                  />
+                  <span style={{ fontSize: 13, color: 'var(--accent)' }}>{c.name}</span>
+                </label>
+              ))}
             </div>
-          )}
+          </div>
+
+          {error && <div role="alert" style={{ fontSize: 12, color: 'var(--red)', marginTop: 14 }}>{error}</div>}
         </div>
 
-        {/* Footer */}
-        <div style={{ padding: '0 24px 20px', display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+        <div style={{ padding: '16px 24px', borderTop: '1px solid var(--border)', display: 'flex', gap: 10, justifyContent: 'flex-end', flexShrink: 0 }}>
           <button onClick={onClose} className="btn-ghost" type="button" disabled={saving}>Annuler</button>
-          <button
-            onClick={handleSubmit}
-            className="btn-primary-brand"
-            type="button"
-            style={{ gap: 6 }}
-            disabled={saving}
-          >
-            <Icon name="plus" size={13} /> {saving ? 'Création…' : 'Ajouter la tâche'}
+          <button onClick={handleSubmit} className="btn-primary-brand" type="button" style={{ gap: 6 }} disabled={saving}>
+            <Icon name="plus" size={13} /> {saving ? 'Création…' : `Créer pour ${selectedIds.size || ''} élève${selectedIds.size > 1 ? 's' : ''}`.trim()}
           </button>
         </div>
       </div>

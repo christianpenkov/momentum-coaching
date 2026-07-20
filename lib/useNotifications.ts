@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { clearAppBadge } from '@/lib/pwaBadge';
+import { getPendingSessionRapports } from '@/lib/sessionRapport';
+import type { Call } from '@/lib/supabase/types';
 
 let instanceCounter = 0;
 
-export type NotifType = 'rapport_call' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined';
+export type NotifType = 'rapport_call' | 'session_rapport' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined';
 
 export interface AppNotif {
   id: string;
@@ -40,7 +42,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
   const refresh = useCallback(async () => {
     if (!profileId) { setNotifs([]); return; }
 
-    // ── Notifs coach (réponses élève) ──
+    // ── Notifs coach (réponses élève + rapports de session en attente) ──
     if (!isClient) {
       const supabase = createClient();
       const { data: coachRows } = await supabase
@@ -69,12 +71,42 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         };
       });
 
-      setNotifs(coachNotifs);
+      // ── Rapports de session Google Meet en attente ──
+      const { data: googleCalls } = await supabase
+        .from('calls')
+        .select('id, client_id, scheduled_at, duration, call_type, calendly_event_uuid, status, session_completed, session_no_show')
+        .eq('coach_id', profileId)
+        .eq('call_type', 'google')
+        .is('calendly_event_uuid', null)
+        .eq('status', 'active');
+
+      const pendingSessionCalls = getPendingSessionRapports((googleCalls ?? []) as Call[]);
+      let sessionRapportNotifs: AppNotif[] = [];
+      if (pendingSessionCalls.length > 0) {
+        const clientIds = [...new Set(pendingSessionCalls.map(c => c.client_id).filter((id): id is string => !!id))];
+        const { data: clientsRows } = await supabase.from('clients').select('id, name').in('id', clientIds);
+        const nameById: Record<string, string> = {};
+        (clientsRows ?? []).forEach(c => { nameById[c.id] = c.name; });
+
+        sessionRapportNotifs = pendingSessionCalls.map(c => ({
+          id: `session_rapport_${c.id}`,
+          type: 'session_rapport' as NotifType,
+          title: 'Rapport de session',
+          body: `Comment s'est passée ta session${c.client_id && nameById[c.client_id] ? ` avec ${nameById[c.client_id]}` : ''} ?`,
+          callId: c.id,
+          inviteeName: c.client_id ? (nameById[c.client_id] ?? null) : null,
+          scheduledAt: c.scheduled_at,
+          duration: c.duration,
+        }));
+      }
+
+      const allCoachNotifs = [...coachNotifs, ...sessionRapportNotifs];
+      setNotifs(allCoachNotifs);
       // Le badge natif de l'icône PWA n'était sinon jamais effacé pour ce type de
       // notification (call accepté/refusé, rapport en attente) — seul le compteur
       // de messages non lus le déclenchait. S'il n'y a plus rien en attente ici NON
       // PLUS, le badge peut enfin être effacé (voir aussi la branche élève ci-dessous).
-      if (coachNotifs.length === 0) clearAppBadge();
+      if (allCoachNotifs.length === 0) clearAppBadge();
       return;
     }
     const supabase = createClient();

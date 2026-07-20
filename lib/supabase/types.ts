@@ -70,6 +70,7 @@ export interface Task {
 export interface TaskAttachment {
   id: string;
   task_id: string;
+  item_id?: string | null;
   uploaded_by: string;
   file_url: string;
   thumbnail_url: string | null;
@@ -77,6 +78,15 @@ export interface TaskAttachment {
   file_size_bytes: number | null;
   file_type: string | null;
   created_at: string;
+}
+
+export interface TaskAttachmentItem {
+  id: string;
+  task_id: string;
+  label: string;
+  position: number;
+  created_at: string;
+  task_attachments?: TaskAttachment[];
 }
 
 export interface Message {
@@ -133,6 +143,7 @@ export interface SessionReport {
   topic_custom: string | null; // libellé libre tapé par le coach quand topic = 'autre'
   notes: string | null;
   student_notes: string | null;
+  student_notes_dismissed: boolean;
   structured_answers: Record<string, unknown>;
   created_at: string;
   updated_at: string;

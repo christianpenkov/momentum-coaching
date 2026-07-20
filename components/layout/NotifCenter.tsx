@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { AppNotif } from '@/lib/useNotifications';
 import RapportModal from '@/components/ui/RapportModal';
+import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { createClient } from '@/lib/supabase/client';
 
 interface Props {
@@ -19,6 +20,7 @@ type RespondState = 'idle' | 'accepting' | 'declining' | 'done';
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
   const ref = useRef<HTMLDivElement>(null);
   const [rapportNotif, setRapportNotif] = useState<AppNotif | null>(null);
+  const [sessionRapportNotif, setSessionRapportNotif] = useState<AppNotif | null>(null);
 
   async function dismissCanceled(dbId: string) {
     const supabase = createClient();
@@ -26,18 +28,23 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
     onRefresh();
   }
 
-  // Ferme si clic dehors — désactivé si la modale rapport est ouverte
+  // Ferme si clic dehors — désactivé si une modale rapport est ouverte
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (rapportNotif) return;
+      if (rapportNotif || sessionRapportNotif) return;
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [onClose, rapportNotif]);
+  }, [onClose, rapportNotif, sessionRapportNotif]);
 
   function handleRapportDone() {
     setRapportNotif(null);
+    onRapportDone();
+  }
+
+  function handleSessionRapportDone() {
+    setSessionRapportNotif(null);
     onRapportDone();
   }
 
@@ -85,6 +92,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
                 notif={notif}
                 onAction={() => {
                   if (notif.type === 'rapport_call') setRapportNotif(notif);
+                  if (notif.type === 'session_rapport') setSessionRapportNotif(notif);
                 }}
                 onDismiss={notif.dbId ? () => dismissCanceled(notif.dbId!) : undefined}
                 onRefresh={onRefresh}
@@ -103,6 +111,15 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
           onClose={handleRapportDone}
         />
       )}
+
+      {sessionRapportNotif?.type === 'session_rapport' && sessionRapportNotif.callId && (
+        <SessionRapportModal
+          callId={sessionRapportNotif.callId}
+          studentName={sessionRapportNotif.inviteeName ?? null}
+          scheduledAt={sessionRapportNotif.scheduledAt ?? null}
+          onClose={handleSessionRapportDone}
+        />
+      )}
     </>,
     document.body
   );
@@ -111,13 +128,14 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
 function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif; onAction: () => void; onDismiss?: () => void; onRefresh: () => void }) {
   const [respondState, setRespondState] = useState<RespondState>('idle');
   const isRapport = notif.type === 'rapport_call';
+  const isSessionRapport = notif.type === 'session_rapport';
   const isCallRequest = notif.type === 'call_request';
   const isCanceled = notif.type === 'call_canceled';
   const isRescheduled = notif.type === 'call_rescheduled';
   const isAccepted = notif.type === 'call_accepted';
   const isDeclined = notif.type === 'call_declined';
   const isCoachResponse = isAccepted || isDeclined;
-  const accentColor = isRapport ? '#f59e0b' : isCanceled ? '#ef4444' : isRescheduled ? '#f59e0b' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
+  const accentColor = (isRapport || isSessionRapport) ? '#f59e0b' : isCanceled ? '#ef4444' : isRescheduled ? '#f59e0b' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
 
   async function handleAccept() {
     if (!notif.callId) return;
@@ -154,10 +172,10 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
       {/* Icône */}
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: isRapport ? '#f59e0b20' : isCallRequest ? 'var(--surface-2)' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
+        background: (isRapport || isSessionRapport) ? '#f59e0b20' : isCallRequest ? 'var(--surface-2)' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name={isCanceled || isDeclined ? 'x' : isCallRequest ? 'calendar' : isRapport ? 'video' : isAccepted ? 'check' : 'bell'} size={16} />
+        <Icon name={isCanceled || isDeclined ? 'x' : isCallRequest ? 'calendar' : (isRapport || isSessionRapport) ? 'video' : isAccepted ? 'check' : 'bell'} size={16} />
       </div>
 
       {/* Contenu */}
@@ -171,7 +189,7 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
             {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
           </div>
         )}
-        {isRapport && (
+        {(isRapport || isSessionRapport) && (
           <button type="button" onClick={onAction}
             style={{ marginTop: 10, fontSize: 12, fontWeight: 700, background: accentColor, color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
             Remplir le rapport

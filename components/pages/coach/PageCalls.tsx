@@ -4,7 +4,10 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import Avatar from '@/components/ui/Avatar';
+import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { getPendingSessionRapports } from '@/lib/sessionRapport';
+import type { Call } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history';
 
@@ -43,6 +46,10 @@ export default function PageCalls() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+
+  // Rapports de session Google Meet en attente — même condition que le badge élève
+  const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null } | null>(null);
+  const pendingSessionRapportIds = new Set(getPendingSessionRapports(calls as Call[]).map(c => c.id));
 
   async function syncCalls() {
     setSyncing(true);
@@ -327,6 +334,16 @@ export default function PageCalls() {
                       </button>
                     )
                   )}
+                  {isGoogle && pendingSessionRapportIds.has(call.id) && (
+                    <button
+                      type="button"
+                      className="btn-primary-brand"
+                      style={{ fontSize: 11, background: '#f59e0b', flexShrink: 0 }}
+                      onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at })}
+                    >
+                      Rapport
+                    </button>
+                  )}
                   {call.status === 'canceled' ? (
                     <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Annulé</span>
                   ) : call.status === 'declined' ? (
@@ -379,7 +396,18 @@ export default function PageCalls() {
                         </div>
                       </td>
                       <td style={{ fontSize: 12 }}>{call.topic || '—'}</td>
-                      <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200 }}>{call.notes || '—'}</td>
+                      <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200 }}>
+                        {pendingSessionRapportIds.has(call.id) ? (
+                          <button
+                            type="button"
+                            className="btn-ghost"
+                            style={{ fontSize: 11, color: '#f59e0b', border: '1px solid #f59e0b' }}
+                            onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at })}
+                          >
+                            Rapport
+                          </button>
+                        ) : (call.notes || '—')}
+                      </td>
                     </tr>
                   );
                 })}
@@ -576,6 +604,15 @@ export default function PageCalls() {
           </div>
         </div>,
         document.body
+      )}
+
+      {openSessionRapportCall && (
+        <SessionRapportModal
+          callId={openSessionRapportCall.callId}
+          studentName={openSessionRapportCall.clientName}
+          scheduledAt={openSessionRapportCall.scheduledAt}
+          onClose={() => { setOpenSessionRapportCall(null); refetch(); }}
+        />
       )}
     </div>
   );

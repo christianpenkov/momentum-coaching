@@ -53,9 +53,10 @@ function formatTime(dateStr: string) {
 // Notes personnelles de l'élève sur un call de coaching (Google Meet), indépendantes
 // du rapport du coach — toujours affichées et éditables, peu importe si le coach a
 // déjà rapporté ce call ou non (voir lib/sessionRapport.ts / route student-notes).
-function MyCallNotes({ callId, initialNotes, coachHasReported }: { callId: string; initialNotes: string; coachHasReported: boolean }) {
+function MyCallNotes({ callId, initialNotes, initialDismissed, coachHasReported }: { callId: string; initialNotes: string; initialDismissed: boolean; coachHasReported: boolean }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(initialNotes);
+  const [dismissed, setDismissed] = useState(initialDismissed);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -67,8 +68,20 @@ function MyCallNotes({ callId, initialNotes, coachHasReported }: { callId: strin
       body: JSON.stringify({ student_notes: value }),
     });
     setSaving(false);
+    setDismissed(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function markDismissed() {
+    setSaving(true);
+    await fetch(`/api/session-reports/by-call/${callId}/student-notes`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dismissed: true }),
+    });
+    setSaving(false);
+    setDismissed(true);
   }
 
   return (
@@ -80,6 +93,7 @@ function MyCallNotes({ callId, initialNotes, coachHasReported }: { callId: strin
       >
         <Icon name={open ? 'chevron-up' : 'chevron-down'} size={11} />
         Mes notes sur cet appel
+        {dismissed && !value.trim() && <Icon name="check" size={10} style={{ color: 'var(--green)' }} />}
       </button>
       {open && (
         <div style={{ marginTop: 8 }}>
@@ -94,7 +108,14 @@ function MyCallNotes({ callId, initialNotes, coachHasReported }: { callId: strin
             placeholder="Ce que tu veux retenir de cette séance…"
             style={{ width: '100%', minHeight: 80, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)', fontSize: 12, color: 'var(--accent)', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none', boxSizing: 'border-box' }}
           />
-          <div style={{ marginTop: 6, display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {dismissed && !value.trim() ? (
+              <span style={{ fontSize: 11, color: 'var(--green)' }}>✓ Tu as indiqué n'avoir rien à ajouter</span>
+            ) : !value.trim() ? (
+              <button className="btn-ghost" style={{ fontSize: 11 }} type="button" onClick={markDismissed} disabled={saving}>
+                Je n'ai rien à ajouter
+              </button>
+            ) : <span />}
             <button className="btn-ghost" style={{ fontSize: 11 }} type="button" onClick={save} disabled={saving}>
               {saved ? '✓ Sauvegardé' : saving ? 'Enregistrement…' : 'Sauvegarder'}
             </button>
@@ -128,7 +149,7 @@ export default function PageClientCalls() {
   const [rapportModal, setRapportModal] = useState<RapportModal | null>(null);
 
   // Notes personnelles + statut du rapport coach, par call_id (calls Google coach-élève)
-  const [sessionReportsByCall, setSessionReportsByCall] = useState<Record<string, { student_notes: string | null; attended: boolean | null }>>({});
+  const [sessionReportsByCall, setSessionReportsByCall] = useState<Record<string, { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null }>>({});
 
   const load = useCallback(async () => {
     const supabase = createClient();
@@ -185,10 +206,10 @@ export default function PageClientCalls() {
 
       const { data: reports } = await supabase
         .from('session_reports')
-        .select('call_id, student_notes, attended')
+        .select('call_id, student_notes, student_notes_dismissed, attended')
         .eq('client_id', clientRow.id);
-      const reportsMap: Record<string, { student_notes: string | null; attended: boolean | null }> = {};
-      for (const r of reports || []) reportsMap[r.call_id] = { student_notes: r.student_notes, attended: r.attended };
+      const reportsMap: Record<string, { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null }> = {};
+      for (const r of reports || []) reportsMap[r.call_id] = { student_notes: r.student_notes, student_notes_dismissed: r.student_notes_dismissed, attended: r.attended };
       setSessionReportsByCall(reportsMap);
     }
 
@@ -592,6 +613,7 @@ export default function PageClientCalls() {
                     <MyCallNotes
                       callId={call.id}
                       initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
+                      initialDismissed={sessionReportsByCall[call.id]?.student_notes_dismissed || false}
                       coachHasReported={sessionReportsByCall[call.id]?.attended != null}
                     />
                   )}

@@ -43,6 +43,17 @@ export async function POST(
   const file = form.get('file') as File | null;
   if (!file) return NextResponse.json({ error: 'Fichier manquant' }, { status: 400 });
 
+  const itemId = (form.get('item_id') as string | null) || null;
+  if (itemId) {
+    const { data: item } = await serviceSupabase
+      .from('task_attachment_items')
+      .select('id')
+      .eq('id', itemId)
+      .eq('task_id', taskId)
+      .maybeSingle();
+    if (!item) return NextResponse.json({ error: 'Item introuvable pour cette tâche' }, { status: 400 });
+  }
+
   const isImage = file.type.startsWith('image/');
   const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_DOC_SIZE;
   if (file.size > maxSize) return NextResponse.json({ error: 'Fichier trop volumineux' }, { status: 400 });
@@ -93,6 +104,7 @@ export async function POST(
     .from('task_attachments')
     .insert({
       task_id: taskId,
+      item_id: itemId,
       uploaded_by: user.id,
       file_url: publicUrl,
       thumbnail_url: thumbnailUrl,

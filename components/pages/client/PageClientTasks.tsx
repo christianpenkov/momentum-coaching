@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
-import type { Task, TaskAttachment } from '@/lib/supabase/types';
+import type { Task, TaskAttachment, TaskAttachmentItem } from '@/lib/supabase/types';
+import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 
 const PRIORITY_CONFIG = {
   high: { label: 'Haute', color: 'var(--red)' },
@@ -31,54 +32,46 @@ function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boo
   );
 }
 
-function AttachmentsPanel({ taskId, onCountChange }: { taskId: string; onCountChange?: (count: number) => void }) {
-  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
-  const [uploading, setUploading] = useState(false);
+// Carte de dépôt d'un fichier — utilisée par item structuré ou en fallback legacy.
+// Redesign : icône illustrative, miniature si disponible, taille + date, feedback
+// d'upload visible (spinner), au lieu du rendu minimal d'origine.
+function AttachmentDropzone({ label, attachments, onUpload, onRemove, uploading }: {
+  label?: string;
+  attachments: TaskAttachment[];
+  onUpload: (file: File) => void;
+  onRemove: (attachmentId: string) => void;
+  uploading: boolean;
+}) {
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/tasks/${taskId}/attachments`);
-    if (res.ok) {
-      const list = (await res.json()).attachments || [];
-      setAttachments(list);
-      onCountChange?.(list.length);
-    }
-  }, [taskId]);
-
-  useEffect(() => { load(); }, [load]);
-
-  async function upload(file: File) {
-    setUploading(true);
-    const form = new FormData();
-    form.append('file', file);
-    const res = await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: form });
-    setUploading(false);
-    if (res.ok) load();
-  }
-
-  async function remove(attachmentId: string) {
-    setAttachments(prev => {
-      const next = prev.filter(a => a.id !== attachmentId);
-      onCountChange?.(next.length);
-      return next;
-    });
-    await fetch(`/api/tasks/attachments/${attachmentId}`, { method: 'DELETE' });
-  }
+  const hasFile = attachments.length > 0;
 
   return (
-    <div style={{ marginTop: 10 }}>
+    <div style={{ border: `1px solid ${hasFile ? 'var(--green)' : 'var(--border)'}`, borderRadius: 10, padding: 10, background: 'var(--surface)' }}>
+      {label && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', flex: 1 }}>{label}</span>
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
+            background: hasFile ? 'var(--green-soft)' : 'var(--amber-soft)',
+            color: hasFile ? 'var(--green)' : 'var(--amber)',
+          }}>
+            {hasFile ? 'Déposé' : 'En attente'}
+          </span>
+        </div>
+      )}
+
       <div
         onDragOver={e => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={e => {
           e.preventDefault(); setDragOver(false);
           const file = e.dataTransfer.files?.[0];
-          if (file) upload(file);
+          if (file) onUpload(file);
         }}
         onClick={() => fileInputRef.current?.click()}
         style={{
-          padding: '12px', borderRadius: 8, textAlign: 'center', cursor: 'pointer',
+          padding: '14px', borderRadius: 8, textAlign: 'center', cursor: 'pointer',
           border: `1.5px dashed ${dragOver ? 'var(--accent-brand)' : 'var(--border)'}`,
           background: dragOver ? 'var(--accent-brand-soft)' : 'var(--surface-2)',
           transition: 'all 0.15s',
@@ -88,10 +81,10 @@ function AttachmentsPanel({ taskId, onCountChange }: { taskId: string; onCountCh
           ref={fileInputRef}
           type="file"
           hidden
-          onChange={e => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ''; }}
+          onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }}
         />
         <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
-          <Icon name="upload" size={12} />
+          <Icon name={uploading ? 'refresh-cw' : 'upload'} size={13} style={uploading ? { animation: 'spin 0.9s linear infinite' } : undefined} />
           {uploading ? 'Envoi en cours…' : 'Glisse un document ou clique pour en ajouter un'}
         </div>
       </div>
@@ -99,18 +92,117 @@ function AttachmentsPanel({ taskId, onCountChange }: { taskId: string; onCountCh
       {attachments.length > 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
           {attachments.map(att => (
-            <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, border: '1px solid var(--border)' }}>
-              <Icon name="file" size={13} style={{ color: 'var(--muted)', flexShrink: 0 }} />
-              <a href={att.file_url} target="_blank" rel="noreferrer" style={{ flex: 1, minWidth: 0, fontSize: 12, color: 'var(--accent-brand)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
-                {att.file_name}
-              </a>
-              <button type="button" onClick={() => remove(att.id)} className="icon-btn" style={{ flexShrink: 0 }}>
+            <div key={att.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+              {att.thumbnail_url ? (
+                <img src={att.thumbnail_url} alt="" style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />
+              ) : (
+                <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon name="file" size={14} style={{ color: 'var(--muted)' }} />
+                </div>
+              )}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <a href={att.file_url} target="_blank" rel="noreferrer" style={{ display: 'block', fontSize: 12, color: 'var(--accent-brand)', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }}>
+                  {att.file_name}
+                </a>
+                <div style={{ fontSize: 10, color: 'var(--muted)' }}>
+                  {[formatFileSize(att.file_size_bytes), formatRelativeDate(att.created_at)].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              <button type="button" onClick={() => onRemove(att.id)} className="icon-btn" style={{ flexShrink: 0 }}>
                 <Icon name="trash" size={12} />
               </button>
             </div>
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// Panneau de dépôt d'une tâche : une carte par item structuré (chacune avec son propre
+// statut/dropzone), ou fallback dropzone globale pour les tâches créées avant ce chantier
+// (attachment_instructions texte libre, pas d'items).
+function AttachmentItemsPanel({ taskId, legacyInstructions, onAllFilledChange }: {
+  taskId: string;
+  legacyInstructions: string | null;
+  onAllFilledChange?: (allFilled: boolean) => void;
+}) {
+  const [items, setItems] = useState<TaskAttachmentItem[] | null>(null);
+  const [legacyAttachments, setLegacyAttachments] = useState<TaskAttachment[]>([]);
+  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch(`/api/tasks/${taskId}/attachment-items`);
+    if (!res.ok) return;
+    const data = (await res.json()).items || [];
+    setItems(data);
+    if (data.length === 0) {
+      const legacyRes = await fetch(`/api/tasks/${taskId}/attachments`);
+      if (legacyRes.ok) setLegacyAttachments((await legacyRes.json()).attachments || []);
+    }
+  }, [taskId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    if (!onAllFilledChange) return;
+    if (items && items.length > 0) {
+      onAllFilledChange(items.every(i => (i.task_attachments?.length ?? 0) > 0));
+    } else {
+      onAllFilledChange(legacyAttachments.length > 0);
+    }
+  }, [items, legacyAttachments, onAllFilledChange]);
+
+  async function uploadToItem(itemId: string | null, file: File) {
+    setUploadingKey(itemId ?? 'legacy');
+    const form = new FormData();
+    form.append('file', file);
+    if (itemId) form.append('item_id', itemId);
+    await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: form });
+    setUploadingKey(null);
+    load();
+  }
+
+  async function removeAttachment(attachmentId: string) {
+    setLegacyAttachments(prev => prev.filter(a => a.id !== attachmentId));
+    setItems(prev => prev?.map(i => ({ ...i, task_attachments: i.task_attachments?.filter(a => a.id !== attachmentId) })) ?? null);
+    await fetch(`/api/tasks/attachments/${attachmentId}`, { method: 'DELETE' });
+    load();
+  }
+
+  if (items === null) return null;
+
+  if (items.length > 0) {
+    return (
+      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {items.map(item => (
+          <AttachmentDropzone
+            key={item.id}
+            label={item.label}
+            attachments={item.task_attachments || []}
+            onUpload={file => uploadToItem(item.id, file)}
+            onRemove={removeAttachment}
+            uploading={uploadingKey === item.id}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  // Fallback tâches legacy (avant ce chantier) : dropzone globale, texte libre affiché tel quel.
+  return (
+    <div style={{ marginTop: 10 }}>
+      {legacyInstructions && (
+        <div style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, fontSize: 12, color: 'var(--ink-2)' }}>
+          {legacyInstructions}
+        </div>
+      )}
+      <AttachmentDropzone
+        attachments={legacyAttachments}
+        onUpload={file => uploadToItem(null, file)}
+        onRemove={removeAttachment}
+        uploading={uploadingKey === 'legacy'}
+      />
     </div>
   );
 }
@@ -173,18 +265,27 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
   onDelete: () => void;
 }) {
   const priority = task.priority ? PRIORITY_CONFIG[task.priority] : null;
-  const [attachmentCount, setAttachmentCount] = useState<number | null>(null);
+  const [allFilled, setAllFilled] = useState<boolean | null>(null);
   const [confirmNoAttachment, setConfirmNoAttachment] = useState(false);
 
   useEffect(() => {
     if (!task.requires_attachment || task.done) return;
-    fetch(`/api/tasks/${task.id}/attachments`)
+    fetch(`/api/tasks/${task.id}/attachment-items`)
       .then(r => r.ok ? r.json() : null)
-      .then(data => { if (data) setAttachmentCount((data.attachments || []).length); });
-  }, [task.requires_attachment, task.done, task.id, expanded]);
+      .then(async data => {
+        const items = data?.items || [];
+        if (items.length > 0) {
+          setAllFilled(items.every((i: { task_attachments?: unknown[] }) => (i.task_attachments?.length ?? 0) > 0));
+        } else {
+          const legacyRes = await fetch(`/api/tasks/${task.id}/attachments`);
+          const legacy = legacyRes.ok ? (await legacyRes.json()).attachments || [] : [];
+          setAllFilled(legacy.length > 0);
+        }
+      });
+  }, [task.requires_attachment, task.done, task.id]);
 
   function handleToggleClick() {
-    if (!task.done && task.requires_attachment && attachmentCount === 0) {
+    if (!task.done && task.requires_attachment && allFilled === false) {
       setConfirmNoAttachment(true);
       return;
     }
@@ -210,9 +311,9 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
           {task.label}
         </span>
         {task.requires_attachment && !task.done && (
-          <span title={task.attachment_instructions || 'Document exigé'} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: attachmentCount ? 'var(--green-soft)' : 'var(--amber-soft)', color: attachmentCount ? 'var(--green)' : 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <span title="Document exigé" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: allFilled ? 'var(--green-soft)' : 'var(--amber-soft)', color: allFilled ? 'var(--green)' : 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             <Icon name="upload" size={10} />
-            {attachmentCount ? 'Document déposé' : 'Document exigé'}
+            {allFilled ? 'Document déposé' : 'Document exigé'}
           </span>
         )}
         <DeadlineBadge deadline={task.deadline} done={task.done} />
@@ -225,12 +326,6 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
           <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={13} />
         </button>
       </div>
-
-      {task.requires_attachment && task.attachment_instructions && !task.done && (
-        <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--amber-soft)', borderRadius: 6, fontSize: 12, color: 'var(--ink-2)', borderLeft: '2px solid var(--amber)' }}>
-          {task.attachment_instructions}
-        </div>
-      )}
 
       {confirmNoAttachment && (
         <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--amber)' }}>
@@ -256,7 +351,9 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
           {/* Tâches assignées par le coach : l'élève ne peut que cocher et déposer des documents,
               jamais modifier deadline/priorité ni supprimer (cf. règle produit + garde côté API). */}
           {task.added_by !== 'coach' && <EditFields task={task} onSave={onSave} onDelete={onDelete} />}
-          <AttachmentsPanel taskId={task.id} onCountChange={setAttachmentCount} />
+          {task.requires_attachment && (
+            <AttachmentItemsPanel taskId={task.id} legacyInstructions={task.attachment_instructions ?? null} onAllFilledChange={setAllFilled} />
+          )}
         </>
       )}
     </div>
@@ -269,6 +366,7 @@ export default function PageClientTasks() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState('');
   const [adding, setAdding] = useState(false);
+  const [tab, setTab] = useState<'coach' | 'mine'>('coach');
 
   const load = useCallback(async () => {
     const res = await fetch('/api/tasks');
@@ -315,8 +413,11 @@ export default function PageClientTasks() {
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
-  const todo = tasks.filter(t => !t.done);
-  const done = tasks.filter(t => t.done);
+  const coachTasks = tasks.filter(t => t.added_by === 'coach');
+  const myTasks = tasks.filter(t => t.added_by === 'client');
+  const visibleTasks = tab === 'coach' ? coachTasks : myTasks;
+  const todo = visibleTasks.filter(t => !t.done);
+  const done = visibleTasks.filter(t => t.done);
 
   return (
     <div className="page-content">
@@ -324,24 +425,47 @@ export default function PageClientTasks() {
         <h1 className="page-title">Tâches</h1>
       </div>
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            value={newLabel}
-            onChange={e => setNewLabel(e.target.value)}
-            onKeyDown={e => { if (e.key === 'Enter') addTask(); }}
-            placeholder="Ajouter une tâche personnelle…"
-            style={{ flex: 1, padding: '10px 14px', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, background: 'var(--surface-2)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
-          />
-          <button type="button" onClick={addTask} disabled={adding || !newLabel.trim()} className="btn-primary-brand">
-            <Icon name="plus" size={13} /> Ajouter
-          </button>
-        </div>
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        <button
+          type="button"
+          onClick={() => setTab('coach')}
+          className={`chip${tab === 'coach' ? ' chip-active' : ''}`}
+          style={{ fontSize: 13, fontWeight: 600, padding: '8px 16px' }}
+        >
+          Tâches du coach ({coachTasks.length})
+        </button>
+        <button
+          type="button"
+          onClick={() => setTab('mine')}
+          className={`chip${tab === 'mine' ? ' chip-active' : ''}`}
+          style={{ fontSize: 13, fontWeight: 600, padding: '8px 16px' }}
+        >
+          Mes tâches ({myTasks.length})
+        </button>
       </div>
+
+      {tab === 'mine' && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div style={{ display: 'flex', gap: 8 }}>
+            <input
+              value={newLabel}
+              onChange={e => setNewLabel(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') addTask(); }}
+              placeholder="Ajouter une tâche personnelle…"
+              style={{ flex: 1, padding: '10px 14px', border: '1px solid var(--border)', borderRadius: 10, fontSize: 13, background: 'var(--surface-2)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
+            />
+            <button type="button" onClick={addTask} disabled={adding || !newLabel.trim()} className="btn-primary-brand">
+              <Icon name="plus" size={13} /> Ajouter
+            </button>
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
         {todo.length === 0 && done.length === 0 && (
-          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Aucune tâche pour l'instant.</div>
+          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>
+            {tab === 'coach' ? 'Aucune tâche assignée par ton coach pour l\'instant.' : 'Aucune tâche personnelle pour l\'instant.'}
+          </div>
         )}
         {todo.map(task => (
           <TaskRow
