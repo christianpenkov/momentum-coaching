@@ -427,13 +427,13 @@ const icons = {
       <path d="M8.47 11.29 12 14.83l9.19-9.19" />
     </>
   ),
-  // Menu hamburger arrondi, distinct de 'list' (qui a des puces) pour le bouton
-  // qui ouvre le drawer des dossiers sur la page Ressources.
+  // Menu hamburger à barres pleines et coins arrondis, distinct de 'list' (qui a des
+  // puces) pour le bouton qui ouvre le drawer des dossiers sur la page Ressources.
   'menu-lines': (
     <>
-      <line x1="4" y1="7" x2="20" y2="7" />
-      <line x1="4" y1="12" x2="20" y2="12" />
-      <line x1="4" y1="17" x2="20" y2="17" />
+      <rect x="1.5" y="4" width="21" height="3.5" rx="1.75" fill="currentColor" stroke="none" />
+      <rect x="1.5" y="10.25" width="21" height="3.5" rx="1.75" fill="currentColor" stroke="none" />
+      <rect x="1.5" y="16.5" width="21" height="3.5" rx="1.75" fill="currentColor" stroke="none" />
     </>
   ),
 };

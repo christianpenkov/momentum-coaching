@@ -35,7 +35,7 @@ export default function TopBar() {
           onClick={() => setNotifOpen(v => !v)}
           style={{ position: 'relative' }}
         >
-          <Icon name="bell" size={18} className="topbar-bell" />
+          <Icon name="bell" size={22} className="topbar-bell" />
           {notifs.length > 0 && (
             <span style={{
               position: 'absolute', top: 2, right: 2,

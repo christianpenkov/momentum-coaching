@@ -89,7 +89,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
     <div
       onClick={requestClose}
       style={{
-        position: 'fixed', inset: 0, zIndex: 1000,
+        position: 'fixed', inset: 0, zIndex: 5000,
         background: 'rgba(0,0,0,0.35)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         backdropFilter: 'blur(2px)',
@@ -109,13 +109,14 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
-              background: 'var(--surface)',
+              position: 'absolute', inset: 0, zIndex: 10,
+              background: 'rgba(0,0,0,0.35)',
+              backdropFilter: 'blur(4px)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               padding: 32,
             }}
           >
-            <div style={{ textAlign: 'center', maxWidth: 320 }}>
+            <div style={{ textAlign: 'center', maxWidth: 320, background: 'var(--surface)', borderRadius: 14, padding: '24px 22px', boxShadow: '0 12px 32px rgba(0,0,0,0.2)' }}>
               <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
                 Quitter le rapport en cours ?
               </div>

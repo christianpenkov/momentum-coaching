@@ -338,7 +338,7 @@ export default function PageCalls() {
                     <button
                       type="button"
                       className="btn-primary-brand"
-                      style={{ fontSize: 11, background: '#f59e0b', flexShrink: 0 }}
+                      style={{ fontSize: 11, background: 'var(--accent-brand)', flexShrink: 0 }}
                       onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at })}
                     >
                       Rapport
@@ -401,7 +401,7 @@ export default function PageCalls() {
                           <button
                             type="button"
                             className="btn-ghost"
-                            style={{ fontSize: 11, color: '#f59e0b', border: '1px solid #f59e0b' }}
+                            style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
                             onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at })}
                           >
                             Rapport

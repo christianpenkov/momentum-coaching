@@ -1652,7 +1652,7 @@ a { color: inherit; text-decoration: none; }
   /* TopBar mobile */
   .topbar { height: 52px; padding: 0 16px; }
   .topbar-tagline { display: none; }
-  .topbar-bell { width: 17px !important; height: 17px !important; }
+  .topbar-bell { width: 20px !important; height: 20px !important; }
 
   /* App shell — scroll natif dans le flex layout mobile */
   .main-content {

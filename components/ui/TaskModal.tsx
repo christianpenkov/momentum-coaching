@@ -25,7 +25,8 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [requiresAttachment, setRequiresAttachment] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
-  const [error, setError] = useState('');
+  const [errorField, setErrorField] = useState<'label' | 'deadline' | 'client' | null>(null);
+  const [errorMessage, setErrorMessage] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Reset à chaque ouverture
@@ -33,7 +34,7 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
     if (open) {
       setLabel(''); setDeadline(''); setPriority('medium');
       setRequiresAttachment(false); setSelectedClientId('');
-      setError(''); setSaving(false);
+      setErrorField(null); setErrorMessage(''); setSaving(false);
     }
   }, [open]);
 
@@ -48,12 +49,12 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
   if (!open) return null;
 
   async function handleSubmit() {
-    if (!label.trim()) { setError('Le titre est obligatoire.'); return; }
-    if (!deadline) { setError('La deadline est obligatoire.'); return; }
+    if (!label.trim()) { setErrorField('label'); setErrorMessage('Le titre est obligatoire.'); return; }
+    if (!deadline) { setErrorField('deadline'); setErrorMessage('La deadline est obligatoire.'); return; }
     const clientId = fixedClientId || selectedClientId;
-    if (!clientId) { setError('Sélectionne un élève.'); return; }
+    if (!clientId) { setErrorField('client'); setErrorMessage('Sélectionne un élève.'); return; }
     setSaving(true);
-    setError('');
+    setErrorField(null); setErrorMessage('');
     try {
       const res = await fetch('/api/tasks', {
         method: 'POST',
@@ -73,7 +74,8 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
       onCreated();
       onClose();
     } catch (e: any) {
-      setError(e.message || 'Erreur lors de la création');
+      setErrorField('label');
+      setErrorMessage(e.message || 'Erreur lors de la création');
     } finally {
       setSaving(false);
     }
@@ -117,18 +119,18 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
             <input
               autoFocus
               value={label}
-              onChange={e => { setLabel(e.target.value); setError(''); }}
+              onChange={e => { setLabel(e.target.value); if (errorField === 'label') { setErrorField(null); setErrorMessage(''); } }}
               onKeyDown={e => { if (e.key === 'Enter') handleSubmit(); }}
               placeholder="Ex: Publier 3 Reels cette semaine"
               style={{
                 width: '100%', padding: '10px 14px',
-                border: `1px solid ${error ? 'var(--red)' : 'var(--border)'}`,
+                border: `1px solid ${errorField === 'label' ? 'var(--red)' : 'var(--border)'}`,
                 borderRadius: 10, fontSize: 13, background: 'var(--surface-2)',
                 color: 'var(--accent)', outline: 'none', fontFamily: 'inherit',
                 boxSizing: 'border-box',
               }}
             />
-            {error && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{error}</div>}
+            {errorField === 'label' && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{errorMessage}</div>}
           </div>
 
           {/* Deadline + Priorité côte à côte */}
@@ -141,17 +143,18 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
                 <input
                   type="date"
                   value={deadline}
-                  onChange={e => setDeadline(e.target.value)}
+                  onChange={e => { setDeadline(e.target.value); if (errorField === 'deadline') { setErrorField(null); setErrorMessage(''); } }}
                   min={new Date().toISOString().split('T')[0]}
                   style={{
                     width: '100%', padding: '9px 12px',
-                    border: `1px solid ${error && !deadline ? 'var(--red)' : 'var(--border)'}`, borderRadius: 10,
+                    border: `1px solid ${errorField === 'deadline' ? 'var(--red)' : 'var(--border)'}`, borderRadius: 10,
                     fontSize: 13, background: 'var(--surface-2)',
                     color: deadline ? 'var(--accent)' : 'var(--muted)',
                     outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
                   }}
                 />
               </div>
+              {errorField === 'deadline' && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{errorMessage}</div>}
             </div>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -225,10 +228,10 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
               </label>
               <select
                 value={selectedClientId}
-                onChange={e => { setSelectedClientId(e.target.value); setError(''); }}
+                onChange={e => { setSelectedClientId(e.target.value); if (errorField === 'client') { setErrorField(null); setErrorMessage(''); } }}
                 style={{
                   width: '100%', padding: '10px 14px',
-                  border: `1px solid ${error && !selectedClientId ? 'var(--red)' : 'var(--border)'}`,
+                  border: `1px solid ${errorField === 'client' ? 'var(--red)' : 'var(--border)'}`,
                   borderRadius: 10, fontSize: 13, background: 'var(--surface-2)',
                   color: selectedClientId ? 'var(--accent)' : 'var(--muted)',
                   outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
@@ -239,6 +242,7 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
                   <option key={c.id} value={c.id}>{c.name}</option>
                 ))}
               </select>
+              {errorField === 'client' && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{errorMessage}</div>}
             </div>
           )}
         </div>
