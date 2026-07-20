@@ -99,7 +99,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         onClick={e => e.stopPropagation()}
         style={{
           width: 520, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 18,
-          border: '1px solid var(--border)',
+          border: confirmClose ? '1px solid transparent' : '1px solid var(--border)',
           boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
           overflow: 'hidden',
           position: 'relative',
@@ -109,7 +109,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              position: 'absolute', inset: 0, zIndex: 10,
+              position: 'absolute', inset: 0, zIndex: 10, borderRadius: 18,
               background: 'rgba(0,0,0,0.35)',
               backdropFilter: 'blur(4px)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
