@@ -243,7 +243,7 @@ export default function PageResources() {
             color: 'var(--ink)', display: 'flex', alignItems: 'center', flexShrink: 0,
           }}
         >
-          <Icon name="menu-lines" size={15} />
+          <Icon name="menu-lines" size={20} />
         </button>
         {activeSectionId && activeSection ? (
           <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
