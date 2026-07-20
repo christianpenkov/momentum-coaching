@@ -17,7 +17,8 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/calendar', icon: 'calendar', label: 'Calendrier' },
   { href: '/tasks', icon: 'task-check', label: 'Tâches' },
   { href: '/ressources', icon: 'folder', label: 'Ressources' },
-  { href: '/ai', icon: 'sparkle', label: 'Assistant IA', highlight: true },
+  // Assistant IA temporairement masqué de la nav — page/route conservées.
+  // { href: '/ai', icon: 'sparkle', label: 'Assistant IA', highlight: true },
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [

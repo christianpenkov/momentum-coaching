@@ -135,7 +135,7 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
   const isAccepted = notif.type === 'call_accepted';
   const isDeclined = notif.type === 'call_declined';
   const isCoachResponse = isAccepted || isDeclined;
-  const accentColor = (isRapport || isSessionRapport) ? '#f59e0b' : isCanceled ? '#ef4444' : isRescheduled ? '#f59e0b' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
+  const accentColor = (isRapport || isSessionRapport) ? 'var(--accent-brand)' : isCanceled ? '#ef4444' : isRescheduled ? '#f59e0b' : isAccepted ? '#22c55e' : isDeclined ? '#f97316' : 'var(--accent)';
 
   async function handleAccept() {
     if (!notif.callId) return;
@@ -172,7 +172,7 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
       {/* Icône */}
       <div style={{
         width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-        background: (isRapport || isSessionRapport) ? '#f59e0b20' : isCallRequest ? 'var(--surface-2)' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
+        background: (isRapport || isSessionRapport) ? 'var(--accent-brand-soft)' : isCallRequest ? 'var(--surface-2)' : isCanceled ? '#ef444420' : isAccepted ? '#22c55e20' : isDeclined ? '#f9731620' : 'var(--surface-2)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         <Icon name={isCanceled || isDeclined ? 'x' : isCallRequest ? 'calendar' : (isRapport || isSessionRapport) ? 'video' : isAccepted ? 'check' : 'bell'} size={16} />

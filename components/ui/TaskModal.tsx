@@ -49,6 +49,7 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
 
   async function handleSubmit() {
     if (!label.trim()) { setError('Le titre est obligatoire.'); return; }
+    if (!deadline) { setError('La deadline est obligatoire.'); return; }
     const clientId = fixedClientId || selectedClientId;
     if (!clientId) { setError('Sélectionne un élève.'); return; }
     setSaving(true);
@@ -108,31 +109,6 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
 
         {/* Body */}
         <div style={{ padding: '20px 24px' }}>
-          {/* Élève (uniquement si pas déjà fixé par le contexte d'appel) */}
-          {!fixedClientId && (
-            <div style={{ marginBottom: 16 }}>
-              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Élève *
-              </label>
-              <select
-                value={selectedClientId}
-                onChange={e => { setSelectedClientId(e.target.value); setError(''); }}
-                style={{
-                  width: '100%', padding: '10px 14px',
-                  border: `1px solid ${error && !selectedClientId ? 'var(--red)' : 'var(--border)'}`,
-                  borderRadius: 10, fontSize: 13, background: 'var(--surface-2)',
-                  color: selectedClientId ? 'var(--accent)' : 'var(--muted)',
-                  outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
-                }}
-              >
-                <option value="">Sélectionner un élève…</option>
-                {clients.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </div>
-          )}
-
           {/* Titre */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -159,7 +135,7 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
             <div>
               <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Deadline
+                Deadline *
               </label>
               <div style={{ position: 'relative' }}>
                 <input
@@ -169,7 +145,7 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
                   min={new Date().toISOString().split('T')[0]}
                   style={{
                     width: '100%', padding: '9px 12px',
-                    border: '1px solid var(--border)', borderRadius: 10,
+                    border: `1px solid ${error && !deadline ? 'var(--red)' : 'var(--border)'}`, borderRadius: 10,
                     fontSize: 13, background: 'var(--surface-2)',
                     color: deadline ? 'var(--accent)' : 'var(--muted)',
                     outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
@@ -238,6 +214,31 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
                   {PRIORITIES.find(p => p.value === priority)?.label}
                 </span>
               </div>
+            </div>
+          )}
+
+          {/* Élève (uniquement si pas déjà fixé par le contexte d'appel) */}
+          {!fixedClientId && (
+            <div>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Élève *
+              </label>
+              <select
+                value={selectedClientId}
+                onChange={e => { setSelectedClientId(e.target.value); setError(''); }}
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  border: `1px solid ${error && !selectedClientId ? 'var(--red)' : 'var(--border)'}`,
+                  borderRadius: 10, fontSize: 13, background: 'var(--surface-2)',
+                  color: selectedClientId ? 'var(--accent)' : 'var(--muted)',
+                  outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
+                }}
+              >
+                <option value="">Sélectionner un élève…</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
             </div>
           )}
         </div>

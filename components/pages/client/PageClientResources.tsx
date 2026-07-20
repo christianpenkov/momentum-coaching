@@ -410,7 +410,7 @@ export default function PageClientResources() {
               color: 'var(--ink)', display: 'flex', alignItems: 'center', flexShrink: 0,
             }}
           >
-            <Icon name="list" size={15} />
+            <Icon name="menu-lines" size={15} />
           </button>
           {activeSectionId && activeSection ? (
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted)' }}>

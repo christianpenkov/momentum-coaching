@@ -66,12 +66,6 @@ export default function PageToday() {
     },
     {
       label: 'Calls aujourd\'hui', value: callsToday.length,
-      viz: (
-        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 11, color: 'var(--accent-brand)', fontWeight: 500 }}>
-          <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-brand)', animation: 'pulse 2s ease-in-out infinite' }} />
-          live
-        </span>
-      ),
     },
   ];
 
@@ -107,7 +101,7 @@ export default function PageToday() {
       {/* Rapports de session en attente — carrousel avec flèches latérales (miroir du flux Calendly élève-prospect) */}
       {sessionRapportNotifs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-brand)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
             {sessionRapportNotifs.length} rapport{sessionRapportNotifs.length > 1 ? 's' : ''} de session en attente
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -124,10 +118,10 @@ export default function PageToday() {
               const call = calls.find(c => c.id === notif.callId);
               const client = call ? clients.find(c => c.id === call.client_id) : null;
               return (
-                <div className="card" style={{ flex: 1, borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                <div className="card" style={{ flex: 1, borderLeft: '4px solid var(--accent-brand)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)', marginBottom: 4 }}>
                         RAPPORT DE SESSION{sessionRapportNotifs.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{sessionRapportIdx + 1} / {sessionRapportNotifs.length}</span>}
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
@@ -145,7 +139,7 @@ export default function PageToday() {
                     <button
                       className="btn-primary-brand"
                       type="button"
-                      style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
+                      style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
                       onClick={() => setOpenSessionRapport(notif)}
                     >
                       Remplir le rapport

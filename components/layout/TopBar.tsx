@@ -35,12 +35,12 @@ export default function TopBar() {
           onClick={() => setNotifOpen(v => !v)}
           style={{ position: 'relative' }}
         >
-          <Icon name="bell" size={16} />
+          <Icon name="bell" size={18} className="topbar-bell" />
           {notifs.length > 0 && (
             <span style={{
               position: 'absolute', top: 2, right: 2,
               minWidth: 16, height: 16, borderRadius: 8,
-              background: '#f59e0b', color: '#fff',
+              background: 'var(--accent-brand)', color: '#fff',
               fontSize: 10, fontWeight: 700,
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               lineHeight: 1, padding: '0 3px',
@@ -50,7 +50,7 @@ export default function TopBar() {
           )}
         </button>
 
-        <div title={name} style={{ cursor: 'pointer' }}>
+        <div title={name} className="topbar-avatar" style={{ cursor: 'pointer' }}>
           <Avatar initials={initials || '?'} avatarUrl={user?.avatar_url} size={30} />
         </div>
       </div>

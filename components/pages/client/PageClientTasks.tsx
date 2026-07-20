@@ -38,7 +38,7 @@ function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boo
 function AttachmentDropzone({ label, attachments, onUpload, onRemove, uploading }: {
   label?: string;
   attachments: TaskAttachment[];
-  onUpload: (file: File) => void;
+  onUpload: (files: File[]) => void;
   onRemove: (attachmentId: string) => void;
   uploading: boolean;
 }) {
@@ -66,8 +66,8 @@ function AttachmentDropzone({ label, attachments, onUpload, onRemove, uploading 
         onDragLeave={() => setDragOver(false)}
         onDrop={e => {
           e.preventDefault(); setDragOver(false);
-          const file = e.dataTransfer.files?.[0];
-          if (file) onUpload(file);
+          const files = Array.from(e.dataTransfer.files || []);
+          if (files.length > 0) onUpload(files);
         }}
         onClick={() => fileInputRef.current?.click()}
         style={{
@@ -80,8 +80,9 @@ function AttachmentDropzone({ label, attachments, onUpload, onRemove, uploading 
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           hidden
-          onChange={e => { const f = e.target.files?.[0]; if (f) onUpload(f); e.target.value = ''; }}
+          onChange={e => { const files = Array.from(e.target.files || []); if (files.length > 0) onUpload(files); e.target.value = ''; }}
         />
         <div style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
           <Icon name={uploading ? 'refresh-cw' : 'upload'} size={13} style={uploading ? { animation: 'spin 0.9s linear infinite' } : undefined} />
@@ -137,11 +138,13 @@ function TaskAttachmentsPanel({ taskId, onCountChange }: {
 
   useEffect(() => { load(); }, [load]);
 
-  async function upload(file: File) {
+  async function upload(files: File[]) {
     setUploading(true);
-    const form = new FormData();
-    form.append('file', file);
-    await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: form });
+    await Promise.all(files.map(file => {
+      const form = new FormData();
+      form.append('file', file);
+      return fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: form });
+    }));
     setUploading(false);
     load();
   }

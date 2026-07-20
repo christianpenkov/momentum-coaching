@@ -51,6 +51,23 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         .in('type', ['call_accepted', 'call_declined'])
         .is('read_at', null);
 
+      // Nom de l'élève : pas stocké dans le payload, résolu via un join call_id → clients.name
+      // (même pattern que pour session_rapport ci-dessous).
+      const coachCallIds = [...new Set((coachRows ?? []).map(r => r.call_id).filter((id): id is string => !!id))];
+      const coachClientNameByCallId: Record<string, string> = {};
+      if (coachCallIds.length > 0) {
+        const { data: callsRows } = await supabase.from('calls').select('id, client_id').in('id', coachCallIds);
+        const clientIds = [...new Set((callsRows ?? []).map(c => c.client_id).filter((id): id is string => !!id))];
+        if (clientIds.length > 0) {
+          const { data: clientsRows } = await supabase.from('clients').select('id, name').in('id', clientIds);
+          const nameByClientId: Record<string, string> = {};
+          (clientsRows ?? []).forEach(c => { nameByClientId[c.id] = c.name; });
+          (callsRows ?? []).forEach(c => {
+            if (c.client_id && nameByClientId[c.client_id]) coachClientNameByCallId[c.id] = nameByClientId[c.client_id];
+          });
+        }
+      }
+
       const coachNotifs: AppNotif[] = (coachRows ?? []).map(row => {
         const isAccepted = row.type === 'call_accepted';
         const topic = row.payload?.topic || 'Call coaching';
@@ -58,14 +75,17 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         const dateStr = d ? d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
         const timeStr = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
         const proposedSuffix = row.payload?.proposed_at ? ` — propose : ${row.payload.proposed_at}` : '';
+        const clientName = row.call_id ? coachClientNameByCallId[row.call_id] : undefined;
+        const nameSuffix = clientName ? ` — ${clientName}` : '';
         return {
           id: `coach_notif_${row.id}`,
           type: row.type as NotifType,
           title: isAccepted ? 'Call accepté ✓' : 'Call refusé',
           body: isAccepted
-            ? `${topic} · ${dateStr} à ${timeStr}`
-            : `${topic} · ${dateStr} à ${timeStr}${proposedSuffix}`,
+            ? `${topic} · ${dateStr} à ${timeStr}${nameSuffix}`
+            : `${topic} · ${dateStr} à ${timeStr}${proposedSuffix}${nameSuffix}`,
           callId: row.call_id ?? undefined,
+          inviteeName: clientName ?? null,
           scheduledAt: row.payload?.scheduled_at ?? null,
           dbId: row.id,
         };

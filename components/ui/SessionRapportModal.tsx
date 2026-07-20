@@ -109,10 +109,10 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
           <div
             onClick={e => e.stopPropagation()}
             style={{
-              position: 'absolute', inset: 0, zIndex: 10,
+              position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
               background: 'var(--surface)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: 24,
+              padding: 32,
             }}
           >
             <div style={{ textAlign: 'center', maxWidth: 320 }}>
