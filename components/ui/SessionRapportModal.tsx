@@ -85,7 +85,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
     });
   }
 
-  return createPortal(
+  const modal = createPortal(
     <div
       onClick={requestClose}
       style={{
@@ -99,57 +99,12 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         onClick={e => e.stopPropagation()}
         style={{
           width: 520, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 18,
-          border: confirmClose ? '1px solid transparent' : '1px solid var(--border)',
+          border: '1px solid var(--border)',
           boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
           overflow: 'hidden',
           position: 'relative',
         }}
       >
-        {confirmClose && (
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              position: 'absolute', inset: 0, zIndex: 10, borderRadius: 18,
-              background: 'rgba(0,0,0,0.35)',
-              backdropFilter: 'blur(4px)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              padding: 32,
-            }}
-          >
-            <div style={{ textAlign: 'center', maxWidth: 320, background: 'var(--surface)', borderRadius: 14, padding: '24px 22px', boxShadow: '0 12px 32px rgba(0,0,0,0.2)' }}>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
-                Quitter le rapport en cours ?
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
-                Ce que tu as déjà saisi ne sera pas enregistré.
-              </div>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-2)', marginBottom: 20, cursor: 'pointer', justifyContent: 'center' }}>
-                <input
-                  type="checkbox"
-                  checked={confirmChecked}
-                  onChange={e => setConfirmChecked(e.target.checked)}
-                  style={{ width: 16, height: 16, cursor: 'pointer' }}
-                />
-                Je confirme vouloir quitter sans enregistrer
-              </label>
-              <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
-                <button type="button" className="btn-ghost" onClick={() => setConfirmClose(false)}>
-                  Continuer le rapport
-                </button>
-                <button
-                  type="button"
-                  className="btn-primary-brand"
-                  style={{ background: confirmChecked ? 'var(--red)' : 'var(--border)', borderColor: confirmChecked ? 'var(--red)' : 'var(--border)', cursor: confirmChecked ? 'pointer' : 'not-allowed', opacity: confirmChecked ? 1 : 0.6 }}
-                  disabled={!confirmChecked}
-                  onClick={onClose}
-                >
-                  Quitter
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Header */}
         <div style={{ padding: '26px 30px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -300,5 +255,56 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
       </div>
     </div>,
     document.body
+  );
+
+  return (
+    <>
+      {modal}
+      {confirmClose && createPortal(
+        <div
+          onClick={e => e.stopPropagation()}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 5001,
+            background: 'rgba(0,0,0,0.45)',
+            backdropFilter: 'blur(4px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: 24,
+          }}
+        >
+          <div style={{ textAlign: 'center', maxWidth: 320, background: 'var(--surface)', borderRadius: 16, padding: '24px 22px', boxShadow: '0 12px 32px rgba(0,0,0,0.25)' }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>
+              Quitter le rapport en cours ?
+            </div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
+              Ce que tu as déjà saisi ne sera pas enregistré.
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-2)', marginBottom: 20, cursor: 'pointer', justifyContent: 'center' }}>
+              <input
+                type="checkbox"
+                checked={confirmChecked}
+                onChange={e => setConfirmChecked(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer' }}
+              />
+              Je confirme vouloir quitter sans enregistrer
+            </label>
+            <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+              <button type="button" className="btn-ghost" onClick={() => setConfirmClose(false)}>
+                Continuer le rapport
+              </button>
+              <button
+                type="button"
+                className="btn-primary-brand"
+                style={{ background: confirmChecked ? 'var(--red)' : 'var(--border)', borderColor: confirmChecked ? 'var(--red)' : 'var(--border)', cursor: confirmChecked ? 'pointer' : 'not-allowed', opacity: confirmChecked ? 1 : 0.6 }}
+                disabled={!confirmChecked}
+                onClick={onClose}
+              >
+                Quitter
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
   );
 }
