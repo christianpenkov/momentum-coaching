@@ -1,5 +1,7 @@
 'use client';
 
+import { useMemo } from 'react';
+
 const icons = {
   star: (
     <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
@@ -421,7 +423,27 @@ const icons = {
   ),
 };
 
-export type IconName = keyof typeof icons;
+// Cercle plein façon logo Google Tasks, généré par une fonction (pas un JSX statique comme
+// les autres icônes) car il a besoin d'un id de <mask> unique par instance — sinon deux
+// icônes "task-check" affichées en même temps (ex: sidebar + bottom nav) se référenceraient
+// l'une l'autre et une seule afficherait le check découpé. Le check est "découpé" dans le
+// disque plein via un masque SVG, pour rester correct quel que soit le fond réel derrière
+// l'icône (nav active/inactive), plutôt qu'un stroke de couleur fixe qui casserait sur fond actif.
+let taskCheckMaskCounter = 0;
+function TaskCheckIcon() {
+  const maskId = useMemo(() => `task-check-mask-${++taskCheckMaskCounter}`, []);
+  return (
+    <>
+      <mask id={maskId}>
+        <rect x="0" y="0" width="24" height="24" fill="white" />
+        <path d="M7.5 12.5l3 3 6-7" fill="none" stroke="black" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" />
+      </mask>
+      <circle cx="12" cy="12" r="10" fill="currentColor" stroke="none" mask={`url(#${maskId})`} />
+    </>
+  );
+}
+
+export type IconName = keyof typeof icons | 'task-check';
 
 interface IconProps {
   name: IconName;
@@ -432,7 +454,7 @@ interface IconProps {
 }
 
 export default function Icon({ name, size = 16, color = 'currentColor', className, style }: IconProps) {
-  const paths = icons[name];
+  const paths = name === 'task-check' ? <TaskCheckIcon /> : icons[name as keyof typeof icons];
   if (!paths) return null;
   return (
     <svg

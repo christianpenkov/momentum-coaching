@@ -61,9 +61,7 @@ export async function GET(request: NextRequest) {
 }
 
 // POST /api/tasks
-// Body coach : { client_id: string, label, deadline?, priority?, requires_attachment?, attachment_items?: string[] }
-//           ou { client_ids: string[], ... } pour assigner la même tâche à plusieurs élèves
-//           en une fois (une ligne tasks indépendante par élève sélectionné).
+// Body coach : { client_id: string, label, deadline?, priority?, requires_attachment? }
 // Body élève : { label: string, deadline?: string, priority?: string } (client_id résolu automatiquement)
 export async function POST(request: NextRequest) {
   const supabase = await createServerClient();
@@ -82,53 +80,37 @@ export async function POST(request: NextRequest) {
   }
 
   if (profile?.role === 'coach') {
-    const clientIds: string[] = Array.isArray(body.client_ids) && body.client_ids.length > 0
-      ? body.client_ids.filter((id: unknown) => typeof id === 'string')
-      : (typeof body.client_id === 'string' ? [body.client_id] : []);
-
-    if (clientIds.length === 0) {
-      return NextResponse.json({ error: 'client_id ou client_ids est obligatoire pour le coach' }, { status: 400 });
+    if (typeof body.client_id !== 'string') {
+      return NextResponse.json({ error: 'client_id est obligatoire pour le coach' }, { status: 400 });
     }
 
-    const { data: clientRows } = await serviceSupabase
+    const { data: clientRow } = await serviceSupabase
       .from('clients')
       .select('id, coach_id')
-      .in('id', clientIds);
-
-    const validIds = (clientRows ?? []).filter(c => c.coach_id === user.id).map(c => c.id);
-    if (validIds.length !== clientIds.length) {
-      return NextResponse.json({ error: 'Accès refusé sur un ou plusieurs élèves' }, { status: 403 });
+      .eq('id', body.client_id)
+      .single();
+    if (!clientRow || clientRow.coach_id !== user.id) {
+      return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
     }
 
-    const requiresAttachment = body.requires_attachment === true;
-    const attachmentItems: string[] = Array.isArray(body.attachment_items)
-      ? body.attachment_items.filter((s: unknown): s is string => typeof s === 'string' && s.trim().length > 0).map((s: string) => s.trim())
-      : [];
+    const { data, error } = await serviceSupabase
+      .from('tasks')
+      .insert({
+        client_id: clientRow.id,
+        label: body.label.trim(),
+        done: false,
+        deadline: typeof body.deadline === 'string' ? body.deadline : null,
+        priority: ['high', 'medium', 'low'].includes(body.priority) ? body.priority : 'medium',
+        added_by: 'coach',
+        created_by: user.id,
+        requires_attachment: body.requires_attachment === true,
+        attachment_instructions: null,
+      })
+      .select()
+      .single();
 
-    const rows = validIds.map(clientId => ({
-      client_id: clientId,
-      label: body.label.trim(),
-      done: false,
-      deadline: typeof body.deadline === 'string' ? body.deadline : null,
-      priority: ['high', 'medium', 'low'].includes(body.priority) ? body.priority : 'medium',
-      added_by: 'coach' as const,
-      created_by: user.id,
-      requires_attachment: requiresAttachment,
-      attachment_instructions: null,
-    }));
-
-    const { data: insertedTasks, error } = await serviceSupabase.from('tasks').insert(rows).select();
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
-    if (requiresAttachment && attachmentItems.length > 0 && insertedTasks) {
-      const itemRows = insertedTasks.flatMap(t =>
-        attachmentItems.map((label, i) => ({ task_id: t.id, label, position: i }))
-      );
-      const { error: itemsError } = await serviceSupabase.from('task_attachment_items').insert(itemRows);
-      if (itemsError) return NextResponse.json({ error: itemsError.message }, { status: 500 });
-    }
-
-    return NextResponse.json({ tasks: insertedTasks });
+    return NextResponse.json({ task: data });
   }
 
   const { data: clientRow } = await serviceSupabase

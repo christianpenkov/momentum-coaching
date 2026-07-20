@@ -3,11 +3,11 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from './Icon';
-import AttachmentItemsEditor from './AttachmentItemsEditor';
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 interface Props {
   open: boolean;
-  clientId: string;
+  clientId?: string;
   onClose: () => void;
   onCreated: () => void;
 }
@@ -18,12 +18,13 @@ const PRIORITIES = [
   { value: 'low',    label: 'Basse',   color: 'var(--green)' },
 ] as const;
 
-export default function TaskModal({ open, clientId, onClose, onCreated }: Props) {
+export default function TaskModal({ open, clientId: fixedClientId, onClose, onCreated }: Props) {
+  const { clients } = useSupabaseClients();
   const [label, setLabel] = useState('');
   const [deadline, setDeadline] = useState('');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [requiresAttachment, setRequiresAttachment] = useState(false);
-  const [attachmentItems, setAttachmentItems] = useState<string[]>([]);
+  const [selectedClientId, setSelectedClientId] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -31,7 +32,7 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
   useEffect(() => {
     if (open) {
       setLabel(''); setDeadline(''); setPriority('medium');
-      setRequiresAttachment(false); setAttachmentItems([]);
+      setRequiresAttachment(false); setSelectedClientId('');
       setError(''); setSaving(false);
     }
   }, [open]);
@@ -48,6 +49,8 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
 
   async function handleSubmit() {
     if (!label.trim()) { setError('Le titre est obligatoire.'); return; }
+    const clientId = fixedClientId || selectedClientId;
+    if (!clientId) { setError('Sélectionne un élève.'); return; }
     setSaving(true);
     setError('');
     try {
@@ -60,7 +63,6 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
           deadline: deadline || null,
           priority,
           requires_attachment: requiresAttachment,
-          attachment_items: requiresAttachment ? attachmentItems : [],
         }),
       });
       if (!res.ok) {
@@ -106,6 +108,31 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
 
         {/* Body */}
         <div style={{ padding: '20px 24px' }}>
+          {/* Élève (uniquement si pas déjà fixé par le contexte d'appel) */}
+          {!fixedClientId && (
+            <div style={{ marginBottom: 16 }}>
+              <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Élève *
+              </label>
+              <select
+                value={selectedClientId}
+                onChange={e => { setSelectedClientId(e.target.value); setError(''); }}
+                style={{
+                  width: '100%', padding: '10px 14px',
+                  border: `1px solid ${error && !selectedClientId ? 'var(--red)' : 'var(--border)'}`,
+                  borderRadius: 10, fontSize: 13, background: 'var(--surface-2)',
+                  color: selectedClientId ? 'var(--accent)' : 'var(--muted)',
+                  outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
+                }}
+              >
+                <option value="">Sélectionner un élève…</option>
+                {clients.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {/* Titre */}
           <div style={{ marginBottom: 16 }}>
             <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -175,7 +202,7 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
             </div>
           </div>
 
-          {/* Dépôt de document exigé */}
+          {/* Dépôt de documents exigé */}
           <div style={{ marginBottom: 20 }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
               <input
@@ -185,17 +212,9 @@ export default function TaskModal({ open, clientId, onClose, onCreated }: Props)
                 style={{ width: 16, height: 16, cursor: 'pointer' }}
               />
               <span style={{ fontSize: 13, color: 'var(--accent)', fontWeight: 600 }}>
-                Exiger un dépôt de document
+                Exiger un dépôt de documents
               </span>
             </label>
-            {requiresAttachment && (
-              <div style={{ marginTop: 10 }}>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                  Documents attendus
-                </label>
-                <AttachmentItemsEditor items={attachmentItems} onChange={setAttachmentItems} />
-              </div>
-            )}
           </div>
 
           {/* Preview */}

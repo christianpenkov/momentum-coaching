@@ -235,9 +235,14 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                 />
               )}
 
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Notes — impressions / à suivre / tâches <span style={{ textTransform: 'none', fontWeight: 400 }}>(facultatif)</span>
-              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Notes — impressions / à suivre / tâches <span style={{ textTransform: 'none', fontWeight: 400 }}>(facultatif)</span>
+                </label>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--muted)' }}>
+                  <Icon name="lock" size={10} /> Privé, visible coach uniquement
+                </span>
+              </div>
               <textarea
                 value={notes}
                 onChange={e => setNotes(e.target.value)}

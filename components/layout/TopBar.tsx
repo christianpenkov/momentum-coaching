@@ -8,8 +8,6 @@ import { useUser } from '@/lib/UserContext';
 import { useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
 import NotifCenter from './NotifCenter';
-import { useGlobalCoachPresence } from '@/lib/GlobalPresenceContext';
-import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 export default function TopBar() {
   const pathname = usePathname();
@@ -27,7 +25,6 @@ export default function TopBar() {
         <Image src="/logo-momentum.png" alt="Momentum" width={44} height={44} style={{ flexShrink: 0, objectFit: 'contain' }} />
         <span className="topbar-logo">Momentum</span>
         <span className="topbar-tagline">{isCoach ? 'Espace coach' : 'Espace élève'}</span>
-        {isCoach && <OnlineIndicator />}
       </div>
 
       <div className="topbar-right">
@@ -67,21 +64,5 @@ export default function TopBar() {
         />
       )}
     </div>
-  );
-}
-
-// Indicateur "N en ligne" — dérivé de la présence globale déjà maintenue par
-// GlobalPresenceCoachProvider (un canal Realtime par élève, monté une seule fois dans le
-// layout coach). On ne crée jamais de canal supplémentaire ici, seulement une lecture agrégée.
-function OnlineIndicator() {
-  const { clients } = useSupabaseClients();
-  const { isClientOnline } = useGlobalCoachPresence();
-  const onlineCount = clients.filter(c => isClientOnline(c.id)).length;
-  if (onlineCount === 0) return null;
-  return (
-    <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--accent-brand)', fontWeight: 500, marginLeft: 6 }}>
-      <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--accent-brand)', animation: 'pulse 2.2s ease-in-out infinite' }} />
-      {onlineCount} en ligne
-    </span>
   );
 }

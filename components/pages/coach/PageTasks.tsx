@@ -4,8 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
-import TaskModalMulti from '@/components/ui/TaskModalMulti';
-import type { Task, TaskAttachment, TaskAttachmentItem } from '@/lib/supabase/types';
+import TaskModal from '@/components/ui/TaskModal';
+import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 
 function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
@@ -31,50 +31,18 @@ function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
   );
 }
 
-// Lecture seule côté coach : une ligne par item structuré avec son statut, ou fallback
-// legacy (dropzone globale d'origine, tâches créées avant ce chantier).
+// Lecture seule côté coach : liste plate de tous les documents déposés sur la tâche.
 function TaskAttachmentsReadOnly({ taskId }: { taskId: string }) {
-  const [items, setItems] = useState<TaskAttachmentItem[] | null>(null);
-  const [legacyAttachments, setLegacyAttachments] = useState<TaskAttachment[] | null>(null);
+  const [attachments, setAttachments] = useState<TaskAttachment[] | null>(null);
 
   useEffect(() => {
-    fetch(`/api/tasks/${taskId}/attachment-items`)
+    fetch(`/api/tasks/${taskId}/attachments`)
       .then(r => r.ok ? r.json() : null)
-      .then(async data => {
-        const list = data?.items || [];
-        setItems(list);
-        if (list.length === 0) {
-          const legacyRes = await fetch(`/api/tasks/${taskId}/attachments`);
-          setLegacyAttachments(legacyRes.ok ? (await legacyRes.json()).attachments || [] : []);
-        }
-      });
+      .then(data => setAttachments(data?.attachments || []));
   }, [taskId]);
 
-  if (items === null) return null;
-
-  if (items.length > 0) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, width: '100%' }}>
-        {items.map(item => (
-          <div key={item.id}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6 }}>
-              <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)', flex: 1 }}>{item.label}</span>
-              <span style={{
-                fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
-                background: (item.task_attachments?.length ?? 0) > 0 ? 'var(--green-soft)' : 'var(--amber-soft)',
-                color: (item.task_attachments?.length ?? 0) > 0 ? 'var(--green)' : 'var(--amber)',
-              }}>
-                {(item.task_attachments?.length ?? 0) > 0 ? 'Déposé' : 'En attente'}
-              </span>
-            </div>
-            <AttachmentList attachments={item.task_attachments || []} />
-          </div>
-        ))}
-      </div>
-    );
-  }
-
-  return <div style={{ width: '100%' }}><AttachmentList attachments={legacyAttachments || []} /></div>;
+  if (attachments === null) return null;
+  return <div style={{ width: '100%' }}><AttachmentList attachments={attachments} /></div>;
 }
 
 interface TaskWithClient extends Task {
@@ -177,7 +145,7 @@ export default function PageTasks() {
         </button>
       </div>
 
-      <TaskModalMulti open={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={load} />
+      <TaskModal open={showCreateModal} onClose={() => setShowCreateModal(false)} onCreated={load} />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
         <select
@@ -238,9 +206,9 @@ export default function PageTasks() {
                 </span>
 
                 {task.requires_attachment && (
-                  <span title={task.attachment_instructions || 'Document exigé'} style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'var(--amber-soft)', color: 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                  <span title="Documents exigés" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: 'var(--amber-soft)', color: 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
                     <Icon name="upload" size={10} />
-                    Document
+                    Documents
                   </span>
                 )}
 

@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
-import type { Task, TaskAttachment, TaskAttachmentItem } from '@/lib/supabase/types';
+import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 
 const PRIORITY_CONFIG = {
@@ -119,90 +119,45 @@ function AttachmentDropzone({ label, attachments, onUpload, onRemove, uploading 
   );
 }
 
-// Panneau de dépôt d'une tâche : une carte par item structuré (chacune avec son propre
-// statut/dropzone), ou fallback dropzone globale pour les tâches créées avant ce chantier
-// (attachment_instructions texte libre, pas d'items).
-function AttachmentItemsPanel({ taskId, legacyInstructions, onAllFilledChange }: {
+// Zone de dépôt d'une tâche : une seule dropzone globale, dépôt illimité de fichiers.
+function TaskAttachmentsPanel({ taskId, onCountChange }: {
   taskId: string;
-  legacyInstructions: string | null;
-  onAllFilledChange?: (allFilled: boolean) => void;
+  onCountChange?: (count: number) => void;
 }) {
-  const [items, setItems] = useState<TaskAttachmentItem[] | null>(null);
-  const [legacyAttachments, setLegacyAttachments] = useState<TaskAttachment[]>([]);
-  const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [attachments, setAttachments] = useState<TaskAttachment[]>([]);
+  const [uploading, setUploading] = useState(false);
 
   const load = useCallback(async () => {
-    const res = await fetch(`/api/tasks/${taskId}/attachment-items`);
+    const res = await fetch(`/api/tasks/${taskId}/attachments`);
     if (!res.ok) return;
-    const data = (await res.json()).items || [];
-    setItems(data);
-    if (data.length === 0) {
-      const legacyRes = await fetch(`/api/tasks/${taskId}/attachments`);
-      if (legacyRes.ok) setLegacyAttachments((await legacyRes.json()).attachments || []);
-    }
+    const list = (await res.json()).attachments || [];
+    setAttachments(list);
+    onCountChange?.(list.length);
   }, [taskId]);
 
   useEffect(() => { load(); }, [load]);
 
-  useEffect(() => {
-    if (!onAllFilledChange) return;
-    if (items && items.length > 0) {
-      onAllFilledChange(items.every(i => (i.task_attachments?.length ?? 0) > 0));
-    } else {
-      onAllFilledChange(legacyAttachments.length > 0);
-    }
-  }, [items, legacyAttachments, onAllFilledChange]);
-
-  async function uploadToItem(itemId: string | null, file: File) {
-    setUploadingKey(itemId ?? 'legacy');
+  async function upload(file: File) {
+    setUploading(true);
     const form = new FormData();
     form.append('file', file);
-    if (itemId) form.append('item_id', itemId);
     await fetch(`/api/tasks/${taskId}/attachments`, { method: 'POST', body: form });
-    setUploadingKey(null);
+    setUploading(false);
     load();
   }
 
-  async function removeAttachment(attachmentId: string) {
-    setLegacyAttachments(prev => prev.filter(a => a.id !== attachmentId));
-    setItems(prev => prev?.map(i => ({ ...i, task_attachments: i.task_attachments?.filter(a => a.id !== attachmentId) })) ?? null);
+  async function remove(attachmentId: string) {
+    setAttachments(prev => {
+      const next = prev.filter(a => a.id !== attachmentId);
+      onCountChange?.(next.length);
+      return next;
+    });
     await fetch(`/api/tasks/attachments/${attachmentId}`, { method: 'DELETE' });
-    load();
   }
 
-  if (items === null) return null;
-
-  if (items.length > 0) {
-    return (
-      <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {items.map(item => (
-          <AttachmentDropzone
-            key={item.id}
-            label={item.label}
-            attachments={item.task_attachments || []}
-            onUpload={file => uploadToItem(item.id, file)}
-            onRemove={removeAttachment}
-            uploading={uploadingKey === item.id}
-          />
-        ))}
-      </div>
-    );
-  }
-
-  // Fallback tâches legacy (avant ce chantier) : dropzone globale, texte libre affiché tel quel.
   return (
     <div style={{ marginTop: 10 }}>
-      {legacyInstructions && (
-        <div style={{ marginBottom: 8, padding: '8px 10px', background: 'var(--surface-2)', borderRadius: 8, fontSize: 12, color: 'var(--ink-2)' }}>
-          {legacyInstructions}
-        </div>
-      )}
-      <AttachmentDropzone
-        attachments={legacyAttachments}
-        onUpload={file => uploadToItem(null, file)}
-        onRemove={removeAttachment}
-        uploading={uploadingKey === 'legacy'}
-      />
+      <AttachmentDropzone attachments={attachments} onUpload={upload} onRemove={remove} uploading={uploading} />
     </div>
   );
 }
@@ -265,27 +220,18 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
   onDelete: () => void;
 }) {
   const priority = task.priority ? PRIORITY_CONFIG[task.priority] : null;
-  const [allFilled, setAllFilled] = useState<boolean | null>(null);
+  const [attachmentCount, setAttachmentCount] = useState<number | null>(null);
   const [confirmNoAttachment, setConfirmNoAttachment] = useState(false);
 
   useEffect(() => {
     if (!task.requires_attachment || task.done) return;
-    fetch(`/api/tasks/${task.id}/attachment-items`)
+    fetch(`/api/tasks/${task.id}/attachments`)
       .then(r => r.ok ? r.json() : null)
-      .then(async data => {
-        const items = data?.items || [];
-        if (items.length > 0) {
-          setAllFilled(items.every((i: { task_attachments?: unknown[] }) => (i.task_attachments?.length ?? 0) > 0));
-        } else {
-          const legacyRes = await fetch(`/api/tasks/${task.id}/attachments`);
-          const legacy = legacyRes.ok ? (await legacyRes.json()).attachments || [] : [];
-          setAllFilled(legacy.length > 0);
-        }
-      });
+      .then(data => { if (data) setAttachmentCount((data.attachments || []).length); });
   }, [task.requires_attachment, task.done, task.id]);
 
   function handleToggleClick() {
-    if (!task.done && task.requires_attachment && allFilled === false) {
+    if (!task.done && task.requires_attachment && attachmentCount === 0) {
       setConfirmNoAttachment(true);
       return;
     }
@@ -311,9 +257,9 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
           {task.label}
         </span>
         {task.requires_attachment && !task.done && (
-          <span title="Document exigé" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: allFilled ? 'var(--green-soft)' : 'var(--amber-soft)', color: allFilled ? 'var(--green)' : 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+          <span title="Documents exigés" style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: attachmentCount ? 'var(--green-soft)' : 'var(--amber-soft)', color: attachmentCount ? 'var(--green)' : 'var(--amber)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
             <Icon name="upload" size={10} />
-            {allFilled ? 'Document déposé' : 'Document exigé'}
+            {attachmentCount ? 'Documents déposés' : 'Documents exigés'}
           </span>
         )}
         <DeadlineBadge deadline={task.deadline} done={task.done} />
@@ -330,10 +276,10 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
       {confirmNoAttachment && (
         <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--amber)' }}>
           <div style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 8 }}>
-            Cette tâche demande un document et tu n'en as pas encore déposé. Terminer quand même ?
+            Cette tâche demande des documents et tu n'en as pas encore déposé. Terminer quand même ?
           </div>
           <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-            <button type="button" className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setConfirmNoAttachment(false)}>Ajouter le document</button>
+            <button type="button" className="btn-ghost" style={{ fontSize: 12 }} onClick={() => setConfirmNoAttachment(false)}>Ajouter des documents</button>
             <button
               type="button"
               className="btn-primary-brand"
@@ -352,7 +298,7 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
               jamais modifier deadline/priorité ni supprimer (cf. règle produit + garde côté API). */}
           {task.added_by !== 'coach' && <EditFields task={task} onSave={onSave} onDelete={onDelete} />}
           {task.requires_attachment && (
-            <AttachmentItemsPanel taskId={task.id} legacyInstructions={task.attachment_instructions ?? null} onAllFilledChange={setAllFilled} />
+            <TaskAttachmentsPanel taskId={task.id} onCountChange={setAttachmentCount} />
           )}
         </>
       )}
