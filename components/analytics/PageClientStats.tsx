@@ -3368,10 +3368,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
-                {/* Domain avec marge explicite — pas de Math.max(0, ...) sur la borne basse
-                    (confirmé par inspection DOM réelle : ce clamp écrasait la marge à 0 dès
-                    que dataMin valait déjà 0, laissant le point collé pile au tick "0"). */}
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : 1; return [dataMin - margin, dataMax + margin]; }} />
+                {/* Domain avec marge explicite — pas de Math.max(0, ...) inconditionnel sur
+                    la borne basse (confirmé par inspection DOM réelle : ce clamp écrasait la
+                    marge à 0 dès que dataMin valait déjà 0, laissant le point collé pile au
+                    tick "0"), MAIS clampé à 0 quand dataMin est déjà >= 0 (compteur de clics,
+                    jamais négatif) — sinon Recharts génère des ticks négatifs absurdes
+                    ("-0.5") quand toutes les valeurs sont à 0, comme sur "Tous les clics". */}
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : 1; const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return (
@@ -3403,7 +3406,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   </linearGradient>
                 </defs>
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={sPeriod === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={sPeriod === 7 ? 0 : "preserveStartEnd"} />
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); return [dataMin - margin, dataMax + margin]; }} />
+                {/* Clampé à 0 si dataMin >= 0 (compteur de clics jamais négatif) — mêmes
+                    raisons que le bloc content/bio ci-dessus, évite un tick "-1" absurde
+                    quand tous les jours sont à 0. */}
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return (
