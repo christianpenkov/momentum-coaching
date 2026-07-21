@@ -10,6 +10,7 @@ import { useCallback, useRef, useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
 import { useUser } from '@/lib/UserContext';
 import RapportModal from '@/components/ui/RapportModal';
+import { getDeadlineStatus } from '@/lib/clientSignals';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -57,28 +58,18 @@ function isCoachingCall(call: { call_type?: string | null } | null | undefined) 
 }
 
 function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
-  if (!deadline || done) return null;
-  const d = new Date(deadline);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((d.getTime() - today.getTime()) / 86400000);
-  const overdue = diff < 0;
-  const urgent  = diff <= 2 && diff >= 0;
-  const color = overdue ? 'var(--red)' : urgent ? 'var(--amber)' : 'var(--muted)';
-  const label = overdue
-    ? `En retard · ${Math.abs(diff)}j`
-    : diff === 0 ? "Aujourd'hui"
-    : diff === 1 ? 'Demain'
-    : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const status = getDeadlineStatus(deadline, done);
+  if (!status) return null;
   return (
     <span style={{
-      fontSize: 10, color,
+      fontSize: 10, color: status.color,
       display: 'inline-flex', alignItems: 'center', gap: 3,
-      fontWeight: overdue || urgent ? 700 : 400,
-      padding: overdue ? '2px 7px' : '0',
-      background: overdue ? '#ef444418' : 'transparent',
+      fontWeight: status.overdue || status.urgent ? 700 : 400,
+      padding: status.overdue ? '2px 7px' : '0',
+      background: status.overdue ? '#ef444418' : 'transparent',
       borderRadius: 20, flexShrink: 0,
     }}>
-      <Icon name="calendar" size={10} />{label}
+      <Icon name="calendar" size={10} />{status.label}
     </span>
   );
 }
@@ -312,10 +303,7 @@ export default function PageClientView() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
             {tasks.filter(t => !t.done).map((task) => {
               const prio = task.priority ? PRIORITY_CONFIG[task.priority] : null;
-              const d = task.deadline ? new Date(task.deadline) : null;
-              const today = new Date(); today.setHours(0, 0, 0, 0);
-              const diff = d ? Math.ceil((d.getTime() - today.getTime()) / 86400000) : null;
-              const overdue = diff !== null && diff < 0;
+              const overdue = getDeadlineStatus(task.deadline, task.done)?.overdue ?? false;
               return (
                 <div
                   key={task.id}

@@ -5,6 +5,7 @@ import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
+import { getDeadlineStatus } from '@/lib/clientSignals';
 
 const PRIORITY_CONFIG = {
   high: { label: 'Haute', color: 'var(--red)' },
@@ -12,22 +13,29 @@ const PRIORITY_CONFIG = {
   low: { label: 'Basse', color: 'var(--green)' },
 } as const;
 
+function toDateInput(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function toTimeInput(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function combineDeadline(dateStr: string, timeStr: string): string | null {
+  if (!dateStr) return null;
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const [h, m] = (timeStr || '23:59').split(':').map(Number);
+  return new Date(y, mo - 1, d, h, m).toISOString();
+}
+
 function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
-  if (!deadline || done) return null;
-  const d = new Date(deadline);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((d.getTime() - today.getTime()) / 86400000);
-  const overdue = diff < 0;
-  const urgent = diff <= 2 && diff >= 0;
-  const color = overdue ? 'var(--red)' : urgent ? 'var(--amber)' : 'var(--muted)';
-  const label = overdue
-    ? `En retard · ${Math.abs(diff)}j`
-    : diff === 0 ? "Aujourd'hui"
-    : diff === 1 ? 'Demain'
-    : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const status = getDeadlineStatus(deadline, done);
+  if (!status) return null;
   return (
-    <span style={{ fontSize: 10, color, display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: overdue || urgent ? 700 : 400, flexShrink: 0 }}>
-      <Icon name="calendar" size={10} />{label}
+    <span style={{ fontSize: 10, color: status.color, display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: status.overdue || status.urgent ? 700 : 400, flexShrink: 0 }}>
+      <Icon name="calendar" size={10} />{status.label}
     </span>
   );
 }
@@ -166,7 +174,8 @@ function TaskAttachmentsPanel({ taskId, onCountChange }: {
 }
 
 function EditFields({ task, onSave, onDelete }: { task: Task; onSave: (patch: { deadline: string | null; priority: 'high' | 'medium' | 'low' }) => void; onDelete: () => void }) {
-  const [deadline, setDeadline] = useState(task.deadline || '');
+  const [deadlineDate, setDeadlineDate] = useState(task.deadline ? toDateInput(task.deadline) : '');
+  const [deadlineTime, setDeadlineTime] = useState(task.deadline ? toTimeInput(task.deadline) : '23:59');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>(task.priority || 'medium');
   const [confirmDelete, setConfirmDelete] = useState(false);
 
@@ -174,19 +183,28 @@ function EditFields({ task, onSave, onDelete }: { task: Task; onSave: (patch: { 
     <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
       <div>
         <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deadline</label>
-        <input
-          type="date"
-          value={deadline}
-          onChange={e => { setDeadline(e.target.value); onSave({ deadline: e.target.value || null, priority }); }}
-          style={{ padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
-        />
+        <div style={{ display: 'flex', gap: 6 }}>
+          <input
+            type="date"
+            value={deadlineDate}
+            onChange={e => { setDeadlineDate(e.target.value); onSave({ deadline: combineDeadline(e.target.value, deadlineTime), priority }); }}
+            style={{ padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
+          />
+          <input
+            type="time"
+            value={deadlineTime}
+            disabled={!deadlineDate}
+            onChange={e => { const t = e.target.value || '23:59'; setDeadlineTime(t); onSave({ deadline: combineDeadline(deadlineDate, t), priority }); }}
+            style={{ width: 90, padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
+          />
+        </div>
       </div>
       <div style={{ display: 'flex', gap: 6 }}>
         {(['high', 'medium', 'low'] as const).map(p => (
           <button
             key={p}
             type="button"
-            onClick={() => { setPriority(p); onSave({ deadline: deadline || null, priority: p }); }}
+            onClick={() => { setPriority(p); onSave({ deadline: combineDeadline(deadlineDate, deadlineTime), priority: p }); }}
             style={{
               padding: '7px 10px', borderRadius: 8, fontSize: 11, fontWeight: 600, cursor: 'pointer',
               border: `1.5px solid ${priority === p ? PRIORITY_CONFIG[p].color : 'var(--border)'}`,

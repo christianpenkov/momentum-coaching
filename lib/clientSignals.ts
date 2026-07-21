@@ -2,9 +2,44 @@ import type { Task, SessionReport } from '@/lib/supabase/types';
 
 export function isTaskOverdue(t: Task): boolean {
   if (t.done || t.resolved_by_coach || !t.deadline) return false;
-  const d = new Date(t.deadline); d.setHours(0, 0, 0, 0);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  return d.getTime() < today.getTime();
+  return new Date(t.deadline).getTime() < Date.now();
+}
+
+export interface DeadlineStatus {
+  overdue: boolean;
+  urgent: boolean;
+  color: string;
+  label: string;
+}
+
+// Statut d'affichage d'une deadline (badge) — utilisé par tous les endroits qui affichent
+// "En retard"/"Aujourd'hui"/"Demain"/date, pour rester cohérent avec isTaskOverdue une fois
+// que deadline porte une heure précise (ex: en retard dès 18h01, pas seulement le lendemain).
+function isEndOfDay(d: Date): boolean {
+  return d.getHours() === 23 && d.getMinutes() >= 55;
+}
+
+export function getDeadlineStatus(deadline: string | null | undefined, done: boolean): DeadlineStatus | null {
+  if (!deadline || done) return null;
+  const target = new Date(deadline);
+  const now = new Date();
+  const overdueMs = now.getTime() - target.getTime();
+  const overdue = overdueMs > 0;
+  const diffDays = Math.ceil((target.getTime() - new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime()) / 86400000);
+  const urgent = !overdue && diffDays <= 2 && diffDays >= 0;
+  const color = overdue ? 'var(--red)' : urgent ? 'var(--amber)' : 'var(--muted)';
+  const timeSuffix = isEndOfDay(target) ? '' : ` · ${target.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+  const overdueLabel = overdueMs < 3600000
+    ? 'En retard · <1h'
+    : overdueMs < 86400000
+    ? `En retard · ${Math.floor(overdueMs / 3600000)}h`
+    : `En retard · ${Math.floor(overdueMs / 86400000)}j`;
+  const label = overdue
+    ? overdueLabel
+    : diffDays === 0 ? `Aujourd'hui${timeSuffix}`
+    : diffDays === 1 ? 'Demain'
+    : target.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  return { overdue, urgent, color, label };
 }
 
 export interface ClientSignals {

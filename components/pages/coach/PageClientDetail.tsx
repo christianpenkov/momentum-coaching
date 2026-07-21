@@ -12,7 +12,7 @@ import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
-import { isTaskOverdue } from '@/lib/clientSignals';
+import { isTaskOverdue, getDeadlineStatus } from '@/lib/clientSignals';
 import type { Task, SessionReport } from '@/lib/supabase/types';
 
 interface ResourceForClient {
@@ -122,21 +122,11 @@ const PRIORITY_CONFIG = {
 };
 
 function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
-  if (!deadline || done) return null;
-  const d = new Date(deadline);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const diff = Math.ceil((d.getTime() - today.getTime()) / 86400000);
-  const overdue = diff < 0;
-  const urgent  = diff <= 2 && diff >= 0;
-  const color = overdue ? 'var(--red)' : urgent ? 'var(--amber)' : 'var(--muted)';
-  const label = overdue
-    ? `En retard (${Math.abs(diff)}j)`
-    : diff === 0 ? "Aujourd'hui"
-    : diff === 1 ? 'Demain'
-    : d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' });
+  const status = getDeadlineStatus(deadline, done);
+  if (!status) return null;
   return (
-    <span style={{ fontSize: 10, color, display: 'flex', alignItems: 'center', gap: 3, fontWeight: overdue || urgent ? 700 : 400, flexShrink: 0 }}>
-      <Icon name="calendar" size={10} />{label}
+    <span style={{ fontSize: 10, color: status.color, display: 'flex', alignItems: 'center', gap: 3, fontWeight: status.overdue || status.urgent ? 700 : 400, flexShrink: 0 }}>
+      <Icon name="calendar" size={10} />{status.label}
     </span>
   );
 }

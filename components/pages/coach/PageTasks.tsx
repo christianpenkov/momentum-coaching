@@ -8,7 +8,24 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import TaskModal from '@/components/ui/TaskModal';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
-import { isTaskOverdue } from '@/lib/clientSignals';
+import { isTaskOverdue, getDeadlineStatus } from '@/lib/clientSignals';
+
+function toDateInput(iso: string): string {
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function toTimeInput(iso: string): string {
+  const d = new Date(iso);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function combineDeadline(dateStr: string, timeStr: string): string | null {
+  if (!dateStr) return null;
+  const [y, mo, d] = dateStr.split('-').map(Number);
+  const [h, m] = (timeStr || '23:59').split(':').map(Number);
+  return new Date(y, mo - 1, d, h, m).toISOString();
+}
 
 function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
   if (attachments.length === 0) {
@@ -217,11 +234,15 @@ function PageTasksInner() {
                   </span>
                 )}
 
-                {task.deadline && !task.done && (
-                  <span style={{ fontSize: 11, color: overdue ? 'var(--red)' : 'var(--muted)', fontWeight: overdue ? 700 : 400, flexShrink: 0 }}>
-                    {new Date(task.deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                  </span>
-                )}
+                {(() => {
+                  const status = getDeadlineStatus(task.deadline, task.done);
+                  if (!status) return null;
+                  return (
+                    <span style={{ fontSize: 11, color: status.color, fontWeight: status.overdue ? 700 : 400, flexShrink: 0 }}>
+                      {status.label}
+                    </span>
+                  );
+                })()}
 
                 {priority && !task.done && (
                   <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, background: `${priority.color}20`, color: priority.color, flexShrink: 0 }}>
@@ -244,12 +265,21 @@ function PageTasksInner() {
                 <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                   <div>
                     <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deadline</label>
-                    <input
-                      type="date"
-                      value={task.deadline || ''}
-                      onChange={e => updateDeadline(task.id, e.target.value || null)}
-                      style={{ padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
-                    />
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <input
+                        type="date"
+                        value={task.deadline ? toDateInput(task.deadline) : ''}
+                        onChange={e => updateDeadline(task.id, combineDeadline(e.target.value, task.deadline ? toTimeInput(task.deadline) : '23:59'))}
+                        style={{ padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
+                      />
+                      <input
+                        type="time"
+                        value={task.deadline ? toTimeInput(task.deadline) : '23:59'}
+                        onChange={e => task.deadline && updateDeadline(task.id, combineDeadline(toDateInput(task.deadline), e.target.value))}
+                        disabled={!task.deadline}
+                        style={{ width: 90, padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
+                      />
+                    </div>
                   </div>
                   <div style={{ flex: 1 }} />
                   {confirmDeleteId === task.id ? (

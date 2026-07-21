@@ -23,9 +23,9 @@ async function assertAccess(userId: string, taskId: string) {
 
 // PATCH /api/tasks/[id]
 // Body: { done?: boolean, label?: string, deadline?: string | null, priority?: string }
-// Le coach peut tout modifier sur ses tâches. L'élève ne peut modifier que `done`, et
-// uniquement sur ses propres tâches (added_by='client') ou celles du coach (added_by='coach') —
-// mais jamais label/deadline/priority sur une tâche assignée par le coach.
+// Le coach peut tout modifier sur ses tâches. L'élève peut modifier deadline/priority
+// uniquement sur ses propres tâches personnelles (added_by='client') ; sur une tâche
+// assignée par le coach (added_by='coach'), l'élève ne peut modifier que `done`.
 export async function PATCH(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -51,8 +51,13 @@ export async function PATCH(
       patch.resolved_by_coach = true;
       patch.resolved_at = new Date().toISOString();
     }
+  } else if (task.added_by === 'client') {
+    // Élève sur sa propre tâche perso : done + deadline/priority, jamais label
+    if (typeof body.done === 'boolean') patch.done = body.done;
+    if (body.deadline === null || typeof body.deadline === 'string') patch.deadline = body.deadline;
+    if (['high', 'medium', 'low'].includes(body.priority)) patch.priority = body.priority;
   } else {
-    // Élève : uniquement le statut done, jamais label/deadline/priority
+    // Élève sur une tâche assignée par le coach : uniquement le statut done
     if (typeof body.done !== 'boolean') {
       return NextResponse.json({ error: 'Seul le statut de la tâche peut être modifié' }, { status: 403 });
     }

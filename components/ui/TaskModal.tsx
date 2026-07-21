@@ -22,6 +22,7 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
   const { clients } = useSupabaseClients();
   const [label, setLabel] = useState('');
   const [deadline, setDeadline] = useState('');
+  const [deadlineTime, setDeadlineTime] = useState('23:59');
   const [priority, setPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [requiresAttachment, setRequiresAttachment] = useState(false);
   const [selectedClientId, setSelectedClientId] = useState('');
@@ -32,7 +33,7 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
   // Reset à chaque ouverture
   useEffect(() => {
     if (open) {
-      setLabel(''); setDeadline(''); setPriority('medium');
+      setLabel(''); setDeadline(''); setDeadlineTime('23:59'); setPriority('medium');
       setRequiresAttachment(false); setSelectedClientId('');
       setErrorField(null); setErrorMessage(''); setSaving(false);
     }
@@ -56,13 +57,16 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
     setSaving(true);
     setErrorField(null); setErrorMessage('');
     try {
+      const [h, m] = (deadlineTime || '23:59').split(':').map(Number);
+      const [y, mo, d] = deadline.split('-').map(Number);
+      const deadlineIso = new Date(y, mo - 1, d, h, m).toISOString();
       const res = await fetch('/api/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           client_id: clientId,
           label: label.trim(),
-          deadline: deadline || null,
+          deadline: deadline ? deadlineIso : null,
           priority,
           requires_attachment: requiresAttachment,
         }),
@@ -139,17 +143,30 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
               <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Deadline *
               </label>
-              <div style={{ position: 'relative' }}>
+              <div style={{ display: 'flex', gap: 8 }}>
                 <input
                   type="date"
                   value={deadline}
                   onChange={e => { setDeadline(e.target.value); if (errorField === 'deadline') { setErrorField(null); setErrorMessage(''); } }}
                   min={new Date().toISOString().split('T')[0]}
                   style={{
-                    width: '100%', padding: '9px 12px',
+                    flex: 1, padding: '9px 12px',
                     border: `1px solid ${errorField === 'deadline' ? 'var(--red)' : 'var(--border)'}`, borderRadius: 10,
                     fontSize: 13, background: 'var(--surface-2)',
                     color: deadline ? 'var(--accent)' : 'var(--muted)',
+                    outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
+                  }}
+                />
+                <input
+                  type="time"
+                  value={deadlineTime}
+                  onChange={e => setDeadlineTime(e.target.value || '23:59')}
+                  title="Heure à laquelle la tâche devient en retard (23:59 par défaut)"
+                  style={{
+                    width: 96, padding: '9px 10px',
+                    border: '1px solid var(--border)', borderRadius: 10,
+                    fontSize: 13, background: 'var(--surface-2)',
+                    color: 'var(--accent)',
                     outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box', cursor: 'pointer',
                   }}
                 />
@@ -206,7 +223,8 @@ export default function TaskModal({ open, clientId: fixedClientId, onClose, onCr
                 {deadline && (
                   <span style={{ fontSize: 11, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 3 }}>
                     <Icon name="calendar" size={11} />
-                    {new Date(deadline).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                    {new Date(`${deadline}T00:00:00`).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                    {deadlineTime !== '23:59' && ` · ${deadlineTime}`}
                   </span>
                 )}
                 <span style={{

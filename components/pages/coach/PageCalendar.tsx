@@ -62,7 +62,7 @@ export default function PageCalendar() {
       client.tasks.forEach(task => {
         if (!task.deadline || task.done) return;
         evs.push({
-          date: task.deadline,
+          date: toDateKey(new Date(task.deadline)),
           type: 'deadline',
           label: task.label,
           clientName: client.name,
