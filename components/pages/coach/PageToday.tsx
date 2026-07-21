@@ -45,7 +45,7 @@ export default function PageToday() {
     ? Math.round((business.cashCollected / business.cashContracted) * 100)
     : null;
 
-  const kpisTop = [
+  const kpis = [
     {
       label: 'Argent généré', sub: 'total, all-time', value: business.cashCollectedAllTime ?? 0,
       formatter: (n: number) => business.cashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
@@ -71,9 +71,6 @@ export default function PageToday() {
         </div>
       ),
     },
-  ];
-
-  const kpisBottom = [
     {
       label: 'Leads générés', sub: 'ce mois', value: business.leadsThisMonthCount,
     },
@@ -198,27 +195,7 @@ export default function PageToday() {
         );
       })()}
 
-      <KpiRibbon items={kpisTop} />
-
-      <div style={{ borderLeft: '1px solid var(--border)', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', borderBottomLeftRadius: 'var(--r-xl)', borderBottomRightRadius: 'var(--r-xl)', overflow: 'hidden', marginTop: -1 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)' }}>
-          {kpisBottom.map((item, i) => (
-            <div key={i} className="kpi-card" style={{ borderTop: '1px solid var(--border)' }}>
-              <div className="kpi-label">
-                {item.label}
-                {item.sub && (
-                  <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 4, fontSize: 10 }}>
-                    · {item.sub}
-                  </span>
-                )}
-              </div>
-              <div className="kpi-value" style={item.color ? { color: item.color } : undefined}>
-                {item.formatter ? item.formatter(item.value) : item.value}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      <KpiRibbon items={kpis} columns={4} />
 
       <StaggerGrid className="grid-2" style={{ marginTop: 24 }}>
         {/* Calls du jour */}

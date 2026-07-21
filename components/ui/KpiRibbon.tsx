@@ -17,11 +17,12 @@ export interface KpiItem {
 
 interface KpiRibbonProps {
   items: KpiItem[];
+  columns?: number;
 }
 
-export default function KpiRibbon({ items }: KpiRibbonProps) {
+export default function KpiRibbon({ items, columns }: KpiRibbonProps) {
   return (
-    <div className="kpi-ribbon">
+    <div className="kpi-ribbon" style={columns ? { gridTemplateColumns: `repeat(${columns}, 1fr)` } : undefined}>
       {items.map((item, i) => {
         const content = (
           <>
@@ -45,12 +46,14 @@ export default function KpiRibbon({ items }: KpiRibbonProps) {
             {item.viz && <div style={{ marginTop: 12 }}>{item.viz}</div>}
           </>
         );
+        const needsBottomBorder = columns && i < items.length - columns;
+        const cardStyle = needsBottomBorder ? { borderBottom: '1px solid var(--border-soft)' } : undefined;
         return item.href ? (
-          <Link key={i} href={item.href} className="kpi-card" style={{ textDecoration: 'none', cursor: 'pointer' }}>
+          <Link key={i} href={item.href} className="kpi-card" style={{ textDecoration: 'none', cursor: 'pointer', ...cardStyle }}>
             {content}
           </Link>
         ) : (
-          <div key={i} className="kpi-card">{content}</div>
+          <div key={i} className="kpi-card" style={cardStyle}>{content}</div>
         );
       })}
     </div>
