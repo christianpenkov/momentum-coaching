@@ -228,7 +228,11 @@ export function useClientSelfData() {
       const coachFullName: string | null = coachProfileRes.data?.full_name ?? null;
       const coachName = coachFullName ? coachFullName.split(' ')[0] : null;
 
-      const callsThisMonth: Call[] = callsThisMonthRes.data || [];
+      const allCallsThisMonth: Call[] = callsThisMonthRes.data || [];
+      // "Bookés ce mois"/closing/cash contracté ne comptent que les calls prospects
+      // (calendly/manual) — les calls coaching (google) n'ont pas de notion de deal
+      // closé/revenue et fausseraient ces stats business si mélangés.
+      const callsThisMonth = allCallsThisMonth.filter(c => c.call_type === 'calendly' || c.call_type === 'manual');
       const callsHonores = callsThisMonth.filter(c => c.status === 'active' || c.session_completed).length;
       const dealsCloses = callsThisMonth.filter(c => c.deal_closed).length;
       const cashContracted = callsThisMonth.reduce((s, c) => s + (c.revenue || 0), 0);

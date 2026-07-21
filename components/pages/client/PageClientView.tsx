@@ -401,7 +401,7 @@ export default function PageClientView() {
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Calls bookés ce mois</div>
           <div className="kpi-value">{callsBookedThisMonth.length}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>tous types confondus</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>calls prospects</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Leads ce mois</div>

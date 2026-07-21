@@ -347,7 +347,7 @@ export default function PageClientCalendar() {
                         color: ev.type === 'call' ? 'white' : 'var(--amber)',
                         whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                       }}>
-                        {ev.type === 'call' ? `📞 ${ev.time}` : `⏰ ${ev.label.slice(0, 14)}`}
+                        {ev.type === 'call' ? `📞 ${ev.time}` : `✔️ ${ev.label.slice(0, 14)}`}
                       </div>
                     ))}
                     {dayEvents.length > 2 && <div style={{ fontSize: 10, color: 'var(--muted)', paddingLeft: 5 }}>+{dayEvents.length - 2}</div>}
@@ -381,7 +381,7 @@ export default function PageClientCalendar() {
                   border: `1px solid ${ev.type === 'call' ? 'var(--accent)30' : '#f5a62330'}`,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                    <span style={{ fontSize: 14 }}>{ev.type === 'call' ? '📞' : '⏰'}</span>
+                    <span style={{ fontSize: 14 }}>{ev.type === 'call' ? '📞' : '✔️'}</span>
                     {ev.time && <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{ev.time}</span>}
                     {ev.type === 'call' && ev.ready && (
                       <span className={`pill pill-${ev.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10 }}>
