@@ -2655,7 +2655,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -2672,6 +2672,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   clicksByUrl?: Map<string, number>;
   urlToCategoryFromDb?: Map<string, string>;
   businessClicsFromDb?: number;
+  totalClicsChangePct?: number | null;
   altKwToLmId?: Map<string, string>;
   lmClickedByLeadId?: Map<string, string>;
   linkClickedByLeadId?: Map<string, string>;
@@ -3253,7 +3254,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Clics totaux</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalClics)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>volume global, tous liens</div>
-                {shortio.clicksChange !== null && <div style={{ fontSize: 10, fontWeight: 600, color: shortio.clicksChange >= 0 ? GREEN : RED, marginTop: 3 }}>{shortio.clicksChange >= 0 ? '+' : ''}{fmtPct(shortio.clicksChange)}</div>}
+                {/* totalClicsChangePct (pas shortio.clicksChange) : celui-ci venait de
+                    l'API Short.io elle-même (period=last30, TOUS les liens du domaine),
+                    jamais aligné sur la période calendaire sélectionnée ici — affichait
+                    des variations trompeuses type "-95,6%" à côté d'un "3" qui n'avait
+                    pas bougé. Remplacé par une vraie comparaison periodStart/periodEnd
+                    vs la période équivalente précédente, même agrégation RPC que
+                    totalClics. Confirmé par Chris 2026-07-21. */}
+                {totalClicsChangePct != null && <div style={{ fontSize: 10, fontWeight: 600, color: totalClicsChangePct >= 0 ? GREEN : RED, marginTop: 3 }}>{totalClicsChangePct >= 0 ? '+' : ''}{fmtPct(totalClicsChangePct)}</div>}
               </div>
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
@@ -4942,6 +4950,24 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     else if (row.link_category === 'calendly_dm_prospect') snapDmCalendlyByDate.set(row.date, (snapDmCalendlyByDate.get(row.date) ?? 0) + clicks);
     else if (row.link_category === 'lm_dm_auto') snapDmLmByDate.set(row.date, (snapDmLmByDate.get(row.date) ?? 0) + clicks);
   }
+  // Variation "Clics totaux" vs la période équivalente précédente — même principe
+  // que fetchSupabaseStats (voir le commentaire détaillé là-bas). Ici periodIndex
+  // n'est jamais 0 (cette fonction ne sert que l'historique), donc la précédente
+  // est toujours periodIndex + 1, pas un +1 fixe sur periodIndex=0.
+  const { periodStart: snapPrevPeriodStart, periodEnd: snapPrevPeriodEnd } = getPeriodWindow(periodIndex + 1, period === 7 ? 'week' : 'month');
+  const { data: snapPrevChartRpcData } = await supabase.rpc('get_shortio_clicks_by_day', {
+    p_profile_id: targetId,
+    p_start_date: parisDateStr(snapPrevPeriodStart),
+    p_end_date: parisDateStr(snapPrevPeriodEnd),
+  });
+  let snapPrevBusinessClics = 0;
+  for (const row of (snapPrevChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
+    if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) snapPrevBusinessClics += (row.total_clicks ?? 0);
+  }
+  const snapTotalClicsChangePct = snapPrevBusinessClics > 0
+    ? Math.round(((snapBusinessClicsFromDb - snapPrevBusinessClics) / snapPrevBusinessClics) * 1000) / 10
+    : null;
+
   const snapShortioChartHistory = Array.from(snapChartByDate.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, clicks]) => ({ date, clicks }));
@@ -5145,6 +5171,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     clicksByUrl: snapClicksByUrl,
     clicksByPath: snapClicksByPath,
     businessClicsFromDb: snapBusinessClicsFromDb,
+    totalClicsChangePct: snapTotalClicsChangePct,
     shortioChartHistory: snapShortioChartHistory,
     shortioChartHistoryBio: snapShortioChartHistoryBio,
     shortioChartHistoryContent: snapShortioChartHistoryContent,
@@ -5440,6 +5467,25 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     else if (row.link_category === 'calendly_dm_prospect') dmCalendlyByDate.set(row.date, (dmCalendlyByDate.get(row.date) ?? 0) + clicks);
     else if (row.link_category === 'lm_dm_auto') dmLmByDate.set(row.date, (dmLmByDate.get(row.date) ?? 0) + clicks);
   }
+
+  // Variation "Clics totaux" vs la période équivalente précédente (semaine d'avant si
+  // period=7, mois d'avant sinon) — même agrégation RPC/mêmes catégories business que
+  // businessClicsFromDb, contrairement à l'ancien shortio.clicksChange (calculé par
+  // l'API Short.io elle-même sur ses 30 derniers jours glissants tous liens confondus,
+  // sans aucun rapport avec le calendrier affiché ici — cf. bug "-95,6%" à côté d'un
+  // total de 3 clics inchangé, remonté par Chris 2026-07-21). shortioChartHistoryRpc
+  // couvre déjà 24 mois glissants donc la période précédente y est déjà incluse, pas
+  // besoin d'un 2e appel réseau.
+  const { periodStart: prevPeriodStart, periodEnd: prevPeriodEnd } = getPeriodWindow(1, period === 7 ? 'week' : 'month');
+  const prevSince = parisDateStr(prevPeriodStart);
+  const prevUntil = parisDateStr(prevPeriodEnd);
+  let prevBusinessClics = 0;
+  for (const [date, clicks] of chartByDate) {
+    if (date >= prevSince && date <= prevUntil) prevBusinessClics += clicks;
+  }
+  const totalClicsChangePct = prevBusinessClics > 0
+    ? Math.round(((businessClicsFromDb - prevBusinessClics) / prevBusinessClics) * 1000) / 10
+    : null;
   // Comble les jours sans clic à 0 — sinon le graphique n'affiche qu'un point isolé par jour avec clics.
   // Bornes calendaires réelles (mêmes _periodStart/_periodEnd que le reste de la fonction),
   // pas une fenêtre glissante indépendante (cf. bug remonté "clics totaux à 0" 2026-07-06).
@@ -5471,7 +5517,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm };
   } catch { return null; }
 }
 
@@ -5641,6 +5687,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const clicksByUrl: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByUrl : null) ?? supaData?.clicksByUrl ?? new Map();
   const urlToCategoryFromDb: Map<string, string> = supaData?.urlToCategoryFromDb ?? new Map();
   const businessClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.businessClicsFromDb : snapData?.businessClicsFromDb;
+  const totalClicsChangePct: number | null | undefined = periodIndex === 0 ? supaData?.totalClicsChangePct : snapData?.totalClicsChangePct;
   const shortioChartHistory: { date: string; clicks: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistory : snapData?.shortioChartHistory;
   const shortioChartHistoryBio: { date: string; ig: number; yt: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryBio : snapData?.shortioChartHistoryBio;
   const shortioChartHistoryContent: { date: string; ig: number; yt: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryContent : snapData?.shortioChartHistoryContent;
@@ -5785,7 +5832,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
