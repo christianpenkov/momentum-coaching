@@ -5,7 +5,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar from '@/components/ui/Avatar';
-import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import AddClientModal from '@/components/ui/AddClientModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
@@ -16,7 +15,7 @@ import { useNotifications, type AppNotif } from '@/lib/useNotifications';
 import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
 
 export default function PageToday() {
-  const { clients, calls, loading } = useSupabaseClients();
+  const { clients, calls, business, loading } = useSupabaseClients();
   const { user } = useUser();
   const [showAddModal, setShowAddModal] = useState(false);
   const { notifs, refresh: refreshNotifs } = useNotifications(user?.id ?? null, false);
@@ -24,7 +23,6 @@ export default function PageToday() {
   const [sessionRapportIdx, setSessionRapportIdx] = useState(0);
   const [openSessionRapport, setOpenSessionRapport] = useState<AppNotif | null>(null);
 
-  const totalMRR = clients.reduce((sum, c) => sum + (c.latestMetrics?.stripe_mrr || 0), 0);
   const activeCount = clients.length;
   const clientsWithSignals = clients.map(c => ({ client: c, signals: getClientSignals(c.tasks, c.sessionReports) }));
   const aggregatedSignals = getAggregatedSignals(clientsWithSignals.map(cs => cs.signals));
@@ -40,17 +38,7 @@ export default function PageToday() {
     return d.toDateString() === today.toDateString();
   });
 
-  const mrrSeries = clients.length > 0
-    ? clients[0].weeklyMetrics.slice(-8).map((_, i) =>
-        clients.reduce((sum, c) => sum + (c.weeklyMetrics[c.weeklyMetrics.length - 8 + i]?.stripe_mrr || 0), 0))
-    : [];
-
   const kpis = [
-    {
-      label: 'MRR total', sub: 'tous clients', value: totalMRR,
-      formatter: (n: number) => `${n.toLocaleString('fr-FR')} €`,
-      viz: mrrSeries.length > 1 ? <Sparkbars data={mrrSeries} height={26} width={110} color="var(--accent-brand)" /> : undefined,
-    },
     {
       label: 'Clients actifs', sub: 'en cours de coaching', value: activeCount,
     },
@@ -60,6 +48,32 @@ export default function PageToday() {
     },
     {
       label: 'Calls aujourd\'hui', value: callsToday.length,
+    },
+  ];
+
+  const collectRate = business.cashContracted > 0 && business.cashCollected !== null
+    ? Math.round((business.cashCollected / business.cashContracted) * 100)
+    : null;
+
+  const businessKpis = [
+    {
+      label: 'Cash contracté / collecté',
+      sub: business.cashCollected === null
+        ? 'collecté en attente de connexion Stripe'
+        : (collectRate !== null ? `${collectRate}% collecté` : 'collecté ce mois'),
+      value: business.cashContracted,
+      formatter: (n: number) => `${n.toLocaleString('fr-FR')} € / ${business.cashCollected === null ? '—' : `${business.cashCollected.toLocaleString('fr-FR')} €`}`,
+      color: 'var(--green)',
+    },
+    {
+      label: 'Calls prospects bookés', sub: 'ce mois', value: business.prospectCallsBookedThisMonth,
+    },
+    {
+      label: 'Taux de closing', sub: 'ce mois', value: business.closingRate,
+      formatter: (n: number) => `${n}%`,
+    },
+    {
+      label: 'Clics liens trackés', sub: 'ce mois, tous élèves', value: business.shortioClicksThisMonth,
     },
   ];
 
@@ -166,6 +180,10 @@ export default function PageToday() {
         );
       })()}
 
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
+        Ta delivery
+      </div>
+
       <KpiRibbon items={kpis} />
 
       <StaggerGrid className="grid-2" style={{ marginTop: 24 }}>
@@ -254,6 +272,12 @@ export default function PageToday() {
         </StaggerItem>
       </StaggerGrid>
 
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 32, marginBottom: 12 }}>
+        Ton business
+      </div>
+
+      <KpiRibbon items={businessKpis} />
+
       {/* Aperçu clients */}
       {clients.length > 0 && (
         <div className="card" style={{ marginTop: 24, padding: 0, overflow: 'hidden' }}>
@@ -270,8 +294,6 @@ export default function PageToday() {
                   <th>Élève</th>
                   <th>Statut</th>
                   <th>Semaine</th>
-                  <th>Tendance</th>
-                  <th style={{ textAlign: 'right' }}>MRR</th>
                   <th></th>
                 </tr>
               </thead>
@@ -296,15 +318,6 @@ export default function PageToday() {
                       })()}
                     </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{client.week}</td>
-                    <td>
-                      <Sparkbars
-                        data={client.weeklyMetrics.slice(-6).map(w => w.posts_count)}
-                        height={20} width={48}
-                      />
-                    </td>
-                    <td style={{ textAlign: 'right', fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
-                      {(client.latestMetrics?.stripe_mrr || 0).toLocaleString('fr-FR')} €
-                    </td>
                     <td>
                       <Link href={`/clients/${client.id}`} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
                         <Icon name="chevR" size={12} />

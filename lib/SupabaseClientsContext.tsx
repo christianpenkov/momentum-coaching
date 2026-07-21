@@ -5,9 +5,18 @@ import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/supabase/types';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 
+export interface CoachBusinessData {
+  cashContracted: number;
+  cashCollected: number | null;
+  prospectCallsBookedThisMonth: number;
+  closingRate: number;
+  shortioClicksThisMonth: number;
+}
+
 interface SupabaseClientsContextValue {
   clients: ClientWithMetrics[];
   calls: import('@/lib/supabase/types').Call[];
+  business: CoachBusinessData;
   loading: boolean;
   error: string | null;
   getClient: (id: string) => ClientWithMetrics | undefined;
@@ -16,11 +25,20 @@ interface SupabaseClientsContextValue {
   refetch: () => void;
 }
 
+const EMPTY_BUSINESS: CoachBusinessData = {
+  cashContracted: 0,
+  cashCollected: null,
+  prospectCallsBookedThisMonth: 0,
+  closingRate: 0,
+  shortioClicksThisMonth: 0,
+};
+
 const SupabaseClientsContext = createContext<SupabaseClientsContextValue | null>(null);
 
 export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
   const [clients, setClients] = useState<ClientWithMetrics[]>([]);
   const [calls, setCalls] = useState<import('@/lib/supabase/types').Call[]>([]);
+  const [business, setBusiness] = useState<CoachBusinessData>(EMPTY_BUSINESS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -48,7 +66,12 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const ids = (rawClients || []).map((c: any) => c.id);
       const profileIds = (rawClients || []).map((c: any) => c.profile_id).filter(Boolean);
 
-      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes] = await Promise.all([
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const todayDateStr = now.toISOString().slice(0, 10);
+      const startOfMonthDateStr = startOfMonth.slice(0, 10);
+
+      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, stripeIntegRes, stripePaymentsRes, shortioSnapsRes] = await Promise.all([
         ids.length > 0
           ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
           : { data: [], error: null },
@@ -63,6 +86,21 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           .order('scheduled_at', { ascending: false }).limit(100),
         profileIds.length > 0
           ? supabase.from('profiles').select('id, avatar_url').in('id', profileIds)
+          : { data: [], error: null },
+        // Requête dédiée aux agrégats "Ton business" : bornée par date (mois en cours),
+        // pas par limit(100) comme calls ci-dessus (R3-10) — évite de tronquer les KPIs
+        // business dès que le coach dépasse 100 calls récents tous flux confondus.
+        supabase.from('calls').select('*').eq('coach_id', user.id)
+          .neq('ignored', true)
+          .gte('created_at', startOfMonth),
+        profileIds.length > 0
+          ? supabase.from('integrations').select('profile_id').in('profile_id', profileIds).eq('provider', 'stripe')
+          : { data: [], error: null },
+        profileIds.length > 0
+          ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds).gte('date', startOfMonth)
+          : { data: [], error: null },
+        profileIds.length > 0
+          ? supabase.from('shortio_link_daily_snapshots').select('human_clicks').in('profile_id', profileIds).gte('date', startOfMonthDateStr).lte('date', todayDateStr)
           : { data: [], error: null },
       ]);
 
@@ -107,6 +145,28 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         };
       }));
       setCalls(callsRes.data || []);
+
+      const callsThisMonth: import('@/lib/supabase/types').Call[] = callsThisMonthRes.data || [];
+      const prospectCallsThisMonth = callsThisMonth.filter(c => c.call_type === 'calendly' || c.call_type === 'manual');
+      const callsHonores = callsThisMonth.filter(c => c.status === 'active' || c.session_completed).length;
+      const dealsCloses = callsThisMonth.filter(c => c.deal_closed).length;
+      const cashContracted = callsThisMonth.reduce((s, c) => s + (c.revenue || 0), 0);
+      const closingRate = callsHonores > 0 ? Math.round((dealsCloses / callsHonores) * 100) : 0;
+
+      const stripeConnected = (stripeIntegRes.data || []).length > 0;
+      const cashCollected = stripeConnected
+        ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        : null;
+
+      const shortioClicksThisMonth = (shortioSnapsRes.data || []).reduce((s: number, r: { human_clicks: number }) => s + (r.human_clicks || 0), 0);
+
+      setBusiness({
+        cashContracted,
+        cashCollected,
+        prospectCallsBookedThisMonth: prospectCallsThisMonth.length,
+        closingRate,
+        shortioClicksThisMonth,
+      });
     } catch (e: any) {
       setError(e.message || 'Erreur chargement');
     } finally {
@@ -153,7 +213,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <SupabaseClientsContext.Provider value={{ clients, calls, loading, error, getClient, addTask, toggleTask, refetch: load }}>
+    <SupabaseClientsContext.Provider value={{ clients, calls, business, loading, error, getClient, addTask, toggleTask, refetch: load }}>
       {children}
     </SupabaseClientsContext.Provider>
   );

@@ -43,7 +43,7 @@ async function handleConnectEvent(event: any) {
     const obj = event.data.object;
     if (obj.refunded || (obj.status && obj.status !== 'succeeded')) return;
 
-    await supabase.from('stripe_payments').upsert({
+    const { error } = await supabase.from('stripe_payments').upsert({
       profile_id: profileId,
       payment_id: obj.id,
       amount: (obj.amount ?? obj.amount_received ?? 0) / 100,
@@ -52,11 +52,15 @@ async function handleConnectEvent(event: any) {
       date: new Date((obj.created ?? Date.now() / 1000) * 1000).toISOString(),
       status: obj.status ?? 'succeeded',
     }, { onConflict: 'profile_id,payment_id' });
+    if (error) {
+      console.error(`stripe_payments upsert échoué (${event.type}, payment_id=${obj.id}):`, error.message);
+      throw error;
+    }
   }
 
   if (event.type === 'invoice.paid') {
     const inv = event.data.object;
-    await supabase.from('stripe_payments').upsert({
+    const { error } = await supabase.from('stripe_payments').upsert({
       profile_id: profileId,
       payment_id: inv.id,
       amount: (inv.amount_paid ?? 0) / 100,
@@ -65,6 +69,10 @@ async function handleConnectEvent(event: any) {
       date: new Date((inv.status_transitions?.paid_at ?? inv.created ?? Date.now() / 1000) * 1000).toISOString(),
       status: 'succeeded',
     }, { onConflict: 'profile_id,payment_id' });
+    if (error) {
+      console.error(`stripe_payments upsert échoué (invoice.paid, payment_id=${inv.id}):`, error.message);
+      throw error;
+    }
   }
 }
 
@@ -88,6 +96,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
   }
 
-  await handleConnectEvent(event);
+  try {
+    await handleConnectEvent(event);
+  } catch (err) {
+    console.error('Stripe webhook: échec traitement événement', event?.type, err);
+    return NextResponse.json({ error: 'Échec traitement' }, { status: 500 });
+  }
   return NextResponse.json({ received: true });
 }

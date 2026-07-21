@@ -3,7 +3,6 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
-import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
@@ -43,6 +42,18 @@ function CallRequestInlineButtons({ callId, onRefresh }: { callId: string; onRef
       </button>
     </>
   );
+}
+
+function daysUntil(dateStr: string) {
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+  const target = new Date(dateStr);
+  target.setHours(0, 0, 0, 0);
+  return Math.ceil((target.getTime() - now.getTime()) / 86400000);
+}
+
+function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
+  return call?.call_type === 'google';
 }
 
 function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
@@ -104,13 +115,54 @@ export default function PageClientView() {
 
   const tasks = client.tasks.map(t => ({ ...t, done: taskOverrides[t.id] ?? t.done }));
   const last = client.latestMetrics;
-  const prev = client.prevMetrics;
   const doneCount = tasks.filter(t => t.done).length;
   const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
-  const igDelta = last && prev ? last.followers_ig - prev.followers_ig : 0;
+
+  const { nextCall, callsToday, callsBookedThisMonth, leadsThisMonthCount, cashContracted, cashCollected, closingRate } = client.business;
+  const coachingCallsToday = callsToday.filter(isCoachingCall).length;
+  const prospectCallsToday = callsToday.length - coachingCallsToday;
+  const collectRate = cashContracted > 0 && cashCollected !== null ? Math.round((cashCollected / cashContracted) * 100) : null;
 
   return (
     <div className="page-content">
+
+      {/* Prochain call */}
+      {nextCall?.scheduled_at && (
+        <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--green)', padding: '24px 24px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(nextCall) ? 'var(--surface-2)' : '#E1306C20', color: isCoachingCall(nextCall) ? 'var(--accent)' : '#E1306C' }}>
+                  {isCoachingCall(nextCall) ? 'Coaching' : 'Prospect'}
+                </span>
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
+                {new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </div>
+              <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)', marginTop: 2 }}>
+                {new Date(nextCall.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
+              </div>
+            </div>
+            <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
+              {(() => {
+                const days = daysUntil(nextCall.scheduled_at!);
+                return (
+                  <>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                      {days <= 0 ? 'Auj.' : `J-${days}`}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {days <= 0 ? "aujourd'hui" : days === 1 ? 'demain' : `dans ${days}j`}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Demandes de call coaching en attente */}
       {callRequestNotifs.length > 0 && (
@@ -245,15 +297,6 @@ export default function PageClientView() {
               )}
             </div>
           </div>
-          {client.next_call && (
-            <div style={{ padding: '12px 16px', background: 'var(--surface)', borderRadius: 12, border: '1px solid var(--border)', flexShrink: 0 }}>
-              <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em', fontWeight: 600 }}>Prochain call</div>
-              <div style={{ fontSize: 'clamp(13px, 3.5vw, 18px)', fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>{client.next_call}</div>
-              <Link href="/client/calls" className="btn-ghost" style={{ fontSize: 11, display: 'inline-flex', gap: 4 }}>
-                Détails <Icon name="chevR" size={11} />
-              </Link>
-            </div>
-          )}
         </div>
       </div>
 
@@ -330,19 +373,6 @@ export default function PageClientView() {
 
         {/* Ressources */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          {client.lastCoachMessage && (
-            <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
-              <div className="card-head">
-                <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <Icon name="sparkle" size={14} /> Message de {client.coachName || 'ton coach'}
-                </div>
-              </div>
-              <p style={{ fontSize: 13, lineHeight: 1.7, color: 'var(--accent)', marginTop: 12, fontStyle: 'italic' }}>
-                "{client.lastCoachMessage}"
-              </p>
-            </div>
-          )}
-
           <div className="card">
             <div className="card-head">
               <div className="card-title">Ressources</div>
@@ -371,48 +401,55 @@ export default function PageClientView() {
         </div>
       </div>
 
-      {/* Stats rapides */}
-      {last && (
-        <div className="grid-4" style={{ marginTop: 24 }}>
-          {[
-            {
-              label: 'Followers IG',
-              value: last.followers_ig.toLocaleString('fr-FR'),
-              sub: igDelta !== 0 ? `${igDelta > 0 ? '+' : ''}${igDelta} cette semaine` : 'Semaine 1',
-              color: '#E1306C',
-              spark: client.weeklyMetrics.slice(-8).map(w => w.followers_ig),
-            },
-            {
-              label: 'Posts publiés',
-              value: last.posts_count.toString(),
-              sub: `${last.avg_views.toLocaleString('fr-FR')} vues moy.`,
-              spark: client.weeklyMetrics.slice(-8).map(w => w.posts_count),
-            },
-            {
-              label: 'DM envoyés',
-              value: last.dms_sent.toString(),
-              sub: `${last.dms_reply_rate}% réponse`,
-              spark: client.weeklyMetrics.slice(-8).map(w => w.dms_sent),
-            },
-            {
-              label: 'MRR',
-              value: `${last.stripe_mrr.toLocaleString('fr-FR')} €`,
-              sub: 'revenus mensuels',
-              color: 'var(--green)',
-              spark: client.weeklyMetrics.slice(-8).map(w => w.stripe_mrr),
-            },
-          ].map(({ label, value, sub, color, spark }) => (
-            <div key={label} className="card kpi-card" style={{ padding: '16px 20px' }}>
-              <div className="kpi-label">{label}</div>
-              <div className="kpi-value" style={color ? { color } : undefined}>{value}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>{sub}</div>
-              <div style={{ marginTop: 10 }}>
-                <Sparkbars data={spark} height={20} width={60} color={color || 'var(--accent)'} />
-              </div>
-            </div>
-          ))}
+      {/* Business du mois */}
+      <div className="grid-4" style={{ marginTop: 24 }}>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Appels aujourd'hui</div>
+          <div className="kpi-value">{callsToday.length}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+            {callsToday.length > 0 ? `${coachingCallsToday} coaching · ${prospectCallsToday} prospect` : 'Aucun call prévu'}
+          </div>
         </div>
-      )}
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Calls bookés ce mois</div>
+          <div className="kpi-value">{callsBookedThisMonth.length}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>tous types confondus</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Leads ce mois</div>
+          <div className="kpi-value">{leadsThisMonthCount}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>nouveaux leads détectés</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Taux de closing</div>
+          <div className="kpi-value">{closingRate}%</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>depuis le 1er du mois</div>
+        </div>
+      </div>
+
+      <div className="grid-2" style={{ marginTop: 16 }}>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Cash contracté</div>
+          <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashContracted.toLocaleString('fr-FR')} €</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>deals closés ce mois</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Cash collecté</div>
+          {cashCollected === null ? (
+            <>
+              <div className="kpi-value" style={{ color: 'var(--muted)' }}>—</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>en attente de connexion Stripe</div>
+            </>
+          ) : (
+            <>
+              <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashCollected.toLocaleString('fr-FR')} €</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
+                {collectRate !== null ? `${collectRate}% du cash contracté` : 'ce mois'}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

@@ -16,6 +16,20 @@ export interface ClientWithMetrics extends Client {
   avatar_url: string | null;
 }
 
+export interface ClientSelfBusinessData {
+  nextCall: Call | null;
+  callsToday: Call[];
+  callsBookedThisMonth: Call[];
+  leadsThisMonthCount: number;
+  cashContracted: number;
+  cashCollected: number | null;
+  closingRate: number;
+}
+
+export interface ClientSelfData extends ClientWithMetrics {
+  business: ClientSelfBusinessData;
+}
+
 export interface CoachData {
   clients: ClientWithMetrics[];
   calls: Call[];
@@ -160,7 +174,7 @@ export function useClientData(clientId: string) {
 
 // Hook léger pour l'espace client (vue client connecté)
 export function useClientSelfData() {
-  const [data, setData] = useState<ClientWithMetrics | null>(null);
+  const [data, setData] = useState<ClientSelfData | null>(null);
   const [loading, setLoading] = useState(true);
   const supabase = createClient();
 
@@ -173,17 +187,57 @@ export function useClientSelfData() {
         .from('clients').select('*').eq('profile_id', user.id).single();
       if (!clientRow) { setLoading(false); return; }
 
-      const [metricsRes, tasksRes, resourcesRes, lastMsgRes, coachProfileRes] = await Promise.all([
+      const now = new Date();
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
+      const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+
+      const [
+        metricsRes, tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
+        nextCallRes, callsTodayRes, callsThisMonthRes, leadsThisMonthRes,
+        stripeIntegRes, stripePaymentsRes,
+      ] = await Promise.all([
         supabase.from('weekly_metrics').select('*').eq('client_id', clientRow.id).order('week', { ascending: true }),
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
         supabase.from('messages').select('text, created_at').eq('client_id', clientRow.id).eq('sender_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(1),
         supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle(),
+        supabase.from('calls').select('*').eq('client_id', clientRow.id)
+          .neq('ignored', true)
+          .gte('scheduled_at', now.toISOString())
+          .order('scheduled_at', { ascending: true })
+          .limit(1),
+        supabase.from('calls').select('*').eq('client_id', clientRow.id)
+          .neq('ignored', true)
+          .gte('scheduled_at', startOfToday).lt('scheduled_at', startOfTomorrow),
+        supabase.from('calls').select('*').eq('client_id', clientRow.id)
+          .neq('ignored', true)
+          .gte('created_at', startOfMonth),
+        clientRow.profile_id
+          ? supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).eq('profile_id', clientRow.profile_id).gte('detected_at', startOfMonth)
+          : Promise.resolve({ count: 0 }),
+        clientRow.profile_id
+          ? supabase.from('integrations').select('id').eq('profile_id', clientRow.profile_id).eq('provider', 'stripe').maybeSingle()
+          : Promise.resolve({ data: null }),
+        clientRow.profile_id
+          ? supabase.from('stripe_payments').select('amount').eq('profile_id', clientRow.profile_id).gte('date', startOfMonth)
+          : Promise.resolve({ data: [] }),
       ]);
 
       const metrics = metricsRes.data || [];
       const coachFullName: string | null = coachProfileRes.data?.full_name ?? null;
       const coachName = coachFullName ? coachFullName.split(' ')[0] : null;
+
+      const callsThisMonth: Call[] = callsThisMonthRes.data || [];
+      const callsHonores = callsThisMonth.filter(c => c.status === 'active' || c.session_completed).length;
+      const dealsCloses = callsThisMonth.filter(c => c.deal_closed).length;
+      const cashContracted = callsThisMonth.reduce((s, c) => s + (c.revenue || 0), 0);
+      const closingRate = callsHonores > 0 ? Math.round((dealsCloses / callsHonores) * 100) : 0;
+
+      const stripeConnected = !!(stripeIntegRes as { data: { id: string } | null }).data;
+      const cashCollected = stripeConnected
+        ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        : null;
 
       setData({
         ...clientRow,
@@ -194,6 +248,15 @@ export function useClientSelfData() {
         resources: resourcesRes.data || [],
         lastCoachMessage: lastMsgRes.data?.[0]?.text || null,
         coachName,
+        business: {
+          nextCall: nextCallRes.data?.[0] || null,
+          callsToday: callsTodayRes.data || [],
+          callsBookedThisMonth: callsThisMonth,
+          leadsThisMonthCount: leadsThisMonthRes.count || 0,
+          cashContracted,
+          cashCollected,
+          closingRate,
+        },
       });
       setLoading(false);
     }
