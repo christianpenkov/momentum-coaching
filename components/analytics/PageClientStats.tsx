@@ -5285,12 +5285,23 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .not('ig_lead_id', 'is', null),
   ]);
 
-  // Graphique historique clics Short.io — agrégé côté DB (voir le commentaire
-  // détaillé plus haut sur shortioChartHistory*), jamais plus de quelques dizaines
-  // de lignes en retour donc jamais de risque de troncature à 1000. Fenêtre large
-  // (24 mois) sans danger : l'agrégation par jour×catégorie tient largement sous la
-  // limite même sur une longue période.
-  const shortioHistoryFloor = parisDateStr(new Date(Date.now() - 24 * 30 * 86400000));
+  // Graphique historique clics Short.io — agrégé côté DB via get_shortio_clicks_by_day.
+  // FENÊTRE VOLONTAIREMENT COURTE (3 mois, pas 24) — à relire avant d'agrandir cette
+  // valeur : l'agrégation par jour×catégorie n'est PAS bornée à "quelques dizaines de
+  // lignes" comme on pourrait le supposer — dans le pire cas (toutes les ~9 catégories
+  // actives chaque jour, déjà observé en prod), elle renvoie jusqu'à nb_jours × 9
+  // lignes. Une fenêtre de 24 mois (730 jours) donnerait jusqu'à 6570 lignes — 6,5×
+  // la limite de 1000 Supabase/PostgREST — et retomberait dans EXACTEMENT le même bug
+  // de troncature que celui corrigé ce jour-là, juste après ~3-4 mois d'activité
+  // soutenue au lieu de ~20 jours. Vérifié en SQL direct (2026-07-21) avant correction.
+  // 3 mois reste très largement sous la limite même si le volume de catégories double
+  // (jusqu'à ~90 jours × 9 = 810 lignes, contre 1000). Cette fenêtre ne limite QUE le
+  // graphique de la période courante — la navigation vers une période plus ancienne
+  // (periodIndex > 0) passe par fetchSnapshot, qui appelle toujours la même RPC bornée
+  // précisément sur le mois/semaine consulté, jamais concerné par cette fenêtre : un
+  // client inscrit depuis 5 mois retrouve normalement ses données en naviguant en
+  // arrière, quelle que soit la valeur choisie ici.
+  const shortioHistoryFloor = parisDateStr(new Date(Date.now() - 3 * 30 * 86400000));
   const shortioChartHistoryRpc = await supabase.rpc('get_shortio_clicks_by_day', {
     p_profile_id: targetId,
     p_start_date: shortioHistoryFloor,
