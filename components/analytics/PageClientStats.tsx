@@ -3261,7 +3261,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     pas bougé. Remplacé par une vraie comparaison periodStart/periodEnd
                     vs la période équivalente précédente, même agrégation RPC que
                     totalClics. Confirmé par Chris 2026-07-21. */}
-                {totalClicsChangePct != null && <div style={{ fontSize: 10, fontWeight: 600, color: totalClicsChangePct >= 0 ? GREEN : RED, marginTop: 3 }}>{totalClicsChangePct >= 0 ? '+' : ''}{fmtPct(totalClicsChangePct)}</div>}
+                {/* 0% en gris neutre (pas de changement, ni hausse ni baisse) — vert
+                    seulement si strictement positif, rouge seulement si strictement
+                    négatif. Demande explicite de Chris 2026-07-21. */}
+                {totalClicsChangePct != null && <div style={{ fontSize: 10, fontWeight: 600, color: totalClicsChangePct > 0 ? GREEN : totalClicsChangePct < 0 ? RED : 'var(--muted)', marginTop: 3 }}>{totalClicsChangePct > 0 ? '+' : ''}{fmtPct(totalClicsChangePct)}</div>}
               </div>
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
@@ -4964,9 +4967,11 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   for (const row of (snapPrevChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
     if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) snapPrevBusinessClics += (row.total_clicks ?? 0);
   }
+  // Même convention que fetchSupabaseStats (voir commentaire là-bas) : 0/0 → 0%,
+  // 0 → X → +100%, sinon vraie variation. Jamais null.
   const snapTotalClicsChangePct = snapPrevBusinessClics > 0
     ? Math.round(((snapBusinessClicsFromDb - snapPrevBusinessClics) / snapPrevBusinessClics) * 1000) / 10
-    : null;
+    : snapBusinessClicsFromDb > 0 ? 100 : 0;
 
   const snapShortioChartHistory = Array.from(snapChartByDate.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -5485,8 +5490,8 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   // l'API Short.io elle-même sur ses 30 derniers jours glissants tous liens confondus,
   // sans aucun rapport avec le calendrier affiché ici — cf. bug "-95,6%" à côté d'un
   // total de 3 clics inchangé, remonté par Chris 2026-07-21). shortioChartHistoryRpc
-  // couvre déjà 24 mois glissants donc la période précédente y est déjà incluse, pas
-  // besoin d'un 2e appel réseau.
+  // couvre la fenêtre shortioHistoryFloor (3 mois) donc la période précédente y est
+  // déjà incluse pour period=7/month, pas besoin d'un 2e appel réseau.
   const { periodStart: prevPeriodStart, periodEnd: prevPeriodEnd } = getPeriodWindow(1, period === 7 ? 'week' : 'month');
   const prevSince = parisDateStr(prevPeriodStart);
   const prevUntil = parisDateStr(prevPeriodEnd);
@@ -5494,9 +5499,13 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   for (const [date, clicks] of chartByDate) {
     if (date >= prevSince && date <= prevUntil) prevBusinessClics += clicks;
   }
+  // 3 cas : les deux périodes à 0 → 0% (aucun changement) ; précédente à 0 mais
+  // actuelle > 0 → +100% (convention "nouveau", pas de division par 0) ; sinon vraie
+  // variation. Toujours un nombre (jamais null) pour que le badge s'affiche toujours,
+  // y compris à "0%" — demande explicite de Chris.
   const totalClicsChangePct = prevBusinessClics > 0
     ? Math.round(((businessClicsFromDb - prevBusinessClics) / prevBusinessClics) * 1000) / 10
-    : null;
+    : businessClicsFromDb > 0 ? 100 : 0;
   // Comble les jours sans clic à 0 — sinon le graphique n'affiche qu'un point isolé par jour avec clics.
   // Bornes calendaires réelles (mêmes _periodStart/_periodEnd que le reste de la fonction),
   // pas une fenêtre glissante indépendante (cf. bug remonté "clics totaux à 0" 2026-07-06).
