@@ -4870,11 +4870,14 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     fetch(`/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDateStr}&endDate=${endDateStr}`)
       .then(r => r.ok ? r.json() : null)
       .catch(() => null),
-    supabase.from('shortio_link_daily_snapshots')
-      .select('date, short_url, human_clicks, path, link_category')
-      .eq('profile_id', targetId)
-      .gte('date', startDateStr)
-      .lte('date', endDateStr),
+    // Agrégé côté DB via get_shortio_clicks_by_url (voir commentaire détaillé sur
+    // clicksByUrl plus bas) — jamais de risque de troncature à 1000 lignes, contrairement
+    // au rapatriement brut d'une ligne par lien par jour.
+    supabase.rpc('get_shortio_clicks_by_url', {
+      p_profile_id: targetId,
+      p_start_date: startDateStr,
+      p_end_date: endDateStr,
+    }),
   ]);
 
   const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
@@ -4884,26 +4887,25 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
   const shortioClickRows = shortioClicksRes.status === 'fulfilled' ? (shortioClicksRes.value.data ?? []) : [];
 
-  // clicksByUrl / clicksByPath : nécessitent les lignes brutes (short_url/path ne
-  // sont pas dans l'agrégat RPC) — restent sur shortioClickRows, borné à un mois via
-  // startDateStr/endDateStr donc jamais > ~1600 lignes pire cas (51 liens/jour × 31j
-  // pour ce client). Si ce plafond est un jour atteint aussi ici (plus de liens
-  // trackés), même remède que shortioChartHistory* : passer par une RPC dédiée.
+  // clicksByUrl / clicksByPath — agrégés côté DB via get_shortio_clicks_by_url (SUM
+  // group by short_url/path directement en SQL, une ligne par lien distinct en
+  // retour, jamais de risque de troncature à 1000 même avec des centaines de liens).
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
   const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   let snapBusinessClicsFromDb = 0;
-  for (const row of shortioClickRows) {
+  for (const row of shortioClickRows as { short_url: string | null; path: string | null; link_category: string | null; total_clicks: number }[]) {
+    const clicks = row.total_clicks ?? 0;
     if (row.short_url) {
-      const u = (row.short_url as string).toLowerCase();
-      snapClicksByUrl.set(u, (snapClicksByUrl.get(u) ?? 0) + (row.human_clicks ?? 0));
+      const u = row.short_url.toLowerCase();
+      snapClicksByUrl.set(u, (snapClicksByUrl.get(u) ?? 0) + clicks);
     }
     if (row.path) {
-      const p = (row.path as string).toLowerCase();
-      snapClicksByPath.set(p, (snapClicksByPath.get(p) ?? 0) + (row.human_clicks ?? 0));
+      const p = row.path.toLowerCase();
+      snapClicksByPath.set(p, (snapClicksByPath.get(p) ?? 0) + clicks);
     }
     if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) {
-      snapBusinessClicsFromDb += (row.human_clicks ?? 0);
+      snapBusinessClicsFromDb += clicks;
     }
   }
 
@@ -5311,27 +5313,33 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     if (l.id && l.media_id) leadIdToMediaId.set(l.id, l.media_id);
   }
 
-  // Clics par short_url et par path depuis la DB (30j) — nécessite les lignes brutes
-  // (short_url/path absents de l'agrégat RPC par date×catégorie), reste sur
-  // shortioClicksRes. Borné à ~1 mois (since30d/until30d) : jusqu'à ~1600 lignes
-  // pire cas pour ce client (51 liens/jour × 31j) — déjà proche du plafond de 1000
-  // Supabase/PostgREST. Si ce point précis est un jour confirmé tronqué (clics par
-  // URL individuelle manquants), même remède que shortioChartHistory* : RPC dédiée
-  // groupée par short_url plutôt que rapatriement brut.
+  // Clics par short_url et par path — agrégés côté DB via get_shortio_clicks_by_url
+  // (même principe que get_shortio_clicks_by_day : SUM group by short_url/path
+  // directement en SQL, jamais plus d'une ligne par lien distinct en retour, donc
+  // jamais de risque de troncature à 1000 même avec des centaines de liens ou de
+  // clics). Remplace le rapatriement brut de shortioClicksRes qui, sur ce client,
+  // pouvait déjà approcher ~1600 lignes sur un mois chargé (51 liens/jour × 31j) —
+  // pas encore confirmé en bug observé, corrigé préventivement.
   const clicksByUrl = new Map<string, number>();
   const clicksByPath = new Map<string, number>();
   const urlToCategoryFromDb = new Map<string, string>();
-  for (const row of (shortioClicksRes.data ?? [])) {
+  const { data: clicksByUrlRpcData } = await supabase.rpc('get_shortio_clicks_by_url', {
+    p_profile_id: targetId,
+    p_start_date: since30d,
+    p_end_date: until30d,
+  });
+  for (const row of (clicksByUrlRpcData ?? []) as { short_url: string | null; path: string | null; link_category: string | null; total_clicks: number }[]) {
+    const clicks = row.total_clicks ?? 0;
     if (row.short_url) {
-      const url = (row.short_url as string).toLowerCase();
-      clicksByUrl.set(url, (clicksByUrl.get(url) ?? 0) + (row.human_clicks ?? 0));
+      const url = row.short_url.toLowerCase();
+      clicksByUrl.set(url, (clicksByUrl.get(url) ?? 0) + clicks);
       if (row.link_category && !urlToCategoryFromDb.has(url)) {
         urlToCategoryFromDb.set(url, row.link_category);
       }
     }
     if (row.path) {
-      const p = (row.path as string).toLowerCase();
-      clicksByPath.set(p, (clicksByPath.get(p) ?? 0) + (row.human_clicks ?? 0));
+      const p = row.path.toLowerCase();
+      clicksByPath.set(p, (clicksByPath.get(p) ?? 0) + clicks);
     }
   }
   // Clics Calendly bruts (bio + description uniquement, pas LM) — calculés plus bas
