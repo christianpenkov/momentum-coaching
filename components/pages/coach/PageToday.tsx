@@ -38,9 +38,21 @@ export default function PageToday() {
     return d.toDateString() === today.toDateString();
   });
 
+  const coachingCallsToday = callsToday.filter(c => c.call_type === 'google').length;
+  const leadCallsToday = callsToday.length - coachingCallsToday;
+
+  const collectRate = business.cashContracted > 0 && business.cashCollected !== null
+    ? Math.round((business.cashCollected / business.cashContracted) * 100)
+    : null;
+
   const kpis = [
     {
-      label: 'Clients actifs', sub: 'en cours de coaching', value: activeCount,
+      label: 'Argent généré', sub: 'total, all-time', value: business.cashCollectedAllTime ?? 0,
+      formatter: (n: number) => business.cashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
+      color: 'var(--green)',
+    },
+    {
+      label: 'Élèves actifs', sub: 'en cours de coaching', value: activeCount,
     },
     {
       label: 'Alertes', sub: 'tâches en retard + no-shows', value: aggregatedSignals.total,
@@ -48,14 +60,27 @@ export default function PageToday() {
     },
     {
       label: 'Calls aujourd\'hui', value: callsToday.length,
+      viz: (
+        <div style={{ display: 'flex', gap: 6 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--surface-2)', color: 'var(--accent)' }}>
+            {coachingCallsToday} coaching{coachingCallsToday > 1 ? 's' : ''}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#E1306C20', color: '#E1306C' }}>
+            {leadCallsToday} call{leadCallsToday > 1 ? 's' : ''} lead{leadCallsToday > 1 ? 's' : ''}
+          </span>
+        </div>
+      ),
     },
-  ];
-
-  const collectRate = business.cashContracted > 0 && business.cashCollected !== null
-    ? Math.round((business.cashCollected / business.cashContracted) * 100)
-    : null;
-
-  const businessKpis = [
+    {
+      label: 'Leads générés', sub: 'ce mois', value: business.leadsThisMonthCount,
+    },
+    {
+      label: 'Calls bookés', sub: 'ce mois', value: business.prospectCallsBookedThisMonth,
+    },
+    {
+      label: 'Taux de closing', sub: 'ce mois', value: business.closingRate,
+      formatter: (n: number) => `${n}%`,
+    },
     {
       label: 'Cash contracté / collecté',
       sub: business.cashCollected === null
@@ -64,16 +89,6 @@ export default function PageToday() {
       value: business.cashContracted,
       formatter: (n: number) => `${n.toLocaleString('fr-FR')} € / ${business.cashCollected === null ? '—' : `${business.cashCollected.toLocaleString('fr-FR')} €`}`,
       color: 'var(--green)',
-    },
-    {
-      label: 'Calls prospects bookés', sub: 'ce mois', value: business.prospectCallsBookedThisMonth,
-    },
-    {
-      label: 'Taux de closing', sub: 'ce mois', value: business.closingRate,
-      formatter: (n: number) => `${n}%`,
-    },
-    {
-      label: 'Clics liens trackés', sub: 'ce mois, tous élèves', value: business.shortioClicksThisMonth,
     },
   ];
 
@@ -180,10 +195,6 @@ export default function PageToday() {
         );
       })()}
 
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>
-        Ta delivery
-      </div>
-
       <KpiRibbon items={kpis} />
 
       <StaggerGrid className="grid-2" style={{ marginTop: 24 }}>
@@ -271,12 +282,6 @@ export default function PageToday() {
           </div>
         </StaggerItem>
       </StaggerGrid>
-
-      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginTop: 32, marginBottom: 12 }}>
-        Ton business
-      </div>
-
-      <KpiRibbon items={businessKpis} />
 
       {/* Aperçu clients */}
       {clients.length > 0 && (

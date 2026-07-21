@@ -8,9 +8,10 @@ import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 export interface CoachBusinessData {
   cashContracted: number;
   cashCollected: number | null;
+  cashCollectedAllTime: number | null;
   prospectCallsBookedThisMonth: number;
   closingRate: number;
-  shortioClicksThisMonth: number;
+  leadsThisMonthCount: number;
 }
 
 interface SupabaseClientsContextValue {
@@ -28,9 +29,10 @@ interface SupabaseClientsContextValue {
 const EMPTY_BUSINESS: CoachBusinessData = {
   cashContracted: 0,
   cashCollected: null,
+  cashCollectedAllTime: null,
   prospectCallsBookedThisMonth: 0,
   closingRate: 0,
-  shortioClicksThisMonth: 0,
+  leadsThisMonthCount: 0,
 };
 
 const SupabaseClientsContext = createContext<SupabaseClientsContextValue | null>(null);
@@ -68,10 +70,8 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
 
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-      const todayDateStr = now.toISOString().slice(0, 10);
-      const startOfMonthDateStr = startOfMonth.slice(0, 10);
 
-      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, stripeIntegRes, stripePaymentsRes, shortioSnapsRes] = await Promise.all([
+      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes] = await Promise.all([
         ids.length > 0
           ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
           : { data: [], error: null },
@@ -100,8 +100,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds).gte('date', startOfMonth)
           : { data: [], error: null },
         profileIds.length > 0
-          ? supabase.from('shortio_link_daily_snapshots').select('human_clicks').in('profile_id', profileIds).gte('date', startOfMonthDateStr).lte('date', todayDateStr)
+          ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds)
           : { data: [], error: null },
+        profileIds.length > 0
+          ? supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).in('profile_id', profileIds).gte('detected_at', startOfMonth)
+          : { count: 0 },
       ]);
 
       if (metricsRes.error) throw metricsRes.error;
@@ -157,15 +160,17 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const cashCollected = stripeConnected
         ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
         : null;
-
-      const shortioClicksThisMonth = (shortioSnapsRes.data || []).reduce((s: number, r: { human_clicks: number }) => s + (r.human_clicks || 0), 0);
+      const cashCollectedAllTime = stripeConnected
+        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        : null;
 
       setBusiness({
         cashContracted,
         cashCollected,
+        cashCollectedAllTime,
         prospectCallsBookedThisMonth: prospectCallsThisMonth.length,
         closingRate,
-        shortioClicksThisMonth,
+        leadsThisMonthCount: leadsThisMonthRes.count || 0,
       });
     } catch (e: any) {
       setError(e.message || 'Erreur chargement');
