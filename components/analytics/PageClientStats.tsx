@@ -4884,25 +4884,15 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
   const shortioClickRows = shortioClicksRes.status === 'fulfilled' ? (shortioClicksRes.value.data ?? []) : [];
 
-  // clicksByUrl / clicksByPath + businessClicsFromDb filtrés sur la fenêtre exacte de la période
+  // clicksByUrl / clicksByPath : nécessitent les lignes brutes (short_url/path ne
+  // sont pas dans l'agrégat RPC) — restent sur shortioClickRows, borné à un mois via
+  // startDateStr/endDateStr donc jamais > ~1600 lignes pire cas (51 liens/jour × 31j
+  // pour ce client). Si ce plafond est un jour atteint aussi ici (plus de liens
+  // trackés), même remède que shortioChartHistory* : passer par une RPC dédiée.
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
   const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
-  // Mêmes sous-catégories que fetchSupabaseStats (voir plus bas, BIO_IG_CATS etc.) — pour
-  // que les graphiques filtrés "DM/Contenu/Bio uniquement" fonctionnent aussi en historique
-  // (periodIndex > 0), pas seulement sur la période courante.
-  const SNAP_BIO_IG_CATS = new Set(['calendly_bio_ig', 'lm_bio_ig']);
-  const SNAP_BIO_YT_CATS = new Set(['calendly_bio_yt', 'lm_bio_yt']);
-  const SNAP_CONTENT_IG_CATS = new Set(['calendly_desc_ig', 'lm_desc_ig']);
-  const SNAP_CONTENT_YT_CATS = new Set(['calendly_desc_yt', 'lm_desc_yt']);
   let snapBusinessClicsFromDb = 0;
-  const snapChartByDate = new Map<string, number>();
-  const snapBioIgByDate = new Map<string, number>();
-  const snapBioYtByDate = new Map<string, number>();
-  const snapContentIgByDate = new Map<string, number>();
-  const snapContentYtByDate = new Map<string, number>();
-  const snapDmCalendlyByDate = new Map<string, number>();
-  const snapDmLmByDate = new Map<string, number>();
   for (const row of shortioClickRows) {
     if (row.short_url) {
       const u = (row.short_url as string).toLowerCase();
@@ -4914,17 +4904,41 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     }
     if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) {
       snapBusinessClicsFromDb += (row.human_clicks ?? 0);
-      if (row.date) snapChartByDate.set(row.date, (snapChartByDate.get(row.date) ?? 0) + (row.human_clicks ?? 0));
     }
-    if (row.date && row.link_category) {
-      const clicks = row.human_clicks ?? 0;
-      if (SNAP_BIO_IG_CATS.has(row.link_category)) snapBioIgByDate.set(row.date, (snapBioIgByDate.get(row.date) ?? 0) + clicks);
-      else if (SNAP_BIO_YT_CATS.has(row.link_category)) snapBioYtByDate.set(row.date, (snapBioYtByDate.get(row.date) ?? 0) + clicks);
-      else if (SNAP_CONTENT_IG_CATS.has(row.link_category)) snapContentIgByDate.set(row.date, (snapContentIgByDate.get(row.date) ?? 0) + clicks);
-      else if (SNAP_CONTENT_YT_CATS.has(row.link_category)) snapContentYtByDate.set(row.date, (snapContentYtByDate.get(row.date) ?? 0) + clicks);
-      else if (row.link_category === 'calendly_dm_prospect') snapDmCalendlyByDate.set(row.date, (snapDmCalendlyByDate.get(row.date) ?? 0) + clicks);
-      else if (row.link_category === 'lm_dm_auto') snapDmLmByDate.set(row.date, (snapDmLmByDate.get(row.date) ?? 0) + clicks);
+  }
+
+  // Graphique historique / sous-catégories bio-contenu-dm : agrégés côté DB via la
+  // même RPC get_shortio_clicks_by_day que fetchSupabaseStats (voir le commentaire
+  // détaillé là-bas sur la root cause de troncature à 1000 lignes) — jamais de
+  // risque de dépassement, même pour un mois avec beaucoup de liens actifs.
+  const SNAP_BIO_IG_CATS = new Set(['calendly_bio_ig', 'lm_bio_ig']);
+  const SNAP_BIO_YT_CATS = new Set(['calendly_bio_yt', 'lm_bio_yt']);
+  const SNAP_CONTENT_IG_CATS = new Set(['calendly_desc_ig', 'lm_desc_ig']);
+  const SNAP_CONTENT_YT_CATS = new Set(['calendly_desc_yt', 'lm_desc_yt']);
+  const snapChartByDate = new Map<string, number>();
+  const snapBioIgByDate = new Map<string, number>();
+  const snapBioYtByDate = new Map<string, number>();
+  const snapContentIgByDate = new Map<string, number>();
+  const snapContentYtByDate = new Map<string, number>();
+  const snapDmCalendlyByDate = new Map<string, number>();
+  const snapDmLmByDate = new Map<string, number>();
+  const { data: snapChartRpcData } = await supabase.rpc('get_shortio_clicks_by_day', {
+    p_profile_id: targetId,
+    p_start_date: startDateStr,
+    p_end_date: endDateStr,
+  });
+  for (const row of (snapChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
+    if (!row.date || !row.link_category) continue;
+    const clicks = row.total_clicks ?? 0;
+    if (SNAP_BUSINESS_CATS.has(row.link_category)) {
+      snapChartByDate.set(row.date, (snapChartByDate.get(row.date) ?? 0) + clicks);
     }
+    if (SNAP_BIO_IG_CATS.has(row.link_category)) snapBioIgByDate.set(row.date, (snapBioIgByDate.get(row.date) ?? 0) + clicks);
+    else if (SNAP_BIO_YT_CATS.has(row.link_category)) snapBioYtByDate.set(row.date, (snapBioYtByDate.get(row.date) ?? 0) + clicks);
+    else if (SNAP_CONTENT_IG_CATS.has(row.link_category)) snapContentIgByDate.set(row.date, (snapContentIgByDate.get(row.date) ?? 0) + clicks);
+    else if (SNAP_CONTENT_YT_CATS.has(row.link_category)) snapContentYtByDate.set(row.date, (snapContentYtByDate.get(row.date) ?? 0) + clicks);
+    else if (row.link_category === 'calendly_dm_prospect') snapDmCalendlyByDate.set(row.date, (snapDmCalendlyByDate.get(row.date) ?? 0) + clicks);
+    else if (row.link_category === 'lm_dm_auto') snapDmLmByDate.set(row.date, (snapDmLmByDate.get(row.date) ?? 0) + clicks);
   }
   const snapShortioChartHistory = Array.from(snapChartByDate.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
@@ -5150,48 +5164,44 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at').eq('profile_id', targetId).maybeSingle();
   const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
 
-  // ── Plancher de date pour shortioChartHistoryRes (BUG RÉSOLU 2026-07-21, à
-  // relire avant de toucher à cette requête ou à re-signaler "des clics manquent") ──
+  // ── shortioChartHistory* (BUG RÉSOLU 2026-07-21, à relire avant de toucher à ce
+  // bloc ou à re-signaler "des clics manquent") ──
   //
   // SYMPTÔME OBSERVÉ : dans Business micro, "Tous les clics" ET les 3 filtres
   // Bio/Contenu/DM affichaient 0 pour un clic pourtant confirmé en base (table
   // shortio_link_daily_snapshots, détecté par Short.io, ex. 2026-07-08). Un clic
-  // plus ancien (2026-06-20) restait lui visible. Le lendemain, sans aucune
-  // modification de code ni de donnée, le clic du 20 juin est devenu invisible à
-  // son tour — signe d'une fenêtre qui bouge dans le temps, pas d'un bug de logique.
+  // plus ancien (2026-06-20) restait lui visible, puis a disparu à son tour le
+  // lendemain sans aucune modification de code ni de donnée — signe d'une fenêtre
+  // qui bouge dans le temps, pas d'un bug de logique de filtrage.
   //
-  // ROOT CAUSE : la requête shortio_link_daily_snapshots plus bas n'avait ni
-  // .limit() ni filtre de date ("tous les snapshots disponibles"). Supabase/PostgREST
-  // applique une limite PAR DÉFAUT de 1000 lignes par requête quand aucune n'est
-  // précisée — silencieusement, sans erreur ni warning côté client. Avec
+  // ROOT CAUSE : la requête shortio_link_daily_snapshots (rapatriement des lignes
+  // BRUTES côté client, une ligne par lien par jour) n'avait ni .limit() ni filtre
+  // de date suffisant. Supabase/PostgREST applique une limite PAR DÉFAUT de 1000
+  // lignes par requête, silencieusement (pas d'erreur, pas de warning). Avec
   // .order('date', ascending: true), les 1000 lignes renvoyées sont les plus
-  // ANCIENNES ; toute ligne au-delà (donc les clics les plus RÉCENTS, ceux qu'on
-  // regarde le plus souvent) est tronquée sans qu'aucun signal ne le révèle. Le 21
-  // juillet 2026, un seul client (compte de test Christian Penkov, profile_id
-  // rattaché à christianpenkov80@gmail.com) avait déjà 2151 lignes dans cette table
-  // — confirmé par `select count(*)` en SQL direct — soit plus du double de la
-  // limite. Le nombre de lignes croît avec le temps (une ligne par lien actif et par
-  // jour) et avec le nombre de clients sur la plateforme : ce plafond de 1000 sera
-  // atteint de plus en plus tôt dans la vie de CHAQUE client au fil des mois/années,
-  // pas seulement pour ce compte de test — d'où l'intérêt de comprendre le mécanisme
-  // plutôt que de juste patcher ce cas précis.
+  // ANCIENNES ; tout ce qui dépasse (donc les clics les plus RÉCENTS, ceux qu'on
+  // regarde le plus) est tronqué. Piège découvert en 2 temps :
+  //   1er correctif (insuffisant) : borner à une fenêtre de 14 mois. Semblait
+  //   logique mais n'a rien résolu — CE CLIENT A ~51 LIGNES PAR JOUR (1 par lien
+  //   actif tracké), donc 1000 lignes ≈ 20 JOURS seulement. Aucune fenêtre de dates
+  //   assez large pour couvrir un mois de navigation ne peut rester sous 1000
+  //   lignes brutes — le problème n'était pas "trop de mois", mais "trop de lignes
+  //   par jour". Ce volume par jour ne fera que croître avec le nombre de liens
+  //   trackés (LM, contenus, DM) et le nombre de clients sur la plateforme.
   //
-  // FIX CHOISI : borner la requête à une fenêtre glissante de 14 mois (voir
-  // shortioHistoryFloor ci-dessous) plutôt que d'augmenter la limite (.limit(5000)
-  // ou pagination .range()) — un plafond plus haut se refait dépasser par le même
-  // mécanisme un jour, juste plus tard ; une fenêtre de temps bornée reste stable
-  // indéfiniment tant que le volume de liens/jour ne change pas radicalement. 14
-  // mois couvre très largement toute navigation possible dans l'UI (la page ne
-  // permet de naviguer que mois par mois ou semaine par semaine via periodIndex,
-  // jamais plus loin dans le passé), avec une bonne marge de sécurité.
+  // FIX RÉEL : agrégation côté BASE DE DONNÉES via la fonction Postgres RPC
+  // get_shortio_clicks_by_day(p_profile_id, p_start_date, p_end_date) — fait le
+  // SUM(human_clicks) GROUP BY date, link_category directement en SQL, renvoie au
+  // maximum quelques dizaines de lignes (1 par jour × par catégorie, jamais 1 par
+  // lien), donc ne peut structurellement plus jamais dépasser 1000 lignes, quel que
+  // soit le nombre de liens créés. Migration : add_get_shortio_clicks_by_day_rpc
+  // (Supabase project nvjgwtetyuatnkjihmtw), SECURITY DEFINER + filtre explicite
+  // sur p_profile_id dans la fonction (obligatoire : SECURITY DEFINER bypass la RLS
+  // de la table sous-jacente, donc pas de filtre = fuite cross-tenant).
   //
-  // SI CE BUG REVIENT (clics présents en base mais absents du graphique, disparition
-  // progressive dans le temps) : d'abord vérifier `select count(*) from
-  // shortio_link_daily_snapshots where profile_id = '<id>' and date >=
-  // '<shortioHistoryFloor calculé>'` — si ce compte dépasse 1000, soit le volume de
-  // liens a explosé pour ce client (réduire la fenêtre), soit il faut passer à une
-  // vraie pagination .range() en boucle plutôt qu'un simple filtre de date.
-  const shortioHistoryFloor = parisDateStr(new Date(Date.now() - 14 * 30 * 86400000));
+  // SI CE BUG REVIENT (clics présents en base mais absents du graphique) : vérifier
+  // d'abord que get_shortio_clicks_by_day existe toujours et est appelée (pas la
+  // requête brute .from('shortio_link_daily_snapshots') réintroduite par erreur).
 
   // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) — même
   // source que fetchSnapshot/TabShortioB, pour que "Bio IG" et le reste du
@@ -5202,7 +5212,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const since30d = parisDateStr(_periodStart);
   const until30d = parisDateStr(_periodEnd);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes, shortioChartHistoryRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5244,17 +5254,19 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .eq('profile_id', targetId)
       .eq('event_type', 'link_clicked')
       .not('ig_lead_id', 'is', null),
-    // Graphique historique clics Short.io — 14 derniers mois glissants (pas "tous les
-    // snapshots disponibles" : sans borne, Supabase tronque silencieusement à 1000
-    // lignes triées par date croissante dès que la table dépasse ce volume — root
-    // cause du bug "clics récents manquants" documenté juste au-dessus, sur
-    // shortioHistoryFloor).
-    supabase.from('shortio_link_daily_snapshots')
-      .select('date, human_clicks, link_category')
-      .eq('profile_id', targetId)
-      .gte('date', shortioHistoryFloor)
-      .order('date', { ascending: true }),
   ]);
+
+  // Graphique historique clics Short.io — agrégé côté DB (voir le commentaire
+  // détaillé plus haut sur shortioChartHistory*), jamais plus de quelques dizaines
+  // de lignes en retour donc jamais de risque de troncature à 1000. Fenêtre large
+  // (24 mois) sans danger : l'agrégation par jour×catégorie tient largement sous la
+  // limite même sur une longue période.
+  const shortioHistoryFloor = parisDateStr(new Date(Date.now() - 24 * 30 * 86400000));
+  const shortioChartHistoryRpc = await supabase.rpc('get_shortio_clicks_by_day', {
+    p_profile_id: targetId,
+    p_start_date: shortioHistoryFloor,
+    p_end_date: parisDateStr(new Date()),
+  });
 
   // Dans la table calls, coach_id = profile_id de l'élève (leadsProfileId dans le sync Calendly)
   const callsOwnerId = profileId ?? user.id;
@@ -5299,16 +5311,16 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     if (l.id && l.media_id) leadIdToMediaId.set(l.id, l.media_id);
   }
 
-  // Clics par short_url et par path depuis la DB (30j) — illimité, pas limité au top 20 API
+  // Clics par short_url et par path depuis la DB (30j) — nécessite les lignes brutes
+  // (short_url/path absents de l'agrégat RPC par date×catégorie), reste sur
+  // shortioClicksRes. Borné à ~1 mois (since30d/until30d) : jusqu'à ~1600 lignes
+  // pire cas pour ce client (51 liens/jour × 31j) — déjà proche du plafond de 1000
+  // Supabase/PostgREST. Si ce point précis est un jour confirmé tronqué (clics par
+  // URL individuelle manquants), même remède que shortioChartHistory* : RPC dédiée
+  // groupée par short_url plutôt que rapatriement brut.
   const clicksByUrl = new Map<string, number>();
   const clicksByPath = new Map<string, number>();
   const urlToCategoryFromDb = new Map<string, string>();
-  // Clics Calendly bruts depuis la DB (bio + description uniquement, pas LM)
-  const CALENDLY_CATEGORIES = new Set(['calendly_bio_ig','calendly_bio_yt','calendly_desc_ig','calendly_desc_yt']);
-  // Clics business complets pour Business micro (inclut LM + DM prospects)
-  const BUSINESS_CATEGORIES = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
-  let calendlyStaticClicsFromDb = 0;
-  let businessClicsFromDb = 0;
   for (const row of (shortioClicksRes.data ?? [])) {
     if (row.short_url) {
       const url = (row.short_url as string).toLowerCase();
@@ -5321,13 +5333,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       const p = (row.path as string).toLowerCase();
       clicksByPath.set(p, (clicksByPath.get(p) ?? 0) + (row.human_clicks ?? 0));
     }
-    if (row.link_category && CALENDLY_CATEGORIES.has(row.link_category)) {
-      calendlyStaticClicsFromDb += (row.human_clicks ?? 0);
-    }
-    if (row.link_category && BUSINESS_CATEGORIES.has(row.link_category)) {
-      businessClicsFromDb += (row.human_clicks ?? 0);
-    }
   }
+  // Clics Calendly bruts (bio + description uniquement, pas LM) — calculés plus bas
+  // depuis chartByDate/bioIgByDate etc. (agrégat RPC, jamais tronqué), pas depuis
+  // shortioClicksRes qui peut l'être sur un mois chargé (voir commentaire ci-dessus).
+  const CALENDLY_CATEGORIES = new Set(['calendly_bio_ig','calendly_bio_yt','calendly_desc_ig','calendly_desc_yt']);
 
   // Map ig_lead_id → {callBooked, dealClosed, revenue} pour la table Performance LM
   const now = new Date();
@@ -5381,13 +5391,13 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     }
   }
 
-  // Graphique historique : agrégation par date de tous les snapshots disponibles
+  // Graphique historique : déjà agrégé côté DB par get_shortio_clicks_by_day
+  // (1 ligne par jour × catégorie, plus jamais 1 ligne par lien — voir le
+  // commentaire détaillé plus haut sur la root cause de troncature à 1000 lignes).
   const CHART_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   const chartByDate = new Map<string, number>();
-  // Sous-totaux par catégorie de source (bio/contenu/dm), même source shortioChartHistoryRes,
-  // pour alimenter les graphiques filtrés "DM/Contenu/Bio uniquement" sur la vraie période
-  // sélectionnée — remplace l'ancienne logique qui lisait shortio.chartData (fenêtre glissante
-  // fixe des 30 derniers jours, indépendante de periodStart/periodEnd, cf. bug remonté par Chris).
+  // Sous-totaux par catégorie de source (bio/contenu/dm) — alimente les graphiques
+  // filtrés "DM/Contenu/Bio uniquement" sur la vraie période sélectionnée.
   const BIO_IG_CATS = new Set(['calendly_bio_ig', 'lm_bio_ig']);
   const BIO_YT_CATS = new Set(['calendly_bio_yt', 'lm_bio_yt']);
   const CONTENT_IG_CATS = new Set(['calendly_desc_ig', 'lm_desc_ig']);
@@ -5398,12 +5408,23 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const contentYtByDate = new Map<string, number>();
   const dmCalendlyByDate = new Map<string, number>();
   const dmLmByDate = new Map<string, number>();
-  for (const row of (shortioChartHistoryRes.data ?? [])) {
+  // calendlyStaticClicsFromDb/businessClicsFromDb : calculés ici (depuis l'agrégat
+  // RPC, jamais tronqué) plutôt que depuis shortioClicksRes plus haut, qui peut
+  // dépasser 1000 lignes sur un mois chargé — voir commentaire sur clicksByUrl.
+  let calendlyStaticClicsFromDb = 0;
+  let businessClicsFromDb = 0;
+  for (const row of (shortioChartHistoryRpc.data ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
     if (!row.date || !row.link_category) continue;
-    const clicks = row.human_clicks ?? 0;
+    const clicks = row.total_clicks ?? 0;
     if (CHART_BUSINESS_CATS.has(row.link_category)) {
       chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + clicks);
+      // businessClicsFromDb/calendlyStaticClicsFromDb représentent uniquement la
+      // période courante (KPI "Clics totaux" du haut de page) — shortioChartHistoryRpc
+      // couvre 24 mois glissants pour le graphique historique, donc on ne compte ici
+      // que les lignes qui tombent dans since30d/until30d.
+      if (row.date >= since30d && row.date <= until30d) businessClicsFromDb += clicks;
     }
+    if (CALENDLY_CATEGORIES.has(row.link_category) && row.date >= since30d && row.date <= until30d) calendlyStaticClicsFromDb += clicks;
     if (BIO_IG_CATS.has(row.link_category)) bioIgByDate.set(row.date, (bioIgByDate.get(row.date) ?? 0) + clicks);
     else if (BIO_YT_CATS.has(row.link_category)) bioYtByDate.set(row.date, (bioYtByDate.get(row.date) ?? 0) + clicks);
     else if (CONTENT_IG_CATS.has(row.link_category)) contentIgByDate.set(row.date, (contentIgByDate.get(row.date) ?? 0) + clicks);
