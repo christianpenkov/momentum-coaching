@@ -252,9 +252,9 @@ export default function PageSettings() {
       </div>
 
       {/* Profil */}
-      <div className="settings-section">
+      <div className="settings-section" style={{ padding: 20 }}>
         <div className="settings-section-title">Profil coach</div>
-        <div className="card">
+        <div className="card" style={{ border: 'none', boxShadow: 'none', padding: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 16, marginBottom: 20 }}>
             <div
               onClick={() => !uploadingAvatar && avatarInputRef.current?.click()}
