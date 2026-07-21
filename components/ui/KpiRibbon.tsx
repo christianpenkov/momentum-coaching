@@ -12,6 +12,7 @@ export interface KpiItem {
   deltaLabel?: string;
   color?: string;
   viz?: React.ReactNode;
+  headerRight?: React.ReactNode;
   href?: string;
 }
 
@@ -26,15 +27,18 @@ export default function KpiRibbon({ items, columns }: KpiRibbonProps) {
       {items.map((item, i) => {
         const content = (
           <>
-            <div className="kpi-label">
-              {item.label}
-              {item.sub && (
-                <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 4, fontSize: 10 }}>
-                  · {item.sub}
-                </span>
-              )}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+              <div className="kpi-label" style={{ marginBottom: 0 }}>
+                {item.label}
+                {item.sub && (
+                  <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 4, fontSize: 10 }}>
+                    · {item.sub}
+                  </span>
+                )}
+              </div>
+              {item.headerRight}
             </div>
-            <div className="kpi-value" style={item.color ? { color: item.color } : undefined}>
+            <div className="kpi-value" style={item.color ? { color: item.color, marginTop: 6 } : { marginTop: 6 }}>
               <AnimatedNumber value={item.value} formatter={item.formatter} />
             </div>
             {item.delta !== undefined && (

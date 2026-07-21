@@ -47,7 +47,7 @@ export default function PageToday() {
 
   const kpis = [
     {
-      label: 'Argent généré', sub: 'total, all-time', value: business.cashCollectedAllTime ?? 0,
+      label: 'Argent généré', sub: 'par tes élèves, all-time', value: business.cashCollectedAllTime ?? 0,
       formatter: (n: number) => business.cashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
       color: 'var(--green)',
     },
@@ -60,19 +60,19 @@ export default function PageToday() {
     },
     {
       label: 'Calls aujourd\'hui', value: callsToday.length,
-      viz: (
-        <div style={{ display: 'flex', gap: 6 }}>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--surface-2)', color: 'var(--accent)' }}>
+      headerRight: (
+        <div style={{ display: 'flex', gap: 6, flexShrink: 0 }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--surface-2)', color: 'var(--accent)', whiteSpace: 'nowrap' }}>
             {coachingCallsToday} coaching{coachingCallsToday > 1 ? 's' : ''}
           </span>
-          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#E1306C20', color: '#E1306C' }}>
+          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--accent-brand-soft)', color: 'var(--accent-brand)', whiteSpace: 'nowrap' }}>
             {leadCallsToday} call{leadCallsToday > 1 ? 's' : ''} lead{leadCallsToday > 1 ? 's' : ''}
           </span>
         </div>
       ),
     },
     {
-      label: 'Leads générés', sub: 'ce mois', value: business.leadsThisMonthCount,
+      label: 'Leads générés', sub: 'tracking à venir', value: 0,
     },
     {
       label: 'Calls bookés', sub: 'ce mois', value: business.prospectCallsBookedThisMonth,
