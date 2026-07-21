@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Client, WeeklyMetrics, Task, Call } from '@/lib/supabase/types';
+import type { Client, WeeklyMetrics, Task, Call, SessionReport } from '@/lib/supabase/types';
 
 export interface ClientWithMetrics extends Client {
   weeklyMetrics: WeeklyMetrics[];
   tasks: Task[];
+  sessionReports: SessionReport[];
   latestMetrics: WeeklyMetrics | null;
   prevMetrics: WeeklyMetrics | null;
   resources: { id: string; title: string; description: string | null; url: string | null; week: number | null; created_at: string }[];

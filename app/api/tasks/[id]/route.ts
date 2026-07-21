@@ -47,6 +47,10 @@ export async function PATCH(
     if (typeof body.label === 'string' && body.label.trim()) patch.label = body.label.trim();
     if (body.deadline === null || typeof body.deadline === 'string') patch.deadline = body.deadline;
     if (['high', 'medium', 'low'].includes(body.priority)) patch.priority = body.priority;
+    if (body.resolved_by_coach === true) {
+      patch.resolved_by_coach = true;
+      patch.resolved_at = new Date().toISOString();
+    }
   } else {
     // Élève : uniquement le statut done, jamais label/deadline/priority
     if (typeof body.done !== 'boolean') {

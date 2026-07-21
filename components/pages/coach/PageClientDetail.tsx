@@ -4,7 +4,6 @@ import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Avatar from '@/components/ui/Avatar';
-import Pill from '@/components/ui/Pill';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon, { type IconName } from '@/components/ui/Icon';
@@ -13,6 +12,7 @@ import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
+import { isTaskOverdue } from '@/lib/clientSignals';
 import type { Task, SessionReport } from '@/lib/supabase/types';
 
 interface ResourceForClient {
@@ -146,7 +146,10 @@ interface Props { id: string }
 export default function PageClientDetail({ id }: Props) {
   const { getClient, toggleTask: ctxToggle, calls, refetch } = useSupabaseClients();
   const client = getClient(id);
-  const tasks = client?.tasks || [];
+  const allTasks = client?.tasks || [];
+  const tasks = allTasks.filter(t => !t.resolved_by_coach);
+  const resolvedTasks = allTasks.filter(t => t.resolved_by_coach);
+  const [resolvedExpanded, setResolvedExpanded] = useState(false);
   const [note, setNote] = useState(client?.private_notes || '');
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
@@ -252,6 +255,20 @@ export default function PageClientDetail({ id }: Props) {
     ctxToggle(id, taskId, done);
   }
 
+  async function resolveTask(taskId: string) {
+    await fetch(`/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved_by_coach: true }),
+    });
+    refetch();
+  }
+
+  async function acknowledgeNoShow(reportId: string) {
+    await fetch(`/api/session-reports/${reportId}/acknowledge`, { method: 'PATCH' });
+    loadSessionReports();
+  }
+
   async function saveNote() {
     setNoteSaving(true);
     const supabase = createSupabase();
@@ -271,7 +288,6 @@ export default function PageClientDetail({ id }: Props) {
             <h1 className="page-title" style={{ marginBottom: 4 }}>{client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.niche || 'Niche non définie'}</span>
-              <Pill status={client.status} label={(client.status_text || client.status).slice(0, 30)} size="sm" />
               <span style={{ fontSize: 12, color: 'var(--muted)' }}>· Semaine {client.week}</span>
             </div>
           </div>
@@ -360,8 +376,9 @@ export default function PageClientDetail({ id }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 16 }}>
             {tasks.filter(t => !t.done).map(task => {
               const prio = task.priority ? PRIORITY_CONFIG[task.priority] : null;
+              const overdue = isTaskOverdue(task);
               return (
-                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', background: 'var(--surface-2)', borderRadius: 10, border: `1px solid ${overdue ? 'var(--red)' : 'var(--border)'}` }}>
                   <div
                     className="task-check"
                     onClick={() => toggleTask(task.id, true)}
@@ -377,8 +394,10 @@ export default function PageClientDetail({ id }: Props) {
                       {prio.label}
                     </span>
                   )}
-                  {task.added_by === 'coach' && (
-                    <span title="Ajoutée par le coach" style={{ fontSize: 10, color: 'var(--muted)' }}>👤</span>
+                  {overdue && (
+                    <button type="button" onClick={() => resolveTask(task.id)} className="btn-ghost" style={{ fontSize: 11, flexShrink: 0 }}>
+                      Résoudre
+                    </button>
                   )}
                 </div>
               );
@@ -408,6 +427,32 @@ export default function PageClientDetail({ id }: Props) {
                     <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)', textDecoration: 'line-through' }}>{task.label}</span>
                   </div>
                 ))}
+              </div>
+            )}
+            {resolvedTasks.length > 0 && (
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => setResolvedExpanded(v => !v)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}
+                >
+                  <Icon name={resolvedExpanded ? 'chevron-up' : 'chevron-down'} size={11} />
+                  TÂCHES ANNULÉES ({resolvedTasks.length})
+                </button>
+                {resolvedExpanded && (
+                  <div style={{ marginTop: 8, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                    {resolvedTasks.map(task => (
+                      <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', opacity: 0.55 }}>
+                        <span style={{ flex: 1, fontSize: 12, color: 'var(--muted)' }}>{task.label}</span>
+                        {task.resolved_at && (
+                          <span style={{ fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>
+                            Annulée le {new Date(task.resolved_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                          </span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -514,9 +559,11 @@ export default function PageClientDetail({ id }: Props) {
             const topicLabel = report.topic === 'autre'
               ? report.topic_custom
               : SESSION_TOPICS.find(t => t.value === report.topic)?.label;
+            const isNoShow = report.attended === false;
+            const acknowledged = !!report.acknowledged_at;
             return (
-              <div key={report.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                <Icon name={report.attended === false ? 'x' : 'check'} size={14} style={{ color: report.attended === false ? 'var(--red)' : 'var(--green)', marginTop: 2, flexShrink: 0 }} />
+              <div key={report.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)', opacity: isNoShow && acknowledged ? 0.55 : 1 }}>
+                <Icon name={isNoShow ? 'x' : 'check'} size={14} style={{ color: isNoShow ? 'var(--red)' : 'var(--green)', marginTop: 2, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                     <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
@@ -524,15 +571,26 @@ export default function PageClientDetail({ id }: Props) {
                     </span>
                     <span style={{
                       fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
-                      background: report.attended === false ? 'var(--red-soft)' : 'var(--green-soft)',
-                      color: report.attended === false ? 'var(--red)' : 'var(--green)',
+                      background: isNoShow ? 'var(--red-soft)' : 'var(--green-soft)',
+                      color: isNoShow ? 'var(--red)' : 'var(--green)',
                     }}>
-                      {report.attended === false ? 'No-show' : 'Présent'}
+                      {isNoShow ? 'No-show' : 'Présent'}
                     </span>
                     {topicLabel && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{topicLabel}</span>}
                   </div>
                   {report.notes && (
                     <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, whiteSpace: 'pre-wrap' }}>{report.notes}</div>
+                  )}
+                  {isNoShow && (
+                    acknowledged ? (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
+                        Pris en compte le {new Date(report.acknowledged_at!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                      </div>
+                    ) : (
+                      <button type="button" onClick={() => acknowledgeNoShow(report.id)} className="btn-ghost" style={{ fontSize: 11, marginTop: 6, padding: '4px 10px' }}>
+                        Compris
+                      </button>
+                    )
                   )}
                 </div>
               </div>

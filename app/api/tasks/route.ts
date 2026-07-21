@@ -32,6 +32,7 @@ export async function GET(request: NextRequest) {
       .select('*, clients!inner(id, name, coach_id)')
       .eq('clients.coach_id', user.id)
       .eq('added_by', 'coach')
+      .eq('resolved_by_coach', false)
       .order('deadline', { ascending: true, nullsFirst: false });
 
     if (clientIdParam) query = query.eq('client_id', clientIdParam);
@@ -41,7 +42,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ tasks: data });
   }
 
-  // Élève : ses propres tâches uniquement
+  // Élève : ses propres tâches uniquement, jamais celles résolues (annulées) par le coach
+  // — elle disparaît simplement de sa liste, sans trace visible côté élève.
   const { data: clientRow } = await serviceSupabase
     .from('clients')
     .select('id')
@@ -54,6 +56,7 @@ export async function GET(request: NextRequest) {
     .from('tasks')
     .select('*')
     .eq('client_id', clientRow.id)
+    .eq('resolved_by_coach', false)
     .order('deadline', { ascending: true, nullsFirst: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

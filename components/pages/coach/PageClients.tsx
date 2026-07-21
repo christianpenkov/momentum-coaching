@@ -4,14 +4,14 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
-import Pill from '@/components/ui/Pill';
 import Chip from '@/components/ui/Chip';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { getClientSignals } from '@/lib/clientSignals';
 import AddClientModal from '@/components/ui/AddClientModal';
 
-type Filter = 'all' | 'green' | 'amber' | 'red';
+type Filter = 'all' | 'overdue' | 'noshow';
 
 export default function PageClients() {
   const { clients, loading } = useSupabaseClients();
@@ -20,9 +20,16 @@ export default function PageClients() {
   const [sort, setSort] = useState<'name' | 'mrr' | 'followers' | 'week'>('mrr');
   const [showModal, setShowModal] = useState(false);
 
+  const signalsByClient = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof getClientSignals>>();
+    for (const c of clients) map.set(c.id, getClientSignals(c.tasks, c.sessionReports));
+    return map;
+  }, [clients]);
+
   const filtered = useMemo(() => {
     let list = [...clients];
-    if (filter !== 'all') list = list.filter(c => c.status === filter);
+    if (filter === 'overdue') list = list.filter(c => (signalsByClient.get(c.id)?.overdueTasksCount ?? 0) > 0);
+    if (filter === 'noshow') list = list.filter(c => (signalsByClient.get(c.id)?.activeNoShowsCount ?? 0) > 0);
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter(c =>
@@ -37,13 +44,12 @@ export default function PageClients() {
       return a.name.localeCompare(b.name);
     });
     return list;
-  }, [clients, filter, search, sort]);
+  }, [clients, filter, search, sort, signalsByClient]);
 
   const counts = {
     all: clients.length,
-    green: clients.filter(c => c.status === 'green').length,
-    amber: clients.filter(c => c.status === 'amber').length,
-    red: clients.filter(c => c.status === 'red').length,
+    overdue: clients.filter(c => (signalsByClient.get(c.id)?.overdueTasksCount ?? 0) > 0).length,
+    noshow: clients.filter(c => (signalsByClient.get(c.id)?.activeNoShowsCount ?? 0) > 0).length,
   };
 
   if (loading) return <InlineLoader fullPage />;
@@ -65,10 +71,10 @@ export default function PageClients() {
       {/* Filtres + recherche */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', gap: 6 }}>
-          {(['all', 'green', 'amber', 'red'] as Filter[]).map(f => (
+          {(['all', 'overdue', 'noshow'] as Filter[]).map(f => (
             <Chip
               key={f}
-              label={`${f === 'all' ? 'Tous' : f === 'green' ? 'Vert' : f === 'amber' ? 'Vigilance' : 'Alerte'} (${counts[f]})`}
+              label={`${f === 'all' ? 'Tous' : f === 'overdue' ? 'A des tâches en retard' : 'A un no-show non traité'} (${counts[f]})`}
               active={filter === f}
               onClick={() => setFilter(f)}
             />
@@ -110,7 +116,7 @@ export default function PageClients() {
               <thead>
                 <tr>
                   <th>Élève</th>
-                  <th>Statut</th>
+                  <th>Signaux</th>
                   <th>Semaine</th>
                   <th>IG</th>
                   <th>YT</th>
@@ -136,11 +142,15 @@ export default function PageClients() {
                         </Link>
                       </td>
                       <td>
-                        <Pill
-                          status={c.status as 'green' | 'amber' | 'red'}
-                          label={c.status === 'green' ? 'Vert' : c.status === 'amber' ? 'Vigilance' : 'Alerte'}
-                          size="sm"
-                        />
+                        {(() => {
+                          const s = signalsByClient.get(c.id);
+                          if (!s || s.total === 0) return <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
+                          const parts = [
+                            s.overdueTasksCount > 0 ? `${s.overdueTasksCount} tâche${s.overdueTasksCount > 1 ? 's' : ''} en retard` : null,
+                            s.activeNoShowsCount > 0 ? `${s.activeNoShowsCount} no-show${s.activeNoShowsCount > 1 ? 's' : ''}` : null,
+                          ].filter(Boolean).join(' · ');
+                          return <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600 }}>{parts}</span>;
+                        })()}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{c.week}</td>
                       <td>

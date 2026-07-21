@@ -31,7 +31,6 @@ export default function AddClientModal({ open, onClose }: AddClientModalProps) {
       name: newName.trim(),
       email: newEmail.trim() || null,
       niche: newNiche.trim() || null,
-      status: 'green',
       week: 1,
     });
 

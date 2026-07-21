@@ -5,6 +5,7 @@ import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { getClientSignals } from '@/lib/clientSignals';
 import Icon from '@/components/ui/Icon';
 
 const LineChart = dynamic(() => import('@/components/charts/LineChart'), { ssr: false });
@@ -231,10 +232,10 @@ export default function PageAnalytics() {
                 className="btn-ghost"
                 style={{ fontSize: 12 }}
                 onClick={() => {
-                  const headers = ['Élève', 'Statut', 'Audience IG', 'Croissance IG', 'Posts/sem', 'DM/sem', 'Calls', 'MRR'];
+                  const headers = ['Élève', 'Signaux', 'Audience IG', 'Croissance IG', 'Posts/sem', 'DM/sem', 'Calls', 'MRR'];
                   const rows = tableRows.map(({ c, m, igGrowthPct, avgPosts, avgDms, totalCallsClient }) => [
                     c.name,
-                    c.status === 'green' ? 'Vert' : c.status === 'amber' ? 'Vigilance' : 'Alerte',
+                    String(getClientSignals(c.tasks, c.sessionReports).total),
                     (m?.followers_ig || 0).toLocaleString('fr-FR'),
                     `${igGrowthPct >= 0 ? '+' : ''}${igGrowthPct}%`,
                     avgPosts,
@@ -257,7 +258,7 @@ export default function PageAnalytics() {
                 <thead>
                   <tr>
                     <th>Élève</th>
-                    <th>Statut</th>
+                    <th>Signaux</th>
                     <th>Audience totale</th>
                     <th>Croissance IG</th>
                     <th>Posts/sem</th>
@@ -288,9 +289,12 @@ export default function PageAnalytics() {
                         </div>
                       </td>
                       <td>
-                        <span className={`pill pill-${c.status}`} style={{ fontSize: 11 }}>
-                          {c.status === 'green' ? 'Vert' : c.status === 'amber' ? 'Vigilance' : 'Alerte'}
-                        </span>
+                        {(() => {
+                          const s = getClientSignals(c.tasks, c.sessionReports);
+                          return s.total > 0
+                            ? <span className="pill pill-red" style={{ fontSize: 11 }}>{s.total} signal{s.total > 1 ? 's' : ''}</span>
+                            : <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
+                        })()}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>
                         {((m?.followers_ig || 0) + (m?.followers_yt || 0)).toLocaleString('fr-FR')}

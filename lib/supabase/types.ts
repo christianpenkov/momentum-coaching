@@ -19,8 +19,6 @@ export interface Client {
   name: string;
   niche: string | null;
   week: number;
-  status: Status;
-  status_text: string | null;
   momentum_score: number;
   client_since: number;
   next_call: string | null;
@@ -63,6 +61,8 @@ export interface Task {
   created_by?: string | null;
   requires_attachment?: boolean;
   attachment_instructions?: string | null;
+  resolved_by_coach: boolean;
+  resolved_at: string | null;
   created_at: string;
   updated_at?: string;
 }
@@ -145,6 +145,7 @@ export interface SessionReport {
   student_notes: string | null;
   student_notes_dismissed: boolean;
   structured_answers: Record<string, unknown>;
+  acknowledged_at: string | null;
   created_at: string;
   updated_at: string;
 }

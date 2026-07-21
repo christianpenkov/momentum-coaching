@@ -2,11 +2,13 @@
 
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import TaskModal from '@/components/ui/TaskModal';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
+import { isTaskOverdue } from '@/lib/clientSignals';
 
 function AttachmentList({ attachments }: { attachments: TaskAttachment[] }) {
   if (attachments.length === 0) {
@@ -61,17 +63,12 @@ function getClient(t: TaskWithClient) {
   return Array.isArray(t.clients) ? t.clients[0] : t.clients;
 }
 
-function isOverdue(t: Task) {
-  if (t.done || !t.deadline) return false;
-  const d = new Date(t.deadline); d.setHours(0, 0, 0, 0);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  return d.getTime() < today.getTime();
-}
-
 export default function PageTasks() {
+  const searchParams = useSearchParams();
+  const initialFilter = searchParams.get('filter') === 'overdue' ? 'overdue' : 'all';
   const [tasks, setTasks] = useState<TaskWithClient[]>([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(initialFilter);
   const [clientFilter, setClientFilter] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
@@ -120,13 +117,13 @@ export default function PageTasks() {
   const filtered = tasks
     .filter(t => {
       if (clientFilter !== 'all' && getClient(t)?.id !== clientFilter) return false;
-      if (statusFilter === 'overdue') return isOverdue(t);
+      if (statusFilter === 'overdue') return isTaskOverdue(t);
       if (statusFilter === 'todo') return !t.done;
       if (statusFilter === 'done') return t.done;
       return true;
     })
     .sort((a, b) => {
-      const aOver = isOverdue(a), bOver = isOverdue(b);
+      const aOver = isTaskOverdue(a), bOver = isTaskOverdue(b);
       if (aOver !== bOver) return aOver ? -1 : 1;
       if (!a.deadline && !b.deadline) return 0;
       if (!a.deadline) return 1;
@@ -176,7 +173,7 @@ export default function PageTasks() {
         )}
         {filtered.map(task => {
           const client = getClient(task);
-          const overdue = isOverdue(task);
+          const overdue = isTaskOverdue(task);
           const priority = task.priority ? PRIORITY_CONFIG[task.priority] : null;
           const expanded = expandedId === task.id;
           return (

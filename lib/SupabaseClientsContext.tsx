@@ -48,12 +48,15 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const ids = (rawClients || []).map((c: any) => c.id);
       const profileIds = (rawClients || []).map((c: any) => c.profile_id).filter(Boolean);
 
-      const [metricsRes, tasksRes, callsRes, avatarsRes] = await Promise.all([
+      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes] = await Promise.all([
         ids.length > 0
           ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
           : { data: [], error: null },
         ids.length > 0
           ? supabase.from('tasks').select('*').in('client_id', ids).eq('added_by', 'coach').order('created_at', { ascending: true })
+          : { data: [], error: null },
+        ids.length > 0
+          ? supabase.from('session_reports').select('*').in('client_id', ids)
           : { data: [], error: null },
         supabase.from('calls').select('*').eq('coach_id', user.id)
           .neq('ignored', true)
@@ -65,6 +68,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
 
       if (metricsRes.error) throw metricsRes.error;
       if (tasksRes.error) throw tasksRes.error;
+      if (sessionReportsRes.error) throw sessionReportsRes.error;
       if (callsRes.error) throw callsRes.error;
 
       const metricsMap: Record<string, any[]> = {};
@@ -79,6 +83,12 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         tasksMap[t.client_id].push(t);
       });
 
+      const sessionReportsMap: Record<string, any[]> = {};
+      (sessionReportsRes.data || []).forEach((r: any) => {
+        if (!sessionReportsMap[r.client_id]) sessionReportsMap[r.client_id] = [];
+        sessionReportsMap[r.client_id].push(r);
+      });
+
       const avatarMap: Record<string, string | null> = {};
       (avatarsRes.data || []).forEach((p: any) => { avatarMap[p.id] = p.avatar_url; });
 
@@ -88,6 +98,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           ...c,
           weeklyMetrics: metrics,
           tasks: tasksMap[c.id] || [],
+          sessionReports: sessionReportsMap[c.id] || [],
           latestMetrics: metrics[metrics.length - 1] || null,
           prevMetrics: metrics[metrics.length - 2] || null,
           resources: [],

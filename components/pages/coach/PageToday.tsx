@@ -5,7 +5,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar from '@/components/ui/Avatar';
-import Pill from '@/components/ui/Pill';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import AddClientModal from '@/components/ui/AddClientModal';
@@ -14,9 +13,7 @@ import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
 import { useNotifications, type AppNotif } from '@/lib/useNotifications';
-
-const STATUS_BAR_WIDTH: Record<string, number> = { green: 90, amber: 55, red: 25 };
-const STATUS_BAR_COLOR: Record<string, string> = { green: 'var(--green)', amber: 'var(--amber)', red: 'var(--red)' };
+import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
 
 export default function PageToday() {
   const { clients, calls, loading } = useSupabaseClients();
@@ -29,8 +26,12 @@ export default function PageToday() {
 
   const totalMRR = clients.reduce((sum, c) => sum + (c.latestMetrics?.stripe_mrr || 0), 0);
   const activeCount = clients.length;
-  const greenCount = clients.filter(c => c.status === 'green').length;
-  const watchList = clients.filter(c => c.status === 'amber' || c.status === 'red').slice(0, 4);
+  const clientsWithSignals = clients.map(c => ({ client: c, signals: getClientSignals(c.tasks, c.sessionReports) }));
+  const aggregatedSignals = getAggregatedSignals(clientsWithSignals.map(cs => cs.signals));
+  const watchList = clientsWithSignals
+    .filter(cs => cs.signals.total > 0)
+    .sort((a, b) => b.signals.total - a.signals.total)
+    .slice(0, 4);
 
   const callsToday = calls.filter(call => {
     if (!call.scheduled_at) return false;
@@ -52,17 +53,10 @@ export default function PageToday() {
     },
     {
       label: 'Clients actifs', sub: 'en cours de coaching', value: activeCount,
-      viz: activeCount > 0 ? (
-        <div style={{ display: 'flex', gap: 4 }}>
-          {clients.slice(0, 5).map(c => (
-            <span key={c.id} style={{ flex: 1, height: 6, borderRadius: 3, background: STATUS_BAR_COLOR[c.status] || 'var(--faint)' }} />
-          ))}
-        </div>
-      ) : undefined,
     },
     {
-      label: 'En vert', value: greenCount,
-      sub: activeCount > 0 ? `${Math.round((greenCount / activeCount) * 100)}% du portefeuille` : undefined,
+      label: 'Alertes', sub: 'tâches en retard + no-shows', value: aggregatedSignals.total,
+      href: '/tasks?filter=overdue',
     },
     {
       label: 'Calls aujourd\'hui', value: callsToday.length,
@@ -222,13 +216,13 @@ export default function PageToday() {
           </div>
         </StaggerItem>
 
-        {/* À surveiller */}
+        {/* Clients à surveiller */}
         <StaggerItem>
           <div className="card">
             <div className="card-head">
               <div>
-                <div className="card-title">À surveiller</div>
-                <div className="card-sub">Clients en vigilance ou alerte</div>
+                <div className="card-title">Clients à surveiller</div>
+                <div className="card-sub">Tâches en retard ou no-show non traité</div>
               </div>
               <Link href="/clients" className="btn-ghost" style={{ fontSize: 12 }}>
                 Voir tout <Icon name="chevR" size={12} />
@@ -236,39 +230,23 @@ export default function PageToday() {
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
               {watchList.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--green)', padding: '8px 0' }}>Tous tes clients sont au vert ✓</div>
+                <div style={{ fontSize: 13, color: 'var(--green)', padding: '8px 0' }}>Aucun signal actif ✓</div>
               )}
-              {watchList.map((client) => (
-                <div key={client.id}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                    <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={36} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                        <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</span>
-                        <Pill status={client.status} label={client.status === 'amber' ? 'Vigilance' : 'Alerte'} size="sm" />
-                      </div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{(client.status_text || '').slice(0, 45)}</div>
+              {watchList.map(({ client, signals }) => (
+                <div key={client.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={36} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</span>
+                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      {[
+                        signals.overdueTasksCount > 0 ? `${signals.overdueTasksCount} tâche${signals.overdueTasksCount > 1 ? 's' : ''} en retard` : null,
+                        signals.activeNoShowsCount > 0 ? `${signals.activeNoShowsCount} no-show${signals.activeNoShowsCount > 1 ? 's' : ''}` : null,
+                      ].filter(Boolean).join(' · ')}
                     </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 12, color: 'var(--muted)' }}>S{client.week}</div>
-                      <Sparkbars
-                        data={client.weeklyMetrics.slice(-6).map(w => w.posts_count)}
-                        height={20} width={40}
-                      />
-                    </div>
-                    <Link href={`/clients/${client.id}`} className="btn-ghost" style={{ fontSize: 11 }}>
-                      <Icon name="chevR" size={12} />
-                    </Link>
                   </div>
-                  <div className="momentum-bar-track" style={{ marginTop: 8, marginLeft: 46 }}>
-                    <div
-                      className="momentum-bar-fill"
-                      style={{
-                        width: `${STATUS_BAR_WIDTH[client.status] ?? 0}%`,
-                        background: STATUS_BAR_COLOR[client.status] || 'var(--faint)',
-                      }}
-                    />
-                  </div>
+                  <Link href={`/clients/${client.id}`} className="btn-ghost" style={{ fontSize: 11 }}>
+                    <Icon name="chevR" size={12} />
+                  </Link>
                 </div>
               ))}
             </div>
@@ -310,7 +288,12 @@ export default function PageToday() {
                       </Link>
                     </td>
                     <td>
-                      <Pill status={client.status} label={client.status === 'green' ? 'Vert' : client.status === 'amber' ? 'Vigilance' : 'Alerte'} size="sm" />
+                      {(() => {
+                        const s = getClientSignals(client.tasks, client.sessionReports);
+                        return s.total > 0
+                          ? <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600 }}>{s.total} signal{s.total > 1 ? 's' : ''}</span>
+                          : <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
+                      })()}
                     </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{client.week}</td>
                     <td>

@@ -5,7 +5,6 @@ import { useQuery } from '@tanstack/react-query';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
-import Pill from '@/components/ui/Pill';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
@@ -166,7 +165,6 @@ export default function PageClientAnalytics({ id }: Props) {
             <h1 className="page-title">Analytics — {client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.niche} · Semaine {client.week}</span>
-              <Pill status={client.status as 'green' | 'amber' | 'red'} label={client.status_text || ''} size="sm" />
             </div>
           </div>
         </div>

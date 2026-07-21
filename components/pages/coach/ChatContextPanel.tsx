@@ -2,12 +2,9 @@
 
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
+import { getClientSignals } from '@/lib/clientSignals';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 import type { Call } from '@/lib/supabase/types';
-
-const STATUS_LABEL: Record<string, string> = { green: 'Vert', amber: 'Vigilance', red: 'Alerte' };
-const STATUS_COLOR: Record<string, string> = { green: 'var(--green)', amber: 'var(--amber)', red: 'var(--red)' };
-const STATUS_BAR_WIDTH: Record<string, number> = { green: 90, amber: 55, red: 25 };
 
 interface ChatContextPanelProps {
   client: ClientWithMetrics;
@@ -15,6 +12,7 @@ interface ChatContextPanelProps {
 }
 
 export default function ChatContextPanel({ client, calls }: ChatContextPanelProps) {
+  const signals = getClientSignals(client.tasks, client.sessionReports);
   const nextCall = calls
     .filter(c => c.client_id === client.id && c.scheduled_at && new Date(c.scheduled_at) >= new Date())
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0];
@@ -44,30 +42,16 @@ export default function ChatContextPanel({ client, calls }: ChatContextPanelProp
 
       <div className="card tight">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Momentum</span>
-          <span style={{ fontSize: 12, fontWeight: 600, color: STATUS_COLOR[client.status] || 'var(--muted)' }}>
-            {STATUS_LABEL[client.status] || '—'}
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>MRR</span>
+          <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
+            {(client.latestMetrics?.stripe_mrr || 0).toLocaleString('fr-FR')} €
           </span>
         </div>
-        <div className="momentum-bar-track">
-          <div
-            className="momentum-bar-fill"
-            style={{ width: `${STATUS_BAR_WIDTH[client.status] ?? 0}%`, background: STATUS_COLOR[client.status] || 'var(--faint)' }}
-          />
-        </div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginTop: 14, paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>MRR</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
-              {(client.latestMetrics?.stripe_mrr || 0).toLocaleString('fr-FR')} €
-            </div>
-          </div>
-          <div>
-            <div style={{ fontSize: 10, color: 'var(--faint)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Statut</div>
-            <div style={{ fontSize: 15, fontWeight: 600, color: STATUS_COLOR[client.status] || 'var(--ink)' }}>
-              {STATUS_LABEL[client.status] || '—'}
-            </div>
-          </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Signaux actifs</span>
+          <span style={{ fontSize: 15, fontWeight: 600, color: signals.total > 0 ? 'var(--red)' : 'var(--ink)' }}>
+            {signals.total > 0 ? signals.total : '—'}
+          </span>
         </div>
       </div>
 
