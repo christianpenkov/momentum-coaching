@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
@@ -64,6 +64,14 @@ function getClient(t: TaskWithClient) {
 }
 
 export default function PageTasks() {
+  return (
+    <Suspense fallback={<div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>}>
+      <PageTasksInner />
+    </Suspense>
+  );
+}
+
+function PageTasksInner() {
   const searchParams = useSearchParams();
   const initialFilter = searchParams.get('filter') === 'overdue' ? 'overdue' : 'all';
   const [tasks, setTasks] = useState<TaskWithClient[]>([]);
