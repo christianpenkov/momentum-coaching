@@ -140,7 +140,14 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
           {/* allowDecimals={false} : toutes les séries passées à ce composant partagé sont
               des compteurs entiers (Reach, Clics, Leads...) — sans ça, Recharts génère des
               ticks "nice" fractionnaires (0.5, 1.5...) sur les petites plages de valeurs. */}
-          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
+          {/* width=28 : sans prop explicite, Recharts réserve une largeur auto généreuse
+              (40-60px) même pour des labels courts ("0", "1", "2"), créant un grand vide à
+              gauche de la zone de tracé — la zone de tracé elle-même grandit d'autant une
+              fois cet espace libéré (ResponsiveContainer recalcule la largeur disponible),
+              donc ça décale ET élargit le graphique, pas juste un décalage visuel. Aligné
+              sur les valeurs déjà utilisées ailleurs dans le fichier pour des compteurs
+              similaires (width=28/30). */}
+          <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
           <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
           {areas.map((a, i) => {

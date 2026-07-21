@@ -1902,7 +1902,10 @@ function periodLabel(period: number, index: number): string {
   // sinon) via lib/period.ts — même source que tous les autres calculateurs de bornes
   // du fichier, élimine la classe de bug "décalage d'un jour entre deux endroits".
   const { periodStart, periodEnd } = getPeriodWindow(index, period === 7 ? 'week' : 'month');
-  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'UTC' });
+  // timeZone Europe/Paris (pas UTC) : periodStart/periodEnd (getPeriodWindow) sont des
+  // instants UTC correspondant à minuit/23:59:59.999 heure de Paris, pas minuit UTC —
+  // les lire en UTC affichait un jour "trop tôt" (ex: "30 juin" au lieu de "1 juil").
+  const fmt2 = (d: Date) => d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' });
   return `${fmt2(periodStart)} – ${fmt2(periodEnd)}`;
 }
 
@@ -2652,7 +2655,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -2678,6 +2681,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   igLive?: IGStats | null;
   ytLive?: YTStats | null;
   shortioChartHistory?: { date: string; clicks: number }[];
+  shortioChartHistoryBio?: { date: string; ig: number; yt: number }[];
+  shortioChartHistoryContent?: { date: string; ig: number; yt: number }[];
+  shortioChartHistoryDm?: { date: string; calendly: number; lm: number }[];
   // Remontés au composant parent (PageClientStats) : ce composant est démonté/remonté
   // à chaque changement de période (loading passe par true le temps du refetch), donc
   // un state local ici serait reset à 'clics' à chaque clic précédent/suivant.
@@ -3039,41 +3045,33 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   }
   const callsSeries = dayRange.map(date => ({ date, ...(callsPerDay.get(date) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 }) }));
 
-  // ── Graphique filtré — limité à sPeriod jours ──
-  // offset : si sPeriod=7, les 7 derniers points du domaine correspondent aux indices [23..29]
-  const shortioChart = shortio.chartData ?? [];
-  const chartOffset = shortioChart.length - (sPeriod === 7 ? 7 : shortioChart.length);
-  const chartRaw = shortioChart.slice(chartOffset);
-  const chartData = chartRaw.map((d, i) => {
-    const li = chartOffset + i; // index réel dans l.chartData[30 pts]
-    if (chartFilter === 'bio') {
-      const igBioLinks = bioLinks.filter((l: any) => l.bioType === 'instagram');
-      const ytBioLinks = bioLinks.filter((l: any) => l.bioType === 'youtube');
-      return {
-        date: d.date,
-        ig: igBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
-        yt: ytBioLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
-      };
-    }
-    if (chartFilter === 'content') {
-      const igPostLinks = postLinks.filter((l: any) => l.postPlatform === 'IG');
-      const ytPostLinks = postLinks.filter((l: any) => l.postPlatform === 'YT');
-      return {
-        date: d.date,
-        ig: igPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
-        yt: ytPostLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0),
-      };
-    }
-    if (chartFilter === 'dm') {
-      const calendly = prospectLinks.reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0);
-      const lmUrls = new Set(leadsInPeriod.filter(l => l.trackingLink).map(l => l.trackingLink!));
-      const lm = shortio.links
-        .filter((l: any) => lmUrls.has(l.shortUrl) || lmUrls.has(l.originalUrl))
-        .reduce((s: number, l: any) => s + (l.chartData?.[li]?.clicks || 0), 0);
-      return { date: d.date, calendly, lm };
-    }
-    return d;
+  // ── Graphique filtré — sur la vraie période sélectionnée (dayRange), pas une fenêtre
+  // glissante fixe de 30 jours indépendante de periodStart/periodEnd. Avant ce fix,
+  // ces 3 filtres lisaient shortio.chartData (30 points figés sur "maintenant"),
+  // affichant toujours les 30 derniers jours quelle que soit la période sélectionnée,
+  // et "Historique non disponible" dès periodIndex > 0 (shortioChartHistoryBio/
+  // Content/Dm — voir fetchSupabaseStats/fetchSnapshot — couvrent maintenant aussi
+  // l'historique). Source : mêmes tables shortio_link_daily_snapshots par catégorie
+  // que shortioChartHistory (total), déjà filtrées sur periodStart/periodEnd.
+  const chartDataBio: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
+    if (isFutureDay(date)) return { date, ig: null, yt: null };
+    const row = (shortioChartHistoryBio ?? []).find(d => d.date === date);
+    return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
   });
+  const chartDataContent: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
+    if (isFutureDay(date)) return { date, ig: null, yt: null };
+    const row = (shortioChartHistoryContent ?? []).find(d => d.date === date);
+    return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
+  });
+  const chartDataDm: { date: string; calendly: number | null; lm: number | null }[] = dayRange.map(date => {
+    if (isFutureDay(date)) return { date, calendly: null, lm: null };
+    const row = (shortioChartHistoryDm ?? []).find(d => d.date === date);
+    return { date, calendly: row?.calendly ?? 0, lm: row?.lm ?? 0 };
+  });
+  const chartDataHasHistory = chartFilter === 'bio' ? (shortioChartHistoryBio?.length ?? 0) > 0
+    : chartFilter === 'content' ? (shortioChartHistoryContent?.length ?? 0) > 0
+    : chartFilter === 'dm' ? (shortioChartHistoryDm?.length ?? 0) > 0
+    : false;
 
   // ── Section 2 : tableau consolidé par contenu — tous les posts, pas seulement ceux avec business ──
   const knownIgIds = new Set(igPosts.map(p => p.id));
@@ -3345,20 +3343,20 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           {chartFilter === 'all' ? (
             clicsSeriesHasData || clicsSeries.some(d => (d.v ?? 0) > 0) ? (
               <div style={{ marginBottom: 10, animation: 'fadeIn 150ms ease-out' }}>
-                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: 'var(--accent-brand)' }]} xKey="date" height={160} showWeekday={sPeriod === 7} />
+                <AreaChart data={clicsSeries} areas={[{ key: 'v', label: 'Clics', color: 'var(--accent-brand)' }]} xKey="date" height={200} showWeekday={sPeriod === 7} />
               </div>
             ) : (
-              <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
+              <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
                 Aucun événement
               </div>
             )
-          ) : _pIdx > 0 ? (
-            <div style={{ height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
-              Historique non disponible pour ce filtre
+          ) : !chartDataHasHistory ? (
+            <div style={{ height: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--surface-2)', borderRadius: 10, color: 'var(--muted)', fontSize: 12, marginBottom: 10 }}>
+              Aucun événement
             </div>
           ) : (chartFilter === 'content' || chartFilter === 'bio') ? (
-            <ResponsiveContainer width="100%" height={160}>
-              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+            <ResponsiveContainer width="100%" height={200}>
+              <ReAreaChart data={chartFilter === 'bio' ? chartDataBio : chartDataContent} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-chart-ig" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={IG_COLOR} stopOpacity={0.15} />
@@ -3373,7 +3371,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 {/* Domain avec marge explicite — pas de Math.max(0, ...) sur la borne basse
                     (confirmé par inspection DOM réelle : ce clamp écrasait la marge à 0 dès
                     que dataMin valait déjà 0, laissant le point collé pile au tick "0"). */}
-                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : 1; return [dataMin - margin, dataMax + margin]; }} />
+                <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : 1; return [dataMin - margin, dataMax + margin]; }} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
                   return (
@@ -3387,13 +3385,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     </div>
                   );
                 }} />
-                <Area type="monotone" dataKey="ig" name="Instagram" stroke={IG_COLOR} strokeWidth={2} fill="url(#grad-chart-ig)" dot={todayDotFactory(IG_COLOR, 'date', lastRealPointKey(chartData, 'date', 'ig'))} activeDot={{ r: 3, strokeWidth: 0, fill: IG_COLOR }} isAnimationActive={false} />
-                <Area type="monotone" dataKey="yt" name="YouTube" stroke={YT_COLOR} strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory(YT_COLOR, 'date', lastRealPointKey(chartData, 'date', 'yt'))} activeDot={{ r: 3, strokeWidth: 0, fill: YT_COLOR }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="ig" name="Instagram" stroke={IG_COLOR} strokeWidth={2} fill="url(#grad-chart-ig)" dot={todayDotFactory(IG_COLOR, 'date', lastRealPointKey(chartFilter === 'bio' ? chartDataBio : chartDataContent, 'date', 'ig'))} activeDot={{ r: 3, strokeWidth: 0, fill: IG_COLOR }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="yt" name="YouTube" stroke={YT_COLOR} strokeWidth={2} fill="url(#grad-chart-yt)" dot={todayDotFactory(YT_COLOR, 'date', lastRealPointKey(chartFilter === 'bio' ? chartDataBio : chartDataContent, 'date', 'yt'))} activeDot={{ r: 3, strokeWidth: 0, fill: YT_COLOR }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           ) : chartFilter === 'dm' ? (
-            <ResponsiveContainer width="100%" height={160}>
-              <ReAreaChart data={chartData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
+            <ResponsiveContainer width="100%" height={200}>
+              <ReAreaChart data={chartDataDm} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                 <defs>
                   <linearGradient id="grad-dm-calendly" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor={BLUE} stopOpacity={0.15} />
@@ -3419,8 +3417,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     </div>
                   );
                 }} />
-                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={todayDotFactory(BLUE, 'date', lastRealPointKey(chartData, 'date', 'calendly'))} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
-                <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={todayDotFactory(AMBER, 'date', lastRealPointKey(chartData, 'date', 'lm'))} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="calendly" name="Calendly" stroke={BLUE} strokeWidth={2} fill="url(#grad-dm-calendly)" dot={todayDotFactory(BLUE, 'date', lastRealPointKey(chartDataDm, 'date', 'calendly'))} activeDot={{ r: 3, strokeWidth: 0, fill: BLUE }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="lm" name="Lead Magnet" stroke={AMBER} strokeWidth={2} fill="url(#grad-dm-lm)" dot={todayDotFactory(AMBER, 'date', lastRealPointKey(chartDataDm, 'date', 'lm'))} activeDot={{ r: 3, strokeWidth: 0, fill: AMBER }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           ) : null}
@@ -4884,8 +4882,21 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
   const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
+  // Mêmes sous-catégories que fetchSupabaseStats (voir plus bas, BIO_IG_CATS etc.) — pour
+  // que les graphiques filtrés "DM/Contenu/Bio uniquement" fonctionnent aussi en historique
+  // (periodIndex > 0), pas seulement sur la période courante.
+  const SNAP_BIO_IG_CATS = new Set(['calendly_bio_ig', 'lm_bio_ig']);
+  const SNAP_BIO_YT_CATS = new Set(['calendly_bio_yt', 'lm_bio_yt']);
+  const SNAP_CONTENT_IG_CATS = new Set(['calendly_desc_ig', 'lm_desc_ig']);
+  const SNAP_CONTENT_YT_CATS = new Set(['calendly_desc_yt', 'lm_desc_yt']);
   let snapBusinessClicsFromDb = 0;
   const snapChartByDate = new Map<string, number>();
+  const snapBioIgByDate = new Map<string, number>();
+  const snapBioYtByDate = new Map<string, number>();
+  const snapContentIgByDate = new Map<string, number>();
+  const snapContentYtByDate = new Map<string, number>();
+  const snapDmCalendlyByDate = new Map<string, number>();
+  const snapDmLmByDate = new Map<string, number>();
   for (const row of shortioClickRows) {
     if (row.short_url) {
       const u = (row.short_url as string).toLowerCase();
@@ -4899,10 +4910,34 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       snapBusinessClicsFromDb += (row.human_clicks ?? 0);
       if (row.date) snapChartByDate.set(row.date, (snapChartByDate.get(row.date) ?? 0) + (row.human_clicks ?? 0));
     }
+    if (row.date && row.link_category) {
+      const clicks = row.human_clicks ?? 0;
+      if (SNAP_BIO_IG_CATS.has(row.link_category)) snapBioIgByDate.set(row.date, (snapBioIgByDate.get(row.date) ?? 0) + clicks);
+      else if (SNAP_BIO_YT_CATS.has(row.link_category)) snapBioYtByDate.set(row.date, (snapBioYtByDate.get(row.date) ?? 0) + clicks);
+      else if (SNAP_CONTENT_IG_CATS.has(row.link_category)) snapContentIgByDate.set(row.date, (snapContentIgByDate.get(row.date) ?? 0) + clicks);
+      else if (SNAP_CONTENT_YT_CATS.has(row.link_category)) snapContentYtByDate.set(row.date, (snapContentYtByDate.get(row.date) ?? 0) + clicks);
+      else if (row.link_category === 'calendly_dm_prospect') snapDmCalendlyByDate.set(row.date, (snapDmCalendlyByDate.get(row.date) ?? 0) + clicks);
+      else if (row.link_category === 'lm_dm_auto') snapDmLmByDate.set(row.date, (snapDmLmByDate.get(row.date) ?? 0) + clicks);
+    }
   }
   const snapShortioChartHistory = Array.from(snapChartByDate.entries())
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, clicks]) => ({ date, clicks }));
+  // Comble tous les jours calendaires de la période (comme fetchSupabaseStats) — sinon
+  // un seul jour avec clic isole un point au lieu d'une ligne continue sur le graphique.
+  const snapShortioChartHistoryBio: { date: string; ig: number; yt: number }[] = [];
+  const snapShortioChartHistoryContent: { date: string; ig: number; yt: number }[] = [];
+  const snapShortioChartHistoryDm: { date: string; calendly: number; lm: number }[] = [];
+  {
+    let d = periodStart;
+    while (d.getTime() <= periodEnd.getTime()) {
+      const dateStr = parisDateStr(d);
+      snapShortioChartHistoryBio.push({ date: dateStr, ig: snapBioIgByDate.get(dateStr) ?? 0, yt: snapBioYtByDate.get(dateStr) ?? 0 });
+      snapShortioChartHistoryContent.push({ date: dateStr, ig: snapContentIgByDate.get(dateStr) ?? 0, yt: snapContentYtByDate.get(dateStr) ?? 0 });
+      snapShortioChartHistoryDm.push({ date: dateStr, calendly: snapDmCalendlyByDate.get(dateStr) ?? 0, lm: snapDmLmByDate.get(dateStr) ?? 0 });
+      d = parisAddDays(d, 1);
+    }
+  }
 
   // Dernier snapshot connu pour les valeurs cumulatives (followers, abonnés, etc.)
   const lastSnap = snaps[snaps.length - 1] ?? null;
@@ -5089,6 +5124,9 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     clicksByPath: snapClicksByPath,
     businessClicsFromDb: snapBusinessClicsFromDb,
     shortioChartHistory: snapShortioChartHistory,
+    shortioChartHistoryBio: snapShortioChartHistoryBio,
+    shortioChartHistoryContent: snapShortioChartHistoryContent,
+    shortioChartHistoryDm: snapShortioChartHistoryDm,
   };
   } catch (e) {
     return null;
@@ -5292,24 +5330,65 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   // Graphique historique : agrégation par date de tous les snapshots disponibles
   const CHART_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
   const chartByDate = new Map<string, number>();
+  // Sous-totaux par catégorie de source (bio/contenu/dm), même source shortioChartHistoryRes,
+  // pour alimenter les graphiques filtrés "DM/Contenu/Bio uniquement" sur la vraie période
+  // sélectionnée — remplace l'ancienne logique qui lisait shortio.chartData (fenêtre glissante
+  // fixe des 30 derniers jours, indépendante de periodStart/periodEnd, cf. bug remonté par Chris).
+  const BIO_IG_CATS = new Set(['calendly_bio_ig', 'lm_bio_ig']);
+  const BIO_YT_CATS = new Set(['calendly_bio_yt', 'lm_bio_yt']);
+  const CONTENT_IG_CATS = new Set(['calendly_desc_ig', 'lm_desc_ig']);
+  const CONTENT_YT_CATS = new Set(['calendly_desc_yt', 'lm_desc_yt']);
+  const bioIgByDate = new Map<string, number>();
+  const bioYtByDate = new Map<string, number>();
+  const contentIgByDate = new Map<string, number>();
+  const contentYtByDate = new Map<string, number>();
+  const dmCalendlyByDate = new Map<string, number>();
+  const dmLmByDate = new Map<string, number>();
   for (const row of (shortioChartHistoryRes.data ?? [])) {
-    if (!row.date || !row.link_category || !CHART_BUSINESS_CATS.has(row.link_category)) continue;
-    chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + (row.human_clicks ?? 0));
+    if (!row.date || !row.link_category) continue;
+    const clicks = row.human_clicks ?? 0;
+    if (CHART_BUSINESS_CATS.has(row.link_category)) {
+      chartByDate.set(row.date, (chartByDate.get(row.date) ?? 0) + clicks);
+    }
+    if (BIO_IG_CATS.has(row.link_category)) bioIgByDate.set(row.date, (bioIgByDate.get(row.date) ?? 0) + clicks);
+    else if (BIO_YT_CATS.has(row.link_category)) bioYtByDate.set(row.date, (bioYtByDate.get(row.date) ?? 0) + clicks);
+    else if (CONTENT_IG_CATS.has(row.link_category)) contentIgByDate.set(row.date, (contentIgByDate.get(row.date) ?? 0) + clicks);
+    else if (CONTENT_YT_CATS.has(row.link_category)) contentYtByDate.set(row.date, (contentYtByDate.get(row.date) ?? 0) + clicks);
+    else if (row.link_category === 'calendly_dm_prospect') dmCalendlyByDate.set(row.date, (dmCalendlyByDate.get(row.date) ?? 0) + clicks);
+    else if (row.link_category === 'lm_dm_auto') dmLmByDate.set(row.date, (dmLmByDate.get(row.date) ?? 0) + clicks);
   }
   // Comble les jours sans clic à 0 — sinon le graphique n'affiche qu'un point isolé par jour avec clics.
   // Bornes calendaires réelles (mêmes _periodStart/_periodEnd que le reste de la fonction),
   // pas une fenêtre glissante indépendante (cf. bug remonté "clics totaux à 0" 2026-07-06).
   const shortioChartHistory: { date: string; clicks: number }[] = [];
+  const shortioChartHistoryBio: { date: string; ig: number; yt: number }[] = [];
+  const shortioChartHistoryContent: { date: string; ig: number; yt: number }[] = [];
+  const shortioChartHistoryDm: { date: string; calendly: number; lm: number }[] = [];
   {
     let d = _periodStart;
     while (d.getTime() <= _periodEnd.getTime()) {
       const dateStr = parisDateStr(d);
       shortioChartHistory.push({ date: dateStr, clicks: chartByDate.get(dateStr) ?? 0 });
+      shortioChartHistoryBio.push({
+        date: dateStr,
+        ig: bioIgByDate.get(dateStr) ?? 0,
+        yt: bioYtByDate.get(dateStr) ?? 0,
+      });
+      shortioChartHistoryContent.push({
+        date: dateStr,
+        ig: contentIgByDate.get(dateStr) ?? 0,
+        yt: contentYtByDate.get(dateStr) ?? 0,
+      });
+      shortioChartHistoryDm.push({
+        date: dateStr,
+        calendly: dmCalendlyByDate.get(dateStr) ?? 0,
+        lm: dmLmByDate.get(dateStr) ?? 0,
+      });
       d = parisAddDays(d, 1);
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm };
   } catch { return null; }
 }
 
@@ -5480,6 +5559,9 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
   const urlToCategoryFromDb: Map<string, string> = supaData?.urlToCategoryFromDb ?? new Map();
   const businessClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.businessClicsFromDb : snapData?.businessClicsFromDb;
   const shortioChartHistory: { date: string; clicks: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistory : snapData?.shortioChartHistory;
+  const shortioChartHistoryBio: { date: string; ig: number; yt: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryBio : snapData?.shortioChartHistoryBio;
+  const shortioChartHistoryContent: { date: string; ig: number; yt: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryContent : snapData?.shortioChartHistoryContent;
+  const shortioChartHistoryDm: { date: string; calendly: number; lm: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryDm : snapData?.shortioChartHistoryDm;
   // Clics Calendly statiques (bio + desc) depuis DB — pour Vue générale uniquement
   const calendlyStaticClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.calendlyStaticClicsFromDb : undefined;
 
@@ -5620,7 +5702,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
         </>
       )}
