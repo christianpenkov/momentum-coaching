@@ -285,7 +285,7 @@ export default function PageToday() {
 
       {/* Aperçu clients */}
       {clients.length > 0 && (
-        <div className="card" style={{ marginTop: 24, padding: 0, overflow: 'hidden' }}>
+        <div className="card" style={{ marginTop: 24, marginBottom: 24, padding: 0, overflow: 'hidden' }}>
           <div className="card-head" style={{ padding: '18px 18px 0' }}>
             <div className="card-title">Tous tes clients</div>
             <Link href="/clients" className="btn-ghost" style={{ fontSize: 12 }}>

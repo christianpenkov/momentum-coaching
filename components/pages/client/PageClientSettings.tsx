@@ -258,12 +258,12 @@ export default function PageClientSettings() {
       </div>
 
       {/* Connexions */}
-      <div className="settings-section" style={{ marginTop: 28 }}>
+      <div className="settings-section" style={{ marginTop: 28, padding: '20px 20px 0' }}>
         <div className="settings-section-title">Mes connexions</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16 }}>
           Colle tes clés API pour que {coachName || 'ton coach'} puisse suivre tes progrès en temps réel.
         </div>
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div className="card" style={{ margin: '0 -20px', padding: 0, overflow: 'hidden', border: 'none', borderRadius: '0 0 var(--r-xl) var(--r-xl)', borderTop: '1px solid var(--border-soft)', boxShadow: 'none' }}>
           {INTEGRATIONS.map((cfg, i) => {
             const connected = integrations[cfg.provider];
             const isEditing = editing === cfg.provider;
