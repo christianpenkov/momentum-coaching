@@ -5150,6 +5150,49 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at').eq('profile_id', targetId).maybeSingle();
   const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
 
+  // ── Plancher de date pour shortioChartHistoryRes (BUG RÉSOLU 2026-07-21, à
+  // relire avant de toucher à cette requête ou à re-signaler "des clics manquent") ──
+  //
+  // SYMPTÔME OBSERVÉ : dans Business micro, "Tous les clics" ET les 3 filtres
+  // Bio/Contenu/DM affichaient 0 pour un clic pourtant confirmé en base (table
+  // shortio_link_daily_snapshots, détecté par Short.io, ex. 2026-07-08). Un clic
+  // plus ancien (2026-06-20) restait lui visible. Le lendemain, sans aucune
+  // modification de code ni de donnée, le clic du 20 juin est devenu invisible à
+  // son tour — signe d'une fenêtre qui bouge dans le temps, pas d'un bug de logique.
+  //
+  // ROOT CAUSE : la requête shortio_link_daily_snapshots plus bas n'avait ni
+  // .limit() ni filtre de date ("tous les snapshots disponibles"). Supabase/PostgREST
+  // applique une limite PAR DÉFAUT de 1000 lignes par requête quand aucune n'est
+  // précisée — silencieusement, sans erreur ni warning côté client. Avec
+  // .order('date', ascending: true), les 1000 lignes renvoyées sont les plus
+  // ANCIENNES ; toute ligne au-delà (donc les clics les plus RÉCENTS, ceux qu'on
+  // regarde le plus souvent) est tronquée sans qu'aucun signal ne le révèle. Le 21
+  // juillet 2026, un seul client (compte de test Christian Penkov, profile_id
+  // rattaché à christianpenkov80@gmail.com) avait déjà 2151 lignes dans cette table
+  // — confirmé par `select count(*)` en SQL direct — soit plus du double de la
+  // limite. Le nombre de lignes croît avec le temps (une ligne par lien actif et par
+  // jour) et avec le nombre de clients sur la plateforme : ce plafond de 1000 sera
+  // atteint de plus en plus tôt dans la vie de CHAQUE client au fil des mois/années,
+  // pas seulement pour ce compte de test — d'où l'intérêt de comprendre le mécanisme
+  // plutôt que de juste patcher ce cas précis.
+  //
+  // FIX CHOISI : borner la requête à une fenêtre glissante de 14 mois (voir
+  // shortioHistoryFloor ci-dessous) plutôt que d'augmenter la limite (.limit(5000)
+  // ou pagination .range()) — un plafond plus haut se refait dépasser par le même
+  // mécanisme un jour, juste plus tard ; une fenêtre de temps bornée reste stable
+  // indéfiniment tant que le volume de liens/jour ne change pas radicalement. 14
+  // mois couvre très largement toute navigation possible dans l'UI (la page ne
+  // permet de naviguer que mois par mois ou semaine par semaine via periodIndex,
+  // jamais plus loin dans le passé), avec une bonne marge de sécurité.
+  //
+  // SI CE BUG REVIENT (clics présents en base mais absents du graphique, disparition
+  // progressive dans le temps) : d'abord vérifier `select count(*) from
+  // shortio_link_daily_snapshots where profile_id = '<id>' and date >=
+  // '<shortioHistoryFloor calculé>'` — si ce compte dépasse 1000, soit le volume de
+  // liens a explosé pour ce client (réduire la fenêtre), soit il faut passer à une
+  // vraie pagination .range() en boucle plutôt qu'un simple filtre de date.
+  const shortioHistoryFloor = parisDateStr(new Date(Date.now() - 14 * 30 * 86400000));
+
   // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) — même
   // source que fetchSnapshot/TabShortioB, pour que "Bio IG" et le reste du
   // breakdown Business micro suivent la même semaine/mois que tous les autres
@@ -5201,10 +5244,15 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .eq('profile_id', targetId)
       .eq('event_type', 'link_clicked')
       .not('ig_lead_id', 'is', null),
-    // Graphique historique clics Short.io — tous les snapshots disponibles (sans filtre de période)
+    // Graphique historique clics Short.io — 14 derniers mois glissants (pas "tous les
+    // snapshots disponibles" : sans borne, Supabase tronque silencieusement à 1000
+    // lignes triées par date croissante dès que la table dépasse ce volume — root
+    // cause du bug "clics récents manquants" documenté juste au-dessus, sur
+    // shortioHistoryFloor).
     supabase.from('shortio_link_daily_snapshots')
       .select('date, human_clicks, link_category')
       .eq('profile_id', targetId)
+      .gte('date', shortioHistoryFloor)
       .order('date', { ascending: true }),
   ]);
 
