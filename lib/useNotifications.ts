@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { clearAppBadge } from '@/lib/pwaBadge';
+import { setAppBadge } from '@/lib/pwaBadge';
 import { getPendingSessionRapports } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
@@ -20,6 +20,7 @@ export interface AppNotif {
   inviteeName?: string | null;
   scheduledAt?: string | null;
   duration?: string | null;
+  topic?: string | null;
 }
 
 export function useNotifications(profileId: string | null, isClient: boolean) {
@@ -94,7 +95,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       // ── Rapports de session Google Meet en attente ──
       const { data: googleCalls } = await supabase
         .from('calls')
-        .select('id, client_id, scheduled_at, duration, call_type, calendly_event_uuid, status, session_completed, session_no_show')
+        .select('id, client_id, topic, scheduled_at, duration, call_type, calendly_event_uuid, status, session_completed, session_no_show')
         .eq('coach_id', profileId)
         .eq('call_type', 'google')
         .is('calendly_event_uuid', null)
@@ -117,16 +118,16 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
           inviteeName: c.client_id ? (nameById[c.client_id] ?? null) : null,
           scheduledAt: c.scheduled_at,
           duration: c.duration,
+          topic: c.topic,
         }));
       }
 
       const allCoachNotifs = [...coachNotifs, ...sessionRapportNotifs];
       setNotifs(allCoachNotifs);
-      // Le badge natif de l'icône PWA n'était sinon jamais effacé pour ce type de
-      // notification (call accepté/refusé, rapport en attente) — seul le compteur
-      // de messages non lus le déclenchait. S'il n'y a plus rien en attente ici NON
-      // PLUS, le badge peut enfin être effacé (voir aussi la branche élève ci-dessous).
-      if (allCoachNotifs.length === 0) clearAppBadge();
+      // Recalcule le badge natif au nombre exact à chaque refresh — un push pose
+      // toujours 1 (pas d'unreadCount dans le payload), donc sans ça le badge reste
+      // bloqué au lieu de suivre le vrai nombre de notifs restantes.
+      setAppBadge(allCoachNotifs.length);
       return;
     }
     const supabase = createClient();
@@ -231,7 +232,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
 
     const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs, ...callRescheduledNotifs];
     setNotifs(allNotifs);
-    if (allNotifs.length === 0) clearAppBadge();
+    setAppBadge(allNotifs.length);
   }, [profileId, isClient]);
 
   const refreshRef = useRef(refresh);

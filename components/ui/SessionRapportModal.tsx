@@ -11,6 +11,7 @@ interface Props {
   callId: string;
   studentName: string | null;
   scheduledAt: string | null;
+  topic?: string | null;
   onClose: () => void;
 }
 
@@ -18,7 +19,7 @@ function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-export default function SessionRapportModal({ callId, studentName, scheduledAt, onClose }: Props) {
+export default function SessionRapportModal({ callId, studentName, scheduledAt, topic: callTopic, onClose }: Props) {
   const [step, setStep] = useState<SessionRapportStep>('attended');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -107,11 +108,16 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
       >
         {/* Header */}
         <div style={{ padding: '26px 30px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <Icon name="phone-call" size={20} />
-            <span style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
-              Rapport de session{studentName ? ` — ${studentName}` : ''}
-            </span>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
+                Rapport de session{studentName ? ` — ${studentName}` : ''}
+              </div>
+              {callTopic && (
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{callTopic}</div>
+              )}
+            </div>
           </div>
           <button onClick={requestClose} type="button" className="icon-btn"><Icon name="x" size={18} /></button>
         </div>

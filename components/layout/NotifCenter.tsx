@@ -15,7 +15,7 @@ interface Props {
   onRefresh: () => void;
 }
 
-type RespondState = 'idle' | 'accepting' | 'declining' | 'done';
+type RespondState = 'idle' | 'accepting' | 'declining' | 'done' | 'stale';
 
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
   const ref = useRef<HTMLDivElement>(null);
@@ -117,6 +117,7 @@ export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh 
           callId={sessionRapportNotif.callId}
           studentName={sessionRapportNotif.inviteeName ?? null}
           scheduledAt={sessionRapportNotif.scheduledAt ?? null}
+          topic={sessionRapportNotif.topic ?? null}
           onClose={handleSessionRapportDone}
         />
       )}
@@ -140,24 +141,24 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
   async function handleAccept() {
     if (!notif.callId) return;
     setRespondState('accepting');
-    await fetch(`/api/calls/${notif.callId}/respond`, {
+    const res = await fetch(`/api/calls/${notif.callId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ response: 'accepted' }),
     });
-    setRespondState('done');
+    setRespondState(res.ok ? 'done' : 'stale');
     onRefresh();
   }
 
   async function handleDecline() {
     if (!notif.callId) return;
     setRespondState('declining');
-    await fetch(`/api/calls/${notif.callId}/respond`, {
+    const res = await fetch(`/api/calls/${notif.callId}/respond`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ response: 'declined' }),
     });
-    setRespondState('done');
+    setRespondState(res.ok ? 'done' : 'stale');
     onRefresh();
   }
 
@@ -195,7 +196,7 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
             Remplir le rapport
           </button>
         )}
-        {isCallRequest && respondState !== 'done' && (
+        {isCallRequest && respondState !== 'done' && respondState !== 'stale' && (
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button type="button" onClick={handleAccept} disabled={respondState !== 'idle'}
               style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
@@ -209,6 +210,9 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
         )}
         {isCallRequest && respondState === 'done' && (
           <div style={{ marginTop: 8, fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Réponse envoyée</div>
+        )}
+        {isCallRequest && respondState === 'stale' && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--muted)', fontWeight: 600 }}>Déjà traité ailleurs</div>
         )}
         {(isCanceled || isCoachResponse) && onDismiss && (
           <button type="button" onClick={onDismiss}

@@ -135,6 +135,9 @@ export default function PageClientView() {
                 {new Date(nextCall.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                 {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
               </div>
+              {isCoachingCall(nextCall) && nextCall.topic && (
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{nextCall.topic}</div>
+              )}
             </div>
             <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
               {(() => {

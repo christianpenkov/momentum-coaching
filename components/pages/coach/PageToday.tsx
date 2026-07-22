@@ -153,6 +153,9 @@ export default function PageToday() {
                       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
                         {client?.name ? `Session avec ${client.name}` : 'Session de coaching'}
                       </div>
+                      {call?.topic && (
+                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic}</div>
+                      )}
                       {notif.scheduledAt && (
                         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                           {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -193,6 +196,7 @@ export default function PageToday() {
             callId={openSessionRapport.callId}
             studentName={client?.name ?? null}
             scheduledAt={openSessionRapport.scheduledAt ?? null}
+            topic={call?.topic ?? null}
             onClose={() => { setOpenSessionRapport(null); refreshNotifs(); }}
           />
         );
