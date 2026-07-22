@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
     if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
   }
 
-  const base = process.env.NEXT_PUBLIC_APP_URL!;
+  const base = process.env.NEXT_PUBLIC_PLATFORM_URL!;
   const h = { 'authorization': `Bearer ${process.env.CRON_SECRET}` };
   const results: Record<string, any> = {};
 
