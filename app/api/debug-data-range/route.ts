@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 // GET /api/debug-data-range?profile_id=xxx
 // Montre exactement ce que chaque API retourne : dates disponibles, granularité, day-to-day ou pas
@@ -30,8 +31,22 @@ function analyzeTimeSeries(data: { date: string; [key: string]: any }[], label: 
 }
 
 export async function GET(req: NextRequest) {
+  const serverSupabase = await createServerClient();
+  const { data: { user } } = await serverSupabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
   const profile_id = req.nextUrl.searchParams.get('profile_id');
   if (!profile_id) return NextResponse.json({ error: 'profile_id requis' }, { status: 400 });
+
+  if (profile_id !== user.id) {
+    const { data: clientRow } = await serverSupabase
+      .from('clients')
+      .select('profile_id')
+      .eq('profile_id', profile_id)
+      .eq('coach_id', user.id)
+      .maybeSingle();
+    if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+  }
 
   const base = process.env.NEXT_PUBLIC_APP_URL!;
   const h = { 'authorization': `Bearer ${process.env.CRON_SECRET}` };
