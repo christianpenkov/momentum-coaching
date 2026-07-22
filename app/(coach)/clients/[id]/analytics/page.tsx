@@ -10,5 +10,5 @@ export default function ClientAnalyticsPage({ params }: { params: Promise<{ id: 
   const client = getClient(id);
 
   if (!client) return null;
-  return <PageClientStats profileId={client.profile_id ?? undefined} />;
+  return <PageClientStats profileId={client.profile_id ?? undefined} clientName={client.name} />;
 }

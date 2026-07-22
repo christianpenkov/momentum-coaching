@@ -6,7 +6,7 @@ import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
-import AddClientModal from '@/components/ui/AddClientModal';
+import CreateCallModal from '@/components/ui/CreateCallModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -15,9 +15,9 @@ import { useNotifications, type AppNotif } from '@/lib/useNotifications';
 import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
 
 export default function PageToday() {
-  const { clients, calls, business, loading } = useSupabaseClients();
+  const { clients, calls, business, loading, refetch } = useSupabaseClients();
   const { user } = useUser();
-  const [showAddModal, setShowAddModal] = useState(false);
+  const [showCreateCallModal, setShowCreateCallModal] = useState(false);
   const { notifs, refresh: refreshNotifs } = useNotifications(user?.id ?? null, false);
   const sessionRapportNotifs = notifs.filter(n => n.type === 'session_rapport');
   const [sessionRapportIdx, setSessionRapportIdx] = useState(0);
@@ -104,7 +104,11 @@ export default function PageToday() {
 
   return (
     <div className="page-content">
-      <AddClientModal open={showAddModal} onClose={() => setShowAddModal(false)} />
+      <CreateCallModal
+        open={showCreateCallModal}
+        onClose={() => setShowCreateCallModal(false)}
+        onCreated={refetch}
+      />
 
       <div className="page-header">
         <div>
@@ -118,8 +122,8 @@ export default function PageToday() {
           <Link href="/calendar" className="btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
             <Icon name="calendar" size={14} /> Planifier
           </Link>
-          <button type="button" onClick={() => setShowAddModal(true)} className="btn-primary btn-primary-brand" style={{ fontSize: 13 }}>
-            <Icon name="plus" size={13} /> Nouvel élève
+          <button type="button" onClick={() => setShowCreateCallModal(true)} className="btn-primary btn-primary-brand" style={{ fontSize: 13 }}>
+            <Icon name="plus" size={13} /> Créer un call
           </button>
         </div>
       </div>
@@ -227,12 +231,11 @@ export default function PageToday() {
               )}
               {callsToday.map((call) => {
                 const client = clients.find(c => c.id === call.client_id);
-                const isReady = call.ready === 'ready';
                 const time = call.scheduled_at
                   ? new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
                   : '—';
                 return (
-                  <div key={call.id} className="dc-liftrow" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px', margin: '0 -8px' }}>
+                  <div key={call.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px', margin: '0 -8px' }}>
                     <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={36} />
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
@@ -240,9 +243,6 @@ export default function PageToday() {
                     </div>
                     <div style={{ textAlign: 'right', flexShrink: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{time}</div>
-                      <span className={`pill pill-${isReady ? 'green' : 'amber'}`} style={{ fontSize: 10, padding: '2px 6px' }}>
-                        {isReady ? 'Prêt' : 'Partiel'}
-                      </span>
                     </div>
                     {client && (
                       <Link href={`/clients/${client.id}/brief`} className="btn-ghost" style={{ fontSize: 11, marginLeft: 4 }}>

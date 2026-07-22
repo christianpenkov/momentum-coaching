@@ -5602,7 +5602,7 @@ async function fetchIntegrationStatus(profileId?: string) {
   };
 }
 
-export default function PageClientStats({ profileId }: { profileId?: string } = {}) {
+export default function PageClientStats({ profileId, clientName }: { profileId?: string; clientName?: string } = {}) {
   const [tab, setTab] = useState(0);
   const [period, setPeriod] = useState<Period>(30);
   const [periodIndex, setPeriodIndex] = useState(0);
@@ -5814,7 +5814,7 @@ export default function PageClientStats({ profileId }: { profileId?: string } = 
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         {/* Titre à gauche */}
         <div>
-          <h1 className="page-title">Analytics</h1>
+          <h1 className="page-title">{clientName ? `Analytics de ${clientName}` : 'Analytics'}</h1>
           <p className="page-sub">
             Tableau de bord complet — toutes les plateformes
             {latestSnapshotDate && !backfillInProgress && (
