@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { AnimatePresence, motion } from 'framer-motion';
 import Avatar from '@/components/ui/Avatar';
 import type { Call } from '@/lib/supabase/types';
 
@@ -27,8 +26,8 @@ function callEndTime(call: Call): number {
 }
 
 export default function CallStack({ calls, getClient }: Props) {
-  // Recalcule le call "actif" chaque minute, pour que la transition se joue
-  // automatiquement à l'heure de fin réelle sans action utilisateur.
+  // Recalcule quel call est "actif" chaque minute, pour que l'encadré se déplace
+  // au bon call sans action utilisateur.
   const [nowTick, setNowTick] = useState(() => Date.now());
   useEffect(() => {
     const interval = setInterval(() => setNowTick(Date.now()), 60_000);
@@ -36,87 +35,46 @@ export default function CallStack({ calls, getClient }: Props) {
   }, []);
 
   const sorted = [...calls].sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
-  const activeIndex = sorted.findIndex(c => callEndTime(c) >= nowTick);
-  const active = activeIndex === -1 ? null : sorted[activeIndex];
-  const previous = activeIndex > 0 ? sorted[activeIndex - 1] : null;
 
   if (sorted.length === 0) {
     return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Aucun call prévu aujourd'hui.</div>;
   }
 
-  if (!active) {
-    return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Tous les calls du jour sont terminés.</div>;
-  }
-
-  const activeClient = getClient(active.client_id);
-  const time = active.scheduled_at
-    ? new Date(active.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-    : '—';
+  const activeIndex = sorted.findIndex(c => callEndTime(c) >= nowTick);
 
   return (
-    <div style={{ position: 'relative', paddingTop: previous ? 22 : 0 }}>
-      <AnimatePresence mode="popLayout">
-        {previous && (
-          <motion.div
-            key={`prev-${previous.id}`}
-            initial={false}
-            animate={{ opacity: 0.55, y: -14, scale: 0.92, rotateX: 35, filter: 'blur(3px)' }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.5, ease: 'easeOut' }}
-            style={{
-              position: 'absolute', top: 0, left: 0, right: 0,
-              transformOrigin: 'top center', transformPerspective: 600,
-              pointerEvents: 'none',
-            }}
-          >
-            <CallRow call={previous} client={getClient(previous.client_id)} />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence mode="popLayout">
-        <motion.div
-          key={active.id}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, ease: 'easeOut' }}
-        >
-          <CallRow call={active} client={activeClient} time={time} highlight />
-        </motion.div>
-      </AnimatePresence>
-    </div>
-  );
-}
-
-function CallRow({ call, client, time, highlight }: {
-  call: Call;
-  client: ClientLite | undefined;
-  time?: string;
-  highlight?: boolean;
-}) {
-  const displayTime = time ?? (call.scheduled_at
-    ? new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-    : '—');
-  return (
-    <div style={{
-      display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 -8px',
-      borderRadius: 10,
-      background: highlight ? 'var(--accent-brand-soft)' : 'transparent',
-      border: highlight ? '1px solid var(--accent-brand)' : '1px solid transparent',
-    }}>
-      <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={36} />
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
-        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>
-      </div>
-      <div style={{ textAlign: 'right', flexShrink: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{displayTime}</div>
-      </div>
-      {client && (
-        <Link href={`/clients/${client.id}/brief`} className="btn-ghost" style={{ fontSize: 11, marginLeft: 4 }}>
-          Brief
-        </Link>
-      )}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+      {sorted.map((call, i) => {
+        const isPast = activeIndex !== -1 ? i < activeIndex : true;
+        const isActive = i === activeIndex;
+        const client = getClient(call.client_id);
+        const time = call.scheduled_at
+          ? new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+          : '—';
+        return (
+          <div key={call.id} style={{
+            display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 -8px',
+            borderRadius: 10,
+            opacity: isPast ? 0.5 : 1,
+            background: isActive ? 'var(--accent-brand-soft)' : 'transparent',
+            border: isActive ? '1px solid var(--accent-brand)' : '1px solid transparent',
+          }}>
+            <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={36} />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>
+            </div>
+            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{time}</div>
+            </div>
+            {client && (
+              <Link href={`/clients/${client.id}/brief`} className="btn-ghost" style={{ fontSize: 11, marginLeft: 4 }}>
+                Brief
+              </Link>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
