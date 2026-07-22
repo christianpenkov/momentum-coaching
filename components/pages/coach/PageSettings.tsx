@@ -133,10 +133,12 @@ export default function PageSettings() {
       const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).single();
       if (profile) { setCoachName(profile.full_name || ''); setAvatarUrl(profile.avatar_url || null); }
 
-      const { data: integs } = await supabase.from('integrations').select('*').eq('profile_id', user.id);
+      const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, connected_at').eq('profile_id', user.id);
       if (integs) {
         const map = { anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null } as Record<Provider, Integration | null>;
-        integs.forEach((i: Integration) => { map[i.provider] = i; });
+        integs.forEach((i) => {
+          map[i.provider as Provider] = { ...i, access_token: null, refresh_token: null, api_key: null, expires_at: null } as Integration;
+        });
         setIntegrations(map);
       }
     }
@@ -173,13 +175,13 @@ export default function PageSettings() {
       await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label });
     }
 
-    const { data, error: fetchErr } = await supabase.from('integrations').select('*').eq('profile_id', profileId).eq('provider', provider).single();
+    const { data, error: fetchErr } = await supabase.from('integrations').select('id, profile_id, provider, account_label, connected_at').eq('profile_id', profileId).eq('provider', provider).single();
     if (fetchErr) {
       setSaving(false);
       showToast('Erreur de sauvegarde : ' + fetchErr.message, true);
       return;
     }
-    setIntegrations(prev => ({ ...prev, [provider]: data }));
+    setIntegrations(prev => ({ ...prev, [provider]: { ...data, access_token: null, refresh_token: null, api_key: null, expires_at: null } as Integration }));
     setEditing(null);
     setKeyInput('');
     setKeyError(null);
