@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Client, WeeklyMetrics, Task, Call, SessionReport } from '@/lib/supabase/types';
 
@@ -176,7 +176,10 @@ export function useClientData(clientId: string) {
 export function useClientSelfData() {
   const [data, setData] = useState<ClientSelfData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [clientId, setClientId] = useState<string | null>(null);
   const supabase = createClient();
+
+  const loadRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     async function load() {
@@ -186,6 +189,7 @@ export function useClientSelfData() {
       const { data: clientRow } = await supabase
         .from('clients').select('*').eq('profile_id', user.id).single();
       if (!clientRow) { setLoading(false); return; }
+      setClientId(clientRow.id);
 
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
@@ -264,8 +268,22 @@ export function useClientSelfData() {
       });
       setLoading(false);
     }
+    loadRef.current = load;
     load();
   }, []);
+
+  // Realtime : le premier chargement ne voit que les calls existants au montage —
+  // sans ça, un call créé (ou accepté/refusé) après coup ne remplace jamais nextCall
+  // tant que la page n'est pas rechargée. Refetch complet plutôt qu'un patch ciblé,
+  // pour garder nextCall/callsToday/callsBookedThisMonth cohérents entre eux.
+  useEffect(() => {
+    if (!clientId) return;
+    const channel = supabase
+      .channel(`client-self-calls-${clientId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', filter: `client_id=eq.${clientId}` }, () => loadRef.current())
+      .subscribe();
+    return () => { supabase.removeChannel(channel); };
+  }, [clientId]);
 
   return { data, loading };
 }
