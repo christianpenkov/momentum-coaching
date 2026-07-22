@@ -1,18 +1,16 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { createClient } from '@/lib/supabase/server';
 
-async function getAnthropicKey(): Promise<string | null> {
+async function getAnthropicKey(userId: string): Promise<string | null> {
   try {
     const supabase = await createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return process.env.ANTHROPIC_API_KEY || null;
 
     // Find the coach: if the user is a client, find their coach; if coach, use their own integration
-    const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+    const { data: profile } = await supabase.from('profiles').select('role').eq('id', userId).single();
 
-    let coachId = user.id;
+    let coachId = userId;
     if (profile?.role === 'client') {
-      const { data: clientRow } = await supabase.from('clients').select('coach_id').eq('profile_id', user.id).single();
+      const { data: clientRow } = await supabase.from('clients').select('coach_id').eq('profile_id', userId).single();
       if (clientRow) coachId = clientRow.coach_id;
     }
 
@@ -23,16 +21,25 @@ async function getAnthropicKey(): Promise<string | null> {
       .eq('provider', 'anthropic')
       .single();
 
-    return integration?.api_key || process.env.ANTHROPIC_API_KEY || null;
+    return integration?.api_key || null;
   } catch {
-    return process.env.ANTHROPIC_API_KEY || null;
+    return null;
   }
 }
 
 export async function POST(req: Request) {
+  const supabase = await createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) {
+    return new Response(JSON.stringify({ error: 'Non authentifié' }), {
+      status: 401,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+
   const { messages, systemPrompt } = await req.json();
 
-  const apiKey = await getAnthropicKey();
+  const apiKey = await getAnthropicKey(user.id);
   if (!apiKey) {
     return new Response(JSON.stringify({ error: 'Clé API Anthropic non configurée. Ajoutez-la dans Réglages → Intégrations.' }), {
       status: 400,
@@ -43,7 +50,7 @@ export async function POST(req: Request) {
   const client = new Anthropic({ apiKey });
 
   const stream = await client.messages.stream({
-    model: 'claude-sonnet-4-6',
+    model: 'claude-sonnet-5',
     max_tokens: 1024,
     system: systemPrompt || 'Tu es un assistant coaching utile et bienveillant.',
     messages,
