@@ -34,7 +34,7 @@ function CallRequestInlineButtons({ callId, onRefresh }: { callId: string; onRef
   return (
     <>
       <button type="button" onClick={() => respond('accepted')} disabled={state !== 'idle'}
-        style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
+        style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent-brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
         {state === 'accepting' ? '…' : 'Accepter'}
       </button>
       <button type="button" onClick={() => respond('declined')} disabled={state !== 'idle'}
@@ -119,7 +119,7 @@ export default function PageClientView() {
 
       {/* Prochain call */}
       {nextCall?.scheduled_at && (
-        <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--green)', padding: '24px 24px' }}>
+        <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--accent-brand)', padding: '24px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>

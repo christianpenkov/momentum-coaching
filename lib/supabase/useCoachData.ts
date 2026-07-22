@@ -207,14 +207,17 @@ export function useClientSelfData() {
         supabase.from('messages').select('text, created_at').eq('client_id', clientRow.id).eq('sender_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(1),
         supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle(),
         supabase.from('calls').select('*').eq('client_id', clientRow.id)
+          .eq('status', 'active')
           .neq('ignored', true)
           .gte('scheduled_at', now.toISOString())
           .order('scheduled_at', { ascending: true })
           .limit(1),
         supabase.from('calls').select('*').eq('client_id', clientRow.id)
+          .eq('status', 'active')
           .neq('ignored', true)
           .gte('scheduled_at', startOfToday).lt('scheduled_at', startOfTomorrow),
         supabase.from('calls').select('*').eq('client_id', clientRow.id)
+          .eq('status', 'active')
           .neq('ignored', true)
           .gte('created_at', startOfMonth),
         clientRow.profile_id

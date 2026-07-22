@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import Avatar from '@/components/ui/Avatar';
@@ -11,6 +11,14 @@ import { getPendingSessionRapports } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history';
+
+// duration est toujours stocké au format "{N} min" (généré depuis scheduled_at/endTime,
+// que ce soit Google Meet ou Calendly) — jamais "1h30" ou autre format.
+function callEndTime(call: Call): number {
+  const start = call.scheduled_at ? new Date(call.scheduled_at).getTime() : 0;
+  const mins = call.duration ? parseInt(call.duration, 10) || 0 : 0;
+  return start + mins * 60_000;
+}
 
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
@@ -30,6 +38,15 @@ export default function PageCalls() {
   // Rapports de session Google Meet en attente — même condition que le badge élève
   const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null } | null>(null);
   const pendingSessionRapportIds = new Set(getPendingSessionRapports(calls as Call[]).map(c => c.id));
+
+  // Force un recalcul du split upcoming/historique chaque minute, pour que la
+  // bascule se fasse en temps réel sans dépendre uniquement des changements
+  // de `calls` déclenchés par le realtime.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   async function syncCalls() {
     setSyncing(true);
@@ -52,7 +69,7 @@ export default function PageCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-function handleCallCreated() {
+  function handleCallCreated() {
     refetch();
     setSyncMsg('✓ Call créé — invitation envoyée à l\'élève');
     setTimeout(() => setSyncMsg(null), 5000);
@@ -103,13 +120,16 @@ function handleCallCreated() {
     setDeletingId(null);
   }
 
-  const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0);
+  // Un call reste "à venir" jusqu'à son heure de fin réelle (scheduled_at + duration),
+  // pas jusqu'à minuit — nowTick force ce recalcul chaque minute (voir useEffect ci-dessus).
   const upcoming = calls
-    .filter(c => c.scheduled_at && new Date(c.scheduled_at) >= todayStart)
+    .filter(c => c.scheduled_at && callEndTime(c) >= nowTick)
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   const history = calls
-    .filter(c => c.scheduled_at && new Date(c.scheduled_at) < todayStart)
+    .filter(c => c.scheduled_at && callEndTime(c) < nowTick)
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
+  const upcomingActive = upcoming.filter(c => c.status === 'active');
+  const nextCall = upcomingActive[0] ?? null;
   const pending = calls.filter(c => c.status === 'pending_acceptance');
 
   function getClient(clientId: string) {
@@ -131,7 +151,7 @@ function handleCallCreated() {
           <h1 className="page-title">Calls</h1>
           <p className="page-sub">
             {pending.length > 0 && <span style={{ color: 'var(--amber, #f59e0b)', fontWeight: 600 }}>{pending.length} en attente · </span>}
-            {upcoming.filter(c => c.status === 'active').length} à venir · {history.length} dans l'historique
+            {upcomingActive.length} à venir · {history.length} dans l'historique
           </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -156,6 +176,53 @@ function handleCallCreated() {
           </button>
         </div>
       </div>
+
+      {/* Prochain call — même bandeau que côté élève, agrégé tous élèves */}
+      {nextCall?.scheduled_at && (() => {
+        const cl = getClient(nextCall.client_id || '');
+        const displayName = cl?.name || nextCall.invitee_name || '—';
+        const isGoogle = (nextCall as { call_type?: string }).call_type === 'google';
+        return (
+          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--accent-brand)', padding: '24px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)' }}>
+                    {isGoogle ? 'Coaching' : 'Prospect'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
+                  {new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)', marginTop: 2 }}>
+                  {new Date(nextCall.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                  {displayName}{nextCall.topic ? ` · ${nextCall.topic}` : ''}
+                </div>
+              </div>
+              <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
+                {(() => {
+                  const diffMs = new Date(nextCall.scheduled_at).getTime() - nowTick;
+                  const days = Math.ceil(diffMs / 86_400_000);
+                  return (
+                    <>
+                      <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                        {days <= 0 ? 'Auj.' : `J-${days}`}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        {days <= 0 ? "aujourd'hui" : days === 1 ? 'demain' : `dans ${days}j`}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Section calls en attente d'acceptation */}
       {pending.length > 0 && (
@@ -216,7 +283,7 @@ function handleCallCreated() {
 
       <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         <button className={`chip${tab === 'upcoming' ? ' chip-active' : ''}`} onClick={() => setTab('upcoming')} type="button">
-          À venir ({upcoming.filter(c => c.status === 'active').length})
+          À venir ({upcomingActive.length})
         </button>
         <button className={`chip${tab === 'history' ? ' chip-active' : ''}`} onClick={() => setTab('history')} type="button">
           Historique ({history.length})

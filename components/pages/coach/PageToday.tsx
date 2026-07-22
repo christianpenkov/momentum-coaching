@@ -7,6 +7,7 @@ import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
 import CreateCallModal from '@/components/ui/CreateCallModal';
+import CallStack from '@/components/ui/CallStack';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -225,33 +226,8 @@ export default function PageToday() {
                 Voir tout <Icon name="chevR" size={12} />
               </Link>
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
-              {callsToday.length === 0 && (
-                <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Aucun call prévu aujourd'hui.</div>
-              )}
-              {callsToday.map((call) => {
-                const client = clients.find(c => c.id === call.client_id);
-                const time = call.scheduled_at
-                  ? new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
-                  : '—';
-                return (
-                  <div key={call.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '6px 8px', margin: '0 -8px' }}>
-                    <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={36} />
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
-                      <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>
-                    </div>
-                    <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{time}</div>
-                    </div>
-                    {client && (
-                      <Link href={`/clients/${client.id}/brief`} className="btn-ghost" style={{ fontSize: 11, marginLeft: 4 }}>
-                        Brief
-                      </Link>
-                    )}
-                  </div>
-                );
-              })}
+            <div style={{ marginTop: 16 }}>
+              <CallStack calls={callsToday} getClient={(clientId) => clients.find(c => c.id === clientId)} />
             </div>
           </div>
         </StaggerItem>

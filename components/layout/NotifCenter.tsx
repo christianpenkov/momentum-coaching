@@ -199,7 +199,7 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
         {isCallRequest && respondState !== 'done' && respondState !== 'stale' && (
           <div style={{ display: 'flex', gap: 8, marginTop: 10 }}>
             <button type="button" onClick={handleAccept} disabled={respondState !== 'idle'}
-              style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent)', color: 'var(--bg)', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
+              style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent-brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '6px 14px', cursor: 'pointer' }}>
               {respondState === 'accepting' ? '…' : 'Accepter'}
             </button>
             <button type="button" onClick={handleDecline} disabled={respondState !== 'idle'}

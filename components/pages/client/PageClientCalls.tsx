@@ -467,7 +467,7 @@ export default function PageClientCalls() {
 
       {/* Prochain call */}
       {nextCall ? (
-        <div className="card" style={{ marginBottom: 24, borderLeft: '4px solid var(--green)', padding: '28px 28px' }}>
+        <div className="card" style={{ marginBottom: 24, borderLeft: '4px solid var(--accent-brand)', padding: '28px 28px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
             <div style={{ flex: 1 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>PROCHAIN CALL</div>
@@ -515,42 +515,22 @@ export default function PageClientCalls() {
         </div>
       ) : null}
 
-      {/* Préparation */}
+      {/* Infos pratiques */}
       {nextCall && (
-        <div className="grid-2" style={{ marginBottom: 24 }}>
-          <div className="card">
-            <div className="card-head">
-              <div className="card-title">Se préparer</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
-              {[
-                'Compléter les tâches de la semaine',
-                'Rassembler ses stats (posts, DM, réponses)',
-                'Préparer 1-2 questions pour le coach',
-                'Identifier son principal blocage',
-              ].map((item, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
-                  <div style={{ width: 20, height: 20, borderRadius: 4, border: '1.5px solid var(--border)', flexShrink: 0, marginTop: 1 }} />
-                  <span style={{ fontSize: 13, color: 'var(--accent)', lineHeight: 1.5 }}>{item}</span>
-                </div>
-              ))}
-            </div>
+        <div className="card" style={{ marginBottom: 24 }}>
+          <div className="card-head">
+            <div className="card-title">Infos pratiques</div>
           </div>
-          <div className="card">
-            <div className="card-head">
-              <div className="card-title">Infos pratiques</div>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
-              {[
-                { label: 'Durée', value: nextCall.duration || '—' },
-                { label: 'Heure', value: formatTime(nextCall.scheduled_at!) },
-              ].map(({ label, value }) => (
-                <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                  <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{value}</span>
-                </div>
-              ))}
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
+            {[
+              { label: 'Durée', value: nextCall.duration || '—' },
+              { label: 'Heure', value: formatTime(nextCall.scheduled_at!) },
+            ].map(({ label, value }) => (
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
+                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
+                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{value}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
