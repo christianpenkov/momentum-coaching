@@ -60,7 +60,7 @@ export default function CallStack({ calls, getClient }: Props) {
           <motion.div
             key={`prev-${previous.id}`}
             initial={false}
-            animate={{ opacity: 0.35, y: -14, scale: 0.92, rotateX: 35, filter: 'blur(2px)' }}
+            animate={{ opacity: 0.55, y: -14, scale: 0.92, rotateX: 35, filter: 'blur(3px)' }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.5, ease: 'easeOut' }}
             style={{
