@@ -55,7 +55,7 @@ export default function CallStack({ calls, getClient }: Props) {
           <div key={call.id} style={{
             display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', margin: '0 -8px',
             borderRadius: 10,
-            opacity: isPast ? 0.5 : 1,
+            opacity: isPast ? 0.8 : 1,
             background: isActive ? 'var(--accent-brand-soft)' : 'transparent',
             border: isActive ? '1px solid var(--accent-brand)' : '1px solid transparent',
           }}>
