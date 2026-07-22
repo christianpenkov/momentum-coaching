@@ -48,8 +48,8 @@ export async function GET(request: NextRequest) {
 
     const scheduledAt = new Date(call.scheduled_at);
     const topic = call.topic || 'Call coaching';
-    const timeStr = scheduledAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-    const dateStr = scheduledAt.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+    const timeStr = scheduledAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
+    const dateStr = scheduledAt.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
     const url = call.join_url || '/client/calls';
 
     // Rappel 24h avant

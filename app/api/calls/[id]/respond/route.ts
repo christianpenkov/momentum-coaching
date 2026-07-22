@@ -85,8 +85,8 @@ export async function POST(
 
   // Notif push au coach
   const d = new Date(call.scheduled_at);
-  const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-  const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+  const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
+  const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
   const topic = call.topic || 'Call coaching';
 
   const suffix = proposedAt ? ` — propose : ${proposedAt}` : '';

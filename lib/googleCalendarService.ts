@@ -199,8 +199,8 @@ export async function createGoogleCall(params: {
 
   if (clientRes.data?.profile_id) {
     const d = new Date(params.startTime);
-    const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-    const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+    const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
+    const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
     await sendPushToProfile(
       clientRes.data.profile_id,
       `Demande de call — ${coachFirstName || 'ton coach'}`,
@@ -272,8 +272,8 @@ export async function updateGoogleCall(params: {
 
     if (clientRes.data?.profile_id) {
       const d = new Date(params.startTime);
-      const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-      const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
+      const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
       await sendPushToProfile(
         clientRes.data.profile_id,
         `Call déplacé — ${coachFirstName || 'ton coach'}`,
