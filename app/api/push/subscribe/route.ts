@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -7,10 +8,16 @@ const supabase = createClient(
 );
 
 export async function POST(req: NextRequest) {
-  const { subscription, userId } = await req.json();
-  if (!subscription?.endpoint || !userId) {
+  const serverSupabase = await createServerClient();
+  const { data: { user } } = await serverSupabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const { subscription } = await req.json();
+  if (!subscription?.endpoint) {
     return NextResponse.json({ error: 'invalid' }, { status: 400 });
   }
+
+  const userId = user.id;
 
   // Nettoyer les vieilles subscriptions du même profil (> 7 jours sans activité)
   const cutoff = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -37,12 +44,16 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
-  const { endpoint, userId } = await req.json();
-  if (!endpoint || !userId) return NextResponse.json({ error: 'invalid' }, { status: 400 });
+  const serverSupabase = await createServerClient();
+  const { data: { user } } = await serverSupabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const { endpoint } = await req.json();
+  if (!endpoint) return NextResponse.json({ error: 'invalid' }, { status: 400 });
 
   await supabase.from('push_subscriptions')
     .delete()
-    .eq('profile_id', userId)
+    .eq('profile_id', user.id)
     .eq('endpoint', endpoint);
 
   return NextResponse.json({ ok: true });
