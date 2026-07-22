@@ -45,9 +45,9 @@ export default function PageToday() {
     ? Math.round((business.cashCollected / business.cashContracted) * 100)
     : null;
 
-  const kpis = [
+  const kpisTop = [
     {
-      label: 'Argent généré', sub: 'par tes élèves, all-time', value: business.cashCollectedAllTime ?? 0,
+      label: 'Total cash collecté', sub: 'par tes élèves, all-time', value: business.cashCollectedAllTime ?? 0,
       formatter: (n: number) => business.cashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
       color: 'var(--green)',
     },
@@ -71,6 +71,9 @@ export default function PageToday() {
         </div>
       ),
     },
+  ];
+
+  const kpisBottom = [
     {
       label: 'Leads générés', sub: 'tracking à venir', value: 0,
     },
@@ -195,7 +198,11 @@ export default function PageToday() {
         );
       })()}
 
-      <KpiRibbon items={kpis} columns={4} />
+      <KpiRibbon items={kpisTop} columns={4} />
+
+      <div style={{ marginTop: 16 }}>
+        <KpiRibbon items={kpisBottom} columns={4} />
+      </div>
 
       <StaggerGrid className="grid-2" style={{ marginTop: 24 }}>
         {/* Calls du jour */}
