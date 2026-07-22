@@ -7,18 +7,10 @@ import Avatar from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import { getPendingSessionRapports } from '@/lib/sessionRapport';
+import { getPendingSessionRapports, isCallReallyOver } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history';
-
-// duration est toujours stocké au format "{N} min" (généré depuis scheduled_at/endTime,
-// que ce soit Google Meet ou Calendly) — jamais "1h30" ou autre format.
-function callEndTime(call: Call): number {
-  const start = call.scheduled_at ? new Date(call.scheduled_at).getTime() : 0;
-  const mins = call.duration ? parseInt(call.duration, 10) || 0 : 0;
-  return start + mins * 60_000;
-}
 
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
@@ -123,12 +115,15 @@ export default function PageCalls() {
   // Un call reste "à venir" jusqu'à son heure de fin réelle (scheduled_at + duration),
   // pas jusqu'à minuit — nowTick force ce recalcul chaque minute (voir useEffect ci-dessus).
   const upcoming = calls
-    .filter(c => c.scheduled_at && callEndTime(c) >= nowTick)
+    .filter(c => c.scheduled_at && !isCallReallyOver(c, nowTick))
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   const history = calls
-    .filter(c => c.scheduled_at && callEndTime(c) < nowTick)
+    .filter(c => c.scheduled_at && isCallReallyOver(c, nowTick))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
   const upcomingActive = upcoming.filter(c => c.status === 'active');
+  // "Prochain call" ignore aussi un call dont le rapport est déjà rempli (coach en
+  // avance) même s'il n'est pas encore basculé en historique — c'est déjà le premier
+  // filtre d'isCallReallyOver ci-dessus, donc upcomingActive[0] est toujours correct.
   const nextCall = upcomingActive[0] ?? null;
   const pending = calls.filter(c => c.status === 'pending_acceptance');
 

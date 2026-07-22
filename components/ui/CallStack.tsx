@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
+import { isCallReallyOver } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
 interface ClientLite {
@@ -15,14 +16,6 @@ interface ClientLite {
 interface Props {
   calls: Call[];
   getClient: (clientId: string | null) => ClientLite | undefined;
-}
-
-// duration est toujours stocké au format "{N} min" — jamais "1h30" ou autre format
-// (même convention que components/pages/coach/PageCalls.tsx).
-function callEndTime(call: Call): number {
-  const start = call.scheduled_at ? new Date(call.scheduled_at).getTime() : 0;
-  const mins = call.duration ? parseInt(call.duration, 10) || 0 : 0;
-  return start + mins * 60_000;
 }
 
 export default function CallStack({ calls, getClient }: Props) {
@@ -40,7 +33,7 @@ export default function CallStack({ calls, getClient }: Props) {
     return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '8px 0' }}>Aucun call prévu aujourd'hui.</div>;
   }
 
-  const activeIndex = sorted.findIndex(c => callEndTime(c) >= nowTick);
+  const activeIndex = sorted.findIndex(c => !isCallReallyOver(c, nowTick));
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

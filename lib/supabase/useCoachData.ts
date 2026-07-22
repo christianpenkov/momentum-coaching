@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Client, WeeklyMetrics, Task, Call, SessionReport } from '@/lib/supabase/types';
+import { isCallReallyOver } from '@/lib/sessionRapport';
 
 export interface ClientWithMetrics extends Client {
   weeklyMetrics: WeeklyMetrics[];
@@ -206,12 +207,15 @@ export function useClientSelfData() {
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
         supabase.from('messages').select('text, created_at').eq('client_id', clientRow.id).eq('sender_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(1),
         supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle(),
+        // Pas de .limit(1) ici : un call peut avoir scheduled_at futur mais déjà un
+        // rapport rempli (coach en avance) — filtré côté client via isCallReallyOver,
+        // donc on doit pouvoir passer au suivant si le premier résultat est écarté.
         supabase.from('calls').select('*').eq('client_id', clientRow.id)
           .eq('status', 'active')
           .neq('ignored', true)
           .gte('scheduled_at', now.toISOString())
           .order('scheduled_at', { ascending: true })
-          .limit(1),
+          .limit(5),
         supabase.from('calls').select('*').eq('client_id', clientRow.id)
           .eq('status', 'active')
           .neq('ignored', true)
@@ -260,7 +264,7 @@ export function useClientSelfData() {
         lastCoachMessage: lastMsgRes.data?.[0]?.text || null,
         coachName,
         business: {
-          nextCall: nextCallRes.data?.[0] || null,
+          nextCall: (nextCallRes.data || []).find(c => !isCallReallyOver(c)) || null,
           callsToday: callsTodayRes.data || [],
           callsBookedThisMonth: callsThisMonth,
           leadsThisMonthCount: leadsThisMonthRes.count || 0,

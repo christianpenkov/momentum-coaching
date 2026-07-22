@@ -26,3 +26,22 @@ export function getPendingSessionRapports(calls: Call[]): Call[] {
     !c.session_no_show
   );
 }
+
+// duration est toujours stocké au format "{N} min" — jamais "1h30" ou autre format.
+function callEndTime(call: Call): number {
+  const start = call.scheduled_at ? new Date(call.scheduled_at).getTime() : 0;
+  const mins = call.duration ? parseInt(call.duration, 10) || 0 : 0;
+  return start + mins * 60_000;
+}
+
+// Un call est "vraiment terminé" dès que son rapport a été rempli (outcome pour le
+// flux Calendly/prospect, session_completed/session_no_show pour le flux coaching
+// Google Meet) — même si l'heure de fin théorique (scheduled_at + duration) n'est
+// pas encore atteinte. Sinon, terminé dès l'heure de fin dépassée. Utilisé partout
+// où on détermine le "prochain call"/"call actif" (widget élève, banderole coach,
+// stack Calls du jour) pour ne pas continuer à afficher un call déjà clôturé.
+export function isCallReallyOver(call: Call, now: number = Date.now()): boolean {
+  const reportFilled = call.outcome != null || call.session_completed === true || call.session_no_show === true;
+  if (reportFilled) return true;
+  return callEndTime(call) < now;
+}
