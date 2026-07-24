@@ -66,6 +66,13 @@ export async function PATCH(
 
   if (!call) return NextResponse.json({ error: 'Call introuvable' }, { status: 404 });
 
+  // ⚠️ INCOHÉRENCE CONNUE (audit sécurité, en attente de clarification) : pour les calls
+  // Calendly, call.client_id référence clients.id (table de jointure), pas auth.users.id
+  // — la comparaison ci-dessous ne matche donc probablement jamais côté élève sur ce flux.
+  // Confirmé avec Chris (24/07/2026) : seul le coach remplit ce rapport en pratique
+  // aujourd'hui, donc pas de bug utilisateur actif. À cartographier entièrement (calls
+  // Calendly vs Google Meet utilisent des conventions différentes pour client_id/coach_id)
+  // avant de corriger, pour ne pas casser un accès élève qui fonctionnerait déjà autrement.
   const isOwner = call.coach_id === user.id || call.client_id === user.id;
   if (!isOwner) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
