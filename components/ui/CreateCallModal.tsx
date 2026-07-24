@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { parisWallClockToUtc } from '@/lib/parisTime';
 
 interface CreateCallForm {
   clientId: string;
@@ -50,7 +51,11 @@ export default function CreateCallModal({ open, onClose, onCreated }: Props) {
     setCreating(true);
     setCreateMsg(null);
 
-    const startTime = new Date(`${form.date}T${form.startHour}:${form.startMinute}:00`);
+    // form.date/startHour/startMinute sont toujours interprétés comme une heure murale
+    // Europe/Paris — indépendamment du fuseau réel de l'appareil du coach (ex: en
+    // déplacement à l'étranger), pour que "14h" saisi signifie toujours "14h à Paris".
+    const [year, month, day] = form.date.split('-').map(Number);
+    const startTime = parisWallClockToUtc(year, month, day, parseInt(form.startHour), parseInt(form.startMinute));
     const endTime = new Date(startTime.getTime() + parseInt(form.durationMin) * 60 * 1000);
     const client = clients.find(c => c.id === form.clientId);
 

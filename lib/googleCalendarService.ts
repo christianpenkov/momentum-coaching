@@ -1,6 +1,7 @@
 import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -199,8 +200,8 @@ export async function createGoogleCall(params: {
 
   if (clientRes.data?.profile_id) {
     const d = new Date(params.startTime);
-    const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
-    const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
+    const dateStr = formatParisDate(d);
+    const timeStr = formatParisTime(d);
     await sendPushToProfile(
       clientRes.data.profile_id,
       `Demande de call — ${coachFirstName || 'ton coach'}`,

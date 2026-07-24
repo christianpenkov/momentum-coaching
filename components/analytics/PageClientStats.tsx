@@ -5187,6 +5187,50 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   }
 }
 
+// Totaux YouTube (Likes/Comments/Vues/Watch time/Subs) de la PÉRIODE COURANTE, depuis
+// analytics_daily_snapshots borné par getPeriodWindow(0, ...) — même logique que
+// fetchSnapshot pour les périodes passées, pour que la navigation semaine/mois reste
+// cohérente même sur la période en cours (au lieu du rolling 30j UTC de l'appel API
+// direct /api/youtube/stats, qui ignorait le calendrier de période affiché).
+async function fetchYtCurrentPeriodTotals(profileId: string | undefined, period: number) {
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const targetId = profileId || user.id;
+
+    const { periodStart, periodEnd } = getPeriodWindow(0, period === 7 ? 'week' : 'month');
+    const startDateStr = parisDateStr(periodStart);
+    const endDateStr = parisDateStr(periodEnd);
+
+    const { data: snaps } = await supabase
+      .from('analytics_daily_snapshots')
+      .select('date, yt_views, yt_watch_time_min, yt_subs_gained, yt_subs_lost, yt_net_subs, yt_likes, yt_comments, yt_shares, yt_subscribers, yt_avg_view_duration_sec')
+      .eq('profile_id', targetId)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('date', { ascending: true });
+
+    if (!snaps || snaps.length === 0) return null;
+
+    const lastSnap = snaps[snaps.length - 1];
+    return {
+      views30d: snaps.reduce((s, r) => s + (r.yt_views ?? 0), 0),
+      watchTime30d: snaps.reduce((s, r) => s + (r.yt_watch_time_min ?? 0), 0),
+      subsGained30d: snaps.reduce((s, r) => s + (r.yt_subs_gained ?? 0), 0),
+      subsLost30d: snaps.reduce((s, r) => s + (r.yt_subs_lost ?? 0), 0),
+      netSubs30d: snaps.reduce((s, r) => s + (r.yt_net_subs ?? 0), 0),
+      likes30d: snaps.reduce((s, r) => s + (r.yt_likes ?? 0), 0),
+      comments30d: snaps.reduce((s, r) => s + (r.yt_comments ?? 0), 0),
+      shares30d: snaps.reduce((s, r) => s + (r.yt_shares ?? 0), 0),
+      subscribers: lastSnap?.yt_subscribers ?? 0,
+      avgViewDurationSec: lastSnap?.yt_avg_view_duration_sec ?? 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   try {
   const supabase = createClient();
@@ -5657,7 +5701,29 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
     enabled: [0, 2, 3].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
-  const yt: YTStats | null = ytRaw ?? null;
+
+  // Totaux YouTube de la période courante depuis la DB (cohérent avec le calendrier de
+  // période affiché) — remplace uniquement les agrégats *30d de l'appel API direct
+  // ci-dessus, qui lui reste la source de la liste de vidéos individuelles (temps réel).
+  const { data: ytCurrentPeriodTotals } = useQuery({
+    queryKey: ['stats-yt-current-period', profileId, period],
+    queryFn: () => fetchYtCurrentPeriodTotals(profileId, period),
+    enabled: [0, 2, 3].includes(tab),
+  });
+
+  const yt: YTStats | null = ytRaw ? (
+    ytCurrentPeriodTotals ? {
+      ...ytRaw,
+      views30d: ytCurrentPeriodTotals.views30d,
+      watchTime30d: ytCurrentPeriodTotals.watchTime30d,
+      subsGained30d: ytCurrentPeriodTotals.subsGained30d,
+      subsLost30d: ytCurrentPeriodTotals.subsLost30d,
+      netSubs30d: ytCurrentPeriodTotals.netSubs30d,
+      likes30d: ytCurrentPeriodTotals.likes30d,
+      comments30d: ytCurrentPeriodTotals.comments30d,
+      shares30d: ytCurrentPeriodTotals.shares30d,
+    } : ytRaw
+  ) : null;
 
   // Stripe — onglets 0, 5
   const { data: stripeRaw, refetch: refetchStripe } = useQuery<StripeStats | null>({

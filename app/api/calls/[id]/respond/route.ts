@@ -3,6 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { sendPushToProfile, getAuthClientForProfile } from '@/lib/googleCalendarService';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 import { google } from 'googleapis';
 
 // POST /api/calls/[id]/respond — l'élève accepte ou refuse un call
@@ -85,8 +86,8 @@ export async function POST(
 
   // Notif push au coach
   const d = new Date(call.scheduled_at);
-  const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
-  const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
+  const dateStr = formatParisDate(d);
+  const timeStr = formatParisTime(d);
   const topic = call.topic || 'Call coaching';
 
   const suffix = proposedAt ? ` — propose : ${proposedAt}` : '';

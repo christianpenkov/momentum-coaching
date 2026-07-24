@@ -18,10 +18,31 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 // Utils
 // ─────────────────────────────────────────────────────────────────────────────
 
+// Offset Paris (+1h hiver / +2h été) — règle UE : dernier dimanche de mars 1h UTC
+// (passage à +2h) → dernier dimanche d'octobre 1h UTC (retour à +1h). Dupliqué ici
+// (pas d'import cross-runtime possible entre l'Edge Function Deno et lib/parisTime.ts
+// côté Next.js) pour que les dates écrites dans analytics_daily_snapshots restent
+// calées sur le même calendrier Paris que getPeriodWindow (lib/period.ts, frontend).
+function lastSundayOfMonth(year: number, month: number): number {
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const lastDate = new Date(Date.UTC(year, month, lastDay));
+  return lastDay - lastDate.getUTCDay();
+}
+
+function parisOffsetHours(utcDate: Date): number {
+  const year = utcDate.getUTCFullYear();
+  const dstStart = Date.UTC(year, 2, lastSundayOfMonth(year, 2), 1, 0, 0);
+  const dstEnd = Date.UTC(year, 9, lastSundayOfMonth(year, 9), 1, 0, 0);
+  const t = utcDate.getTime();
+  return t >= dstStart && t < dstEnd ? 2 : 1;
+}
+
+// Date calendrier Paris (pas UTC) — "aujourd'hui moins daysAgo jours", en heure de Paris.
 function isoDate(daysAgo: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
+  const now = new Date();
+  const parisNow = new Date(now.getTime() + parisOffsetHours(now) * 3600_000);
+  parisNow.setUTCDate(parisNow.getUTCDate() - daysAgo);
+  return parisNow.toISOString().split('T')[0];
 }
 
 async function safeJson(res: Response): Promise<any> {
@@ -295,14 +316,16 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`, { headers: auth }),
   ]);
   const [channelData, analyticsData] = await Promise.all([safeJson(channelRes), safeJson(analyticsRes)]);
-  const subscribers = parseInt(channelData?.items?.[0]?.statistics?.subscriberCount || '0') || null;
+  // ?? plutôt que || : un vrai 0 (0 vue, 0 like, 0 commentaire...) est une donnée
+  // légitime, pas une absence de donnée — || le convertissait à tort en null.
+  const subscribers = parseInt(channelData?.items?.[0]?.statistics?.subscriberCount ?? '0') ?? null;
   const rows: any[] = analyticsData?.rows || [];
   return rows.map((r: any) => ({
-    date: r[0], yt_views: r[1] || null,
-    yt_watch_time_min: Math.round((r[2] || 0) / 60) || null,
-    yt_subscribers: subscribers, yt_subs_gained: r[3] || null, yt_subs_lost: r[4] || null,
-    yt_net_subs: ((r[3] || 0) - (r[4] || 0)) || null, yt_likes: r[5] || null,
-    yt_comments: r[6] || null, yt_shares: r[7] || null, yt_avg_view_duration_sec: r[8] || null,
+    date: r[0], yt_views: r[1] ?? null,
+    yt_watch_time_min: Math.round((r[2] ?? 0) / 60) ?? null,
+    yt_subscribers: subscribers, yt_subs_gained: r[3] ?? null, yt_subs_lost: r[4] ?? null,
+    yt_net_subs: ((r[3] ?? 0) - (r[4] ?? 0)) ?? null, yt_likes: r[5] ?? null,
+    yt_comments: r[6] ?? null, yt_shares: r[7] ?? null, yt_avg_view_duration_sec: r[8] ?? null,
   }));
 }
 
@@ -890,7 +913,9 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
           published_at: detail?.snippet?.publishedAt ? new Date(detail.snippet.publishedAt).toISOString() : null,
           duration_sec: null,
           is_short: isShort,
-          views: parseInt(detail?.statistics?.viewCount || '0') || null,
+          // ?? plutôt que || : un vrai 0 (0 vue/like/commentaire) est une donnée
+          // légitime qui ne doit pas être écrasée en null.
+          views: parseInt(detail?.statistics?.viewCount ?? '0') ?? null,
           views_period: analytics.views ?? null,
           watch_time_min: analytics.watchMin ?? null,
           // likes/comments : lifetime uniquement (Data API v3), pas de colonne
@@ -899,8 +924,8 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
           // pas stockés ici faute d'usage actuel ; si un futur graphique "likes par
           // jour" est construit sur cette table, ajouter likes_period/comments_period
           // plutôt que de réutiliser ces colonnes lifetime par erreur.
-          likes: parseInt(detail?.statistics?.likeCount || '0') || null,
-          comments: parseInt(detail?.statistics?.commentCount || '0') || null,
+          likes: parseInt(detail?.statistics?.likeCount ?? '0') ?? null,
+          comments: parseInt(detail?.statistics?.commentCount ?? '0') ?? null,
           shares: analytics.shares ?? null,
           avg_view_pct: analytics.avgViewPct ?? null,
           subs_gained: analytics.subsGained ?? null,

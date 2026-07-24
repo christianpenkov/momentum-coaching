@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
-// GET /api/calls/reminders — appelé par Vercel Cron toutes les 15 min
+// GET /api/calls/reminders — déclencheur exact non identifié avec certitude (aucun
+// des crons connus ne l'appelle d'après investigation) ; logs de traçabilité ajoutés
+// ci-dessous (table cron_invocation_logs) pour capturer qui l'appelle et depuis où au
+// prochain déclenchement réel, quel qu'il soit.
 export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization');
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -13,6 +17,20 @@ export async function GET(request: NextRequest) {
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
+
+  // Trace de diagnostic — insertion en DB (plus fiable que console.log dont on n'a pas
+  // trouvé la trace lors du dernier test, que ce soit parce que l'appelant n'est pas un
+  // runtime Vercel classique ou que les logs n'ont pas été capturés). À retirer une fois
+  // le déclencheur de cette route confirmé.
+  try {
+    await sb.from('cron_invocation_logs').insert({
+      route: '/api/calls/reminders',
+      user_agent: request.headers.get('user-agent'),
+      referer: request.headers.get('referer'),
+      method: request.method,
+      invoked_at: new Date().toISOString(),
+    });
+  } catch { /* table de debug optionnelle, non bloquant si absente */ }
 
   const now = new Date();
   const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
@@ -48,8 +66,8 @@ export async function GET(request: NextRequest) {
 
     const scheduledAt = new Date(call.scheduled_at);
     const topic = call.topic || 'Call coaching';
-    const timeStr = scheduledAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
-    const dateStr = scheduledAt.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
+    const timeStr = formatParisTime(scheduledAt);
+    const dateStr = formatParisDate(scheduledAt);
     const url = call.join_url || '/client/calls';
 
     // Rappel 24h avant
