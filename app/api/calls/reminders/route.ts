@@ -7,6 +7,12 @@ import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 // des crons connus ne l'appelle d'après investigation) ; logs de traçabilité ajoutés
 // ci-dessous (table cron_invocation_logs) pour capturer qui l'appelle et depuis où au
 // prochain déclenchement réel, quel qu'il soit.
+//
+// ⚠️ Il existe une DEUXIÈME implémentation du même rappel, indépendante de celle-ci :
+// supabase/functions/call-reminders/index.ts (Edge Function Supabase, confirmée
+// active en pratique le 2026-07-25, contrairement à cette route). Voir
+// docs/heure-paris.md pour l'historique complet et ne pas oublier de vérifier les
+// deux si un bug d'heure/rappel réapparaît.
 export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization');
   if (auth !== `Bearer ${process.env.CRON_SECRET}`) {

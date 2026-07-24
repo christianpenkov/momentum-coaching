@@ -1,7 +1,20 @@
+// RÈGLE PRODUIT (décidée le 2026-07-25, ne pas re-changer sans en reparler) :
+// toute heure de call — saisie par le coach, affichée dans les invits, les rappels
+// push, et l'app — est TOUJOURS en heure de Paris, quel que soit le fuseau physique
+// réel du coach ou de l'élève au moment de la saisie ou de la lecture. Pas d'heure
+// locale par utilisateur : un coach en déplacement (ex: Bulgarie, UTC+3) qui saisit
+// "14h" saisit "14h à Paris", et l'élève qui reçoit l'invit voit aussi "14h" — même
+// si physiquement ça tombe à une heure d'horloge murale différente pour chacun.
+// Décision volontaire pour éviter toute ambiguïté/confusion entre coach et élève sur
+// "quelle heure ça veut dire" — le coût d'expliquer un décalage à chaque déplacement
+// dépasse le bénéfice d'un affichage par-fuseau. Toute la plateforme suppose que tout
+// le monde raisonne en heure française.
+//
 // Calcul d'heure de Paris robuste, indépendant du support ICU/Intl de
 // l'environnement d'exécution (contrairement à toLocaleTimeString(...,
 // {timeZone:'Europe/Paris'}), qui peut silencieusement retomber sur UTC sur
-// certains runtimes serverless sans données de fuseaux complètes).
+// certains runtimes serverless sans données de fuseaux complètes — cause réelle
+// du bug corrigé le 2026-07-24/25, voir docs/heure-paris.md).
 //
 // Règle UE de bascule heure d'été/hiver : dernier dimanche de mars 1h UTC
 // (passage à +2h) → dernier dimanche d'octobre 1h UTC (retour à +1h).
