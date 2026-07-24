@@ -1364,7 +1364,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
       const { error: uploadError } = await supabase.storage.from('voice-messages').upload(fileName, audioFile, { contentType: strictType, cacheControl: '3600' });
       if (uploadError) { setMessages(prev => prev.filter(m => m.id !== optimisticId)); URL.revokeObjectURL(localUrl); return; }
       const { data: urlData } = supabase.storage.from('voice-messages').getPublicUrl(fileName);
-      const { error: insertError } = await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: '', type: 'audio', audio_url: urlData.publicUrl, duration_s: Math.round(durationS), read: false, reply_to_id: replyId });
+      const { error: insertError } = await supabase.from('messages').insert({ client_id: clientId, sender_id: userId, text: '', type: 'audio', audio_url: urlData.publicUrl, duration_s: Math.round(durationS), read: false, reply_to_id: replyId, storage_bucket: 'voice-messages', storage_path: fileName });
       if (insertError) { setMessages(prev => prev.filter(m => m.id !== optimisticId)); URL.revokeObjectURL(localUrl); return; }
       setTimeout(() => URL.revokeObjectURL(localUrl), 5000);
     } catch { setMessages(prev => prev.filter(m => m.id !== optimisticId)); URL.revokeObjectURL(localUrl); }

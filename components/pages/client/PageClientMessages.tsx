@@ -1586,6 +1586,7 @@ export default function PageClientMessages() {
       const { error: insertError } = await supabase.from('messages').insert({
         client_id: clientId, sender_id: userId, text: '',
         type: 'audio', audio_url: urlData.publicUrl, duration_s: Math.round(durationS), reply_to_id: replyId,
+        storage_bucket: 'voice-messages', storage_path: fileName,
       });
       if (insertError) {
         console.error('Insert message audio échoué:', insertError.message);

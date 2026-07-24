@@ -50,6 +50,7 @@ export async function POST(req: NextRequest) {
   const { data: { publicUrl } } = supabase.storage.from('chat-medias').getPublicUrl(path);
 
   let thumbnailUrl: string | null = null;
+  let thumbnailPath: string | null = null;
   let pageCount: number | null = null;
   if (!isImage && isPdfFile(file)) {
     const result = await generatePdfThumbnail(bytes);
@@ -61,6 +62,7 @@ export async function POST(req: NextRequest) {
         .upload(thumbPath, result.thumbnail, { contentType: 'image/jpeg' });
       if (!thumbErr) {
         thumbnailUrl = supabase.storage.from('chat-medias').getPublicUrl(thumbPath).data.publicUrl;
+        thumbnailPath = thumbPath;
       }
     }
   } else if (isImage) {
@@ -77,6 +79,7 @@ export async function POST(req: NextRequest) {
         .upload(thumbPath, thumbBuffer, { contentType: 'image/webp' });
       if (!thumbErr) {
         thumbnailUrl = supabase.storage.from('chat-medias').getPublicUrl(thumbPath).data.publicUrl;
+        thumbnailPath = thumbPath;
       }
     } catch {
       // Format d'image non supporté par sharp (rare) — thumbnailUrl reste null, le feed
@@ -90,6 +93,7 @@ export async function POST(req: NextRequest) {
       client_id: clientId, sender_id: user.id, text: file.name, type,
       audio_url: publicUrl, caption: caption?.trim() || null, reply_to_id: replyToId,
       file_size_bytes: file.size, page_count: pageCount, thumbnail_url: thumbnailUrl,
+      storage_bucket: 'chat-medias', storage_path: path, thumbnail_storage_path: thumbnailPath,
       read: false,
     })
     .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url')
