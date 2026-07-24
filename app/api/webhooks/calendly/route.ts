@@ -11,21 +11,23 @@ export async function POST(request: NextRequest) {
   const body = await request.text();
   const signature = request.headers.get('calendly-webhook-signature') || '';
 
-  // Vérifie la signature Calendly — obligatoire si clé configurée
+  // Vérifie la signature Calendly — fail-closed si la clé n'est pas configurée
   const signingKey = process.env.CALENDLY_WEBHOOK_SIGNING_KEY;
-  if (signingKey) {
-    const crypto = await import('crypto');
-    const [, receivedSig] = (signature || '').split('=');
-    if (!receivedSig) {
-      return NextResponse.json({ error: 'Signature manquante' }, { status: 401 });
-    }
-    const expected = crypto
-      .createHmac('sha256', signingKey)
-      .update(body)
-      .digest('hex');
-    if (receivedSig !== expected) {
-      return NextResponse.json({ error: 'Signature invalide' }, { status: 401 });
-    }
+  if (!signingKey) {
+    console.error('[webhook/calendly] CALENDLY_WEBHOOK_SIGNING_KEY manquante — refus fail-closed');
+    return NextResponse.json({ error: 'Erreur de configuration serveur' }, { status: 500 });
+  }
+  const crypto = await import('crypto');
+  const [, receivedSig] = (signature || '').split('=');
+  if (!receivedSig) {
+    return NextResponse.json({ error: 'Signature manquante' }, { status: 401 });
+  }
+  const expected = crypto
+    .createHmac('sha256', signingKey)
+    .update(body)
+    .digest('hex');
+  if (receivedSig !== expected) {
+    return NextResponse.json({ error: 'Signature invalide' }, { status: 401 });
   }
 
   let payload: any;
