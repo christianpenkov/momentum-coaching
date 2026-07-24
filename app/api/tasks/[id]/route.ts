@@ -22,7 +22,7 @@ async function assertAccess(userId: string, taskId: string) {
 }
 
 // PATCH /api/tasks/[id]
-// Body: { done?: boolean, label?: string, deadline?: string | null, priority?: string }
+// Body: { done?: boolean, label?: string, deadline?: string | null, priority?: string, requires_attachment?: boolean }
 // Le coach peut tout modifier sur ses tâches. L'élève peut modifier deadline/priority
 // uniquement sur ses propres tâches personnelles (added_by='client') ; sur une tâche
 // assignée par le coach (added_by='coach'), l'élève ne peut modifier que `done`.
@@ -47,6 +47,7 @@ export async function PATCH(
     if (typeof body.label === 'string' && body.label.trim()) patch.label = body.label.trim();
     if (body.deadline === null || typeof body.deadline === 'string') patch.deadline = body.deadline;
     if (['high', 'medium', 'low'].includes(body.priority)) patch.priority = body.priority;
+    if (typeof body.requires_attachment === 'boolean') patch.requires_attachment = body.requires_attachment;
     if (body.resolved_by_coach === true) {
       patch.resolved_by_coach = true;
       patch.resolved_at = new Date().toISOString();

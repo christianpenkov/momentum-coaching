@@ -42,6 +42,24 @@ export function getDeadlineStatus(deadline: string | null | undefined, done: boo
   return { overdue, urgent, color, label };
 }
 
+export type TaskBucket = 'over' | 'today' | 'week' | 'later' | 'done';
+
+// Regroupement à 5 niveaux utilisé par les pages Tâches (coach + élève) pour grouper
+// l'affichage. `over` respecte les mêmes règles que isTaskOverdue (une tâche résolue par
+// le coach n'est jamais "en retard" même si sa deadline est passée et qu'elle n'est pas done).
+export function getTaskBucket(t: Task): TaskBucket {
+  if (t.done) return 'done';
+  if (isTaskOverdue(t)) return 'over';
+  if (!t.deadline) return 'later';
+  const target = new Date(t.deadline);
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const diffDays = Math.ceil((target.getTime() - startOfToday.getTime()) / 86400000);
+  if (diffDays <= 0) return 'today';
+  if (diffDays <= 7) return 'week';
+  return 'later';
+}
+
 export interface ClientSignals {
   overdueTasksCount: number;
   activeNoShowsCount: number;

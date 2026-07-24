@@ -1,11 +1,20 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useReducedMotion } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
-import { getDeadlineStatus } from '@/lib/clientSignals';
+import { getDeadlineStatus, getTaskBucket, type TaskBucket } from '@/lib/clientSignals';
+
+const BUCKET_META: Record<Exclude<TaskBucket, 'done'>, { label: string; color: string }> = {
+  over: { label: 'En retard', color: 'var(--red)' },
+  today: { label: "Aujourd'hui", color: 'var(--amber)' },
+  week: { label: 'Cette semaine', color: 'var(--accent-brand)' },
+  later: { label: 'Plus tard', color: 'var(--muted)' },
+};
+const BUCKET_ORDER: TaskBucket[] = ['over', 'today', 'week', 'later', 'done'];
 
 const PRIORITY_CONFIG = {
   high: { label: 'Haute', color: 'var(--red)' },
@@ -180,7 +189,7 @@ function EditFields({ task, onSave, onDelete }: { task: Task; onSave: (patch: { 
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   return (
-    <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
+    <div className="task-row-actions" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
       <div>
         <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deadline</label>
         <div style={{ display: 'flex', gap: 6 }}>
@@ -261,16 +270,11 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
 
   return (
     <div style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <div className="task-row-actions" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <button
           type="button"
           onClick={handleToggleClick}
-          style={{
-            width: 18, height: 18, borderRadius: 5, flexShrink: 0, cursor: 'pointer',
-            border: `1.5px solid ${task.done ? 'var(--green)' : 'var(--border)'}`,
-            background: task.done ? 'var(--green)' : 'transparent',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}
+          className={`task-check${task.done ? ' checked' : ''}`}
         >
           {task.done && <Icon name="check" size={11} style={{ color: '#fff' }} />}
         </button>
@@ -328,12 +332,14 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
 }
 
 export default function PageClientTasks() {
+  const reducedMotion = useReducedMotion();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState('');
   const [adding, setAdding] = useState(false);
   const [tab, setTab] = useState<'coach' | 'mine'>('coach');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     const res = await fetch('/api/tasks');
@@ -378,28 +384,53 @@ export default function PageClientTasks() {
     await fetch(`/api/tasks/${taskId}`, { method: 'DELETE' });
   }
 
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
-
   const coachTasks = tasks.filter(t => t.added_by === 'coach');
   const myTasks = tasks.filter(t => t.added_by === 'client');
   const visibleTasks = tab === 'coach' ? coachTasks : myTasks;
-  const todo = visibleTasks.filter(t => !t.done);
-  const done = visibleTasks.filter(t => t.done);
+
+  const grouped = useMemo(() => {
+    const byBucket: Record<TaskBucket, Task[]> = { over: [], today: [], week: [], later: [], done: [] };
+    for (const t of visibleTasks) byBucket[getTaskBucket(t)].push(t);
+    return byBucket;
+  }, [visibleTasks]);
+
+  const doneCount = grouped.done.length;
+  const totalCount = visibleTasks.length;
+  const activePct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
+
+  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
     <div className="page-content">
       <div className="page-header">
-        <h1 className="page-title">Tâches</h1>
+        <h1 className="page-title">Mes tâches</h1>
       </div>
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+      <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Progression de la semaine</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{doneCount}/{totalCount}</span>
+        </div>
+        <div style={{ height: 8, borderRadius: 999, background: 'var(--surface-2)', overflow: 'hidden' }}>
+          <div
+            style={{
+              height: '100%', borderRadius: 999,
+              width: `${activePct}%`,
+              background: activePct === 100 ? 'var(--green)' : 'var(--accent-brand)',
+              transition: reducedMotion ? 'none' : 'width .9s cubic-bezier(.16,1,.3,1)',
+            }}
+          />
+        </div>
+      </div>
+
+      <div className="tasks-tabs" style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
         <button
           type="button"
           onClick={() => setTab('coach')}
           className={`chip${tab === 'coach' ? ' chip-active' : ''}`}
           style={{ fontSize: 13, fontWeight: 600, padding: '8px 16px' }}
         >
-          Tâches du coach ({coachTasks.length})
+          Du coach ({coachTasks.length})
         </button>
         <button
           type="button"
@@ -407,7 +438,7 @@ export default function PageClientTasks() {
           className={`chip${tab === 'mine' ? ' chip-active' : ''}`}
           style={{ fontSize: 13, fontWeight: 600, padding: '8px 16px' }}
         >
-          Mes tâches ({myTasks.length})
+          Perso ({myTasks.length})
         </button>
       </div>
 
@@ -428,45 +459,59 @@ export default function PageClientTasks() {
         </div>
       )}
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {todo.length === 0 && done.length === 0 && (
-          <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>
-            {tab === 'coach' ? 'Aucune tâche assignée par ton coach pour l\'instant.' : 'Aucune tâche personnelle pour l\'instant.'}
-          </div>
-        )}
-        {todo.map(task => (
-          <TaskRow
-            key={task.id}
-            task={task}
-            onToggle={(v) => toggle(task.id, v)}
-            expanded={expandedId === task.id}
-            onExpand={() => setExpandedId(id => id === task.id ? null : task.id)}
-            onSave={(patch) => saveTask(task.id, patch)}
-            onDelete={() => deleteTask(task.id)}
-          />
-        ))}
-      </div>
-
-      {done.length > 0 && (
-        <div style={{ marginTop: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
-            Terminées ({done.length})
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {done.map(task => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                onToggle={(v) => toggle(task.id, v)}
-                expanded={expandedId === task.id}
-                onExpand={() => setExpandedId(id => id === task.id ? null : task.id)}
-                onSave={(patch) => saveTask(task.id, patch)}
-                onDelete={() => deleteTask(task.id)}
-              />
-            ))}
-          </div>
-        </div>
+      {totalCount === 0 && (
+        <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Rien de prévu.</div>
       )}
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
+        {BUCKET_ORDER.map(bucket => {
+          const list = grouped[bucket];
+          if (list.length === 0) return null;
+          const isDone = bucket === 'done';
+          const meta = isDone ? { label: 'Terminées', color: 'var(--green)' } : BUCKET_META[bucket];
+          const collapsed = !!collapsedGroups[bucket];
+          return (
+            <div key={bucket}>
+              <button
+                type="button"
+                onClick={() => setCollapsedGroups(prev => ({ ...prev, [bucket]: !prev[bucket] }))}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8, width: '100%',
+                  background: 'none', border: 'none', cursor: 'pointer', padding: '10px 0',
+                  minHeight: 44,
+                }}
+              >
+                <span style={{
+                  width: 6, height: 6, borderRadius: '50%', background: meta.color, flexShrink: 0,
+                  animation: bucket === 'over' && !reducedMotion ? 'pulse 1.6s ease-in-out infinite' : 'none',
+                }} />
+                <span style={{ fontFamily: "'IBM Plex Mono', ui-monospace, monospace", fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {meta.label}
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{list.length}</span>
+                <div style={{ flex: 1 }} />
+                <Icon name={collapsed ? 'chevron-down' : 'chevron-up'} size={13} style={{ color: 'var(--muted)', transition: 'transform .2s' }} />
+              </button>
+
+              {!collapsed && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                  {list.map(task => (
+                    <TaskRow
+                      key={task.id}
+                      task={task}
+                      onToggle={(v) => toggle(task.id, v)}
+                      expanded={expandedId === task.id}
+                      onExpand={() => setExpandedId(id => id === task.id ? null : task.id)}
+                      onSave={(patch) => saveTask(task.id, patch)}
+                      onDelete={() => deleteTask(task.id)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

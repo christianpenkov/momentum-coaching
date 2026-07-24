@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Avatar from '@/components/ui/Avatar';
@@ -316,7 +317,11 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      <TaskModal open={modalOpen} clientId={id} onClose={() => setModalOpen(false)} onCreated={refetch} />
+      <AnimatePresence>
+        {modalOpen && (
+          <TaskModal clientId={id} onClose={() => setModalOpen(false)} onCreated={refetch} />
+        )}
+      </AnimatePresence>
       {sessionRapportCallId && (
         <SessionRapportModal
           callId={sessionRapportCallId}
