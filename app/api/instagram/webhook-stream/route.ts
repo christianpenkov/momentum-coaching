@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 // Stockage en mémoire des derniers events reçus par le webhook IG
 // (reset à chaque redéploiement — c'est volontaire pour le test)
@@ -17,8 +18,12 @@ export function pushEvent(data: any) {
   }
 }
 
-// GET — stream SSE temps réel
+// GET — stream SSE temps réel (consultation, réservée aux utilisateurs connectés)
 export async function GET() {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
   const encoder = new TextEncoder();
 
   const stream = new ReadableStream({

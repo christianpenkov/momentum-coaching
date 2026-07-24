@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { createClient as createServerClient } from '@/lib/supabase/server';
 
 const IG_ID = process.env.INSTAGRAM_TEST_IG_ID!;
 const TOKEN = process.env.INSTAGRAM_TEST_TOKEN!;
@@ -6,6 +7,10 @@ const TOKEN = process.env.INSTAGRAM_TEST_TOKEN!;
 // GET /api/instagram/test-private-reply?comment_id=XXX&message=YYY
 // Envoie un private reply sur un commentaire IG — teste si le DM arrive bien dans la boîte
 export async function GET(request: Request) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
   const { searchParams } = new URL(request.url);
   const commentId = searchParams.get('comment_id');
   const message = searchParams.get('message') || 'Voici ton lead magnet 👉 [lien test]';
