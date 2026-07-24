@@ -10,7 +10,8 @@ const serviceSupabase = createClient(
 // GET /api/calls/notify-rapport
 // Cron toutes les 30 min — détecte les calls terminés sans rapport et envoie une push.
 // La notif est envoyée à l'heure exacte de fin du call (scheduled_at + duration).
-// Appels Calendly uniquement (calendly_event_uuid IS NOT NULL).
+// Appels Calendly uniquement (call_type='calendly' — équivalent à calendly_event_uuid
+// IS NOT NULL, garanti par la contrainte DB calls_call_type_uuid_consistency).
 // Calls annulés ou reprogrammés (status='canceled') → ignorés.
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -44,7 +45,7 @@ export async function GET(request: Request) {
     .eq('rapport_notif_sent', false)
     .eq('rescheduled', false)  // ne pas notifier les calls reportés
     .neq('ignored', true)
-    .not('calendly_event_uuid', 'is', null)
+    .eq('call_type', 'calendly')
     .not('scheduled_at', 'is', null)
     .not('duration', 'is', null);
 
