@@ -71,6 +71,7 @@ export async function POST(
   const { data: { publicUrl } } = serviceSupabase.storage.from('task-attachments').getPublicUrl(path);
 
   let thumbnailUrl: string | null = null;
+  let thumbnailPath: string | null = null;
   if (!isImage && isPdfFile(file)) {
     const result = await generatePdfThumbnail(bytes);
     if (result) {
@@ -80,6 +81,7 @@ export async function POST(
         .upload(thumbPath, result.thumbnail, { contentType: 'image/jpeg' });
       if (!thumbErr) {
         thumbnailUrl = serviceSupabase.storage.from('task-attachments').getPublicUrl(thumbPath).data.publicUrl;
+        thumbnailPath = thumbPath;
       }
     }
   } else if (isImage) {
@@ -94,6 +96,7 @@ export async function POST(
         .upload(thumbPath, thumbBuffer, { contentType: 'image/webp' });
       if (!thumbErr) {
         thumbnailUrl = serviceSupabase.storage.from('task-attachments').getPublicUrl(thumbPath).data.publicUrl;
+        thumbnailPath = thumbPath;
       }
     } catch {
       // Format d'image non supporté par sharp (rare) — thumbnailUrl reste null.
@@ -111,6 +114,8 @@ export async function POST(
       file_name: file.name,
       file_size_bytes: file.size,
       file_type: file.type,
+      storage_path: path,
+      thumbnail_storage_path: thumbnailPath,
     })
     .select()
     .single();
@@ -139,5 +144,21 @@ export async function GET(
     .order('created_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ attachments: data });
+
+  const attachments = await Promise.all((data || []).map(async (a) => {
+    if (!a.storage_path) return a; // pièces jointes historiques éventuelles, avant migration
+    const { data: signed } = await serviceSupabase.storage
+      .from('task-attachments')
+      .createSignedUrl(a.storage_path, 3600);
+    let thumbSigned: string | null = null;
+    if (a.thumbnail_storage_path) {
+      const { data: t } = await serviceSupabase.storage
+        .from('task-attachments')
+        .createSignedUrl(a.thumbnail_storage_path, 3600);
+      thumbSigned = t?.signedUrl || null;
+    }
+    return { ...a, file_url: signed?.signedUrl || a.file_url, thumbnail_url: thumbSigned || a.thumbnail_url };
+  }));
+
+  return NextResponse.json({ attachments });
 }
