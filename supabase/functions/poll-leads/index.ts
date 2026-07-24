@@ -893,6 +893,12 @@ async function snapshotYtVideos(profileId: string, accessToken: string, yesterda
           views: parseInt(detail?.statistics?.viewCount || '0') || null,
           views_period: analytics.views ?? null,
           watch_time_min: analytics.watchMin ?? null,
+          // likes/comments : lifetime uniquement (Data API v3), pas de colonne
+          // "_period" — contrairement à views/views_period. analytics.likes/comments
+          // (30j, calculés juste au-dessus dans analyticsMap) ne sont volontairement
+          // pas stockés ici faute d'usage actuel ; si un futur graphique "likes par
+          // jour" est construit sur cette table, ajouter likes_period/comments_period
+          // plutôt que de réutiliser ces colonnes lifetime par erreur.
           likes: parseInt(detail?.statistics?.likeCount || '0') || null,
           comments: parseInt(detail?.statistics?.commentCount || '0') || null,
           shares: analytics.shares ?? null,

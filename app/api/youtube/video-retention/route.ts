@@ -102,12 +102,15 @@ export async function GET(request: Request) {
     watchRatio: r[1],
   }));
 
-  // Toutes les stats du modal doivent être "depuis publication" (lifetime), pas un
-  // mélange avec les valeurs 30j du cron poll-leads (avg_view_pct, watch_time_min,
-  // likes/comments/shares en DB) — demande explicite de Chris. Un seul appel en plus
-  // de la courbe de rétention, même fenêtre startDate=publishedAt.
+  // watch time / rétention doivent être "depuis publication" (lifetime), pas un
+  // mélange avec les valeurs 30j du cron poll-leads — demande explicite de Chris.
+  // likes/comments NE viennent PAS de ce rapport Analytics : ce rapport agrégé a une
+  // latence de traitement côté Google (24-48h+), il divergeait donc du compteur
+  // temps réel affiché avant chargement (Data API v3, voir plus bas), causant un
+  // "saut" visuel (ex: 4→3) au moment où ce fetch remplaçait la valeur affichée.
+  // shares n'a pas d'équivalent dans la Data API v3, reste donc sur Analytics.
   const summaryRes = await fetch(
-    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage,estimatedMinutesWatched,likes,comments,shares&filters=video==${videoId}`,
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=averageViewDuration,averageViewPercentage,estimatedMinutesWatched,shares&filters=video==${videoId}`,
     { headers: authHeader }
   );
   const summaryData = await summaryRes.json();
@@ -115,16 +118,30 @@ export async function GET(request: Request) {
   const avgViewDurationSec: number | null = summaryRow ? summaryRow[0] : null;
   const avgViewPercentage: number | null = summaryRow ? summaryRow[1] : null;
   const watchTimeMin: number | null = summaryRow ? summaryRow[2] : null;
-  const likes: number | null = summaryRow ? summaryRow[3] : null;
-  const comments: number | null = summaryRow ? summaryRow[4] : null;
-  const shares: number | null = summaryRow ? summaryRow[5] : null;
+  const shares: number | null = summaryRow ? summaryRow[3] : null;
+
+  // likes/comments : même source que l'affichage "avant chargement" (Data API v3,
+  // statistics.likeCount/commentCount) — compteur public temps quasi-réel, stable et
+  // identique avant/après chargement, plus de saut visuel.
+  let likes: number | null = null;
+  let comments: number | null = null;
+  const statsRes = await fetch(
+    `https://www.googleapis.com/youtube/v3/videos?part=statistics&id=${videoId}`,
+    { headers: authHeader }
+  );
+  const statsData = await statsRes.json();
+  const statsItem = statsData?.items?.[0];
+  if (statsItem?.statistics) {
+    likes = statsItem.statistics.likeCount !== undefined ? Number(statsItem.statistics.likeCount) : null;
+    comments = statsItem.statistics.commentCount !== undefined ? Number(statsItem.statistics.commentCount) : null;
+  }
 
   return NextResponse.json({
     videoId, retentionCurve,
     avgViewDurationSec, avgViewPercentage, watchTimeMin, likes, comments, shares,
     debug: {
       startDate, endDate: getToday(), rowCount: retentionCurve.length,
-      apiError: retentionData.error || summaryData.error || null,
+      apiError: retentionData.error || summaryData.error || statsData.error || null,
       summaryColumnHeaders: summaryData.columnHeaders,
       summaryRawRow: summaryRow,
     },

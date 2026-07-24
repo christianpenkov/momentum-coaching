@@ -127,6 +127,7 @@ export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, Pipelin
 // ── Colonnes ──────────────────────────────────────────────────────────────────
 
 const IG_STAGES = [
+  { key: 'cold_dm',       label: 'Cold DM',            color: '#0891B2', lightBg: '#ECFEFF', dot: '#0891B2' },
   { key: 'lm_sent',       label: 'Lead Commentaire / LM reçu', color: '#7C3AED', lightBg: '#F5F3FF', dot: '#7C3AED' },
   { key: 'in_convo',      label: 'En conversation',   color: '#9333EA', lightBg: '#FDF4FF', dot: '#9333EA' },
   { key: 'calendly_sent', label: 'Calendly envoyé',   color: '#D97706', lightBg: '#FFFBEB', dot: '#D97706' },
@@ -147,7 +148,7 @@ type YtStageKey = typeof YT_STAGES[number]['key'];
 
 // Ensembles pour la règle pré-call / post-call
 const POST_CALL_STAGES = new Set(['call_booked', 'showed_up', 'closed']);
-const PRE_CALL_STAGES  = new Set(['lm_sent', 'in_convo', 'calendly_sent', 'link_clicked']);
+const PRE_CALL_STAGES  = new Set(['cold_dm', 'lm_sent', 'in_convo', 'calendly_sent', 'link_clicked']);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -1168,6 +1169,7 @@ export default function PagePipeline() {
         new Date(prospect.first_click_at) > new Date(linkSentRef);
 
       let natural: IgStageKey = lead ? 'lm_sent' : 'calendly_sent';
+      if (lead?.source === 'cold_dm') { natural = 'cold_dm'; }
       if (lead?.hook_replied) { natural = 'in_convo'; }
       if (calendlySentValid) { natural = 'calendly_sent'; }
       if (linkClickedValid)  { natural = 'link_clicked'; }
@@ -1229,7 +1231,7 @@ export default function PagePipeline() {
       const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
-      const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : prospect ? 'Cold DM' : '';
+      const sub = lead?.keyword_matched ? `#${lead.keyword_matched}` : (lead?.source === 'cold_dm' || prospect) ? 'Cold DM' : '';
 
       const lmClickedEvent = lead ? events.find(e => e.ig_lead_id === lead.id && e.event_type === 'lm_clicked') : null;
 

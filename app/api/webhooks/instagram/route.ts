@@ -60,6 +60,97 @@ async function attemptShortioCreate(apiKey: string, payload: object): Promise<Re
   return res;
 }
 
+// Détecte un Cold DM générique (echo sans lien Calendly connu) : premier message
+// manuel envoyé par Chris depuis l'app Instagram à quelqu'un qui vient de le suivre.
+// Deux filtres avant de créer une fiche, dans l'ordre (rapide → lent) :
+//  1) Table interne : si le destinataire est déjà connu (lead ou prospect_link),
+//     ce n'est pas un premier contact mais une RELANCE — on ne crée rien, on ne
+//     touche à rien (décision produit Chris : relance != Cold DM, jamais de 2e fiche).
+//  2) Fallback API : si inconnu en interne, on vérifie via l'historique réel de la
+//     conversation (endpoint conversations Meta) qu'il ne s'agit vraiment que d'un
+//     seul message avant de créer la fiche — filtre anti-faux-positif (évite de
+//     tracker un message à un ami/autre coach), couvre aussi le cas d'une
+//     conversation ancienne antérieure au tracking, invisible en interne.
+async function handleColdDmCandidate(params: {
+  pid: string;
+  recipientId: string;
+  resolvedMatch: { access_token: string } | null;
+  igAccountId: string;
+}): Promise<void> {
+  const { pid, recipientId, resolvedMatch, igAccountId } = params;
+  if (!recipientId || !resolvedMatch) return;
+
+  // Filtre 1 — déjà connu du pipeline (lead ou prospect_link) → relance, pas Cold DM
+  const [{ data: existingLead }, { data: existingProspect }] = await Promise.all([
+    serviceSupabase.from('instagram_leads').select('id').eq('profile_id', pid).eq('ig_user_id', recipientId).maybeSingle(),
+    serviceSupabase.from('prospect_links').select('id').eq('profile_id', pid).eq('ig_username', recipientId).maybeSingle(),
+  ]);
+  if (existingLead || existingProspect) return;
+
+  const { access_token: token } = resolvedMatch;
+
+  // Résout le username du destinataire (l'echo Meta ne le fournit pas directement)
+  const profileRes = await fetch(
+    `https://graph.instagram.com/v22.0/${recipientId}?fields=id,username&access_token=${token}`
+  );
+  const profileData = await profileRes.json().catch(() => ({}));
+  const recipientUsername: string | null = profileData?.username || null;
+  if (!recipientUsername) return;
+
+  // Re-vérifie par username (le filtre 1 était par ig_user_id, un prospect_link créé
+  // manuellement dans l'UI est indexé par ig_username — double sécurité anti-doublon)
+  const { data: existingProspectByUsername } = await serviceSupabase
+    .from('prospect_links')
+    .select('id')
+    .eq('profile_id', pid)
+    .ilike('ig_username', recipientUsername)
+    .maybeSingle();
+  if (existingProspectByUsername) return;
+
+  // Filtre 2 — fallback API : confirme qu'il s'agit bien du premier (et seul) message
+  // de la conversation avant de créer la fiche.
+  try {
+    const convRes = await fetch(
+      `https://graph.instagram.com/v22.0/${igAccountId}/conversations?user_id=${recipientId}&fields=id,message_count&access_token=${token}`
+    );
+    const convData = await convRes.json();
+    const conv = convData?.data?.[0];
+    if (!conv || (conv.message_count ?? 0) > 1) return;
+  } catch {
+    return;
+  }
+
+  const now = new Date().toISOString();
+  const { data: newLead } = await serviceSupabase
+    .from('instagram_leads')
+    .insert({
+      profile_id:       pid,
+      ig_username:      recipientUsername,
+      ig_user_id:       recipientId,
+      source:           'cold_dm',
+      keyword_matched:  'cold_dm',
+      lead_magnet_sent: false,
+      hook_replied:     false,
+      detected_at:      now,
+    })
+    .select('id')
+    .maybeSingle();
+
+  if (newLead?.id) {
+    await serviceSupabase.from('prospect_events').upsert({
+      profile_id:   pid,
+      prospect_key: recipientUsername.toLowerCase(),
+      platform:     'ig',
+      event_type:   'cold_dm_sent',
+      occurred_at:  now,
+      ig_lead_id:   newLead.id,
+    }, { onConflict: 'ig_lead_id,event_type', ignoreDuplicates: false });
+
+    console.log(`[IG Webhook] cold_dm créé — @${recipientUsername}, lead: ${newLead.id}`);
+    pushEvent({ type: 'cold_dm_created', ig_username: recipientUsername, lead_id: newLead.id });
+  }
+}
+
 // Vérifie la signature Meta pour sécuriser le webhook
 function verifySignature(body: string, signature: string | null): boolean {
   if (!signature || !APP_SECRET) return false;
@@ -168,7 +259,13 @@ export async function POST(request: Request) {
           .eq('profile_id', pid);
 
         const matchedLink = (allLinks || []).find(pl => pl.short_url && msgText.includes(pl.short_url));
-        if (!matchedLink) { continue; }
+        if (!matchedLink) {
+          // Pas de lien Calendly dans l'echo → candidat Cold DM générique : premier
+          // message manuel envoyé par Chris depuis l'app Instagram à quelqu'un qui
+          // vient de le suivre, sans commentaire ni lead magnet.
+          await handleColdDmCandidate({ pid, recipientId, resolvedMatch, igAccountId });
+          continue;
+        }
 
         const now = new Date().toISOString();
         let igLeadId: string | null = matchedLink.ig_lead_id ?? null;
@@ -305,8 +402,11 @@ export async function POST(request: Request) {
       // On ne traite que les messages REÇUS (pas nos propres envois)
       if (!senderId || !msgText) continue;
 
-      // Le sender est le prospect — cherche un lead avec cet ig_user_id
-      // qui a reçu le LM (lead_magnet_sent = true).
+      // Le sender est le prospect — cherche un lead avec cet ig_user_id qui a soit
+      // reçu le LM (lead_magnet_sent = true), soit est un Cold DM (source = 'cold_dm',
+      // toujours lead_magnet_sent = false puisqu'il n'y a jamais eu de commentaire/LM)
+      // — sans ce 2e cas, une réponse à un Cold DM ne fait jamais basculer la carte
+      // vers "En conversation".
       // On cherche SANS filtrer sur hook_replied pour toujours mettre à jour hook_replied_at
       // (même si déjà true) → permet de détecter un nouveau message après un recul manuel.
 
@@ -315,7 +415,7 @@ export async function POST(request: Request) {
         .select('id, hook_replied, ig_username')
         .eq('profile_id', pid)
         .eq('ig_user_id', senderId)
-        .eq('lead_magnet_sent', true)
+        .or('lead_magnet_sent.eq.true,source.eq.cold_dm')
         .order('detected_at', { ascending: false })
         .limit(1)
         .maybeSingle();
