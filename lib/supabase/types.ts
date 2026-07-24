@@ -109,6 +109,12 @@ export interface Call {
   ready: 'ready' | 'partial' | 'pending';
   notes: string | null;
   calendly_uri: string | null;
+  // Source de vérité explicite du type de call — préférer ce champ à
+  // calendly_event_uuid (rempli/vide) pour distinguer flux Calendly-vente vs
+  // coaching Google Meet dans tout nouveau code. Les deux champs sont garantis
+  // cohérents par la contrainte DB calls_call_type_uuid_consistency
+  // (call_type='calendly' ⇔ calendly_event_uuid non-null), mais une bonne partie
+  // du code historique lit encore calendly_event_uuid par habitude.
   calendly_event_uuid: string | null;
   join_url: string | null;
   meet_link: string | null;

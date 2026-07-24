@@ -270,6 +270,7 @@ export async function POST() {
     const baseUpsert: Record<string, any> = {
       coach_id: leadsProfileId,
       client_id: clientId,
+      call_type: 'calendly',
       calendly_event_uuid: eventUuid,
       calendly_uri: event.uri,
       topic: eventName,
