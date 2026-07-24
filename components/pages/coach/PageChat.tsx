@@ -1068,14 +1068,44 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
       .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url')
       .eq('client_id', clientId)
       .order('created_at', { ascending: true })
-      .then(({ data }) => {
-        setMessages((data as Msg[]) || []);
+      .then(async ({ data }) => {
+        const msgs = (data as Msg[]) || [];
+        setMessages(msgs);
         setLoading(false);
         // Le marquage lu se fait maintenant uniquement via onEnterViewport (IntersectionObserver
         // par bulle) — un message trop haut dans l'historique, jamais scrollé jusqu'à lui, ne
         // doit pas être marqué lu juste parce que la conversation est ouverte.
+        await resolveMediaUrls(msgs);
       });
   }, [clientId, userId, supabase]);
+
+  // Résout les URLs signées pour les messages media (image/document/audio) d'un lot donné,
+  // en remplaçant audio_url/thumbnail_url dans le state une fois reçues. Nécessaire depuis que
+  // chat-medias/voice-messages sont des buckets privés — l'URL publique stockée en DB ne
+  // fonctionne plus, il faut la résoudre à la demande via /api/messages/media-url.
+  const resolveMediaUrls = useCallback(async (msgs: Msg[]) => {
+    const mediaIds = msgs.filter(m => m.type === 'image' || m.type === 'document' || m.type === 'audio').map(m => m.id);
+    if (mediaIds.length === 0) return;
+    try {
+      const res = await fetch('/api/messages/media-url', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageIds: mediaIds }),
+      });
+      if (!res.ok) return;
+      const { urls } = await res.json();
+      setMessages(prev => prev.map(m => {
+        const resolved = urls[m.id];
+        if (!resolved?.url) return m;
+        return { ...m, audio_url: resolved.url, thumbnail_url: resolved.thumbnailUrl || m.thumbnail_url };
+      }));
+    } catch {
+      // Échec silencieux : les messages restent affichés avec l'URL d'origine (audio_url
+      // publique tant que les buckets ne sont pas encore basculés en privé — voir plan de
+      // migration ; après bascule, un échec ici laisserait un média cassé, acceptable en
+      // dégradé plutôt que de bloquer l'affichage de la conversation).
+    }
+  }, []);
 
   // Tant que le calcul du premier non-lu (voir useLayoutEffect de scroll plus bas) n'a pas eu
   // lieu pour cette ouverture de conversation, on refuse tout marquage "lu" automatique — même
@@ -1130,6 +1160,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
             if (optIdx !== -1) { const next = [...prev]; next[optIdx] = msg; return next; }
             return [...prev, msg];
           });
+          if (msg.type === 'image' || msg.type === 'document' || msg.type === 'audio') {
+            resolveMediaUrls([msg]);
+          }
           // Le marquage lu se fait via onEnterViewport quand la bulle entre réellement
           // dans le viewport (pas automatique à la réception — cf. markMessageRead).
           // Push géré par le trigger Supabase côté serveur
@@ -1401,6 +1434,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
       const json = await res.json();
       if (res.ok && json.message) {
         setMessages(prev => [...prev, json.message as Msg]);
+        resolveMediaUrls([json.message as Msg]);
       } else {
         setActionError('Envoi échoué, réessaie');
       }
