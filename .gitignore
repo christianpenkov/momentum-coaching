@@ -48,3 +48,6 @@ next-env.d.ts
 /graphify-out/
 
 .env*.local
+
+# supabase CLI cache local (régénéré à chaque `supabase link`/déploiement)
+supabase/.temp/
