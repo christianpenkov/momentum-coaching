@@ -28,6 +28,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'clientId, startTime et endTime sont requis' }, { status: 400 });
   }
 
+  const { data: clientRow } = await supabase
+    .from('clients')
+    .select('id')
+    .eq('id', clientId)
+    .eq('coach_id', user.id)
+    .maybeSingle();
+  if (!clientRow) {
+    return NextResponse.json({ error: 'Client introuvable ou non autorisé' }, { status: 403 });
+  }
+
   try {
     const call = await createGoogleCall({
       coachId: user.id,
