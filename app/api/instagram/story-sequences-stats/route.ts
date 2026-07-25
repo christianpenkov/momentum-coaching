@@ -95,17 +95,31 @@ export async function GET(request: Request) {
   const leadIds = (leads || []).map(l => l.id);
   const leadsCount = leadIds.length;
 
+  // Priorité à utm_content = sequenceId (daté au clic du lien Calendly de CETTE
+  // séquence, insensible aux interactions ultérieures de la même personne ailleurs)
+  // — fallback sur ig_lead_id uniquement pour les calls sans utm_content (ex: LM
+  // story sans lien Calendly tracké, cf. discussion produit sur ce trou connu).
   let callsBooked = 0, callsHonored = 0, dealsClosed = 0, revenue = 0;
-  if (leadIds.length) {
-    const { data: calls } = await serviceSupabase
+  {
+    const { data: bySequence } = await serviceSupabase
       .from('calls')
-      .select('status, scheduled_at, no_show, deal_closed, revenue, outcome')
+      .select('status, scheduled_at, no_show, deal_closed, revenue, outcome, ig_lead_id')
       .eq('coach_id', targetProfileId)
-      .in('ig_lead_id', leadIds)
+      .eq('utm_content', sequenceId)
       .neq('ignored', true);
 
+    const { data: byLead } = leadIds.length
+      ? await serviceSupabase
+          .from('calls')
+          .select('status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
+          .eq('coach_id', targetProfileId)
+          .in('ig_lead_id', leadIds)
+          .is('utm_content', null)
+          .neq('ignored', true)
+      : { data: [] };
+
     const now = new Date();
-    for (const c of calls || []) {
+    for (const c of [...(bySequence || []), ...(byLead || [])]) {
       if (c.status === 'active') {
         callsBooked++;
         if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) callsHonored++;
