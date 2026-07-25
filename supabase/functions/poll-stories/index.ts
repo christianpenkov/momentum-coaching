@@ -186,6 +186,7 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
         navigation_taps_back: tapsBack,
         navigation_exits: exits,
         snapshot_date: isoDateParis(),
+        snapshot_at: new Date().toISOString(),
       }, { onConflict: 'profile_id,ig_story_id,snapshot_date', ignoreDuplicates: false });
       if (historyErr) errors.push(`analytics_history_upsert_${igStoryId}: ${historyErr.message}`);
     } catch (e: any) {
