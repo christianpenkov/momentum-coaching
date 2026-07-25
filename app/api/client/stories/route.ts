@@ -26,7 +26,7 @@ export async function GET() {
 
   const { data: stories, error } = await serviceSupabase
     .from('ig_stories')
-    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences(name)')
+    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name)')
     .eq('profile_id', user.id)
     .order('posted_at', { ascending: false })
     .limit(200);
