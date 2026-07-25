@@ -183,9 +183,6 @@ export default function PageClients() {
                           <Link href={`/clients/${c.id}`} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
                             Fiche
                           </Link>
-                          <Link href={`/clients/${c.id}/brief`} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
-                            Brief
-                          </Link>
                         </div>
                       </td>
                     </tr>

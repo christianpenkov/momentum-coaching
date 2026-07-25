@@ -284,9 +284,6 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link href={`/clients/${id}/brief`} className="btn-ghost">
-            <Icon name="brain" size={14} /> Brief IA
-          </Link>
           <Link href={`/clients/${id}/analytics`} className="btn-primary-brand">
             <Icon name="bar-chart" size={14} /> Analytics
           </Link>

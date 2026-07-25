@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
 import { isCallReallyOver } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
@@ -60,11 +59,6 @@ export default function CallStack({ calls, getClient }: Props) {
             <div style={{ textAlign: 'right', flexShrink: 0 }}>
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{time}</div>
             </div>
-            {client && (
-              <Link href={`/clients/${client.id}/brief`} className="btn-ghost" style={{ fontSize: 11, marginLeft: 4 }}>
-                Brief
-              </Link>
-            )}
           </div>
         );
       })}
