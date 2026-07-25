@@ -342,9 +342,9 @@ function PageTasksInner() {
                   type="button"
                   onClick={e => { e.stopPropagation(); setModalState({ mode: 'create', clientId: g.client.id }); }}
                   className="btn-ghost"
-                  style={{ fontSize: 12, padding: '6px 12px', borderColor: 'var(--accent-brand)', color: 'var(--accent-brand)' }}
+                  style={{ fontSize: 12, padding: '6px 12px', borderColor: 'var(--accent-brand)', color: 'var(--accent-brand)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
                 >
-                  Assigner
+                  <Icon name="plus" size={11} /> Assigner
                 </button>
 
                 <Icon name={isOpen ? 'chevron-up' : 'chevron-down'} size={14} style={{ color: 'var(--muted)', transition: 'transform .2s', flexShrink: 0 }} />
