@@ -432,15 +432,18 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   const ytTotalClosed = ytCallsAll.filter(c => c.deal_closed).length;
   const ytTotalRev = ytCallsAll.reduce((s, c) => s + (c.revenue || 0), 0);
 
-  // Attribution calls IG → post : même logique que Business micro
-  // 1. ig_lead_id → media_id via leadIdToMediaId
-  // 2. sans ig_lead_id → utm_content === postId (calls depuis lien description/bio)
+  // Attribution calls IG → post : priorité à utm_content (daté au clic, lié au bon
+  // contenu au moment du booking) plutôt qu'à ig_lead_id → leadIdToMediaId (état
+  // COURANT mutable de instagram_leads, écrasé à chaque nouvelle interaction de la
+  // même personne — voir même correctif dans matchesContent/TabFunnel plus haut).
+  // 1. utm_content === postId (calls depuis lien description/bio, ou séquence story)
+  // 2. sans utm_content → ig_lead_id → media_id via leadIdToMediaId (fallback legacy)
   type ContentItem = { id: string; title: string; thumbnail: string | null; platform: 'IG' | 'YT'; type: string; views: number; totalViews: number; watchTime: number; avgWatchTimeMin: number | null; noShowCount: number; noShowPct: number | null; closedCount: number; closedPct: number | null; callsBooked: number; revenueTotal: number; revenuePerCall: number; cashPerView: number | null };
   const allContent: ContentItem[] = [
     ...igPosts.map(p => {
       const postCalls = igCallsAll.filter(c => {
-        if (c.ig_lead_id) return leadIdToMediaId.get(c.ig_lead_id) === p.id;
-        return c.utm_content === p.id;
+        if (c.utm_content) return c.utm_content === p.id;
+        return c.ig_lead_id ? leadIdToMediaId.get(c.ig_lead_id) === p.id : false;
       });
       const callsBooked = postCalls.filter(c => c.status === 'active').length;
       const noShowCount = postCalls.filter(c => c.no_show).length;
@@ -3148,7 +3151,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // Calls bookés/closés/revenue depuis la table calls (source de vérité)
     // postCalls = calls rattachés à ce contenu (DM + description), filtrés sur la période sélectionnée (scheduled_at)
     // postCallsDesc = uniquement via lien description (utm_medium = 'description') — pour breakdown par source
-    const matchesContent = (c: CallRecord) => c.ig_lead_id ? leadIdToMediaId?.get(c.ig_lead_id) === postId : c.utm_content === postId;
+    // Priorité à utm_content (rempli au clic du lien Calendly précis, daté et lié au
+    // bon contenu au moment du booking) plutôt qu'à ig_lead_id → leadIdToMediaId (état
+    // COURANT mutable de instagram_leads, qui s'écrase à chaque nouvelle interaction
+    // de la même personne — un call booké en janvier depuis un post se retrouverait
+    // attribué à tort à une story réclamée par la même personne en juillet). Fallback
+    // sur ig_lead_id seulement si utm_content est absent (ex: cold DM sans lien traqué).
+    const matchesContent = (c: CallRecord) => c.utm_content ? c.utm_content === postId : (c.ig_lead_id ? leadIdToMediaId?.get(c.ig_lead_id) === postId : false);
     const postCalls = (calls && leadIdToMediaId)
       ? calls.filter(c => matchesContent(c) && isInPeriod(c.scheduled_at))
       : [];

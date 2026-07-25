@@ -64,40 +64,16 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Une des stories sélectionnées appartient déjà à une séquence' }, { status: 409 });
   }
 
-  let calendlyShortUrl: string | null = null;
-  let calendlyDestUrl: string | null = null;
-
   if (ctaType === 'calendly') {
     const { data: settings } = await serviceSupabase.from('clients').select('calendly_url').eq('profile_id', user.id).single();
-    const calendlyUrl = settings?.calendly_url;
-    if (!calendlyUrl) return NextResponse.json({ error: 'Aucun lien Calendly configuré dans les Réglages' }, { status: 400 });
-
+    if (!settings?.calendly_url) return NextResponse.json({ error: 'Aucun lien Calendly configuré dans les Réglages' }, { status: 400 });
     const { data: shortioInteg } = await serviceSupabase.from('integrations').select('api_key, metadata').eq('profile_id', user.id).eq('provider', 'shortio').single();
-    const apiKey = shortioInteg?.api_key;
-    const domain = (shortioInteg?.metadata as any)?.domain;
-    if (!apiKey || !domain) return NextResponse.json({ error: 'Short.io non configuré' }, { status: 400 });
-
-    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
-    const path = `story-calendly-${slug}`;
-
-    const destUrl = new URL(calendlyUrl);
-    destUrl.searchParams.set('utm_source', 'ig');
-    destUrl.searchParams.set('utm_medium', 'story');
-    destUrl.searchParams.set('utm_campaign', slug);
-
-    const linkRes = await fetch('https://api.short.io/links', {
-      method: 'POST',
-      headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ domain, originalURL: destUrl.toString(), title: `Story — ${name}`, path }),
-    });
-    const linkData = await linkRes.json().catch(() => ({}));
-    if (!linkRes.ok && linkRes.status !== 409) {
-      return NextResponse.json({ error: linkData.error || 'Erreur création lien Calendly' }, { status: 500 });
-    }
-    calendlyShortUrl = linkData.secureShortURL || linkData.shortURL || null;
-    calendlyDestUrl = calendlyUrl;
+    if (!shortioInteg?.api_key || !(shortioInteg?.metadata as any)?.domain) return NextResponse.json({ error: 'Short.io non configuré' }, { status: 400 });
   }
 
+  // Crée la séquence D'ABORD (avant le lien Calendly) pour disposer de son id — le
+  // lien Short.io porte utm_content=seq.id, pivot d'attribution business daté au clic,
+  // indépendant de l'état mutable de instagram_leads (voir matchesContent, TabFunnel).
   const { data: seq, error: seqErr } = await serviceSupabase
     .from('story_sequences')
     .insert({
@@ -110,8 +86,6 @@ export async function POST(request: Request) {
       lm_url: ctaType === 'lead_magnet' ? (lmUrl || null) : null,
       dm1_message: ctaType === 'lead_magnet' ? (dm1Message || null) : null,
       dm2_story_message: ctaType === 'lead_magnet' ? (dm2StoryMessage || null) : null,
-      calendly_short_url: calendlyShortUrl,
-      calendly_dest_url: calendlyDestUrl,
     })
     .select('id')
     .single();
@@ -124,6 +98,36 @@ export async function POST(request: Request) {
     .in('id', storyIds)
     .eq('profile_id', user.id);
   if (updateErr) return NextResponse.json({ error: updateErr.message }, { status: 500 });
+
+  let calendlyShortUrl: string | null = null;
+
+  if (ctaType === 'calendly') {
+    const { data: settings } = await serviceSupabase.from('clients').select('calendly_url').eq('profile_id', user.id).single();
+    const { data: shortioInteg } = await serviceSupabase.from('integrations').select('api_key, metadata').eq('profile_id', user.id).eq('provider', 'shortio').single();
+    const apiKey = shortioInteg!.api_key;
+    const domain = (shortioInteg!.metadata as any).domain;
+    const calendlyUrl = settings!.calendly_url;
+
+    const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+    const path = `story-calendly-${slug}`;
+
+    const destUrl = new URL(calendlyUrl);
+    destUrl.searchParams.set('utm_source', 'ig');
+    destUrl.searchParams.set('utm_medium', 'story');
+    destUrl.searchParams.set('utm_campaign', slug);
+    destUrl.searchParams.set('utm_content', seq.id);
+
+    const linkRes = await fetch('https://api.short.io/links', {
+      method: 'POST',
+      headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ domain, originalURL: destUrl.toString(), title: `Story — ${name}`, path }),
+    });
+    const linkData = await linkRes.json().catch(() => ({}));
+    if (linkRes.ok || linkRes.status === 409) {
+      calendlyShortUrl = linkData.secureShortURL || linkData.shortURL || null;
+      await serviceSupabase.from('story_sequences').update({ calendly_short_url: calendlyShortUrl, calendly_dest_url: calendlyUrl }).eq('id', seq.id);
+    }
+  }
 
   return NextResponse.json({ id: seq.id, calendlyShortUrl });
 }
