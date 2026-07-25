@@ -42,10 +42,10 @@ export async function GET() {
   let insightsTests: Record<string, any> = { skipped: 'aucune story active' };
   if (firstStory) {
     const calls: [string, string][] = [
-      ['base_metrics', 'reach,replies,shares,views,total_views,link_clicks,follows,profile_visits,total_interactions'],
-      ['navigation_no_breakdown', 'navigation'],
+      ['base_metrics', 'reach,shares,views,follows,profile_visits,total_interactions'],
+      ['total_views_only', 'total_views'],
+      ['link_clicks_only', 'link_clicks'],
       ['navigation_with_breakdown', 'navigation&breakdown=story_navigation_action_type'],
-      ['profile_activity_no_breakdown', 'profile_activity'],
       ['profile_activity_with_breakdown', 'profile_activity&breakdown=action_type'],
     ];
     const results = await Promise.all(
@@ -54,6 +54,18 @@ export async function GET() {
       )
     );
     insightsTests = Object.fromEntries(calls.map(([key], i) => [key, results[i]]));
+    // Extrait explicitement les dimension_values des breakdowns pour lisibilité —
+    // Meta les renvoie dans total_value.breakdowns[].results[] (confirmé empiriquement
+    // le 2026-07-25, ex: navigation avec dimension_keys=["story_navigation_action_type"]).
+    const extractBreakdown = (payload: any) => {
+      const breakdowns = payload?.data?.[0]?.total_value?.breakdowns || [];
+      return breakdowns.map((b: any) => ({
+        dimension_keys: b.dimension_keys,
+        results: (b.results || []).map((r: any) => ({ dimension_values: r.dimension_values, value: r.value })),
+      }));
+    };
+    insightsTests.navigation_breakdown_parsed = extractBreakdown(results[3]);
+    insightsTests.profile_activity_breakdown_parsed = extractBreakdown(results[4]);
   }
 
   return NextResponse.json({
