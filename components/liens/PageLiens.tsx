@@ -160,6 +160,22 @@ function Spinner() {
   return <span style={{ display: 'inline-block', width: 14, height: 14, border: `2px solid ${BORDER}`, borderTopColor: BLUE, borderRadius: '50%', animation: 'spin 0.6s linear infinite' }} />;
 }
 
+function ContentGridSkeleton({ rows = 8 }: { rows?: number }) {
+  return (
+    <div>
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px' }}>
+          <div style={{ width: 36, height: 36, borderRadius: 6, background: SURFACE2, flexShrink: 0, animation: 'pulse 1.4s ease-in-out infinite', animationDelay: `${(i % 5) * 0.08}s` }} />
+          <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            <div style={{ height: 10, width: `${55 + (i % 4) * 10}%`, borderRadius: 4, background: SURFACE2, animation: 'pulse 1.4s ease-in-out infinite', animationDelay: `${(i % 5) * 0.08}s` }} />
+            <div style={{ height: 8, width: 60, borderRadius: 4, background: SURFACE2, animation: 'pulse 1.4s ease-in-out infinite', animationDelay: `${(i % 5) * 0.08 + 0.05}s` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Modal Paramètres ─────────────────────────────────────────────────────────
 
 function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onCalendlyChange, initialCalendly, leadMagnets, onLmUpdated }: {
@@ -2157,7 +2173,7 @@ export default function PageLiens() {
 
   return (
     <UnsavedGuardContext.Provider value={unsavedGuardApi}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%, 100% { opacity: .5 } 50% { opacity: 1 } }`}</style>
       <style>{`
         @media (max-width: 767px) {
           .liens-shell { flex-direction: column !important; }
@@ -2370,7 +2386,7 @@ export default function PageLiens() {
             {/* Liste contenus */}
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {postsLoading ? (
-                <div style={{ padding: '20px 16px', textAlign: 'center' }}><Spinner /></div>
+                <ContentGridSkeleton />
               ) : filteredPosts.length === 0 ? (
                 <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
                   {search ? 'Aucun résultat.' : 'Aucun contenu trouvé.'}
