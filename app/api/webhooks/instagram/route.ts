@@ -399,23 +399,224 @@ export async function POST(request: Request) {
         continue;
       }
 
+      // ── Reply à une story (séquences stories — feature ig_stories/story_sequences) ──
+      // Contrairement au flux commentaire de posts (où NOUS envoyons le DM1 en premier via
+      // private reply), c'est ICI le prospect qui écrit en premier en répondant à la story
+      // CTA — la fenêtre 24h Meta est donc déjà ouverte nativement, pas besoin de Quick
+      // Reply pour la forcer. On envoie DM1 (lien LM perso) puis DM2 (libre) enchaînés sans
+      // attendre de clic. Point critique : ce premier message ne doit PAS marquer
+      // hook_replied=true (sinon la card bascule prématurément en "En conversation" dans le
+      // pipeline) — awaiting_story_followup=true bloque ça, et seul le message SUIVANT du
+      // prospect (capté par le bloc générique hook_replied plus bas) fera basculer la card.
+      const storyReplyId: string | undefined = messaging.message?.reply_to?.story?.id;
+      if (storyReplyId && senderId && msgText && !isEcho) {
+        const { data: story } = await serviceSupabase
+          .from('ig_stories')
+          .select('id, sequence_id')
+          .eq('ig_story_id', storyReplyId)
+          .eq('profile_id', pid)
+          .maybeSingle();
+
+        if (story?.sequence_id) {
+          const { data: seq } = await serviceSupabase
+            .from('story_sequences')
+            .select('*')
+            .eq('id', story.sequence_id)
+            .eq('cta_type', 'lead_magnet')
+            .maybeSingle();
+
+          if (seq?.lm_keyword && msgText.toLowerCase().includes(seq.lm_keyword.toLowerCase())) {
+            // Cooldown 1 min — même garde anti-doublon que le flux commentaires
+            const cooldownCutoff = new Date(Date.now() - 60 * 1000).toISOString();
+            const { data: recentDm } = await serviceSupabase
+              .from('instagram_lead_lm_history')
+              .select('id')
+              .eq('ig_user_id', senderId)
+              .eq('keyword_matched', seq.lm_keyword)
+              .eq('profile_id', pid)
+              .gte('detected_at', cooldownCutoff)
+              .limit(1)
+              .maybeSingle();
+
+            if (recentDm) {
+              pushEvent({ type: 'cooldown_skip', ig_user_id: senderId, keyword: seq.lm_keyword });
+              continue;
+            }
+
+            // Récupère le username du prospect (pas fourni dans le payload messaging)
+            let senderUsername = '';
+            if (resolvedMatch?.access_token) {
+              try {
+                const profRes = await fetch(`https://graph.instagram.com/v22.0/${senderId}?fields=username&access_token=${resolvedMatch.access_token}`);
+                const profData = await profRes.json();
+                senderUsername = profData?.username || '';
+              } catch { /* non bloquant — username restera vide si l'appel échoue */ }
+            }
+
+            // Génère un lien Short.io perso (lead × séquence × keyword) — même logique
+            // que le flux commentaires (attemptShortioCreate + fallback 409)
+            let shortLink = seq.lm_url || null;
+            if (seq.lm_url && senderUsername) {
+              const cleanUsername = sanitizeInstagramUsername(senderUsername);
+              const lmPath = `lm-story-${seq.lm_keyword.toLowerCase().replace(/[^a-z0-9-]/g, '')}-${cleanUsername}`;
+              try {
+                const { data: shortioInteg } = await serviceSupabase
+                  .from('integrations')
+                  .select('api_key, metadata')
+                  .eq('profile_id', pid)
+                  .eq('provider', 'shortio')
+                  .single();
+
+                if (shortioInteg?.api_key && shortioInteg?.metadata?.domain && shortioInteg?.metadata?.domain_id) {
+                  const apiKey = shortioInteg.api_key;
+                  const domainId = shortioInteg.metadata.domain_id;
+                  const destUrl = new URL(seq.lm_url);
+                  destUrl.searchParams.set('utm_source', 'ig');
+                  destUrl.searchParams.set('utm_medium', 'story');
+                  destUrl.searchParams.set('utm_campaign', `lm-story-${seq.lm_keyword.toLowerCase()}`);
+                  destUrl.searchParams.set('utm_content', cleanUsername);
+
+                  const res = await attemptShortioCreate(apiKey, { domain: shortioInteg.metadata.domain, originalURL: destUrl.toString(), title: `LM Story — ${senderUsername}`, path: lmPath });
+
+                  if (res.status === 409) {
+                    const existingRes = await fetch(`https://api.short.io/api/links?domain_id=${domainId}&limit=150`, { headers: { authorization: apiKey, accept: 'application/json' } });
+                    const existingData = await existingRes.json().catch(() => ({}));
+                    const existing = (existingData?.links || []).find((l: any) => l.path === lmPath);
+                    if (existing) shortLink = existing.secureShortURL || existing.shortURL || shortLink;
+                  } else if (res.ok) {
+                    const data = await res.json().catch(() => ({}));
+                    if (data.secureShortURL || data.shortURL) shortLink = data.secureShortURL || data.shortURL;
+                  }
+                }
+              } catch (err) {
+                console.warn('[IG Webhook] Short.io lien LM story personnalisé exception, fallback lm_url:', err);
+              }
+            }
+
+            const dm1Text = (seq.dm1_message || '')
+              .replace(/\{\{lien_lm\}\}/gi, shortLink || '')
+              .replace(/{{username}}/gi, `@${senderUsername || 'toi'}`)
+              .replace(/\s{2,}/g, ' ')
+              .trim() || shortLink || '';
+            const dm2Text = (seq.dm2_story_message || '').replace(/{{username}}/gi, `@${senderUsername || 'toi'}`).trim();
+
+            const sendDm = (text: string) => fetch(
+              `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+              {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ recipient: { id: senderId }, messaging_type: 'RESPONSE', message: { text }, access_token: resolvedMatch?.access_token }),
+              }
+            ).then(r => r.json());
+
+            let leadMagnetSent = false;
+            if (dm1Text) {
+              const dm1Data = await sendDm(dm1Text);
+              if (dm1Data.error) {
+                console.error('[IG Webhook] Erreur DM1 story:', dm1Data.error);
+                pushEvent({ type: 'dm1_error', error: dm1Data.error, ig_user_id: senderId });
+              } else {
+                leadMagnetSent = true;
+                pushEvent({ type: 'dm1_sent', message_id: dm1Data.message_id, ig_user_id: senderId });
+              }
+            }
+            if (dm2Text) {
+              const dm2Data = await sendDm(dm2Text);
+              if (dm2Data.error) {
+                console.error('[IG Webhook] Erreur DM2 story:', dm2Data.error);
+                pushEvent({ type: 'dm2_error', error: dm2Data.error, ig_user_id: senderId });
+              } else {
+                pushEvent({ type: 'dm2_sent', message_id: dm2Data.message_id, ig_user_id: senderId });
+              }
+            }
+
+            const nowIso = new Date().toISOString();
+            const { data: existingLead } = await serviceSupabase
+              .from('instagram_leads')
+              .select('id, detected_at')
+              .eq('profile_id', pid)
+              .eq('ig_user_id', senderId)
+              .maybeSingle();
+
+            const { data: upsertedLead } = await serviceSupabase
+              .from('instagram_leads')
+              .upsert({
+                profile_id: pid,
+                source: 'story_reply',
+                ig_username: senderUsername || null,
+                ig_user_id: senderId,
+                message: msgText.slice(0, 500),
+                media_id: storyReplyId,
+                keyword_matched: seq.lm_keyword,
+                detected_at: existingLead?.detected_at ?? nowIso,
+                lead_magnet_sent: leadMagnetSent,
+                tracking_link: shortLink || null,
+                story_sequence_id: story.sequence_id,
+                story_id: story.id,
+                awaiting_story_followup: true,
+                hook_replied: false,
+              }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
+              .select('id')
+              .maybeSingle();
+
+            if (upsertedLead?.id && senderUsername) {
+              serviceSupabase.from('prospect_events').insert({
+                profile_id: pid,
+                prospect_key: senderUsername.toLowerCase(),
+                platform: 'ig',
+                event_type: 'lm_sent',
+                occurred_at: nowIso,
+                ig_lead_id: upsertedLead.id,
+              }).then(({ error: evtErr }) => {
+                if (evtErr && !evtErr.message.includes('duplicate')) {
+                  console.error('[IG Webhook] prospect_events lm_sent (story):', evtErr.message);
+                }
+              });
+            }
+
+            if (senderId) {
+              await serviceSupabase
+                .from('instagram_lead_lm_history')
+                .upsert({
+                  profile_id: pid,
+                  ig_username: senderUsername || '',
+                  ig_user_id: senderId,
+                  keyword_matched: seq.lm_keyword,
+                  media_id: storyReplyId,
+                  lm_url: shortLink || null,
+                  lead_magnet_sent: leadMagnetSent,
+                  detected_at: nowIso,
+                }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
+            }
+
+            console.log(`[IG Webhook] Lead story stocké — @${senderUsername}, mot-clé: ${seq.lm_keyword}, séquence: ${story.sequence_id}`);
+            pushEvent({ type: 'story_lead_stored', ig_username: senderUsername, keyword: seq.lm_keyword, sequence_id: story.sequence_id });
+            continue;
+          }
+        }
+      }
+
       // On ne traite que les messages REÇUS (pas nos propres envois)
       if (!senderId || !msgText) continue;
 
       // Le sender est le prospect — cherche un lead avec cet ig_user_id qui a soit
       // reçu le LM (lead_magnet_sent = true), soit est un Cold DM (source = 'cold_dm',
-      // toujours lead_magnet_sent = false puisqu'il n'y a jamais eu de commentaire/LM)
-      // — sans ce 2e cas, une réponse à un Cold DM ne fait jamais basculer la carte
-      // vers "En conversation".
+      // toujours lead_magnet_sent = false puisqu'il n'y a jamais eu de commentaire/LM),
+      // soit un lead story en attente de suivi (awaiting_story_followup = true)
+      // — sans ce 2e/3e cas, une réponse à un Cold DM ou à une séquence story ne fait
+      // jamais basculer la carte vers "En conversation".
       // On cherche SANS filtrer sur hook_replied pour toujours mettre à jour hook_replied_at
       // (même si déjà true) → permet de détecter un nouveau message après un recul manuel.
+      // Note : un lead story avec awaiting_story_followup=true n'atteint CE bloc que sur
+      // son message SUIVANT — le tout premier reply (mot-clé matché) est intercepté plus
+      // haut et fait `continue` avant d'arriver ici, donc pas de double traitement possible.
 
       const { data: leadToUpdate } = await serviceSupabase
         .from('instagram_leads')
-        .select('id, hook_replied, ig_username')
+        .select('id, hook_replied, ig_username, awaiting_story_followup')
         .eq('profile_id', pid)
         .eq('ig_user_id', senderId)
-        .or('lead_magnet_sent.eq.true,source.eq.cold_dm')
+        .or('lead_magnet_sent.eq.true,source.eq.cold_dm,awaiting_story_followup.eq.true')
         .order('detected_at', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -429,6 +630,7 @@ export async function POST(request: Request) {
             hook_replied: true,
             hook_reply_text: msgText.slice(0, 500),
             hook_replied_at: hookRepliedAt,
+            awaiting_story_followup: false,
           })
           .eq('id', leadToUpdate.id);
 
