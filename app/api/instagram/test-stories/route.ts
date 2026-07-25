@@ -41,21 +41,19 @@ export async function GET() {
   // ── Insights sur la 1ère story active trouvée (si elle existe) ─────────────
   let insightsTests: Record<string, any> = { skipped: 'aucune story active' };
   if (firstStory) {
-    const metricSets = [
-      'reach,replies,shares,reposts,views,total_views,link_clicks,follows,profile_visits,total_interactions',
-      'navigation',
-      'profile_activity',
+    const calls: [string, string][] = [
+      ['base_metrics', 'reach,replies,shares,views,total_views,link_clicks,follows,profile_visits,total_interactions'],
+      ['navigation_no_breakdown', 'navigation'],
+      ['navigation_with_breakdown', 'navigation&breakdown=story_navigation_action_type'],
+      ['profile_activity_no_breakdown', 'profile_activity'],
+      ['profile_activity_with_breakdown', 'profile_activity&breakdown=action_type'],
     ];
     const results = await Promise.all(
-      metricSets.map(metrics =>
-        fetch(`https://graph.instagram.com/v22.0/${firstStory.id}/insights?metric=${metrics}&access_token=${token}`).then(safeJson)
+      calls.map(([, q]) =>
+        fetch(`https://graph.instagram.com/v22.0/${firstStory.id}/insights?metric=${q}&access_token=${token}`).then(safeJson)
       )
     );
-    insightsTests = {
-      base_metrics: results[0],
-      navigation_breakdown: results[1],
-      profile_activity_breakdown: results[2],
-    };
+    insightsTests = Object.fromEntries(calls.map(([key], i) => [key, results[i]]));
   }
 
   return NextResponse.json({
