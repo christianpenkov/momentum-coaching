@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, createContext, useCo
 import { createPortal } from 'react-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
+import StoriesTab from './StoriesTab';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -2139,6 +2140,7 @@ export default function PageLiens() {
 
   // Mobile : onglet actif + overlay détail
   const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
+  const [mainTab, setMainTab] = useState<'liens' | 'stories'>('liens');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -2204,6 +2206,15 @@ export default function PageLiens() {
             <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={() => setMainTab(mainTab === 'stories' ? 'liens' : 'stories')} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
+              border: `1.5px solid ${mainTab === 'stories' ? BLUE : BORDER}`,
+              background: mainTab === 'stories' ? BLUE_SOFT : 'transparent',
+              color: mainTab === 'stories' ? BLUE : MUTED,
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+              Stories
+            </button>
             <button onClick={handleHeaderLmLibrary} style={{
               display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
               border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
@@ -2224,6 +2235,12 @@ export default function PageLiens() {
           </div>
         </div>
 
+        {mainTab === 'stories' ? (
+          <div style={{ flex: 1, minHeight: 0 }}>
+            <StoriesTab profileId={profileId} leadMagnets={leadMagnets} />
+          </div>
+        ) : (
+        <>
         {/* ── Onglets mobiles ── */}
         <div className="liens-mobile-tabs" style={{ display: 'none', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
           {([
@@ -2461,6 +2478,8 @@ export default function PageLiens() {
             )}
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {pendingLeaveAction && typeof document !== 'undefined' && createPortal(
