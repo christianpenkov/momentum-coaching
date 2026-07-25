@@ -2625,8 +2625,6 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
 
 // ─── TAB 6 : Short.io ─────────────────────────────────────────────────────────
 
-interface ShortDomain { id: string | number; hostname: string; }
-
 interface MockLead {
   id?: string;
   igUserId: string;
@@ -2715,7 +2713,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   }, [profileId]);
   const [selectedContentId, setSelectedContentId] = useState<string | null>(null);
   const [prospectFilter, setProspectFilter] = useState<ProspectStatus>('all');
-  const [showCreate, setShowCreate] = useState(false);
   // Tableau contenu : tri
   type SortKey = 'clicsDesc' | 'lmDetectes' | 'lmClics' | 'lmReponses' | 'dmCount' | 'callsBooked' | 'callsHonored' | 'qualifiedPct' | 'closed' | 'revenue' | 'vuesParCall' | 'cashParVue' | 'views';
   const [sortKey, setSortKey] = useState<SortKey>('callsBooked');
@@ -2735,72 +2732,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [showAllTable, setShowAllTable] = useState(false);
   // Modal détail contenu
   const [detailModal, setDetailModal] = useState<any | null>(null);
-  const [domains, setDomains] = useState<ShortDomain[]>([]);
-  const [createMode, setCreateMode] = useState<'lead' | 'manual'>('lead');
-  const [selectedDomain, setSelectedDomain] = useState<ShortDomain | null>(null);
-  const [selectedLead, setSelectedLead] = useState<MockLead | null>(null);
-  const [leadSearch, setLeadSearch] = useState('');
-  const [selectedDest, setSelectedDest] = useState<DestinationLink | null>(null);
-  const [manualUsername, setManualUsername] = useState('');
-  const [manualPostId, setManualPostId] = useState('');
-  const [customPath, setCustomPath] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [createdLink, setCreatedLink] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [isColdDM, setIsColdDM] = useState(false);
-  const [detectedDmType, setDetectedDmType] = useState<'cold' | 'organic' | null>(null);
-
-  const resetModal = () => {
-    setCreatedLink(null); setSelectedLead(null); setLeadSearch('');
-    setIsColdDM(false); setDetectedDmType(null);
-    setManualUsername(''); setManualPostId(''); setCustomPath('');
-    setCreateMode('lead'); setSelectedDest(destinations[0] ?? null);
-  };
-
-  const openCreate = async () => {
-    resetModal(); setShowCreate(true);
-    if (domains.length > 0) return;
-    try {
-      const url = profileId ? `/api/shortio/domains?profileId=${profileId}` : '/api/shortio/domains';
-      const res = await fetch(url);
-      const data = await res.json();
-      const list: ShortDomain[] = data.domains?.length ? data.domains : [{ id: 'mock', hostname: 'qnl.link' }];
-      setDomains(list);
-      if (list.length > 0) setSelectedDomain(list[0]);
-    } catch {
-      const fallback = { id: 'mock', hostname: 'qnl.link' };
-      setDomains([fallback]); setSelectedDomain(fallback);
-    }
-  };
-
-  const handleCreate = async () => {
-    if (!selectedDomain) return;
-    if (!selectedDest) return;
-    if (createMode === 'lead' && !selectedLead) return;
-    if (createMode === 'manual' && !manualUsername.trim()) return;
-    setCreating(true);
-    try {
-      const igId = createMode === 'lead' ? selectedLead!.igUserId : `manual-${manualUsername.trim().replace(/\s+/g, '-')}`;
-      const postId = createMode === 'lead' ? selectedLead!.postId : (manualPostId || 'unknown');
-      const slug = customPath.trim() || (createMode === 'lead'
-        ? selectedLead!.igUsername.replace(/[^a-z0-9]/gi, '-').toLowerCase()
-        : manualUsername.trim().replace(/[^a-z0-9]/gi, '-').toLowerCase());
-      const res = await fetch('/api/shortio/links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ profileId, domainId: selectedDomain.hostname, originalUrl: selectedDest.url,
-          title: `${selectedDest.label} — ${createMode === 'lead' ? selectedLead!.igUsername : manualUsername}`,
-          utmSource: 'ig', utmMedium: 'dm', utmCampaign: `lead-${igId}`, utmContent: postId, path: slug }),
-      });
-      const data = await res.json();
-      setCreatedLink(data.shortUrl || `${selectedDomain.hostname}/${slug}`);
-    } catch (e: any) {
-      setCreatedLink(`qnl.link/${customPath || manualUsername || selectedLead?.igUsername || 'lien'}`);
-    } finally { setCreating(false); }
-  };
-
-  const copyLink = () => { if (!createdLink) return; navigator.clipboard.writeText(createdLink); setCopied(true); setTimeout(() => setCopied(false), 2000); };
-  const filteredLeads = leads.filter(l => !leadSearch || l.igUsername.toLowerCase().includes(leadSearch.toLowerCase()) || l.postTitle.toLowerCase().includes(leadSearch.toLowerCase()));
-  const daysSince = (iso: string) => Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
 
   if (!shortio) return shortioLoading ? <InlineLoader /> : <Empty msg={(periodIndex ?? 0) > 0 ? "Pas de données Short.io pour cette période." : "Connecte ton compte Short.io pour voir les stats."} />;
 
@@ -4571,160 +4502,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
 
 
-      {/* ── Modal création lien ── */}
-      {showCreate && (
-        <Portal>
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', backdropFilter: 'blur(4px)', WebkitBackdropFilter: 'blur(4px)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20 }}
-          onClick={() => { setShowCreate(false); resetModal(); }}>
-          <div style={{ background: 'var(--surface)', borderRadius: 16, padding: 28, maxWidth: 520, width: '100%', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 24px 60px rgba(0,0,0,.2)' }}
-            onClick={e => e.stopPropagation()}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <div style={{ fontSize: 16, fontWeight: 700 }}>Générer un lien tracké</div>
-              <button onClick={() => { setShowCreate(false); resetModal(); }} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
-            </div>
-            {createdLink ? (
-              <div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>Lien créé — copie et envoie en DM</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', marginBottom: 12 }}>
-                  <span style={{ flex: 1, fontSize: 14, fontWeight: 700, color: BLUE, wordBreak: 'break-all' }}>{createdLink}</span>
-                  <button onClick={copyLink} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none', background: copied ? GREEN : BLUE, color: '#fff', transition: 'background .2s', flexShrink: 0 }}>{copied ? 'Copié !' : 'Copier'}</button>
-                </div>
-                {createMode === 'lead' && selectedLead && (
-                  <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-2)', borderRadius: 8, padding: '10px 14px', marginBottom: 16 }}>
-                    <span style={{ fontWeight: 600, color: 'var(--ink)' }}>@{selectedLead.igUsername}</span> · via <span style={{ fontWeight: 600 }}>{selectedLead.postTitle.slice(0, 40)}…</span> · mot-clé <span style={{ fontWeight: 600 }}>#{selectedLead.keyword}</span>
-                  </div>
-                )}
-                <button onClick={resetModal} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--ink)' }}>Générer un autre lien</button>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-                <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
-                  {(['lead', 'manual'] as const).map(mode => (
-                    <button key={mode} onClick={() => setCreateMode(mode)} style={{ flex: 1, padding: '7px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none', background: createMode === mode ? 'var(--surface)' : 'transparent', color: createMode === mode ? 'var(--ink)' : 'var(--muted)', boxShadow: createMode === mode ? '0 1px 3px rgba(0,0,0,.07)' : 'none', transition: 'all .15s' }}>
-                      {mode === 'lead' ? 'Depuis un commentaire' : 'Prospect manuel'}
-                    </button>
-                  ))}
-                </div>
-                {createMode === 'lead' && (
-                  <div>
-                    <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Sélectionne le prospect <span style={{ fontWeight: 400 }}>({leads.length} leads)</span></div>
-                    <input type="text" value={leadSearch} onChange={e => setLeadSearch(e.target.value)} placeholder="Recherche par pseudo ou vidéo..." style={{ width: '100%', padding: '8px 12px', fontSize: 12, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box', marginBottom: 8 }} />
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 240, overflowY: 'auto' }}>
-                      {filteredLeads.map(lead => (
-                        <div key={lead.igUserId} onClick={() => setSelectedLead(lead)} style={{ padding: '10px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${selectedLead?.igUserId === lead.igUserId ? BLUE : 'var(--border)'}`, background: selectedLead?.igUserId === lead.igUserId ? BLUE + '0e' : 'var(--surface)', transition: 'all .12s' }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                            <div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                                <span style={{ fontSize: 13, fontWeight: 700 }}>@{lead.igUsername}</span>
-                                <span style={{ fontSize: 10, fontWeight: 600, color: lead.leadMagnetSent ? GREEN : AMBER, background: (lead.leadMagnetSent ? GREEN : AMBER) + '18', borderRadius: 4, padding: '1px 5px' }}>{lead.leadMagnetSent ? 'LM envoyé' : 'En attente'}</span>
-                              </div>
-                              <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                                <span style={{ background: lead.postType === 'IG' ? ACCENT + '18' : RED + '12', color: lead.postType === 'IG' ? ACCENT : RED, fontWeight: 600, borderRadius: 3, padding: '1px 4px', marginRight: 5, fontSize: 10 }}>{lead.postType}</span>
-                                {lead.postTitle.slice(0, 38)}{lead.postTitle.length > 38 ? '…' : ''}
-                              </div>
-                            </div>
-                            <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{daysSince(lead.commentedAt)}j</div>
-                              <div style={{ fontSize: 10, fontWeight: 600, color: BLUE, marginTop: 2 }}>#{lead.keyword}</div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                      {filteredLeads.length === 0 && <div style={{ fontSize: 12, color: 'var(--faint)', padding: 12 }}>Aucun lead trouvé</div>}
-                    </div>
-                  </div>
-                )}
-                {createMode === 'manual' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Pseudo Instagram</div>
-                      <input type="text" value={manualUsername} onChange={e => setManualUsername(e.target.value.replace(/^@/, ''))} placeholder="thomas.biz" style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }} />
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Contenu source <span style={{ fontWeight: 400, color: 'var(--faint)' }}>(optionnel)</span></div>
-                      <select value={manualPostId} onChange={e => setManualPostId(e.target.value)} style={{ width: '100%', padding: '8px 12px', fontSize: 13, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}>
-                        <option value="">— Sans attribution —</option>
-                        {(ig?.posts || []).map(p => <option key={p.id} value={p.id}>IG · {p.caption?.slice(0, 50)}</option>)}
-                        {(yt?.videos || []).map(v => <option key={v.id} value={v.id}>YT · {v.title.slice(0, 50)}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                )}
-                <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 8, color: 'var(--muted)' }}>Destination</div>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-                    {destinations.length === 0 && (
-                      <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>Aucune destination configurée (Calendly ou lead magnet)</div>
-                    )}
-                    {destinations.map(dest => (
-                      <div key={dest.id} onClick={() => setSelectedDest(dest)} style={{ padding: '9px 12px', borderRadius: 8, cursor: 'pointer', border: `1px solid ${selectedDest?.id === dest.id ? BLUE : 'var(--border)'}`, background: selectedDest?.id === dest.id ? BLUE + '0e' : 'transparent', display: 'flex', alignItems: 'center', gap: 10, transition: 'all .12s' }}>
-                        <span style={{ fontSize: 14 }}>{dest.type === 'calendly' ? '📅' : '📄'}</span>
-                        <div>
-                          <div style={{ fontSize: 12, fontWeight: 600 }}>{dest.label}</div>
-                          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 1 }}>{dest.url}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                {/* Toggle Cold DM */}
-                <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: isColdDM ? 12 : 0 }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 700 }}>
-                        Cold DM
-                        <svg width="11" height="11" viewBox="0 0 11 11" fill="none" style={{ display: 'inline', marginLeft: 5, verticalAlign: 'middle', color: BLUE }}>
-                          <path d="M2 9L9 2M9 2H4.5M9 2V6.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
-                        </svg>
-                      </div>
-                      <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 2 }}>Tu as initié la conversation</div>
-                    </div>
-                    <button onClick={() => { setIsColdDM(!isColdDM); setDetectedDmType(null); }} style={{ width: 38, height: 22, borderRadius: 11, border: 'none', cursor: 'pointer', background: isColdDM ? BLUE : 'var(--border)', position: 'relative', transition: 'background .2s', flexShrink: 0 }}>
-                      <span style={{ position: 'absolute', top: 3, left: isColdDM ? 19 : 3, width: 16, height: 16, borderRadius: 8, background: '#fff', transition: 'left .2s', boxShadow: '0 1px 3px rgba(0,0,0,.2)' }} />
-                    </button>
-                  </div>
-                  {isColdDM && (
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 6, color: 'var(--muted)' }}>Pseudo Instagram du prospect</div>
-                      <div style={{ display: 'flex', gap: 8 }}>
-                        <input
-                          type="text"
-                          placeholder="@thomas.biz"
-                          style={{ flex: 1, padding: '8px 12px', fontSize: 13, borderRadius: 8, border: `1px solid var(--border)`, background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }}
-                          onChange={() => setDetectedDmType(null)}
-                        />
-                        <button
-                          onClick={() => {
-                            // Mock : simule la détection API
-                            setTimeout(() => setDetectedDmType('cold'), 600);
-                          }}
-                          style={{ padding: '8px 12px', fontSize: 11, fontWeight: 600, borderRadius: 8, cursor: 'pointer', border: 'none', background: 'var(--surface-2)', color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-                          Détecter
-                        </button>
-                      </div>
-                      {detectedDmType && (
-                        <div style={{ marginTop: 8, fontSize: 11, fontWeight: 600, color: detectedDmType === 'cold' ? BLUE : '#10B981', background: (detectedDmType === 'cold' ? BLUE : '#10B981') + '12', borderRadius: 6, padding: '6px 10px' }}>
-                          {detectedDmType === 'cold'
-                            ? '↗ Cold DM confirmé — tu as initié la conversation'
-                            : '↙ DM organique — le prospect a écrit en premier'}
-                        </div>
-                      )}
-                      {!detectedDmType && (
-                        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--faint)' }}>Si la conversation n'est pas trouvée, le lien sera tagué Cold DM par défaut.</div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <button onClick={handleCreate} disabled={creating || !selectedDest || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')} style={{ width: '100%', padding: '11px', fontSize: 13, fontWeight: 700, borderRadius: 9, cursor: 'pointer', border: 'none', background: BLUE, color: '#fff', opacity: (creating || !selectedDest || (!selectedLead && createMode === 'lead') || (!manualUsername.trim() && createMode === 'manual')) ? 0.5 : 1, transition: 'opacity .15s' }}>
-                  {creating ? 'Création…' : 'Créer le lien tracké'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        </Portal>
-      )}
     </div>
   );
 }
