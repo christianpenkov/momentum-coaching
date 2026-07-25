@@ -26,7 +26,7 @@ export async function GET() {
 
   const { data: stories, error } = await serviceSupabase
     .from('ig_stories')
-    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name)')
+    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name, cta_type, cta_story_id, lm_keyword, dm1_message, dm2_story_message)')
     .eq('profile_id', user.id)
     .order('posted_at', { ascending: false })
     .limit(200);
@@ -50,6 +50,18 @@ export async function GET() {
     }
   }
 
+  // Comptage du nombre de stories par séquence — permet de distinguer côté UI une
+  // "séquence solo" (1 story, CTA géré directement dessus) d'une vraie séquence
+  // multi-stories (badge de regroupement affiché à la place du badge CTA direct).
+  const sequenceIds = [...new Set((stories || []).map(s => s.sequence_id).filter(Boolean))] as string[];
+  const { data: countRows } = sequenceIds.length
+    ? await serviceSupabase.from('ig_stories').select('sequence_id').in('sequence_id', sequenceIds)
+    : { data: [] };
+  const countBySequence = new Map<string, number>();
+  for (const row of countRows || []) {
+    countBySequence.set(row.sequence_id, (countBySequence.get(row.sequence_id) || 0) + 1);
+  }
+
   const rows = (stories || []).map((s: any) => ({
     id: s.id,
     ig_story_id: s.ig_story_id,
@@ -59,6 +71,12 @@ export async function GET() {
     expired_at: s.expired_at,
     sequence_id: s.sequence_id,
     sequence_name: s.story_sequences?.name ?? null,
+    sequence_story_count: s.sequence_id ? (countBySequence.get(s.sequence_id) ?? 1) : 0,
+    cta_type: s.story_sequences?.cta_type ?? null,
+    cta_story_id: s.story_sequences?.cta_story_id ?? null,
+    lm_keyword: s.story_sequences?.lm_keyword ?? null,
+    dm1_message: s.story_sequences?.dm1_message ?? null,
+    dm2_story_message: s.story_sequences?.dm2_story_message ?? null,
     reach: latestSnapshotByStory.get(s.ig_story_id)?.reach ?? null,
     views: latestSnapshotByStory.get(s.ig_story_id)?.views ?? null,
   }));

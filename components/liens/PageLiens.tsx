@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
-import StoriesTab from './StoriesTab';
+import { SequenceDetailModal } from './StoriesTab';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -41,7 +41,7 @@ interface ShortDomain { id: string | number; hostname: string; }
 interface Post {
   id: string;
   caption: string;
-  platform: 'IG' | 'YT';
+  platform: 'IG' | 'YT' | 'STORY';
   thumbnail?: string | null;
   permalink?: string | null;
   hasDescLink?: boolean;
@@ -63,6 +63,21 @@ interface Post {
   dmOpenerMessage?: string;
   dmLmMessage?: string;
   dmButtonText?: string;
+  // Champs spécifiques platform === 'STORY' — le CTA d'une story vit toujours au
+  // niveau de sa story_sequences (même une "séquence solo" à 1 story), jamais
+  // directement sur ig_stories. Voir plan Stories pour le détail du principe.
+  igStoryId?: string;
+  sequenceId?: string | null;
+  sequenceName?: string | null;
+  sequenceStoryCount?: number;
+  ctaType?: 'lead_magnet' | 'calendly' | null;
+  ctaStoryId?: string | null;
+  dm1Message?: string | null;
+  dm2StoryMessage?: string | null;
+  reach?: number | null;
+  views?: number | null;
+  postedAt?: string;
+  expiredAt?: string | null;
 }
 
 interface ContentLink {
@@ -1369,6 +1384,223 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
   );
 }
 
+// ─── Panneau droit : Story / séquence de stories ─────────────────────────────
+// Un seul bloc de formulaire (pas d'onglots comme TabDesc/TabLm) — une story n'a
+// que 2 CTA possibles (Lead Magnet ou Calendly), pas de "lien description custom".
+// Principe à ne jamais violer : le CTA vit TOUJOURS sur story_sequences, même pour
+// une story seule (créée en coulisses comme une "séquence à 1 story" — aucune
+// colonne CTA sur ig_stories). Voir plan Stories pour le détail.
+
+function formatDefaultSequenceName(isoDate: string): string {
+  const d = new Date(isoDate);
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  return `Séquence du ${dd}/${mm} - ${hh}h${min}`;
+}
+
+function PanneauStorySequence({ story, stories, profileId, leadMagnets, onSequenceSaved, onStatsOpen }: {
+  story?: Post;
+  stories?: Post[];
+  profileId: string;
+  leadMagnets: LeadMagnet[];
+  onSequenceSaved: (affectedPostIds: string[], patch: Partial<Post>) => void;
+  onStatsOpen: (post: Post) => void;
+}) {
+  const isGroup = !story && !!stories?.length;
+  const groupStories = stories ?? [];
+  const primary = story ?? groupStories[0];
+  const isExistingSequence = !isGroup && !!primary?.sequenceId;
+
+  const [name, setName] = useState('');
+  const [ctaStoryId, setCtaStoryId] = useState('');
+  const [ctaType, setCtaType] = useState<'lead_magnet' | 'calendly'>('lead_magnet');
+  const [lmId, setLmId] = useState('');
+  const [lmKeyword, setLmKeyword] = useState('');
+  const [lmUrl, setLmUrl] = useState('');
+  const [dm1Message, setDm1Message] = useState('👋 {{username}} voici ton lien : {{lien_lm}}');
+  const [dm2StoryMessage, setDm2StoryMessage] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [calendlyShortUrl, setCalendlyShortUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setError(null);
+    setCalendlyShortUrl(null);
+    if (isGroup) {
+      setName(formatDefaultSequenceName(groupStories[0]?.postedAt || new Date().toISOString()));
+      setCtaStoryId(groupStories[groupStories.length - 1]?.id || '');
+      setCtaType('lead_magnet');
+      const firstLm = leadMagnets[0];
+      setLmId(firstLm?.id || ''); setLmKeyword(firstLm?.keyword || ''); setLmUrl(firstLm?.url || '');
+      setDm2StoryMessage('');
+    } else if (isExistingSequence && primary) {
+      setName(primary.sequenceName || '');
+      setCtaStoryId(primary.ctaStoryId || primary.id);
+      setCtaType(primary.ctaType || 'lead_magnet');
+      setLmKeyword(primary.lmKeyword || '');
+      setDm1Message(primary.dm1Message || '');
+      setDm2StoryMessage(primary.dm2StoryMessage || '');
+    } else if (primary) {
+      setName(formatDefaultSequenceName(primary.postedAt || new Date().toISOString()));
+      setCtaStoryId(primary.id);
+      setCtaType('lead_magnet');
+      const firstLm = leadMagnets[0];
+      setLmId(firstLm?.id || ''); setLmKeyword(firstLm?.keyword || ''); setLmUrl(firstLm?.url || '');
+      setDm2StoryMessage('');
+    }
+  }, [primary?.id, isGroup]);
+
+  if (!primary) return null;
+
+  const submit = async () => {
+    setSaving(true); setError(null);
+    try {
+      if (isExistingSequence) {
+        const res = await fetch('/api/client/story-sequences', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: primary.sequenceId, name, ...(primary.ctaType === 'lead_magnet' ? { lmKeyword, dm1Message, dm2StoryMessage } : {}) }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error || 'Erreur'); return; }
+        onSequenceSaved([primary.id], { sequenceName: name, lmKeyword: primary.ctaType === 'lead_magnet' ? lmKeyword : primary.lmKeyword, dm1Message, dm2StoryMessage });
+        return;
+      }
+
+      const storyIds = isGroup ? groupStories.map(s => s.id) : [primary.id];
+      const res = await fetch('/api/client/story-sequences', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profileId, name, ctaType, ctaStoryId, storyIds,
+          lmId: ctaType === 'lead_magnet' ? lmId : null,
+          lmKeyword: ctaType === 'lead_magnet' ? lmKeyword : null,
+          lmUrl: ctaType === 'lead_magnet' ? lmUrl : null,
+          dm1Message: ctaType === 'lead_magnet' ? dm1Message : null,
+          dm2StoryMessage: ctaType === 'lead_magnet' ? dm2StoryMessage : null,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Erreur'); return; }
+      if (ctaType === 'calendly') { setCalendlyShortUrl(data.calendlyShortUrl || null); return; }
+      onSequenceSaved(storyIds, { sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length, ctaType, ctaStoryId, lmKeyword, dm1Message, dm2StoryMessage, hasLeadMagnet: true });
+    } catch (e: any) {
+      setError(e.message || 'Erreur réseau');
+    } finally { setSaving(false); }
+  };
+
+  const candidateStories = isGroup ? groupStories : [primary];
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      {/* Header */}
+      <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
+            {primary.thumbnail
+              ? <img src={primary.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+              : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+                </div>
+            }
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>
+              {isGroup ? `Regrouper ${groupStories.length} stories` : (primary.sequenceStoryCount ?? 0) > 1 ? primary.sequenceName : 'Story'}
+            </div>
+            {!isGroup && (primary.sequenceStoryCount ?? 0) > 1 && (
+              <button onClick={() => onStatsOpen(primary)} style={{ fontSize: 11, color: BLUE, background: 'none', border: 'none', padding: 0, cursor: 'pointer', marginTop: 2 }}>
+                Voir les stats de la séquence →
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Formulaire */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+        {calendlyShortUrl ? (
+          <div>
+            <div style={{ fontSize: 13, color: MUTED, marginBottom: 10, lineHeight: 1.5 }}>
+              Copie ce lien et ajoute-le en sticker "Lien" sur ta story CTA :
+            </div>
+            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+              <input readOnly value={calendlyShortUrl} style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE2, color: INK }} />
+              <button onClick={() => navigator.clipboard.writeText(calendlyShortUrl)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>Copier</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
+            <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
+            {candidateStories.length > 1 && !isExistingSequence && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Story avec le CTA</label>
+                <select value={ctaStoryId} onChange={e => setCtaStoryId(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14 }}>
+                  {candidateStories.map((s, i) => <option key={s.id} value={s.id}>Story {i + 1} — {s.caption}</option>)}
+                </select>
+              </>
+            )}
+
+            {!isExistingSequence && (
+              <>
+                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Type de CTA</label>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
+                  {(['lead_magnet', 'calendly'] as const).map(t => (
+                    <button key={t} onClick={() => setCtaType(t)} style={{
+                      flex: 1, padding: '8px', fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: 'pointer',
+                      border: `1.5px solid ${ctaType === t ? BLUE : BORDER}`, background: ctaType === t ? BLUE_SOFT : 'transparent', color: ctaType === t ? BLUE : MUTED,
+                    }}>{t === 'lead_magnet' ? 'Lead Magnet' : 'Calendly'}</button>
+                  ))}
+                </div>
+              </>
+            )}
+
+            {ctaType === 'lead_magnet' ? (
+              <>
+                {!isExistingSequence && (
+                  <>
+                    <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Lead magnet</label>
+                    <select value={lmId} onChange={e => {
+                      const lm = leadMagnets.find(l => l.id === e.target.value);
+                      setLmId(e.target.value);
+                      if (lm) { setLmKeyword(lm.keyword); setLmUrl(lm.url); }
+                    }} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14 }}>
+                      {leadMagnets.map(lm => <option key={lm.id} value={lm.id}>{lm.name}</option>)}
+                    </select>
+                  </>
+                )}
+
+                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
+                <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
+                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 1 — lien + message ({'{{username}}'}, {'{{lien_lm}}'})</label>
+                <textarea value={dm1Message} onChange={e => setDm1Message(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+
+                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 2 — message libre (envoyé juste après)</label>
+                <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+              </>
+            ) : !isExistingSequence && (
+              <div style={{ fontSize: 12, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
+                Un lien Calendly trackable sera généré. Tu devras l'ajouter toi-même via le sticker "Lien" natif d'Instagram sur ta story CTA.
+              </div>
+            )}
+
+            {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
+
+            <button onClick={submit} disabled={saving || !name || (!isExistingSequence && !ctaStoryId)} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+              {saving ? 'Enregistrement...' : isExistingSequence ? 'Mettre à jour' : isGroup ? 'Regrouper et créer le CTA' : 'Créer le CTA'}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Panneau droit : Calendly prospect ───────────────────────────────────────
 
 function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUrl, posts }: {
@@ -1916,15 +2148,22 @@ function validateDescParams(params: {
 
 // ─── Page principale ──────────────────────────────────────────────────────────
 
-type RightView = { type: 'post'; post: Post } | { type: 'prospect' } | { type: 'lm-library' } | null;
+type RightView =
+  | { type: 'post'; post: Post }
+  | { type: 'story'; post: Post }
+  | { type: 'story-multi'; postIds: string[] }
+  | { type: 'prospect' }
+  | { type: 'lm-library' }
+  | null;
 
 export default function PageLiens() {
   const { user } = useUser();
   const profileId = user?.id || '';
+  const queryClient = useQueryClient();
 
   const [rightView, setRightView] = useState<RightView>(null);
   const [paramOpen, setParamOpen] = useState(false);
-  const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT'>('all'); // 'all' = pas de filtre
+  const [filterPlatform, setFilterPlatform] = useState<'all' | 'IG' | 'YT' | 'STORY'>('all'); // 'all' = pas de filtre
   const [search, setSearch] = useState('');
 
   // Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés
@@ -2026,6 +2265,13 @@ export default function PageLiens() {
     staleTime: 15 * 60 * 1000,
   });
 
+  const { data: storiesData, isLoading: storiesLoading } = useQuery({
+    queryKey: ['stories', profileId],
+    queryFn: () => fetch(`/api/client/stories?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 60 * 1000,
+  });
+
   // ── Dérivations depuis les queries ───────────────────────────────────────
   const domains: ShortDomain[] = domainsData?.domains?.length ? domainsData.domains : [];
   const domainsLoaded = !domainsLoading;
@@ -2038,7 +2284,7 @@ export default function PageLiens() {
 
   const contentLinks: ContentLink[] = contentLinksData?.content_links ?? [];
 
-  const postsLoading = igLoading || ytLoading || shortioLoading;
+  const postsLoading = igLoading || ytLoading || shortioLoading || storiesLoading;
 
   const posts: Post[] = useMemo(() => {
     const igPosts: Post[] = (igData?.posts || []).map((p: any) => ({
@@ -2106,13 +2352,45 @@ export default function PageLiens() {
       };
     });
 
+    // Stories — ne passent pas par l'enrichissement Short.io/content_links (aucun
+    // sens pour elles : pas de "lien description", le CTA vit sur story_sequences,
+    // déjà résolu côté API /api/client/stories).
+    const storyPosts: Post[] = (storiesData?.stories || []).map((s: any) => {
+      const posted = new Date(s.posted_at);
+      const dateLabel = posted.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit' });
+      const timeLabel = posted.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      return {
+        id: s.id,
+        caption: `Story du ${dateLabel} ${timeLabel}`,
+        platform: 'STORY' as const,
+        thumbnail: s.storage_url,
+        igStoryId: s.ig_story_id,
+        sequenceId: s.sequence_id,
+        sequenceName: s.sequence_name,
+        sequenceStoryCount: s.sequence_story_count ?? 0,
+        ctaType: s.cta_type ?? null,
+        ctaStoryId: s.cta_story_id ?? null,
+        lmKeyword: s.lm_keyword ?? undefined,
+        dm1Message: s.dm1_message ?? null,
+        dm2StoryMessage: s.dm2_story_message ?? null,
+        hasLeadMagnet: s.cta_type === 'lead_magnet',
+        hasDescLink: false,
+        reach: s.reach,
+        views: s.views,
+        postedAt: s.posted_at,
+        expiredAt: s.expired_at,
+      };
+    });
+
+    const allPosts = [...enrichedWithCl, ...storyPosts];
+
     // Applique les overrides optimistes locaux
-    if (postsOverrides.size === 0) return enrichedWithCl;
-    return enrichedWithCl.map(post => {
+    if (postsOverrides.size === 0) return allPosts;
+    return allPosts.map(post => {
       const override = postsOverrides.get(post.id);
       return override ? { ...post, ...override } : post;
     });
-  }, [igData, ytData, shortioData, contentLinks, postsOverrides]);
+  }, [igData, ytData, shortioData, contentLinks, storiesData, postsOverrides]);
 
   const handlePostUpdated = (postId: string, patch: Partial<Post>) => {
     setPostsOverrides(prev => {
@@ -2127,6 +2405,23 @@ export default function PageLiens() {
     });
   };
 
+  const [statsSequence, setStatsSequence] = useState<Post | null>(null);
+
+  const handleStorySequenceSaved = (affectedPostIds: string[], patch: Partial<Post>) => {
+    setPostsOverrides(prev => {
+      const next = new Map(prev);
+      for (const id of affectedPostIds) next.set(id, { ...(prev.get(id) ?? {}), ...patch });
+      return next;
+    });
+    setRightView(prev => {
+      if (!prev) return prev;
+      if (prev.type === 'story' && affectedPostIds.includes(prev.post.id)) return { type: 'story', post: { ...prev.post, ...patch } };
+      return prev;
+    });
+    if (selectionMode) { setSelectionMode(false); setSelectedStoryIds(new Set()); }
+    queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
+  };
+
   const filteredPosts = posts.filter(p => {
     if (filterPlatform !== 'all' && p.platform !== filterPlatform) return false;
     if (search.trim() && !p.caption.toLowerCase().includes(search.toLowerCase())) return false;
@@ -2137,10 +2432,19 @@ export default function PageLiens() {
   const selectedPost = rightView?.type === 'post'
     ? (posts.find(p => p.id === rightView.post.id) ?? rightView.post)
     : null;
+  const selectedStory = rightView?.type === 'story'
+    ? (posts.find(p => p.id === rightView.post.id) ?? rightView.post)
+    : null;
+
+  // Mode sélection multiple (regroupement de stories en séquence)
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedStoryIds, setSelectedStoryIds] = useState<Set<string>>(new Set());
+  const selectedStoriesForGroup = rightView?.type === 'story-multi'
+    ? posts.filter(p => rightView.postIds.includes(p.id))
+    : [];
 
   // Mobile : onglet actif + overlay détail
   const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
-  const [mainTab, setMainTab] = useState<'liens' | 'stories'>('liens');
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -2206,15 +2510,6 @@ export default function PageLiens() {
             <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => setMainTab(mainTab === 'stories' ? 'liens' : 'stories')} style={{
-              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
-              border: `1.5px solid ${mainTab === 'stories' ? BLUE : BORDER}`,
-              background: mainTab === 'stories' ? BLUE_SOFT : 'transparent',
-              color: mainTab === 'stories' ? BLUE : MUTED,
-            }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
-              Stories
-            </button>
             <button onClick={handleHeaderLmLibrary} style={{
               display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
               border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
@@ -2235,12 +2530,6 @@ export default function PageLiens() {
           </div>
         </div>
 
-        {mainTab === 'stories' ? (
-          <div style={{ flex: 1, minHeight: 0 }}>
-            <StoriesTab profileId={profileId} leadMagnets={leadMagnets} />
-          </div>
-        ) : (
-        <>
         {/* ── Onglets mobiles ── */}
         <div className="liens-mobile-tabs" style={{ display: 'none', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
           {([
@@ -2346,6 +2635,16 @@ export default function PageLiens() {
                 />
               ) : rightView.type === 'prospect' ? (
                 <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
+              ) : rightView.type === 'story' ? (
+                <PanneauStorySequence
+                  story={selectedStory || rightView.post} profileId={profileId} leadMagnets={leadMagnets}
+                  onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+                />
+              ) : rightView.type === 'story-multi' ? (
+                <PanneauStorySequence
+                  stories={selectedStoriesForGroup} profileId={profileId} leadMagnets={leadMagnets}
+                  onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+                />
               ) : (
                 <PanneauActions
                   post={selectedPost || rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
@@ -2381,7 +2680,7 @@ export default function PageLiens() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
               <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                {(['all', 'IG', 'YT'] as const).map(f => {
+                {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
                   const active = filterPlatform === f;
                   return (
                     <button key={f} onClick={() => setFilterPlatform(f)} style={{
@@ -2390,7 +2689,8 @@ export default function PageLiens() {
                     }}>
                       {f === 'IG' && <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>}
                       {f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
-                      {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : 'YouTube'}
+                      {f === 'STORY' && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>}
+                      {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
                     </button>
                   );
                 })}
@@ -2398,6 +2698,32 @@ export default function PageLiens() {
                   {filteredPosts.length} contenu{filteredPosts.length !== 1 ? 's' : ''}
                 </span>
               </div>
+
+              {filterPlatform === 'STORY' && (
+                selectionMode ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 11, color: MUTED }}>{selectedStoryIds.size} sélectionnée{selectedStoryIds.size > 1 ? 's' : ''}</span>
+                    <button onClick={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }} style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                      Annuler
+                    </button>
+                    <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'story-multi', postIds: Array.from(selectedStoryIds) }))} disabled={selectedStoryIds.size < 2} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: 'none', background: selectedStoryIds.size < 2 ? SURFACE2 : BLUE, color: selectedStoryIds.size < 2 ? MUTED : '#fff', cursor: selectedStoryIds.size < 2 ? 'default' : 'pointer' }}>
+                      Regrouper en séquence
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => setSelectionMode(true)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                      Regrouper des stories
+                    </button>
+                    <button onClick={async () => {
+                      await fetch('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) });
+                      queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
+                    }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                      ↻ Actualiser
+                    </button>
+                  </div>
+                )
+              )}
             </div>
 
             {/* Liste contenus */}
@@ -2409,19 +2735,41 @@ export default function PageLiens() {
                   {search ? 'Aucun résultat.' : 'Aucun contenu trouvé.'}
                 </div>
               ) : filteredPosts.map(post => {
-                const isSelected = selectedPost?.id === post.id;
+                const isStory = post.platform === 'STORY';
+                const isSelected = isStory ? (selectionMode ? false : selectedStory?.id === post.id) : selectedPost?.id === post.id;
                 const hasDesc = !!post.hasDescLink;
                 const hasLm = !!post.hasLeadMagnet;
+                const isChecked = isStory && selectedStoryIds.has(post.id);
+                const isGroupedElsewhere = isStory && !!post.sequenceId && (post.sequenceStoryCount ?? 0) > 1;
+                const handleClick = () => {
+                  if (isStory && selectionMode) {
+                    if (isGroupedElsewhere) return; // déjà dans une vraie séquence multi-story, non cochable
+                    setSelectedStoryIds(prev => {
+                      const next = new Set(prev);
+                      if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
+                      return next;
+                    });
+                    return;
+                  }
+                  unsavedGuardApi.guard(() => setRightView(isStory ? { type: 'story', post } : { type: 'post', post }));
+                };
                 return (
-                  <div key={post.id} onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'post', post }))}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, transition: 'all .1s' }}>
+                  <div key={post.id} onClick={handleClick}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: isGroupedElsewhere && selectionMode ? 'default' : 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, opacity: isGroupedElsewhere && selectionMode ? 0.45 : 1, transition: 'all .1s' }}>
+                    {isStory && selectionMode && (
+                      <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${isChecked ? BLUE : BORDER}`, background: isChecked ? BLUE : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {isChecked && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </div>
+                    )}
                     <div style={{ width: 36, height: 36, borderRadius: 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
                       {post.thumbnail
                         ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                         : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                             {post.platform === 'IG'
                               ? <svg width="14" height="14" viewBox="0 0 24 24" fill={MUTED}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
-                              : <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                              : post.platform === 'YT'
+                              ? <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
                             }
                           </div>
                       }
@@ -2429,15 +2777,25 @@ export default function PageLiens() {
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 500, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{post.caption}</div>
                       <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                        <span style={{ fontSize: 10, fontWeight: 700, color: post.platform === 'IG' ? '#c2185b' : '#d32f2f', opacity: 0.8 }}>{post.platform}</span>
-                        {hasDesc
-                          ? <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
-                          : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lien description" />
-                        }
-                        {post.platform === 'IG' && (
-                          hasLm
-                            ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</span>
-                            : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lead magnet" />
+                        <span style={{ fontSize: 10, fontWeight: 700, color: post.platform === 'IG' ? '#c2185b' : post.platform === 'YT' ? '#d32f2f' : '#8b5cf6', opacity: 0.8 }}>{post.platform}</span>
+                        {isStory ? (
+                          (post.sequenceStoryCount ?? 0) > 1
+                            ? <span style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', background: '#8b5cf612', borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
+                            : post.ctaType
+                              ? <span style={{ fontSize: 10, fontWeight: 600, color: post.ctaType === 'lead_magnet' ? 'var(--green)' : BLUE, background: post.ctaType === 'lead_magnet' ? 'var(--green-soft)' : BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>{post.ctaType === 'lead_magnet' ? (post.lmKeyword ? `#${post.lmKeyword}` : 'LM') : 'Calendly'}</span>
+                              : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de CTA" />
+                        ) : (
+                          <>
+                            {hasDesc
+                              ? <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
+                              : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lien description" />
+                            }
+                            {post.platform === 'IG' && (
+                              hasLm
+                                ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</span>
+                                : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lead magnet" />
+                            )}
+                          </>
                         )}
                       </div>
                     </div>
@@ -2468,6 +2826,16 @@ export default function PageLiens() {
               />
             ) : rightView.type === 'prospect' ? (
               <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
+            ) : rightView.type === 'story' ? (
+              <PanneauStorySequence
+                story={selectedStory || rightView.post} profileId={profileId} leadMagnets={leadMagnets}
+                onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+              />
+            ) : rightView.type === 'story-multi' ? (
+              <PanneauStorySequence
+                stories={selectedStoriesForGroup} profileId={profileId} leadMagnets={leadMagnets}
+                onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+              />
             ) : (
               <PanneauActions
                 post={selectedPost || rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
@@ -2478,9 +2846,27 @@ export default function PageLiens() {
             )}
           </div>
         </div>
-        </>
-        )}
       </div>
+
+      {statsSequence && statsSequence.sequenceId && (
+        <SequenceDetailModal
+          profileId={profileId}
+          sequence={{
+            id: statsSequence.sequenceId,
+            name: statsSequence.sequenceName || '',
+            cta_type: statsSequence.ctaType || 'lead_magnet',
+            cta_story_id: statsSequence.ctaStoryId ?? null,
+            lm_keyword: statsSequence.lmKeyword ?? null,
+            lm_url: null,
+            dm1_message: statsSequence.dm1Message ?? null,
+            dm2_story_message: statsSequence.dm2StoryMessage ?? null,
+            calendly_short_url: null,
+            created_at: '',
+            story_count: statsSequence.sequenceStoryCount ?? 1,
+          }}
+          onClose={() => setStatsSequence(null)}
+        />
+      )}
 
       {pendingLeaveAction && typeof document !== 'undefined' && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
