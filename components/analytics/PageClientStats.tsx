@@ -2640,6 +2640,7 @@ interface MockLead {
   hookRepliedAt?: string | null;
   trackingLink?: string | null;
   lmClicked?: boolean;
+  source?: string | null;
 }
 
 interface DestinationLink {
@@ -3488,13 +3489,20 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const dmDirectLinks = prospectLinks.filter((l: any) => !isLMProspect(l));
           const lmProspectLinks = prospectLinks.filter((l: any) => isLMProspect(l));
 
-          // Cold DM = coach a initié (dmType === 'cold') ou non détecté (null) parmi les DM directs
+          // Cold DM = coach a initié la conversation (instagram_leads.source === 'cold_dm',
+          // posé par le vrai webhook Instagram — app/api/webhooks/instagram/route.ts). Le
+          // webhook ne pose jamais 'organic' littéralement : DM organique = tout DM direct
+          // dont le lead existe mais dont source n'est PAS 'cold_dm' (donc initié par le
+          // prospect). Sans lead correspondant (lien créé hors flux Instagram), on classe
+          // par défaut en Cold DM faute de mieux — même choix par défaut que l'ancien champ
+          // dmType, jamais peuplé.
           const dmLinkSentInPeriod = (l: any) => {
             if (!l.calendly_link_sent) return false;
             return isInPeriod(l.calendly_link_sent_at ?? l.created_at);
           };
-          const coldDMLinks = dmDirectLinks.filter((l: any) => (l.dmType === 'cold' || l.dmType == null) && dmLinkSentInPeriod(l));
-          const organicDMLinks = dmDirectLinks.filter((l: any) => l.dmType === 'organic' && dmLinkSentInPeriod(l));
+          const sourceForLink = (l: any) => l.ig_lead_id ? leads.find((ml: any) => ml.id === l.ig_lead_id)?.source : null;
+          const coldDMLinks = dmDirectLinks.filter((l: any) => sourceForLink(l) !== 'story_reply' && sourceForLink(l) !== 'comment' && dmLinkSentInPeriod(l));
+          const organicDMLinks = dmDirectLinks.filter((l: any) => (sourceForLink(l) === 'story_reply' || sourceForLink(l) === 'comment') && dmLinkSentInPeriod(l));
 
           // Calls bookés/honorés/closés comptés selon LEUR PROPRE date (scheduled_at dans
           // la période), indépendamment de la date d'envoi du lien Calendly — convention
@@ -4301,8 +4309,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         <tbody>
                           {linkedProspects.map((l: any, i: number) => {
                             const lead = leads.find((ml: any) => ml.id === l.ig_lead_id);
-                            const canal = lead?.leadMagnetSent ? 'LM' : (l.dmType === 'organic' ? 'DM organique' : 'Cold DM');
-                            const canalColor2 = lead?.leadMagnetSent ? AMBER : (l.dmType === 'organic' ? '#10B981' : BLUE);
+                            const isOrganic = lead?.source === 'story_reply' || lead?.source === 'comment';
+                            const canal = lead?.leadMagnetSent ? 'LM' : (isOrganic ? 'DM organique' : 'Cold DM');
+                            const canalColor2 = lead?.leadMagnetSent ? AMBER : (isOrganic ? '#10B981' : BLUE);
                             const st = getProspectStatus(l);
                             const daysAgo2 = Math.floor((Date.now() - new Date(l.created_at).getTime()) / 86400000);
                             return (
@@ -5163,7 +5172,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       postType: 'IG' as const, commentedAt: l.detected_at,
       keyword: l.keyword_matched || '', leadMagnetSent: l.lead_magnet_sent || false,
       hookReplied: l.hook_replied || false, hookRepliedAt: l.hook_replied_at ?? null,
-      trackingLink: l.tracking_link || null,
+      trackingLink: l.tracking_link || null, source: l.source ?? null,
     }));
 
   const lmData = lmRes.data ?? [];
