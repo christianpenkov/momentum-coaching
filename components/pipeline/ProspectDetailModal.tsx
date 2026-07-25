@@ -42,7 +42,17 @@ const DEFAULT_STYLE = { icon: 'message-circle' as const, color: '#6b6a66' };
 // aucune légende sur Instagram (caption null) — dans ce cas on garde quand même
 // le lien cliquable (avec un libellé générique) et la miniature, plutôt que de
 // tout masquer faute de texte.
-function resolveIgPostLink(meta: { caption: string | null; permalink: string | null; thumbnail: string | null } | null | undefined) {
+//
+// Cas story : une story n'a pas de permalink exploitable durablement (contenu
+// éphémère 24h côté Instagram) — si ce media_id correspond à une séquence story
+// connue, on pointe vers notre propre page Stories plutôt que vers Instagram.
+function resolveIgPostLink(
+  meta: { caption: string | null; permalink: string | null; thumbnail: string | null } | null | undefined,
+  storySequence?: { sequenceId: string; sequenceName: string },
+) {
+  if (storySequence) {
+    return { linkLabel: `Voir la séquence « ${storySequence.sequenceName} »`, linkUrl: `/client/liens?tab=stories&sequence=${storySequence.sequenceId}`, thumbnail: meta?.thumbnail ?? null };
+  }
   if (!meta?.permalink) return {};
   const caption = meta.caption
     ? (meta.caption.length > 60 ? `${meta.caption.slice(0, 60)}…` : meta.caption)
@@ -84,7 +94,8 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
   const firstLmId = ctx.lmHistory[0]?.id ?? null; // lmHistory trié croissant par resolveProspectContext
   for (const lm of ctx.lmHistory) {
     const meta = lm.media_id ? ctx.igPostMeta[lm.media_id] : null;
-    const link = resolveIgPostLink(meta);
+    const storySequence = lm.media_id ? ctx.storySequenceByMediaId[lm.media_id] : undefined;
+    const link = resolveIgPostLink(meta, storySequence);
     const isFirst = lm.id === firstLmId;
     events.push({
       id: `lm-${lm.id}`,

@@ -68,6 +68,23 @@ export async function GET() {
       .order('detected_at', { ascending: false }),
   ]);
 
+  // Map ig_story_id → nom de séquence, pour distinguer un media_id "post" (permalink
+  // Instagram permanent) d'un media_id "story" (contenu éphémère 24h, sans permalink
+  // exploitable après expiration — le lien "Voir le post" doit alors pointer vers
+  // notre propre séquence plutôt que vers Instagram).
+  const { data: storyRows } = await supa
+    .from('ig_stories')
+    .select('ig_story_id, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name)')
+    .eq('profile_id', user.id)
+    .not('sequence_id', 'is', null);
+  const storySequenceByMediaId: Record<string, { sequenceId: string; sequenceName: string }> = {};
+  for (const row of storyRows ?? []) {
+    const seqName = (row as any).story_sequences?.name;
+    if (row.sequence_id && seqName) {
+      storySequenceByMediaId[row.ig_story_id] = { sequenceId: row.sequence_id, sequenceName: seqName };
+    }
+  }
+
   if (clicksRes.error) console.warn('[pipeline] shortio_link_daily_snapshots fetch failed:', clicksRes.error.message);
   if (eventsRes.error) console.warn('[pipeline] prospect_events fetch failed:', eventsRes.error.message);
 
@@ -114,6 +131,7 @@ export async function GET() {
     lmHistory: lmHistoryRes.data ?? [],
     ytVideoTitles,
     igPostMeta,
+    storySequenceByMediaId,
   });
 }
 

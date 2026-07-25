@@ -14,7 +14,7 @@ export async function GET() {
 
   const { data: sequences, error } = await serviceSupabase
     .from('story_sequences')
-    .select('id, name, cta_type, cta_story_id, lm_keyword, lm_url, calendly_short_url, created_at')
+    .select('id, name, cta_type, cta_story_id, lm_keyword, lm_url, dm1_message, dm2_story_message, calendly_short_url, created_at')
     .eq('profile_id', user.id)
     .order('created_at', { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });

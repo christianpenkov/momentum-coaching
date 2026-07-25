@@ -110,6 +110,8 @@ export interface IgPostMeta {
   thumbnail: string | null;
 }
 
+interface StorySequenceRef { sequenceId: string; sequenceName: string; }
+
 interface PipelineData {
   leads: IgLead[];
   prospects: ProspectLink[];
@@ -120,9 +122,10 @@ interface PipelineData {
   lmHistory: LmHistoryEntry[];
   ytVideoTitles: Record<string, string>; // video_id → titre, résolu côté API (cache DB + oEmbed)
   igPostMeta: Record<string, IgPostMeta>; // media_id → légende/permalink/thumbnail, résolu côté API (cache DB + Graph API)
+  storySequenceByMediaId: Record<string, StorySequenceRef>; // ig_story_id → séquence — distingue un media_id "story" (éphémère, sans permalink exploitable) d'un vrai post
 }
 
-export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, PipelineData };
+export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, PipelineData, StorySequenceRef };
 
 // ── Colonnes ──────────────────────────────────────────────────────────────────
 
@@ -253,6 +256,7 @@ export interface ProspectContext {
   lmHistory: LmHistoryEntry[]; // tous les lead magnets réclamés par ce lead (1 ligne par contenu)
   ytVideoTitles: Record<string, string>; // video_id → titre, pour résoudre la source d'un call
   igPostMeta: Record<string, IgPostMeta>; // media_id → légende/permalink/thumbnail
+  storySequenceByMediaId: Record<string, StorySequenceRef>; // ig_story_id → séquence
 }
 
 export function resolveProspectContext(
@@ -266,7 +270,7 @@ export function resolveProspectContext(
       const callId = cardKey.slice('ig_link_'.length);
       const call = data.calls.find(c => c.id === callId);
       if (!call) return null;
-      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [], lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta };
+      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [], lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta, storySequenceByMediaId: data.storySequenceByMediaId };
     }
 
     const username = cardKey.toLowerCase();
@@ -294,7 +298,7 @@ export function resolveProspectContext(
       .sort((a, b) => new Date(a.detected_at).getTime() - new Date(b.detected_at).getTime());
 
     if (!lead && !prospect && matchingCalls.length === 0) return null;
-    return { platform, cardKey, lead, prospect, calls: matchingCalls, events: matchingEvents, lmHistory: matchingLmHistory, ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta };
+    return { platform, cardKey, lead, prospect, calls: matchingCalls, events: matchingEvents, lmHistory: matchingLmHistory, ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta, storySequenceByMediaId: data.storySequenceByMediaId };
   }
 
   // YT / Autre : cardKey = prospect_id, ou call.id en fallback (prospect_id absent)
@@ -304,7 +308,7 @@ export function resolveProspectContext(
   if (calls.length === 0) return null;
 
   const events = data.events.filter(e => e.platform === platform && e.prospect_key === cardKey);
-  return { platform, cardKey, lead: null, prospect: null, calls, events, lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta };
+  return { platform, cardKey, lead: null, prospect: null, calls, events, lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta, storySequenceByMediaId: data.storySequenceByMediaId };
 }
 
 // ── Card ──────────────────────────────────────────────────────────────────────

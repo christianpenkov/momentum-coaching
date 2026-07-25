@@ -35,6 +35,8 @@ interface SequenceRow {
   cta_story_id: string | null;
   lm_keyword: string | null;
   lm_url: string | null;
+  dm1_message: string | null;
+  dm2_story_message: string | null;
   calendly_short_url: string | null;
   created_at: string;
   story_count: number;
@@ -67,6 +69,7 @@ export default function StoriesTab({ profileId, leadMagnets }: { profileId: stri
   const [creating, setCreating] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [detailSequence, setDetailSequence] = useState<SequenceRow | null>(null);
+  const [editingSequence, setEditingSequence] = useState<SequenceRow | null>(null);
 
   const { data: storiesData, isLoading: storiesLoading } = useQuery({
     queryKey: ['stories', profileId],
@@ -155,10 +158,13 @@ export default function StoriesTab({ profileId, leadMagnets }: { profileId: stri
             {stories.map(story => {
               const isSelected = selected.has(story.id);
               const inSequence = !!story.sequence_id;
+              // Grisage = story expirée côté Instagram (>24h), indépendamment de son
+              // appartenance à une séquence — le badge séquence reste coloré/visible.
+              const isExpired = Date.now() - new Date(story.posted_at).getTime() > 24 * 60 * 60 * 1000;
               return (
                 <div key={story.id} onClick={() => toggleSelect(story.id, inSequence)} style={{
                   position: 'relative', aspectRatio: '9/16', borderRadius: 8, overflow: 'hidden', cursor: inSequence ? 'default' : 'pointer',
-                  border: `2px solid ${isSelected ? BLUE : 'transparent'}`, opacity: inSequence ? 0.55 : 1, background: SURFACE2,
+                  border: `2px solid ${isSelected ? BLUE : 'transparent'}`, opacity: isExpired ? 0.55 : 1, background: SURFACE2,
                 }}>
                   {story.storage_url
                     ? <img src={story.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
@@ -168,7 +174,7 @@ export default function StoriesTab({ profileId, leadMagnets }: { profileId: stri
                     {isSelected && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
                   </div>
                   {inSequence && (
-                    <div style={{ position: 'absolute', top: 6, left: 6, right: 6, fontSize: 9, fontWeight: 700, color: '#fff', background: 'rgba(0,0,0,.55)', borderRadius: 4, padding: '2px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ position: 'absolute', top: 6, left: 6, right: 6, fontSize: 9, fontWeight: 700, color: '#fff', background: BLUE, borderRadius: 4, padding: '2px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {story.sequence_name}
                     </div>
                   )}
@@ -192,16 +198,21 @@ export default function StoriesTab({ profileId, leadMagnets }: { profileId: stri
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {sequences.map(seq => (
-              <div key={seq.id} onClick={() => setDetailSequence(seq)} style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 8, border: `1px solid ${BORDER}`, cursor: 'pointer', background: SURFACE,
+              <div key={seq.id} style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE,
               }}>
-                <div>
+                <div onClick={() => setDetailSequence(seq)} style={{ cursor: 'pointer', flex: 1 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>{seq.name}</div>
                   <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{seq.story_count} story{seq.story_count > 1 ? 'ies' : ''}</div>
                 </div>
-                <span style={{ fontSize: 10, fontWeight: 700, color: seq.cta_type === 'lead_magnet' ? GREEN : BLUE, background: seq.cta_type === 'lead_magnet' ? GREEN_SOFT : BLUE_SOFT, borderRadius: 4, padding: '2px 8px' }}>
-                  {seq.cta_type === 'lead_magnet' ? `#${seq.lm_keyword}` : 'Calendly'}
-                </span>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span style={{ fontSize: 10, fontWeight: 700, color: seq.cta_type === 'lead_magnet' ? GREEN : BLUE, background: seq.cta_type === 'lead_magnet' ? GREEN_SOFT : BLUE_SOFT, borderRadius: 4, padding: '2px 8px' }}>
+                    {seq.cta_type === 'lead_magnet' ? `#${seq.lm_keyword}` : 'Calendly'}
+                  </span>
+                  <button onClick={() => setEditingSequence(seq)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                    Éditer
+                  </button>
+                </div>
               </div>
             ))}
           </div>
@@ -225,6 +236,17 @@ export default function StoriesTab({ profileId, leadMagnets }: { profileId: stri
 
       {detailSequence && (
         <SequenceDetailModal sequence={detailSequence} profileId={profileId} onClose={() => setDetailSequence(null)} />
+      )}
+
+      {editingSequence && (
+        <EditSequenceModal
+          sequence={editingSequence}
+          onClose={() => setEditingSequence(null)}
+          onSaved={() => {
+            setEditingSequence(null);
+            queryClient.invalidateQueries({ queryKey: ['story-sequences', profileId] });
+          }}
+        />
       )}
     </div>
   );
@@ -404,6 +426,70 @@ function SequenceDetailModal({ sequence, profileId, onClose }: { sequence: Seque
 
         <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 20 }}>
           <button onClick={onClose} style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: 'pointer' }}>Fermer</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Édition d'une séquence existante — nom + champs internes au type de CTA déjà
+// choisi (mot-clé/DM1/DM2 pour Lead Magnet). Le type de CTA lui-même reste figé,
+// même logique que TabLm/TabDesc pour les posts.
+function EditSequenceModal({ sequence, onClose, onSaved }: { sequence: SequenceRow; onClose: () => void; onSaved: () => void }) {
+  const [name, setName] = useState(sequence.name);
+  const [lmKeyword, setLmKeyword] = useState(sequence.lm_keyword || '');
+  const [dm1Message, setDm1Message] = useState(sequence.dm1_message || '');
+  const [dm2StoryMessage, setDm2StoryMessage] = useState(sequence.dm2_story_message || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setSaving(true); setError(null);
+    try {
+      const res = await fetch('/api/client/story-sequences', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: sequence.id, name,
+          ...(sequence.cta_type === 'lead_magnet' ? { lmKeyword, dm1Message, dm2StoryMessage } : {}),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Erreur'); return; }
+      onSaved();
+    } catch (e: any) {
+      setError(e.message || 'Erreur réseau');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
+      <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 12, padding: 24, maxWidth: 440, width: '90%', maxHeight: '85vh', overflowY: 'auto', boxShadow: '0 10px 40px rgba(0,0,0,.2)' }}>
+        <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 16 }}>Éditer la séquence</div>
+
+        <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
+        <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
+        {sequence.cta_type === 'lead_magnet' && (
+          <>
+            <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
+            <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 1 — lien + message ({'{{username}}'}, {'{{lien_lm}}'})</label>
+            <textarea value={dm1Message} onChange={e => setDm1Message(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+
+            <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 2 — message libre (envoyé juste après)</label>
+            <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+          </>
+        )}
+
+        {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
+
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
+          <button onClick={onClose} disabled={saving} style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: 'pointer' }}>Annuler</button>
+          <button onClick={submit} disabled={saving || !name} style={{ padding: '8px 16px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+            {saving ? 'Enregistrement...' : 'Enregistrer'}
+          </button>
         </div>
       </div>
     </div>
