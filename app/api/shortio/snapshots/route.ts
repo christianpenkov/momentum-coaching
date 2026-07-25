@@ -53,6 +53,26 @@ function mergeTop(arrays: (TopEntry[] | null)[], limit = 8): TopEntry[] {
     .map(([label, value]) => ({ label, value }));
 }
 
+// PostgREST plafonne à 1000 lignes par défaut — sans pagination explicite, une requête
+// avec beaucoup de liens/dates tronquerait silencieusement les résultats (totaux et
+// graphiques faux, sans erreur visible). Boucle par pages de 1000 jusqu'à épuisement.
+async function fetchAllPages<T>(
+  queryBuilder: () => any,
+  pageSize = 1000
+): Promise<{ data: T[]; error: any }> {
+  const allRows: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await queryBuilder().range(from, from + pageSize - 1);
+    if (error) return { data: allRows, error };
+    if (!data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return { data: allRows, error: null };
+}
+
 function mapPostgresToShortio(
   rows: SnapshotRow[],
   domain: string,
@@ -188,14 +208,16 @@ export async function GET(request: Request) {
   console.log('[shortio/snapshots] profileId=%s start=%s end=%s', targetProfileId, startDate, endDate);
 
   try {
-    // Fetch en parallèle : snapshots + domain + metadata liens
+    // Fetch en parallèle : snapshots (paginé, voir fetchAllPages) + domain + metadata liens
     const [snapshotsRes, integRes, metaRes] = await Promise.all([
-      serviceSupabase
-        .from('shortio_link_daily_snapshots')
-        .select('link_id,path,short_url,original_url,date,human_clicks,total_clicks,link_type,link_category,top_countries,top_referrers,top_browsers,top_os,top_social,top_cities,utm_sources,utm_mediums')
-        .eq('profile_id', targetProfileId)
-        .gte('date', startDate)
-        .lte('date', endDate),
+      fetchAllPages<SnapshotRow>(() =>
+        serviceSupabase
+          .from('shortio_link_daily_snapshots')
+          .select('link_id,path,short_url,original_url,date,human_clicks,total_clicks,link_type,link_category,top_countries,top_referrers,top_browsers,top_os,top_social,top_cities,utm_sources,utm_mediums')
+          .eq('profile_id', targetProfileId)
+          .gte('date', startDate)
+          .lte('date', endDate)
+      ),
       serviceSupabase
         .from('integrations')
         .select('metadata')

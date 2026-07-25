@@ -10,6 +10,25 @@ const serviceSupabase = createClient(
 
 const CACHE_TTL_MS = 15 * 60 * 1000; // 15 minutes
 
+// PostgREST plafonne à 1000 lignes par défaut — sans pagination explicite, une requête
+// avec beaucoup de liens tronquerait silencieusement les résultats. Boucle par pages de
+// 1000 jusqu'à épuisement.
+async function fetchAllPages<T>(
+  queryBuilder: () => any,
+  pageSize = 1000
+): Promise<T[]> {
+  const allRows: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await queryBuilder().range(from, from + pageSize - 1);
+    if (error || !data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return allRows;
+}
+
 async function getCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string | number } | null> {
   const { data: integ } = await serviceSupabase
     .from('integrations')
@@ -116,14 +135,16 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
 
   // Enrichissement link_type + postPlatform depuis DB
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const { data: dbRows } = await serviceSupabase
-    .from('shortio_link_daily_snapshots')
-    .select('link_id, link_type, link_category, original_url')
-    .eq('profile_id', profileId)
-    .gte('date', since30d);
+  const dbRows = await fetchAllPages<{ link_id: string; link_type: string | null; link_category: string | null; original_url: string }>(() =>
+    serviceSupabase
+      .from('shortio_link_daily_snapshots')
+      .select('link_id, link_type, link_category, original_url')
+      .eq('profile_id', profileId)
+      .gte('date', since30d)
+  );
 
   const dbByLinkId = new Map<string, { linkType: string | null; linkCategory: string | null; postPlatform: string | null }>();
-  for (const row of dbRows ?? []) {
+  for (const row of dbRows) {
     if (!dbByLinkId.has(row.link_id)) {
       let postPlatform: string | null = null;
       try {
