@@ -35,6 +35,9 @@ reaction_by   uuid null          -- FK profiles.id on delete set null, auteur de
 file_size_bytes integer null     -- taille du fichier envoyé (octets), voir §22
 page_count    integer null       -- nombre de pages si PDF, voir §22
 thumbnail_url text null          -- miniature de la page 1 si PDF, voir §22
+storage_bucket text null         -- 'chat-medias' | 'voice-messages', voir §24
+storage_path  text null          -- chemin relatif dans le bucket (pas une URL), voir §24
+thumbnail_storage_path text null -- idem pour thumbnail_url, voir §24
 ```
 Contrainte : `check ((reaction_emoji is null) = (reaction_by is null))` — une réaction a toujours emoji + auteur ensemble, jamais l'un sans l'autre.
 
@@ -791,7 +794,43 @@ Aperçu de la page 1 (`msg.thumbnail_url`) si disponible, sinon zone générique
 
 La citation dans une bulle qui répond n'avait qu'une barre verticale de 3px sans fond — remplacée par un vrai bloc avec fond distinct (`rgba(255,255,255,0.14)` sur bulle envoyée, `var(--surface-2)` sur bulle reçue), nom de l'expéditeur cité en vert (`var(--green)`) plutôt que la couleur du texte normal, cohérent avec les captures WhatsApp fournies.
 
-## 24. Ce qu'il faut absolument reproduire si migration vers une autre stack
+## 24. Buckets privés + URLs signées (chat-medias, voice-messages)
+
+**Contexte** : jusqu'au 24/07/2026, `chat-medias` et `voice-messages` étaient des buckets Supabase Storage **publics** avec une policy `SELECT` ouverte à tous (`public_bucket_allows_listing` dans les advisors de sécurité) — n'importe qui pouvait lister et télécharger l'intégralité des conversations (images, documents, messages vocaux) de tous les coachs/élèves, sans compte, en devinant ou en énumérant le bucket. Corrigé dans le cadre de l'audit de sécurité Jour 2 (voir `docs/security-notes.md` pour la vue d'ensemble).
+
+### 24.1 Piège architectural découvert en cours de fix
+
+Les colonnes `audio_url`/`thumbnail_url` stockaient l'**URL publique complète** (`https://.../storage/v1/object/public/<bucket>/<path>`), pas un chemin relatif. Rendre un bucket privé casse instantanément toutes ces URLs pour l'historique existant — il ne suffit pas de changer un flag `public: false`, il faut :
+1. Ajouter `storage_bucket`/`storage_path`/`thumbnail_storage_path` (colonnes additives, non destructives).
+2. Backfill des lignes existantes par extraction du path depuis l'URL publique stockée (regex sur `.../public/<bucket>/`).
+3. Une route serveur (`app/api/messages/media-url/route.ts`, POST, prend une liste de `message_id`) qui vérifie l'ownership (même garde que `upload-file/route.ts` : coach OU élève de la conversation) et retourne des `createSignedUrl` (1h de validité) pour chaque message autorisé.
+4. Le frontend résout ces URLs signées en batch à 3 moments : chargement initial de la conversation, réception d'un message media par `postgres_changes` (realtime), retour immédiat après un upload — remplace `audio_url`/`thumbnail_url` dans le state React une fois la résolution reçue, échec silencieux sinon (média affiché avec son URL d'origine plutôt que de bloquer toute la conversation).
+5. Seulement **après** validation complète du point 4 en double capacité (bucket encore public, ancienne ET nouvelle URL cohabitent) : bascule `storage.buckets.public = false`.
+
+### 24.2 Le vrai piège : supprimer la policy publique casse `createSignedUrl` lui-même
+
+Supprimer la policy `SELECT` publique sur `storage.objects` (nécessaire pour fermer le listing) **casse aussi la génération de signed URL** si elle n'est pas remplacée par une policy `SELECT` restreinte. `createSignedUrl()` appelé avec un client Supabase **scoped-utilisateur** (pas `service_role`) a besoin d'une permission `SELECT` réelle sur l'objet pour signer une URL — la seule permission d'`INSERT` (upload) ne suffit pas. Sans ce remplacement, tous les médias — historiques et nouveaux — deviennent injoignables malgré un frontend et une route API entièrement corrects, une erreur silencieuse (`createSignedUrl` retourne juste `data: null`, pas d'exception) qui ne se voit qu'en testant réellement l'affichage après bascule.
+
+Policy de remplacement (même pattern que `task_attachments_access`, déjà en place sur ce bucket voisin — ownership vérifié via le premier segment du chemin, qui est toujours `${clientId}/...`) :
+```sql
+create policy "chat-medias select own conversation" on storage.objects
+for select to authenticated
+using (
+  bucket_id = 'chat-medias'
+  and (storage.foldername(name))[1]::uuid in (
+    select c.id from clients c where c.coach_id = auth.uid() or c.profile_id = auth.uid()
+  )
+);
+-- policy jumelle pour voice-messages
+```
+
+### 24.3 Vérification post-bascule
+
+Pas de raccourci fiable autre que le test réel : recharger une conversation avec historique (images/documents/audios existants), vérifier `img.naturalWidth !== 0` sur toutes les balises `<img>` du DOM, vérifier que les liens "Ouvrir"/"Enregistrer sous" des documents contiennent bien `?token=` (signature) et non `/object/public/`, vérifier `audio.readyState === 4` sur les lecteurs vocaux. Faire l'aller-retour complet upload → affichage après bascule (pas seulement relire l'historique) — un message envoyé juste après la bascule suit un chemin de code légèrement différent (retour direct de `upload-file`, pas de rechargement de conversation) et doit être testé séparément.
+
+Point d'attention non résolu à date : `app/api/push/webhook/route.ts` construit l'image de notification depuis `record.audio_url`/`thumbnail_url` — ce champ contient toujours l'ancienne URL publique pour les messages écrits *avant* le passage à `storage_path`. Fonctionne pour les nouveaux messages (le trigger passe par le même flux), mais si jamais ce champ redevient inutilisable un jour, la miniature de notification casserait silencieusement — aucune régression connue à ce jour, juste un couplage à garder en tête.
+
+## 25. Ce qu'il faut absolument reproduire si migration vers une autre stack
 
 - Système realtime avec un vrai **Presence** (pas juste du pub/sub classique) — sinon il faut réimplémenter le heartbeat + TTL à la main.
 - **Scroll de la messagerie en `flex-direction: column-reverse`**, pas en `column` + rustines JS. C'est la leçon la plus chère de cette section : un système `column` classique qui essaie de "recorriger" le scroll après chaque reflow de contenu (polices web, images tardives) est structurellement fragile — un bug de scroll qui saute au premier tap après cold start a résisté à 7 tentatives de fix successives avant que la cause (reflow de police invisible à toute instrumentation `scrollTop`) soit prouvée par une sonde de diagnostic dédiée. `column-reverse` élimine la classe de bug entière par construction (le navigateur ancre nativement en bas), pas par patch — voir §6.
