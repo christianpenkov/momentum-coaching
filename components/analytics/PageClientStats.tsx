@@ -69,7 +69,7 @@ interface YTStats {
   totalViews: number; videoCount: number;
   views30d: number; watchTime30d: number; avgViewDurationSec?: number; likes30d: number; comments30d: number;
   shares30d: number; subsGained30d: number; subsLost30d: number; netSubs30d: number;
-  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number }[];
+  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number }[];
   videos: YTVideo[]; trafficSources: { source: string; views: number; watchMinutes: number }[];
   devices: { device: string; views: number; watchMinutes: number }[];
   demographics: { ageGroup: string; gender: string; viewerPct: number }[];
@@ -1396,9 +1396,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: 
     'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
     'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
     'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
-    'Likes':              { data: mockFromTotalYT(yt.likes30d, 1), color: 'var(--accent-brand)' },
-    'Commentaires':       { data: mockFromTotalYT(yt.comments30d, 2), color: BLUE },
-    'Partages':           { data: mockFromTotalYT(yt.shares30d, 3), color: GREEN },
+    'Likes':              { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.likes ?? 0) })), color: 'var(--accent-brand)' },
+    'Commentaires':       { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.comments ?? 0) })), color: BLUE },
+    'Partages':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.shares ?? 0) })), color: GREEN },
     'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: 'var(--accent-brand)', unit: '%' },
     'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: RED },
     'Vues all-time':      { data: mockFromTotalYT(yt.totalViews, 7), color: RED },
@@ -5103,6 +5103,9 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       subsGained: r.yt_subs_gained ?? 0,
       subsLost:   r.yt_subs_lost ?? 0,
       netSubs:    r.yt_net_subs ?? 0,
+      likes:      r.yt_likes ?? 0,
+      comments:   r.yt_comments ?? 0,
+      shares:     r.yt_shares ?? 0,
     })),
     videos: ytVideos,
     trafficSources: lastSnap?.yt_traffic_sources ?? [],

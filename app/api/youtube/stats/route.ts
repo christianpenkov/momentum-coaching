@@ -219,6 +219,9 @@ export async function GET(request: Request) {
     subsGained: r[3] || 0,
     subsLost: r[4] || 0,
     netSubs: (r[3] || 0) - (r[4] || 0),
+    likes: r[5] || 0,
+    comments: r[6] || 0,
+    shares: r[7] || 0,
   }));
 
   // Sources de trafic
