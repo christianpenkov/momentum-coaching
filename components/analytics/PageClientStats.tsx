@@ -5085,7 +5085,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const since30d = parisDateStr(_periodStart);
   const until30d = parisDateStr(_periodEnd);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, shortioClicksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5103,12 +5103,6 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     supabase.from('prospect_links')
       .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched')
       .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
-    // Clics par lien depuis DB (illimité, pas limité au top 20 de l'API Short.io)
-    supabase.from('shortio_link_daily_snapshots')
-      .select('short_url, human_clicks, path, link_category')
-      .eq('profile_id', targetId)
-      .gte('date', since30d)
-      .lte('date', until30d),
     // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
     supabase.from('content_links')
       .select('lm_id, lm_keyword')
