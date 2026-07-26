@@ -2791,6 +2791,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   chartFilter: 'all' | 'dm' | 'content' | 'bio';
   setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
 }) {
+  const { data: storySequenceFunnelData } = useQuery({
+    queryKey: ['story-sequences-funnel', profileId],
+    queryFn: () => fetch(`/api/instagram/story-sequences-stats?profileId=${profileId}&mode=funnel`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 60 * 1000,
+  });
+  const storySequenceRows: any[] = storySequenceFunnelData?.rows ?? [];
+
   const sPeriod: ShortPeriod = globalPeriod === 7 ? 7 : 30;
   const _pIdx = periodIndex ?? 0;
   // Malgré le nom historique "utc", produit la date calendaire vue depuis Paris —
@@ -3140,7 +3148,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (lmName && !lmNameByKeyword.has(altKw)) lmNameByKeyword.set(altKw, lmName);
   }
 
-  const consolidatedRows = allPostIds.map(key => {
+  const rawConsolidatedRows = allPostIds.map(key => {
     const [postId, platform] = key.split('|');
     const descLink = postLinks.find((l: any) => l.postId === postId);
     // dmProspects : source fiable prospectLinksData (jamais tronqué côté serveur par période, contrairement
@@ -3220,7 +3228,47 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
 
     return { postId, platform, title, thumbnail, type, views, descLink, dmProspects, lmDetectes, lmSent, lmClics, lmReponses, dmCount, clicsDesc, callsBooked, callsHonored, closed, revenue, callsBookedDesc, callsHonoredDesc, closedDesc, revenueDesc, callsBookedLm, callsHonoredLm, closedLm, revenueLm, vuesParCall, cashParVue, qualifiedPct, qualifiedCount, qualifiedAnswered, lmName, postCallsDesc };
-  }).sort((a, b) => b.views - a.views || b.revenue - a.revenue);
+  });
+
+  // Séquences stories — une ligne par séquence (pas par story individuelle), pivot
+  // toujours story_sequence_id. Même format de ligne que les posts pour cohabiter
+  // dans "Performance par contenu" ; les champs sans équivalent story (clics desc.,
+  // qualifiedPct lifetime, cash/vue lifetime) restent à 0/null — non calculés côté
+  // route funnel pour l'instant, non prioritaires (pas de "lien description" pour
+  // une story, cf. décision produit).
+  const storySequenceContentRows = storySequenceRows.map(seq => ({
+    postId: seq.sequenceId,
+    platform: 'STORY_SEQUENCE' as const,
+    title: seq.name,
+    thumbnail: seq.thumbnail,
+    type: 'Séquence',
+    views: seq.views,
+    descLink: undefined,
+    dmProspects: [],
+    lmDetectes: seq.lmDetectes,
+    lmSent: seq.lmSent,
+    lmClics: 0,
+    lmReponses: seq.lmReponses,
+    dmCount: 0,
+    clicsDesc: 0,
+    callsBooked: seq.callsBooked,
+    callsHonored: seq.callsHonored,
+    closed: seq.closed,
+    revenue: seq.revenue,
+    callsBookedDesc: 0, callsHonoredDesc: 0, closedDesc: 0, revenueDesc: 0,
+    callsBookedLm: seq.ctaType === 'lead_magnet' ? seq.callsBooked : 0,
+    callsHonoredLm: seq.ctaType === 'lead_magnet' ? seq.callsHonored : 0,
+    closedLm: seq.ctaType === 'lead_magnet' ? seq.closed : 0,
+    revenueLm: seq.ctaType === 'lead_magnet' ? seq.revenue : 0,
+    vuesParCall: seq.callsBooked > 0 && seq.views > 0 ? Math.round(seq.views / seq.callsBooked) : null,
+    cashParVue: null,
+    qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
+    lmName: seq.ctaType === 'lead_magnet' ? (seq.lmKeyword ? `#${seq.lmKeyword}` : 'LM story') : null,
+    postCallsDesc: [],
+  }));
+
+  const consolidatedRows = [...rawConsolidatedRows, ...storySequenceContentRows]
+    .sort((a, b) => b.views - a.views || b.revenue - a.revenue);
 
   // ── Section 3 : pipeline prospects ──
   const getProspectStatus = (l: any): ProspectStatus => {
@@ -4014,7 +4062,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 const displayRows = filteredRows.slice(0, 7);
 
                 const ContentRow = ({ row, i }: { row: typeof filteredRows[0]; i: number }) => {
-                  const platformColor = row.platform === 'IG' ? ACCENT : RED;
+                  const platformColor = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
                   const isSelected = selectedContentId === row.postId;
                   return (
                     <tr key={i}
@@ -4025,12 +4073,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                         {row.thumbnail
                           ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
-                          : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : '▶️'}</div>}
+                          : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
                       </td>
                       <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
                         <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
                         <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', marginTop: 2 }}>
-                          <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
+                          <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
                           {row.lmName && <span style={{ fontSize: 9, fontWeight: 700, color: '#8B5CF6', background: '#8B5CF618', borderRadius: 4, padding: '2px 5px' }}>{row.lmName}</span>}
                         </div>
                       </td>
@@ -4115,7 +4163,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       return sortDir === 'desc' ? bv - av : av - bv;
                     })
                     .map((row, i) => {
-                      const platformColor = row.platform === 'IG' ? ACCENT : RED;
+                      const platformColor = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
                       const isSelected = selectedContentId === row.postId;
                       return (
                         <tr key={i}
@@ -4126,11 +4174,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                           <td style={{ position: 'sticky', left: 0, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', width: 40 }}>
                             {row.thumbnail
                               ? <img src={row.thumbnail} alt="" style={{ width: 36, height: 36, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
-                              : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : '▶️'}</div>}
+                              : <div style={{ width: 36, height: 36, borderRadius: 6, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14 }}>{row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️'}</div>}
                           </td>
                           <td style={{ position: 'sticky', left: 44, zIndex: 1, background: isSelected ? BLUE + '15' : 'var(--surface)', padding: '8px 10px', maxWidth: 200 }}>
                             <div style={{ fontSize: 11, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{row.title.slice(0, 45)}{row.title.length > 45 ? '…' : ''}</div>
-                            <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform} · {row.type}</span>
+                            <span style={{ fontSize: 9, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 5px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
                           </td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.clicsDesc > 0 ? 700 : 400, color: row.clicsDesc > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.clicsDesc > 0 ? fmt(row.clicsDesc) : '—'}</td>
                           <td style={{ padding: '8px 10px', textAlign: 'right', fontSize: 13, fontWeight: row.lmDetectes > 0 ? 700 : 400, color: row.lmDetectes > 0 ? 'var(--ink)' : 'var(--faint)' }}>{row.lmDetectes > 0 ? row.lmDetectes : '—'}</td>
@@ -4162,7 +4210,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         const row = detailModal;
         const igPost = igPosts.find(p => p.id === row.postId);
         const ytVideo = ytVideos.find(v => v.id === row.postId);
-        const platformColor = row.platform === 'IG' ? ACCENT : RED;
+        const platformColor = row.platform === 'IG' ? ACCENT : row.platform === 'STORY_SEQUENCE' ? '#8B5CF6' : RED;
         const pubDate = igPost?.timestamp || ytVideo?.publishedAt;
         const pubDateStr = pubDate ? new Date(pubDate).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' }) : null;
 
@@ -4245,12 +4293,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
               {/* Header modal */}
               <div style={{ padding: '22px 26px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'flex-start', gap: 14 }}>
                 <div style={{ width: 56, height: 56, borderRadius: 10, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24, flexShrink: 0 }}>
-                  {row.thumbnail ? <img src={row.thumbnail} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10 }} /> : (row.platform === 'IG' ? '📷' : '▶️')}
+                  {row.thumbnail ? <img src={row.thumbnail} alt="" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 10 }} /> : (row.platform === 'IG' ? '📷' : row.platform === 'STORY_SEQUENCE' ? '📸' : '▶️')}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 4, lineHeight: 1.3 }}>{row.title}</div>
                   <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 7px' }}>{row.platform} · {row.type}</span>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: platformColor, background: platformColor + '18', borderRadius: 4, padding: '2px 7px' }}>{row.platform === 'STORY_SEQUENCE' ? 'STORY' : row.platform} · {row.type}</span>
                     {pubDateStr && <span style={{ fontSize: 11, color: 'var(--faint)' }}>Publié le {pubDateStr}</span>}
                   </div>
                 </div>
@@ -5125,6 +5173,31 @@ async function fetchYtCurrentPeriodTotals(profileId: string | undefined, period:
   }
 }
 
+// Pagine une query Supabase par tranches de pageSize lignes (défaut 1000, le plafond
+// PostgREST) — évite qu'une requête sans .limit()/.range() se fasse tronquer
+// silencieusement dès que le volume dépasse ce plafond. Pattern dupliqué depuis
+// app/api/shortio/stats/route.ts (aucun module partagé entre API routes et
+// composants client dans ce repo), avec log d'erreur ajouté.
+async function fetchAllPages<T>(
+  queryBuilder: () => any,
+  pageSize = 1000
+): Promise<T[]> {
+  const allRows: T[] = [];
+  let from = 0;
+  while (true) {
+    const { data, error } = await queryBuilder().range(from, from + pageSize - 1);
+    if (error) {
+      console.error('[PageClientStats] fetchAllPages a échoué:', error.message);
+      break;
+    }
+    if (!data || data.length === 0) break;
+    allRows.push(...data);
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return allRows;
+}
+
 async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   try {
   const supabase = createClient();
@@ -5184,7 +5257,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const since30d = parisDateStr(_periodStart);
   const until30d = parisDateStr(_periodEnd);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, contentLinksRes, lmClickedEventsRes, linkClickedEventsRes] = await Promise.all([
+  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, contentLinksRes, lmClickedEvents, linkClickedEvents] = await Promise.all([
     supabase.from('instagram_leads')
       .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, source')
       .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
@@ -5208,18 +5281,24 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .eq('profile_id', targetId)
       .not('lm_id', 'is', null)
       .not('lm_keyword', 'is', null),
-    // Clics LM réels (postérieurs à detected_at du lead) — même source que le pipeline
-    supabase.from('prospect_events')
-      .select('ig_lead_id, occurred_at')
-      .eq('profile_id', targetId)
-      .eq('event_type', 'lm_clicked')
-      .not('ig_lead_id', 'is', null),
-    // Clics Calendly réels — même source que le pipeline (link_clicked)
-    supabase.from('prospect_events')
-      .select('ig_lead_id, occurred_at')
-      .eq('profile_id', targetId)
-      .eq('event_type', 'link_clicked')
-      .not('ig_lead_id', 'is', null),
+    // Clics LM réels (postérieurs à detected_at du lead) — même source que le pipeline.
+    // Paginé (fetchAllPages) : ni .limit() ni borne de date ici, le volume croît avec
+    // le temps et le nombre de leads, pas de plafond fixe sûr à poser.
+    fetchAllPages<{ ig_lead_id: string | null; occurred_at: string }>(() =>
+      supabase.from('prospect_events')
+        .select('ig_lead_id, occurred_at')
+        .eq('profile_id', targetId)
+        .eq('event_type', 'lm_clicked')
+        .not('ig_lead_id', 'is', null)
+    ),
+    // Clics Calendly réels — même source que le pipeline (link_clicked), même raison de pagination.
+    fetchAllPages<{ ig_lead_id: string | null; occurred_at: string }>(() =>
+      supabase.from('prospect_events')
+        .select('ig_lead_id, occurred_at')
+        .eq('profile_id', targetId)
+        .eq('event_type', 'link_clicked')
+        .not('ig_lead_id', 'is', null)
+    ),
   ]);
 
   // Signale une troncature probable si l'un de ces plafonds fixes est atteint pile —
@@ -5366,13 +5445,13 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
 
   // Map ig_lead_id → occurred_at pour les clics LM réels (postérieurs à detected_at, posés par poll-leads)
   const lmClickedByLeadId = new Map<string, string>();
-  for (const ev of (lmClickedEventsRes.data ?? [])) {
+  for (const ev of lmClickedEvents) {
     if (ev.ig_lead_id) lmClickedByLeadId.set(ev.ig_lead_id, ev.occurred_at);
   }
 
   // Map ig_lead_id → occurred_at pour les clics Calendly réels — même source que le pipeline
   const linkClickedByLeadId = new Map<string, string>();
-  for (const ev of (linkClickedEventsRes.data ?? [])) {
+  for (const ev of linkClickedEvents) {
     if (ev.ig_lead_id) linkClickedByLeadId.set(ev.ig_lead_id, ev.occurred_at);
   }
 

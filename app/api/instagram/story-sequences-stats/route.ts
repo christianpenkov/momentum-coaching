@@ -28,9 +28,14 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const sequenceId = searchParams.get('sequenceId');
   const profileIdParam = searchParams.get('profileId');
+  const mode = searchParams.get('mode');
 
   const targetProfileId = await resolveProfileId(user.id, profileIdParam);
   if (!targetProfileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  if (mode === 'funnel') {
+    return listSequenceFunnelRows(targetProfileId);
+  }
 
   if (!sequenceId) {
     return listAllSequences(targetProfileId);
@@ -211,4 +216,104 @@ async function listAllSequences(profileId: string) {
   });
 
   return NextResponse.json({ sequences: rows });
+}
+
+// Funnel business par séquence — même format de ligne que consolidatedRows des posts
+// (TabFunnel, PageClientStats.tsx), pour que les séquences apparaissent comme des
+// lignes de contenu supplémentaires dans "Performance par contenu". Pivot toujours
+// story_sequence_id (jamais ig_story_id seul), même logique utm_content-first que
+// le mode ?sequenceId= (voir plus haut) pour rester cohérent avec matchesContent.
+async function listSequenceFunnelRows(profileId: string) {
+  const { data: sequences, error: seqErr } = await serviceSupabase
+    .from('story_sequences')
+    .select('id, name, cta_type, cta_story_id, lm_keyword, created_at')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false });
+  if (seqErr) return NextResponse.json({ error: seqErr.message }, { status: 500 });
+  if (!sequences || sequences.length === 0) return NextResponse.json({ rows: [] });
+
+  const sequenceIds = sequences.map(s => s.id);
+
+  const { data: stories } = await serviceSupabase
+    .from('ig_stories')
+    .select('id, ig_story_id, sequence_id, storage_url, posted_at')
+    .in('sequence_id', sequenceIds)
+    .order('posted_at', { ascending: true });
+  const storiesBySequence = new Map<string, typeof stories>();
+  for (const s of stories || []) {
+    if (!s.sequence_id) continue;
+    if (!storiesBySequence.has(s.sequence_id)) storiesBySequence.set(s.sequence_id, []);
+    storiesBySequence.get(s.sequence_id)!.push(s);
+  }
+
+  const storyIds = (stories || []).map(s => s.ig_story_id);
+  const { data: snapshots } = storyIds.length
+    ? await serviceSupabase.from('analytics_ig_stories_history').select('ig_story_id, views').eq('profile_id', profileId).in('ig_story_id', storyIds)
+    : { data: [] };
+  const viewsByStory = new Map<string, number>();
+  for (const snap of snapshots || []) viewsByStory.set(snap.ig_story_id, Math.max(viewsByStory.get(snap.ig_story_id) ?? 0, snap.views ?? 0));
+
+  const { data: leads } = await serviceSupabase
+    .from('instagram_leads')
+    .select('id, story_sequence_id, lead_magnet_sent, hook_replied')
+    .eq('profile_id', profileId)
+    .not('story_sequence_id', 'is', null);
+  const leadsBySequence = new Map<string, typeof leads>();
+  for (const l of leads || []) {
+    if (!l.story_sequence_id) continue;
+    if (!leadsBySequence.has(l.story_sequence_id)) leadsBySequence.set(l.story_sequence_id, []);
+    leadsBySequence.get(l.story_sequence_id)!.push(l);
+  }
+
+  const now = new Date();
+  const rows = await Promise.all(sequences.map(async seq => {
+    const seqStories = storiesBySequence.get(seq.id) || [];
+    const views = seqStories.reduce((s, st) => s + (viewsByStory.get(st.ig_story_id) ?? 0), 0);
+    const seqLeads = leadsBySequence.get(seq.id) || [];
+    const leadIds = seqLeads.map(l => l.id);
+
+    const { data: bySequence } = await serviceSupabase
+      .from('calls')
+      .select('status, scheduled_at, no_show, deal_closed, revenue, outcome')
+      .eq('coach_id', profileId)
+      .eq('utm_content', seq.id)
+      .neq('ignored', true);
+    const { data: byLead } = leadIds.length
+      ? await serviceSupabase
+          .from('calls')
+          .select('status, scheduled_at, no_show, deal_closed, revenue, outcome')
+          .eq('coach_id', profileId)
+          .in('ig_lead_id', leadIds)
+          .is('utm_content', null)
+          .neq('ignored', true)
+      : { data: [] };
+
+    let callsBooked = 0, callsHonored = 0, closed = 0, revenue = 0;
+    for (const c of [...(bySequence || []), ...(byLead || [])]) {
+      if (c.status === 'active') {
+        callsBooked++;
+        if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) callsHonored++;
+      }
+      if (c.deal_closed) { closed++; revenue += c.revenue || 0; }
+    }
+
+    return {
+      sequenceId: seq.id,
+      name: seq.name,
+      ctaType: seq.cta_type,
+      lmKeyword: seq.lm_keyword,
+      thumbnail: seqStories[0]?.storage_url ?? null,
+      storyCount: seqStories.length,
+      views,
+      lmDetectes: seqLeads.length,
+      lmSent: seqLeads.filter(l => l.lead_magnet_sent).length,
+      lmReponses: seqLeads.filter(l => l.hook_replied).length,
+      callsBooked,
+      callsHonored,
+      closed,
+      revenue,
+    };
+  }));
+
+  return NextResponse.json({ rows });
 }
