@@ -5096,6 +5096,14 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .not('ig_lead_id', 'is', null),
   ]);
 
+  // Signale une troncature probable si l'un de ces plafonds fixes est atteint pile —
+  // aucun profil de test n'en approche aujourd'hui (voir Jour 4 du sprint), mais sans
+  // ce log une vraie troncature serait invisible jusqu'à ce qu'elle fausse les stats
+  // affichées, des mois plus tard.
+  if ((leadsRes.data?.length ?? 0) >= 500) console.warn('[PageClientStats] instagram_leads a atteint le plafond de 500 lignes — troncature probable pour profileId=%s', targetId);
+  if ((lmHistoryRes.data?.length ?? 0) >= 2000) console.warn('[PageClientStats] instagram_lead_lm_history a atteint le plafond de 2000 lignes — troncature probable pour profileId=%s', targetId);
+  if ((prospectLinksRes.data?.length ?? 0) >= 500) console.warn('[PageClientStats] prospect_links a atteint le plafond de 500 lignes — troncature probable pour profileId=%s', targetId);
+
   // Graphique historique clics Short.io — agrégé côté DB via get_shortio_clicks_by_day.
   // FENÊTRE VOLONTAIREMENT COURTE (3 mois, pas 24) — à relire avant d'agrandir cette
   // valeur : l'agrégation par jour×catégorie n'est PAS bornée à "quelques dizaines de
@@ -5128,6 +5136,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     .order('scheduled_at', { ascending: false }).limit(500);
   if (onboardingFloor) callsQuery.gte('scheduled_at', onboardingFloor);
   const callsRes = await callsQuery;
+  if ((callsRes.data?.length ?? 0) >= 500) console.warn('[PageClientStats] calls a atteint le plafond de 500 lignes — troncature probable pour coach_id=%s', callsOwnerId);
 
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
