@@ -69,8 +69,8 @@ interface Post {
   sequenceId?: string | null;
   sequenceName?: string | null;
   sequenceStoryCount?: number;
-  ctaType?: 'lead_magnet' | 'calendly' | null;
   ctaStoryId?: string | null;
+  lmId?: string | null;
   dm1Message?: string | null;
   dm2StoryMessage?: string | null;
   calendlyShortUrl?: string | null;
@@ -1400,7 +1400,7 @@ function formatDefaultSequenceName(isoDate: string): string {
   return `Séquence du ${dd}/${mm} - ${hh}h${min}`;
 }
 
-function PanneauStorySequence({ story, stories, allStories, profileId, leadMagnets, onSequenceSaved, onNavigateStory }: {
+function PanneauStorySequence({ story, stories, allStories, profileId, leadMagnets, onSequenceSaved, onNavigateStory, onNavigateToSequencesTab }: {
   story?: Post;
   stories?: Post[];
   allStories: Post[];
@@ -1408,6 +1408,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   leadMagnets: LeadMagnet[];
   onSequenceSaved: (affectedPostIds: string[], patch: Partial<Post>) => void;
   onNavigateStory: (post: Post) => void;
+  onNavigateToSequencesTab: (sequenceId: string) => void;
 }) {
   const isGroup = !story && !!stories?.length;
   const groupStories = stories ?? [];
@@ -1426,83 +1427,86 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
 
   const [name, setName] = useState('');
   const [ctaStoryId, setCtaStoryId] = useState('');
-  const [ctaType, setCtaType] = useState<'lead_magnet' | 'calendly'>('lead_magnet');
-  const [lmId, setLmId] = useState('');
-  const [lmKeyword, setLmKeyword] = useState('');
-  const [lmUrl, setLmUrl] = useState('');
-  const [dm1Message, setDm1Message] = useState('👋 {{username}} voici ton lien : {{lien_lm}}');
-  const [dm2StoryMessage, setDm2StoryMessage] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [calendlyShortUrl, setCalendlyShortUrl] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'lm' | 'calendly'>('lm');
+  const [addingStories, setAddingStories] = useState(false);
+  const [confirmRemoveLast, setConfirmRemoveLast] = useState(false);
+  const [blockedRemoveMsg, setBlockedRemoveMsg] = useState<string | null>(null);
 
   useEffect(() => {
-    setError(null);
-    setCalendlyShortUrl(null);
+    setActiveTab('lm');
+    setAddingStories(false);
     if (isGroup) {
       setName(formatDefaultSequenceName(groupStories[0]?.postedAt || new Date().toISOString()));
       setCtaStoryId(groupStories[groupStories.length - 1]?.id || '');
-      setCtaType('lead_magnet');
-      const firstLm = leadMagnets[0];
-      setLmId(firstLm?.id || ''); setLmKeyword(firstLm?.keyword || ''); setLmUrl(firstLm?.url || '');
-      setDm2StoryMessage('');
     } else if (isExistingSequence && primary) {
       setName(primary.sequenceName || '');
       setCtaStoryId(primary.ctaStoryId || primary.id);
-      setCtaType(primary.ctaType || 'lead_magnet');
-      setLmKeyword(primary.lmKeyword || '');
-      setDm1Message(primary.dm1Message || '');
-      setDm2StoryMessage(primary.dm2StoryMessage || '');
     } else if (primary) {
       setName(formatDefaultSequenceName(primary.postedAt || new Date().toISOString()));
       setCtaStoryId(primary.id);
-      setCtaType('lead_magnet');
-      const firstLm = leadMagnets[0];
-      setLmId(firstLm?.id || ''); setLmKeyword(firstLm?.keyword || ''); setLmUrl(firstLm?.url || '');
-      setDm2StoryMessage('');
     }
   }, [primary?.id, isGroup]);
 
   if (!primary) return null;
 
-  const submit = async () => {
-    setSaving(true); setError(null);
-    try {
-      if (isExistingSequence) {
-        const res = await fetch('/api/client/story-sequences', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ id: primary.sequenceId, name, ...(primary.ctaType === 'lead_magnet' ? { lmKeyword, dm1Message, dm2StoryMessage } : {}) }),
-        });
-        const data = await res.json();
-        if (!res.ok) { setError(data.error || 'Erreur'); return; }
-        onSequenceSaved([primary.id], { sequenceName: name, lmKeyword: primary.ctaType === 'lead_magnet' ? lmKeyword : primary.lmKeyword, dm1Message, dm2StoryMessage });
-        return;
-      }
+  const candidateStories = isGroup ? groupStories : [primary];
 
-      const storyIds = isGroup ? groupStories.map(s => s.id) : [primary.id];
-      const res = await fetch('/api/client/story-sequences', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          profileId, name, ctaType, ctaStoryId, storyIds,
-          lmId: ctaType === 'lead_magnet' ? lmId : null,
-          lmKeyword: ctaType === 'lead_magnet' ? lmKeyword : null,
-          lmUrl: ctaType === 'lead_magnet' ? lmUrl : null,
-          dm1Message: ctaType === 'lead_magnet' ? dm1Message : null,
-          dm2StoryMessage: ctaType === 'lead_magnet' ? dm2StoryMessage : null,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) { setError(data.error || 'Erreur'); return; }
-      if (ctaType === 'calendly') { setCalendlyShortUrl(data.calendlyShortUrl || null); return; }
-      onSequenceSaved(storyIds, { sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length, ctaType, ctaStoryId, lmKeyword, dm1Message, dm2StoryMessage, hasLeadMagnet: true });
-    } catch (e: any) {
-      setError(e.message || 'Erreur réseau');
-    } finally { setSaving(false); }
+  // Retrait d'une story de la séquence — bloqué si c'est la story CTA et qu'il en
+  // reste d'autres ; confirmation obligatoire si c'est la dernière restante (supprime
+  // la séquence entière). Cf. décisions produit du plan.
+  const removeStory = async (storyId: string) => {
+    const remaining = sequenceMates.filter(s => s.id !== storyId);
+    if (remaining.length > 0 && storyId === primary.ctaStoryId) {
+      setBlockedRemoveMsg("Déplace d'abord le CTA sur une autre story avant de la retirer.");
+      return;
+    }
+    if (remaining.length === 0 && !confirmRemoveLast) {
+      setConfirmRemoveLast(true);
+      return;
+    }
+    const res = await fetch('/api/client/story-sequences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: primary.sequenceId, removeStoryIds: [storyId] }),
+    });
+    const data = await res.json();
+    setConfirmRemoveLast(false);
+    if (!res.ok) { setBlockedRemoveMsg(data.error || 'Erreur'); return; }
+    if (data.sequenceDeleted) {
+      onSequenceSaved([storyId, ...remaining.map(s => s.id)], { sequenceId: null, sequenceName: null, sequenceStoryCount: 0, ctaStoryId: null, lmId: null, lmKeyword: undefined, dm1Message: null, dm2StoryMessage: null, calendlyShortUrl: null, hasLeadMagnet: false });
+    } else {
+      onSequenceSaved([storyId], { sequenceId: null, sequenceStoryCount: 0 });
+    }
   };
 
-  const candidateStories = isGroup ? groupStories : [primary];
+  const addStoriesToSequence = async (storyIds: string[]) => {
+    const res = await fetch('/api/client/story-sequences', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: primary.sequenceId, addStoryIds: storyIds }),
+    });
+    const data = await res.json();
+    if (!res.ok) { setBlockedRemoveMsg(data.error || 'Erreur'); return; }
+    onSequenceSaved(storyIds, { sequenceId: primary.sequenceId, sequenceName: primary.sequenceName, sequenceStoryCount: sequenceMates.length + storyIds.length, ctaStoryId: primary.ctaStoryId, lmKeyword: primary.lmKeyword, calendlyShortUrl: primary.calendlyShortUrl, hasLeadMagnet: primary.hasLeadMagnet });
+    setAddingStories(false);
+  };
+
+  // Stories libres du profil éligibles à l'ajout — exclut celles qui violeraient la
+  // contiguïté (prévention plutôt que rejet API après coup, cf. décision produit).
+  const freeStoriesForAdd = (() => {
+    if (!isExistingSequence || sequenceMates.length === 0) return [] as (Post & { wouldViolateContiguity: boolean })[];
+    const free = allStories.filter(s => s.platform === 'STORY' && !s.sequenceId && s.id !== primary.id);
+    const postedTimes = sequenceMates.map(s => new Date(s.postedAt || 0).getTime());
+    const minPosted = Math.min(...postedTimes);
+    const maxPosted = Math.max(...postedTimes);
+    return free.map(s => ({
+      ...s,
+      wouldViolateContiguity: (() => {
+        const t = new Date(s.postedAt || 0).getTime();
+        return t > minPosted && t < maxPosted;
+      })(),
+    }));
+  })();
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
@@ -1519,112 +1523,254 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>
-              {isGroup ? `Regrouper ${groupStories.length} stories` : (primary.sequenceStoryCount ?? 0) > 1 ? `Fait partie de « ${primary.sequenceName} » (${primary.sequenceStoryCount} stories)` : 'Story'}
+              {isGroup ? `Regrouper ${groupStories.length} stories` : isExistingSequence ? (
+                <span onClick={() => onNavigateToSequencesTab(primary.sequenceId!)} style={{ cursor: 'pointer', textDecoration: 'underline', textDecorationColor: FAINT }}>
+                  Fait partie de « {primary.sequenceName} »{(primary.sequenceStoryCount ?? 0) > 1 ? ` (${primary.sequenceStoryCount} stories)` : ''}
+                </span>
+              ) : 'Story'}
             </div>
             {retentionPct != null && (
               <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{retentionPct}% ont vu la séquence jusqu'au bout</div>
             )}
           </div>
         </div>
-        {sequenceMates.length > 1 && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+        {isExistingSequence && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
             {sequenceMates.map(s => (
-              <div key={s.id} onClick={() => onNavigateStory(s)} style={{ width: 28, height: 28, borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0 }}>
-                {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+              <div key={s.id} style={{ position: 'relative' }}>
+                <div onClick={() => onNavigateStory(s)} style={{ width: 28, height: 28, borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0 }}>
+                  {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                </div>
+                <button onClick={() => removeStory(s.id)} title="Retirer de la séquence" style={{ position: 'absolute', top: -5, right: -5, width: 14, height: 14, borderRadius: '50%', border: 'none', background: '#d32f2f', color: '#fff', fontSize: 9, lineHeight: '14px', textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
               </div>
             ))}
+            <button onClick={() => setAddingStories(v => !v)} style={{ width: 28, height: 28, borderRadius: 5, border: `1px dashed ${BORDER}`, background: 'transparent', color: MUTED, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>+</button>
           </div>
         )}
-      </div>
-
-      {/* Formulaire */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-        {calendlyShortUrl ? (
-          <div>
-            <div style={{ fontSize: 13, color: MUTED, marginBottom: 10, lineHeight: 1.5 }}>
-              Copie ce lien et ajoute-le en sticker "Lien" sur ta story CTA :
-            </div>
-            <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-              <input readOnly value={calendlyShortUrl} style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE2, color: INK }} />
-              <button onClick={() => navigator.clipboard.writeText(calendlyShortUrl)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>Copier</button>
-            </div>
-          </div>
-        ) : (
-          <>
-            <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
-            <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
-
-            {candidateStories.length > 1 && !isExistingSequence && (
-              <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Story avec le CTA</label>
-                <select value={ctaStoryId} onChange={e => setCtaStoryId(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14 }}>
-                  {candidateStories.map((s, i) => <option key={s.id} value={s.id}>Story {i + 1} — {s.caption}</option>)}
-                </select>
-              </>
-            )}
-
-            {!isExistingSequence && (
-              <>
-                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Type de CTA</label>
-                <div style={{ display: 'flex', gap: 8, marginBottom: 14 }}>
-                  {(['lead_magnet', 'calendly'] as const).map(t => (
-                    <button key={t} onClick={() => setCtaType(t)} style={{
-                      flex: 1, padding: '8px', fontSize: 12, fontWeight: 700, borderRadius: 8, cursor: 'pointer',
-                      border: `1.5px solid ${ctaType === t ? BLUE : BORDER}`, background: ctaType === t ? BLUE_SOFT : 'transparent', color: ctaType === t ? BLUE : MUTED,
-                    }}>{t === 'lead_magnet' ? 'Lead Magnet' : 'Calendly'}</button>
-                  ))}
-                </div>
-              </>
-            )}
-
-            {ctaType === 'lead_magnet' ? (
-              <>
-                {!isExistingSequence && (
-                  <>
-                    <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Lead magnet</label>
-                    <select value={lmId} onChange={e => {
-                      const lm = leadMagnets.find(l => l.id === e.target.value);
-                      setLmId(e.target.value);
-                      if (lm) { setLmKeyword(lm.keyword); setLmUrl(lm.url); }
-                    }} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14 }}>
-                      {leadMagnets.map(lm => <option key={lm.id} value={lm.id}>{lm.name}</option>)}
-                    </select>
-                  </>
-                )}
-
-                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
-                <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
-
-                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 1 — lien + message ({'{{username}}'}, {'{{lien_lm}}'})</label>
-                <textarea value={dm1Message} onChange={e => setDm1Message(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
-
-                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 2 — message libre (envoyé juste après)</label>
-                <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
-              </>
-            ) : isExistingSequence ? (
-              <div style={{ marginBottom: 14 }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Lien Calendly (généré, figé)</label>
-                <div style={{ display: 'flex', gap: 8 }}>
-                  <input readOnly value={primary.calendlyShortUrl || ''} style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE2, color: INK }} />
-                  {primary.calendlyShortUrl && (
-                    <button onClick={() => navigator.clipboard.writeText(primary.calendlyShortUrl!)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>Copier</button>
-                  )}
-                </div>
-              </div>
+        {addingStories && (
+          <div style={{ marginTop: 10, padding: 10, background: SURFACE2, borderRadius: 8 }}>
+            {freeStoriesForAdd.length === 0 ? (
+              <div style={{ fontSize: 11, color: MUTED }}>Toutes tes stories récentes sont déjà dans une séquence.</div>
             ) : (
-              <div style={{ fontSize: 12, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
-                Un lien Calendly trackable sera généré. Tu devras l'ajouter toi-même via le sticker "Lien" natif d'Instagram sur ta story CTA.
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                {freeStoriesForAdd.map(s => (
+                  <div key={s.id} onClick={() => !s.wouldViolateContiguity && addStoriesToSequence([s.id])} title={s.wouldViolateContiguity ? 'Chevauche une autre séquence' : ''} style={{
+                    width: 28, height: 28, borderRadius: 5, overflow: 'hidden', border: `1px solid ${BORDER}`, background: SURFACE2,
+                    cursor: s.wouldViolateContiguity ? 'not-allowed' : 'pointer', opacity: s.wouldViolateContiguity ? 0.35 : 1, flexShrink: 0,
+                  }}>
+                    {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                  </div>
+                ))}
               </div>
             )}
-
-            {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
-
-            <button onClick={submit} disabled={saving || !name || (!isExistingSequence && !ctaStoryId)} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
-              {saving ? 'Enregistrement...' : isExistingSequence ? 'Mettre à jour' : isGroup ? 'Regrouper et créer le CTA' : 'Créer le CTA'}
-            </button>
-          </>
+          </div>
+        )}
+        {blockedRemoveMsg && (
+          <div style={{ marginTop: 10, padding: '8px 10px', background: '#d32f2f18', color: '#d32f2f', borderRadius: 8, fontSize: 11, display: 'flex', justifyContent: 'space-between', gap: 8 }}>
+            <span>{blockedRemoveMsg}</span>
+            <button onClick={() => setBlockedRemoveMsg(null)} style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: 12 }}>×</button>
+          </div>
+        )}
+        {confirmRemoveLast && (
+          <div style={{ marginTop: 10, padding: '10px', background: SURFACE2, borderRadius: 8, fontSize: 11, color: INK, lineHeight: 1.5 }}>
+            Retirer cette story supprimera la séquence « {primary.sequenceName} » et son CTA associé. Continuer ?
+            <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+              <button onClick={() => removeStory(sequenceMates[0]?.id)} style={{ padding: '5px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: 'none', background: '#d32f2f', color: '#fff', cursor: 'pointer' }}>Supprimer la séquence</button>
+              <button onClick={() => setConfirmRemoveLast(false)} style={{ padding: '5px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>Annuler</button>
+            </div>
+          </div>
         )}
       </div>
+
+      {/* Nom + story CTA (création uniquement) */}
+      {!isExistingSequence && (
+        <div style={{ padding: '16px 24px 0' }}>
+          <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
+          <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+          {candidateStories.length > 1 && (
+            <>
+              <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Story avec le CTA</label>
+              <select value={ctaStoryId} onChange={e => setCtaStoryId(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14 }}>
+                {candidateStories.map((s, i) => <option key={s.id} value={s.id}>Story {i + 1} — {s.caption}</option>)}
+              </select>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Onglets internes Lead Magnet / Calendly */}
+      <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, margin: '10px 24px 0' }}>
+        {([
+          { key: 'lm' as const, label: `Lead Magnet${primary.lmKeyword ? ' ✓' : ''}` },
+          { key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` },
+        ]).map(tab => (
+          <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
+            flex: 1, padding: '9px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+            background: 'transparent', color: activeTab === tab.key ? INK : MUTED,
+            borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
+          }}>{tab.label}</button>
+        ))}
+      </div>
+
+      <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px' }}>
+        {activeTab === 'lm' ? (
+          <TabStoryLeadMagnet
+            primary={primary} isExistingSequence={isExistingSequence} isGroup={isGroup}
+            name={name} ctaStoryId={ctaStoryId} candidateStories={candidateStories}
+            profileId={profileId} storyIds={candidateStories.map(s => s.id)} leadMagnets={leadMagnets}
+            onSaved={onSequenceSaved}
+          />
+        ) : (
+          <TabStoryCalendly
+            primary={primary} isExistingSequence={isExistingSequence}
+            onSaved={onSequenceSaved}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Onglet Lead Magnet du panneau séquence — formulaire de création si non configuré,
+// vue statut (nom LM figé, mot-clé + DM éditables) si déjà configuré. Contrairement
+// à TabLm (posts), pas de réédition du LM associé — décision produit confirmée.
+function TabStoryLeadMagnet({ primary, isExistingSequence, isGroup, name, ctaStoryId, candidateStories, profileId, storyIds, leadMagnets, onSaved }: {
+  primary: Post; isExistingSequence: boolean; isGroup: boolean; name: string; ctaStoryId: string;
+  candidateStories: Post[]; profileId: string; storyIds: string[]; leadMagnets: LeadMagnet[];
+  onSaved: (affectedPostIds: string[], patch: Partial<Post>) => void;
+}) {
+  const isConfigured = !!primary.lmKeyword;
+  const [lmId, setLmId] = useState(leadMagnets[0]?.id || '');
+  const [lmKeyword, setLmKeyword] = useState(primary.lmKeyword || leadMagnets[0]?.keyword || '');
+  const [dm1Message, setDm1Message] = useState(primary.dm1Message || '👋 {{username}} voici ton lien : {{lien_lm}}');
+  const [dm2StoryMessage, setDm2StoryMessage] = useState(primary.dm2StoryMessage || '');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const lmName = leadMagnets.find(l => l.id === primary.lmId)?.name;
+
+  const submit = async () => {
+    setSaving(true); setError(null);
+    try {
+      if (isExistingSequence) {
+        const res = await fetch('/api/client/story-sequences', {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: primary.sequenceId, lmKeyword, dm1Message, dm2StoryMessage }),
+        });
+        const data = await res.json();
+        if (!res.ok) { setError(data.error || 'Erreur'); return; }
+        onSaved([primary.id], { lmKeyword, dm1Message, dm2StoryMessage, hasLeadMagnet: true });
+        setSaved(true); setTimeout(() => setSaved(false), 2000);
+        return;
+      }
+
+      const lm = leadMagnets.find(l => l.id === lmId);
+      const res = await fetch('/api/client/story-sequences', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profileId, name, ctaStoryId, storyIds, lmId, lmKeyword, lmUrl: lm?.url, dm1Message, dm2StoryMessage }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Erreur'); return; }
+      onSaved(storyIds, { sequenceId: data.id, sequenceName: name, sequenceStoryCount: storyIds.length, ctaStoryId, lmId, lmKeyword, dm1Message, dm2StoryMessage, hasLeadMagnet: true });
+    } catch (e: any) {
+      setError(e.message || 'Erreur réseau');
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <>
+      {!isConfigured && !isExistingSequence && (
+        <>
+          <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Lead magnet</label>
+          <select value={lmId} onChange={e => {
+            const lm = leadMagnets.find(l => l.id === e.target.value);
+            setLmId(e.target.value);
+            if (lm) setLmKeyword(lm.keyword);
+          }} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14 }}>
+            {leadMagnets.map(lm => <option key={lm.id} value={lm.id}>{lm.name}</option>)}
+          </select>
+        </>
+      )}
+      {isConfigured && (
+        <div style={{ marginBottom: 14, fontSize: 12, color: MUTED }}>
+          Lead magnet : <strong style={{ color: INK }}>{lmName || 'inconnu'}</strong> (figé)
+        </div>
+      )}
+
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Mot-clé (reply à la story)</label>
+      <input value={lmKeyword} onChange={e => setLmKeyword(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
+
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 1 — lien + message ({'{{username}}'}, {'{{lien_lm}}'})</label>
+      <textarea value={dm1Message} onChange={e => setDm1Message(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+
+      <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 2 — message libre (envoyé juste après)</label>
+      <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
+
+      {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
+
+      <button onClick={submit} disabled={saving || !name || !lmKeyword || (!isExistingSequence && !isGroup && !ctaStoryId)} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: saved ? 'var(--green)' : BLUE, color: '#fff', cursor: saving ? 'default' : 'pointer', opacity: saving ? 0.7 : 1 }}>
+        {saving ? 'Enregistrement...' : saved ? 'Enregistré ✓' : isConfigured ? 'Mettre à jour' : isExistingSequence ? 'Configurer le Lead Magnet' : 'Créer le CTA'}
+      </button>
+    </>
+  );
+}
+
+// Onglet Calendly du panneau séquence — bouton de génération si non configuré (peut
+// être fait à tout moment, même après coup), lien figé en lecture seule sinon.
+function TabStoryCalendly({ primary, isExistingSequence, onSaved }: {
+  primary: Post; isExistingSequence: boolean;
+  onSaved: (affectedPostIds: string[], patch: Partial<Post>) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = async () => {
+    setLoading(true); setError(null);
+    try {
+      const res = await fetch('/api/client/story-sequences', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: primary.sequenceId, generateCalendly: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) { setError(data.error || 'Erreur'); return; }
+      onSaved([primary.id], { calendlyShortUrl: data.calendlyShortUrl });
+    } catch (e: any) {
+      setError(e.message || 'Erreur réseau');
+    } finally { setLoading(false); }
+  };
+
+  if (!isExistingSequence) {
+    return (
+      <div style={{ fontSize: 12, color: MUTED, lineHeight: 1.5 }}>
+        Configure d'abord le Lead Magnet pour créer la séquence, ou crée-la avec un mot-clé temporaire — tu pourras générer ce lien Calendly à tout moment ensuite, y compris après coup.
+      </div>
+    );
+  }
+
+  if (primary.calendlyShortUrl) {
+    return (
+      <div>
+        <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Lien Calendly (généré, figé)</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input readOnly value={primary.calendlyShortUrl} style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE2, color: INK }} />
+          <button onClick={() => navigator.clipboard.writeText(primary.calendlyShortUrl!)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>Copier</button>
+        </div>
+        <div style={{ fontSize: 11, color: MUTED, marginTop: 10, lineHeight: 1.5 }}>
+          Ajoute ce lien via le sticker "Lien" natif Instagram sur ta story CTA.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
+        Un lien Calendly trackable sera généré. Tu devras l'ajouter toi-même via le sticker "Lien" natif d'Instagram sur ta story CTA.
+      </div>
+      {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
+      <button onClick={generate} disabled={loading} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+        {loading ? 'Génération...' : 'Générer le lien Calendly'}
+      </button>
     </div>
   );
 }
@@ -2403,13 +2549,13 @@ export default function PageLiens() {
         sequenceId: s.sequence_id,
         sequenceName: s.sequence_name,
         sequenceStoryCount: s.sequence_story_count ?? 0,
-        ctaType: s.cta_type ?? null,
         ctaStoryId: s.cta_story_id ?? null,
+        lmId: s.lm_id ?? null,
         lmKeyword: s.lm_keyword ?? undefined,
         dm1Message: s.dm1_message ?? null,
         dm2StoryMessage: s.dm2_story_message ?? null,
         calendlyShortUrl: s.calendly_short_url ?? null,
-        hasLeadMagnet: s.cta_type === 'lead_magnet',
+        hasLeadMagnet: !!s.lm_keyword,
         hasDescLink: false,
         reach: s.reach,
         views: s.views,
@@ -2479,6 +2625,13 @@ export default function PageLiens() {
     : [];
   const [storiesSubTab, setStoriesSubTab] = useState<'stories' | 'sequences'>('stories');
   const sequences: any[] = sequencesData?.sequences ?? [];
+  const [highlightedSequenceId, setHighlightedSequenceId] = useState<string | null>(null);
+  const navigateToSequencesTab = (sequenceId: string) => {
+    setFilterPlatform('STORY');
+    setStoriesSubTab('sequences');
+    setHighlightedSequenceId(sequenceId);
+    setTimeout(() => setHighlightedSequenceId(null), 2000);
+  };
 
   // Mobile : onglet actif + overlay détail
   const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
@@ -2676,11 +2829,13 @@ export default function PageLiens() {
                 <PanneauStorySequence
                   story={selectedStory || rightView.post} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
                   onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
+                  onNavigateToSequencesTab={navigateToSequencesTab}
                 />
               ) : rightView.type === 'story-multi' ? (
                 <PanneauStorySequence
                   stories={selectedStoriesForGroup} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
                   onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
+                  onNavigateToSequencesTab={navigateToSequencesTab}
                 />
               ) : (
                 <PanneauActions
@@ -2772,24 +2927,47 @@ export default function PageLiens() {
                   </div>
                 )
               )}
+
+              {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
+                <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                  Créer une séquence stories
+                </button>
+              )}
             </div>
 
             {/* Liste contenus */}
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' ? (
                 sequences.length === 0 ? (
-                  <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>Aucune séquence créée pour l'instant.</div>
+                  <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
+                    Aucune séquence pour l'instant.
+                    <div style={{ marginTop: 10 }}>
+                      <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ padding: '6px 14px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                        + Créer une séquence stories
+                      </button>
+                    </div>
+                  </div>
                 ) : sequences.map(seq => (
                   <div key={seq.id} onClick={() => {
                     const ctaStory = posts.find(p => p.id === seq.cta_story_id) ?? posts.find(p => p.sequenceId === seq.id);
                     if (ctaStory) unsavedGuardApi.guard(() => setRightView({ type: 'story', post: ctaStory }));
-                  }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', transition: 'all .1s' }}>
+                  }} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', transition: 'all .3s',
+                    background: highlightedSequenceId === seq.id ? BLUE_SOFT : 'transparent',
+                    boxShadow: highlightedSequenceId === seq.id ? `inset 2px 0 0 ${BLUE}` : 'none',
+                  }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 12, fontWeight: 500, color: INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seq.name}</div>
-                      <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginTop: 3 }}>
-                        <span style={{ fontSize: 10, fontWeight: 600, color: seq.cta_type === 'lead_magnet' ? 'var(--green)' : BLUE, background: seq.cta_type === 'lead_magnet' ? 'var(--green-soft)' : BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>
-                          {seq.cta_type === 'lead_magnet' ? (seq.lm_keyword ? `#${seq.lm_keyword}` : 'LM') : 'Calendly'}
-                        </span>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
+                        {seq.lm_keyword && (
+                          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{seq.lm_keyword}</span>
+                        )}
+                        {seq.calendly_short_url && (
+                          <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
+                        )}
+                        {!seq.lm_keyword && !seq.calendly_short_url && (
+                          <span style={{ fontSize: 10, color: FAINT }}>Aucun CTA</span>
+                        )}
                         <span style={{ fontSize: 10, color: FAINT }}>{seq.story_count} story{seq.story_count > 1 ? 'ies' : ''}</span>
                       </div>
                     </div>
@@ -2848,8 +3026,11 @@ export default function PageLiens() {
                         {isStory ? (
                           (post.sequenceStoryCount ?? 0) > 1
                             ? <span style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', background: '#8b5cf612', borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
-                            : post.ctaType
-                              ? <span style={{ fontSize: 10, fontWeight: 600, color: post.ctaType === 'lead_magnet' ? 'var(--green)' : BLUE, background: post.ctaType === 'lead_magnet' ? 'var(--green-soft)' : BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>{post.ctaType === 'lead_magnet' ? (post.lmKeyword ? `#${post.lmKeyword}` : 'LM') : 'Calendly'}</span>
+                            : post.lmKeyword || post.calendlyShortUrl
+                              ? <span style={{ display: 'flex', gap: 4 }}>
+                                  {post.lmKeyword && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{post.lmKeyword}</span>}
+                                  {post.calendlyShortUrl && <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>}
+                                </span>
                               : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de CTA" />
                         ) : (
                           <>
@@ -2897,11 +3078,13 @@ export default function PageLiens() {
               <PanneauStorySequence
                 story={selectedStory || rightView.post} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
                 onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
+                onNavigateToSequencesTab={navigateToSequencesTab}
               />
             ) : rightView.type === 'story-multi' ? (
               <PanneauStorySequence
                 stories={selectedStoriesForGroup} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
                 onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
+                onNavigateToSequencesTab={navigateToSequencesTab}
               />
             ) : (
               <PanneauActions

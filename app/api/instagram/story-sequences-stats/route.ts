@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
   const { data: sequence, error: seqErr } = await serviceSupabase
     .from('story_sequences')
-    .select('id, name, cta_type, lm_keyword')
+    .select('id, name, lm_keyword, calendly_short_url')
     .eq('id', sequenceId)
     .eq('profile_id', targetProfileId)
     .maybeSingle();
@@ -171,7 +171,7 @@ export async function GET(request: Request) {
 async function listAllSequences(profileId: string) {
   const { data: sequences, error: seqErr } = await serviceSupabase
     .from('story_sequences')
-    .select('id, name, cta_type, cta_story_id, lm_keyword, created_at')
+    .select('id, name, cta_story_id, lm_keyword, calendly_short_url, created_at')
     .eq('profile_id', profileId)
     .order('created_at', { ascending: false });
   if (seqErr) return NextResponse.json({ error: seqErr.message }, { status: 500 });
@@ -217,8 +217,8 @@ async function listAllSequences(profileId: string) {
     return {
       id: seq.id,
       name: seq.name,
-      cta_type: seq.cta_type,
       lm_keyword: seq.lm_keyword,
+      calendly_short_url: seq.calendly_short_url,
       story_count: seqStories.length,
       thumbnail: seqStories[0]?.storage_url ?? null,
       first_reach: firstReach,
@@ -239,7 +239,7 @@ async function listAllSequences(profileId: string) {
 async function listSequenceFunnelRows(profileId: string) {
   const { data: sequences, error: seqErr } = await serviceSupabase
     .from('story_sequences')
-    .select('id, name, cta_type, cta_story_id, lm_keyword, created_at')
+    .select('id, name, cta_story_id, lm_keyword, calendly_short_url, created_at')
     .eq('profile_id', profileId)
     .order('created_at', { ascending: false });
   if (seqErr) return NextResponse.json({ error: seqErr.message }, { status: 500 });
@@ -307,23 +307,39 @@ async function listSequenceFunnelRows(profileId: string) {
       : { data: [] };
     const byLeadFiltered = (byLead || []).filter(c => !c.utm_content || !sequenceIds.includes(c.utm_content));
 
+    // Deux compteurs séparés (Calendly via bySequence, LM/DM via byLeadFiltered) en plus
+    // du total dédupliqué — nécessaire pour distinguer callsBookedLm/revenueLm de
+    // callsBookedCalendly/revenueCalendly quand les 2 CTA sont actifs sur la même
+    // séquence (sinon un call Calendly serait à tort compté aussi dans le bucket LM).
     const seenCallIds = new Set<string>();
     let callsBooked = 0, callsHonored = 0, closed = 0, revenue = 0;
+    let callsBookedCalendly = 0, callsHonoredCalendly = 0, closedCalendly = 0, revenueCalendly = 0;
+    let callsBookedLm = 0, callsHonoredLm = 0, closedLm = 0, revenueLm = 0;
     for (const c of [...(bySequence || []), ...byLeadFiltered]) {
       if (seenCallIds.has(c.id)) continue;
       seenCallIds.add(c.id);
+      const isCalendly = !!(bySequence || []).find(bc => bc.id === c.id);
       if (c.status === 'active') {
         callsBooked++;
-        if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) callsHonored++;
+        if (isCalendly) callsBookedCalendly++; else callsBookedLm++;
+        if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) {
+          callsHonored++;
+          if (isCalendly) callsHonoredCalendly++; else callsHonoredLm++;
+        }
       }
-      if (c.deal_closed) { closed++; revenue += c.revenue || 0; }
+      if (c.deal_closed) {
+        closed++; revenue += c.revenue || 0;
+        if (isCalendly) { closedCalendly++; revenueCalendly += c.revenue || 0; } else { closedLm++; revenueLm += c.revenue || 0; }
+      }
     }
 
     return {
       sequenceId: seq.id,
       name: seq.name,
-      ctaType: seq.cta_type,
+      callsBookedCalendly, callsHonoredCalendly, closedCalendly, revenueCalendly,
+      callsBookedLm, callsHonoredLm, closedLm, revenueLm,
       lmKeyword: seq.lm_keyword,
+      calendlyShortUrl: seq.calendly_short_url,
       thumbnail: seqStories[0]?.storage_url ?? null,
       storyCount: seqStories.length,
       views,

@@ -1181,7 +1181,10 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
           <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 20 }}>
-          {sequence.cta_type === 'lead_magnet' ? `Lead Magnet — mot-clé #${sequence.lm_keyword}` : 'Calendly'}
+          {[
+            sequence.lm_keyword ? `Lead Magnet — mot-clé #${sequence.lm_keyword}` : null,
+            sequence.calendly_short_url ? 'Calendly' : null,
+          ].filter(Boolean).join(' · ') || 'Aucun CTA configuré'}
         </div>
 
         {isLoading ? (
@@ -3255,14 +3258,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     closed: seq.closed,
     revenue: seq.revenue,
     callsBookedDesc: 0, callsHonoredDesc: 0, closedDesc: 0, revenueDesc: 0,
-    callsBookedLm: seq.ctaType === 'lead_magnet' ? seq.callsBooked : 0,
-    callsHonoredLm: seq.ctaType === 'lead_magnet' ? seq.callsHonored : 0,
-    closedLm: seq.ctaType === 'lead_magnet' ? seq.closed : 0,
-    revenueLm: seq.ctaType === 'lead_magnet' ? seq.revenue : 0,
+    callsBookedLm: seq.callsBookedLm ?? 0,
+    callsHonoredLm: seq.callsHonoredLm ?? 0,
+    closedLm: seq.closedLm ?? 0,
+    revenueLm: seq.revenueLm ?? 0,
     vuesParCall: seq.callsBooked > 0 && seq.views > 0 ? Math.round(seq.views / seq.callsBooked) : null,
     cashParVue: null,
     qualifiedPct: null, qualifiedCount: 0, qualifiedAnswered: 0,
-    lmName: seq.ctaType === 'lead_magnet' ? (seq.lmKeyword ? `#${seq.lmKeyword}` : 'LM story') : null,
+    lmName: seq.lmKeyword ? `#${seq.lmKeyword}` : null,
     postCallsDesc: [],
   }));
 
@@ -3689,9 +3692,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const storyLmClics = storyReplyDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           // "Story - Calendly" : calls dont utm_content matche une séquence story dont
-          // le CTA est Calendly (utm_content=sequenceId, généré au moment de la création
-          // de la séquence — voir POST /api/client/story-sequences).
-          const calendlySequenceIds = new Set(storySequenceRows.filter(s => s.ctaType === 'calendly').map(s => s.sequenceId));
+          // le bloc Calendly est configuré (utm_content=sequenceId, généré au moment de
+          // la création ou de la génération après coup — voir POST/PATCH story-sequences).
+          const calendlySequenceIds = new Set(storySequenceRows.filter(s => !!s.calendlyShortUrl).map(s => s.sequenceId));
           const storyCalendlyCalls = callsInWindow.filter(c => c.utm_content && calendlySequenceIds.has(c.utm_content));
           const storyCalendlyBooked = storyCalendlyCalls.filter(c => c.status === 'active').length;
           const storyCalendlyHonored = storyCalendlyCalls.filter(c => c.status === 'active' && !c.no_show).length;

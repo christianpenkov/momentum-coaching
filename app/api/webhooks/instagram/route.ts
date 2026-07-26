@@ -422,7 +422,6 @@ export async function POST(request: Request) {
             .from('story_sequences')
             .select('*')
             .eq('id', story.sequence_id)
-            .eq('cta_type', 'lead_magnet')
             .maybeSingle();
 
           if (seq?.lm_keyword && msgText.toLowerCase().includes(seq.lm_keyword.toLowerCase())) {
