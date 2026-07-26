@@ -1397,6 +1397,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: 
     }
     return days;
   })();
+
+  // Dernière date où likes/comments/shares sont réellement disponibles (pas juste
+  // "vues" qui n'a pas ce délai) — sert au badge "J-3" sur les cartes Likes/Commentaires/
+  // Partages, pour rassurer que l'absence des tout derniers jours est le délai normal
+  // de traitement de la YouTube Analytics API (2-3 jours documenté par Google), pas un bug.
+  const ytLastEngagementDate = [...yt.chartData]
+    .filter(d => d.likes != null)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .at(-1)?.date;
+  const ytLastEngagementDateFmt = ytLastEngagementDate
+    ? new Date(ytLastEngagementDate + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
+    : null;
+
   // Valeurs sur la période sélectionnée depuis chartData
   const ytViewsP = ytDays.reduce((s, d) => s + d.views, 0);
   const ytWatchTimeP = ytDays.reduce((s, d) => s + d.watchTime, 0);
@@ -1618,6 +1631,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: 
               <div style={{ marginBottom: 8 }}>
                 <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
                 {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
+                {['Likes', 'Commentaires', 'Partages'].includes(s.label) && (
+                  <span
+                    title={`Délai de traitement Google : 2-3 jours.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                  >
+                    J-3
+                  </span>
+                )}
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
             </div>
@@ -1779,7 +1800,12 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 24 }}>
               <div>
                 <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{statModal.label}</div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>Jour par jour · {period} derniers jours</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
+                  Jour par jour · {period} derniers jours
+                  {['Likes', 'Commentaires', 'Partages'].includes(statModal.label) && ytLastEngagementDateFmt && (
+                    <> · délai Google 2-3j, dernière donnée : {ytLastEngagementDateFmt}</>
+                  )}
+                </div>
               </div>
               <button onClick={() => setStatModal(null)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
@@ -3734,7 +3760,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             if (!l.calendly_link_sent) return false;
             return isInPeriod(l.calendly_link_sent_at ?? l.created_at);
           };
-          const sourceForLink = (l: any) => l.ig_lead_id ? leads.find((ml: any) => ml.id === l.ig_lead_id)?.source : null;
+          // Priorité à source_at_creation (figée au moment de la création du lien, cf.
+          // migration 20260726010000) — fallback sur l'état courant du lead pour les liens
+          // créés avant cette migration (source_at_creation sera null pour ces cas-là).
+          // Sans ce pivot figé, un lien créé depuis un commentaire mais dont le lead a
+          // depuis réinteragi ailleurs (ex: une story) basculait à tort de catégorie
+          // business (cas réel découvert en test, cf. session 2026-07-26).
+          const sourceForLink = (l: any) => l.source_at_creation ?? (l.ig_lead_id ? leads.find((ml: any) => ml.id === l.ig_lead_id)?.source : null);
           // "story_reply" a sa propre catégorie dédiée ("Story - Lead Magnet", cf. rows
           // plus bas) — fix d'un bug latent où ces leads tombaient silencieusement dans
           // "DM organique" (même condition que "comment"), sans distinction possible.
@@ -4571,7 +4603,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         <tbody>
                           {linkedProspects.map((l: any, i: number) => {
                             const lead = leads.find((ml: any) => ml.id === l.ig_lead_id);
-                            const isOrganic = lead?.source === 'story_reply' || lead?.source === 'comment';
+                            // source figée au moment de la création du lien (source_at_creation)
+                            // en priorité — fallback sur l'état courant pour les liens créés
+                            // avant la migration. Évite qu'un lien historique bascule de canal
+                            // à tort si le lead a réinteragi via un autre canal depuis.
+                            const linkSource = l.source_at_creation ?? lead?.source;
+                            const isOrganic = linkSource === 'story_reply' || linkSource === 'comment';
                             const canal = lead?.leadMagnetSent ? 'LM' : (isOrganic ? 'DM organique' : 'Cold DM');
                             const canalColor2 = lead?.leadMagnetSent ? AMBER : (isOrganic ? '#10B981' : BLUE);
                             const st = getProspectStatus(l);
@@ -5411,7 +5448,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .eq('profile_id', targetId).limit(2000),
     // Liens Calendly envoyés par prospect — source de vérité pour la table Performance LM
     supabase.from('prospect_links')
-      .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched')
+      .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched, source_at_creation')
       .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
     // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
     supabase.from('content_links')
