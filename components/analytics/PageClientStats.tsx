@@ -5528,13 +5528,10 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     ),
   ]);
 
-  // Signale une troncature probable si l'un de ces plafonds fixes est atteint pile —
-  // aucun profil de test n'en approche aujourd'hui (voir Jour 4 du sprint), mais sans
-  // ce log une vraie troncature serait invisible jusqu'à ce qu'elle fausse les stats
-  // affichées, des mois plus tard.
-  if ((leadsRes.data?.length ?? 0) >= 500) console.warn('[PageClientStats] instagram_leads a atteint le plafond de 500 lignes — troncature probable pour profileId=%s', targetId);
-  if ((lmHistoryRes.data?.length ?? 0) >= 2000) console.warn('[PageClientStats] instagram_lead_lm_history a atteint le plafond de 2000 lignes — troncature probable pour profileId=%s', targetId);
-  if ((prospectLinksRes.data?.length ?? 0) >= 500) console.warn('[PageClientStats] prospect_links a atteint le plafond de 500 lignes — troncature probable pour profileId=%s', targetId);
+  // instagram_leads/instagram_lead_lm_history/prospect_links sont désormais paginées
+  // (fetchAllPages) — ne peuvent structurellement plus être tronquées, les warnings
+  // de plafond fixe (500/2000 lignes) précédemment ici sont donc devenus obsolètes
+  // et retirés (2026-07-27, chantier "Depuis connexion").
 
   // Graphique historique clics Short.io — agrégé côté DB via get_shortio_clicks_by_day.
   // FENÊTRE VOLONTAIREMENT COURTE (3 mois, pas 24) — à relire avant d'agrandir cette
@@ -5573,7 +5570,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
 
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
-  const igLeads: MockLead[] = (leadsRes.data ?? [])
+  const igLeads: MockLead[] = leadsRows
     .filter((l: any) => { if (!l.ig_user_id || seen.has(l.ig_user_id)) return false; seen.add(l.ig_user_id); return true; })
     .map((l: any) => ({
       id: l.id, igUserId: l.ig_user_id, igUsername: l.ig_username || 'Anonyme',
@@ -5596,11 +5593,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const callsData = (callsRes.data ?? []).filter((c: any) => !dismissedKeys.has(c.id));
 
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] =
-    (lmHistoryRes.data ?? []).filter((h: any) => h.ig_user_id && h.keyword_matched);
+    lmHistoryRows.filter((h: any) => h.ig_user_id && h.keyword_matched);
 
   // Map ig_lead_id (UUID) → media_id pour attribution réelle calls/contenu
   const leadIdToMediaId = new Map<string, string>();
-  for (const l of (leadsRes.data ?? [])) {
+  for (const l of leadsRows) {
     if (l.id && l.media_id) leadIdToMediaId.set(l.id, l.media_id);
   }
 
@@ -5655,7 +5652,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   }
 
   // prospect_links enrichis avec callBooked/callHonored/dealClosed/revenue/qualified/humanClicks30d/post_id via DB
-  const prospectLinksData = (prospectLinksRes.data ?? []).map((pl: any) => {
+  const prospectLinksData = prospectLinksRows.map((pl: any) => {
     const callData = pl.ig_lead_id ? callByLeadId.get(pl.ig_lead_id) : undefined;
     const urlKey = (pl.short_url || '').toLowerCase();
     return {
