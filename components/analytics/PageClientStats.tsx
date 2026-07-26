@@ -2902,6 +2902,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   chartFilter: 'all' | 'dm' | 'content' | 'bio';
   setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
 }) {
+  // Stories individuelles avec CTA (LM ou Calendly) — pour afficher titre/miniature des
+  // stories orphelines (hors séquence) dans "Performance par contenu". Même queryKey que
+  // TabInstagram (['stories', profileId]) : React Query déduplique l'appel réseau.
+  const { data: allStoriesDataForContent } = useQuery({
+    queryKey: ['stories', profileId],
+    queryFn: () => fetch(profileId ? `/api/client/stories?profileId=${profileId}` : '/api/client/stories').then(r => r.json()),
+    staleTime: 60 * 1000,
+  });
+  const allStoriesForContent: any[] = allStoriesDataForContent?.stories ?? [];
+
   const { data: storySequenceFunnelData } = useQuery({
     queryKey: ['story-sequences-funnel', profileId],
     // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
@@ -3286,10 +3296,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const postLeads = leads.filter(lead => lead.postId === postId);
     const igPost = platform === 'IG' ? igPosts.find(p => p.id === postId) : null;
     const ytVideo = platform === 'YT' ? ytVideos.find(v => v.id === postId) : null;
-    const title = igPost?.caption || ytVideo?.title || '(sans titre)';
-    const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || null;
-    const type = igPost ? (igPost.type === 'VIDEO' || igPost.type === 'REEL' || igPost.type === 'REELS' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : platform === 'IG' ? 'Reel' : 'Vidéo');
-    const views = igPost?.views || ytVideo?.views30d || 0;
+    // Story orpheline avec CTA (LM ou Calendly) mais SANS séquence — les stories en
+    // séquence sont déjà gérées séparément (storySequenceContentRows, thumbnail=1ère
+    // story du groupe) ; ne matcher ici que le cas story isolée pour éviter le doublon.
+    const storyMatch = platform === 'IG' && !igPost
+      ? allStoriesForContent.find(s => s.ig_story_id === postId && !s.sequence_id && (s.lm_keyword || s.calendly_short_url))
+      : null;
+    const title = igPost?.caption || ytVideo?.title || (storyMatch ? 'Story' : '(sans titre)');
+    const thumbnail = igPost?.thumbnail || ytVideo?.thumbnail || storyMatch?.storage_url || null;
+    const type = igPost ? (igPost.type === 'VIDEO' || igPost.type === 'REEL' || igPost.type === 'REELS' ? 'Reel' : igPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image') : (ytVideo ? (ytVideo.isShort ? 'Short' : 'Vidéo') : storyMatch ? 'Story' : platform === 'IG' ? 'Reel' : 'Vidéo');
+    const views = igPost?.views || ytVideo?.views30d || storyMatch?.views || 0;
     // Vues lifetime pour Cash/Vue — UNIQUEMENT igLive/ytLive, jamais ig/yt ou igPost/ytVideo (qui
     // varient avec periodIndex). Si le post n'est plus dans la fenêtre de fetch live, on ne connaît
     // pas sa valeur actuelle : null (affiché "—"), jamais une valeur bancale qui changerait selon
@@ -4721,7 +4737,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       altKws.has((h.keyword_matched || '').toLowerCase()) &&
                       h.detected_at >= periodStartDate && (!periodEndDate || h.detected_at <= periodEndDate)
                     );
-                    const leadsCount = lmHistoryMatches.filter(h => h.lead_magnet_sent).length;
+                    // Dédupliqué par ig_user_id — "Leads générés" compte des PROSPECTS, pas des
+                    // interactions : une personne qui redétecte le même mot-clé plusieurs fois
+                    // (commentaires répétés) ne doit pas gonfler artificiellement ce chiffre (cas
+                    // réel observé : 1 prospect détecté 5 fois en 24h comptait à tort pour 5).
+                    const uniqueSentUserIds = new Set(lmHistoryMatches.filter(h => h.lead_magnet_sent).map(h => h.ig_user_id));
+                    const leadsCount = uniqueSentUserIds.size;
                     // reponses/clicsLM restent basés sur l'état ACTUEL du lead (instagram_leads) —
                     // pas d'historique par-interaction disponible pour hookReplied/clics aujourd'hui ;
                     // matché par ig_user_id présent dans lmHistoryMatches pour rester scopé au LM.
@@ -4922,8 +4943,16 @@ async function fetchApi(url: string) {
   return d?.error ? null : d;
 }
 
-async function fetchSnapshot(profileId: string | undefined, periodIndex: number, period: number) {
-  if (periodIndex === 0) return null;
+// Fenêtre "depuis connexion" — bornes non calendaires, juste [connectedAt,
+// aujourd'hui]. Séparée de getPeriodWindow (lib/period.ts), qui ne gère que des
+// fenêtres calendaires fixes (semaine lundi-dimanche / mois calendaire) — ce mode
+// n'en est pas une, donc pas ajoutée à ce module partagé.
+function getSinceConnectionWindow(connectedAt: string): { periodStart: Date; periodEnd: Date } {
+  return { periodStart: new Date(connectedAt), periodEnd: new Date() };
+}
+
+async function fetchSnapshot(profileId: string | undefined, periodIndex: number, period: number, customWindow?: { start: string; end: string }) {
+  if (periodIndex === 0 && !customWindow) return null;
   try {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -4934,15 +4963,19 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // lib/period.ts — même source que TabShortioB et tous les autres calculateurs de
   // bornes du fichier, élimine la classe de bug de décalage entre deux endroits déjà
   // rencontrée par le passé (cf. bug remonté 2026-07-06).
-  const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
+  // Si customWindow est fourni (mode "Depuis connexion"), il prime — comportement
+  // strictement identique à avant sinon (getPeriodWindow).
+  const { periodStart, periodEnd } = customWindow
+    ? { periodStart: new Date(customWindow.start), periodEnd: new Date(customWindow.end) }
+    : getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
   // parisDateStr (pas toISOString) : les colonnes date/snapshot_date filtrées ci-dessous
   // sont écrites en heure de Paris par le cron (isoDate(), voir docs/cron-poll-leads-
   // dates.md) — periodStart/periodEnd (getPeriodWindow) sont aussi calées sur Paris,
   // toISOString().split('T')[0] donnerait le jour UTC, décalé d'un jour civil autour
   // de 22h-minuit UTC.
-  const startDateStr = parisDateStr(periodStart);
-  const endDateStr   = parisDateStr(periodEnd);
+  const startDateStr = customWindow ? customWindow.start : parisDateStr(periodStart);
+  const endDateStr   = customWindow ? customWindow.end : parisDateStr(periodEnd);
 
   // Toutes les requêtes en parallèle pour ne pas dépasser 2s
   const [
@@ -5380,7 +5413,7 @@ async function fetchAllPages<T>(
   return allRows;
 }
 
-async function fetchSupabaseStats(profileId?: string, period: number = 30) {
+async function fetchSupabaseStats(profileId?: string, period: number = 30, customWindow?: { start: string; end: string }) {
   try {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -5435,28 +5468,40 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   // breakdown Business micro suivent la même semaine/mois que tous les autres
   // graphiques plutôt qu'une fenêtre glissante indépendante (cf. bug remonté
   // "bio calendly ig" 2026-07-06).
+  // Si customWindow est fourni (mode "Depuis connexion"), il prime — comportement
+  // strictement identique à avant sinon (getPeriodWindow(0, ...)).
   const { periodStart: _periodStart, periodEnd: _periodEnd } = getPeriodWindow(0, period === 7 ? 'week' : 'month');
-  const since30d = parisDateStr(_periodStart);
-  const until30d = parisDateStr(_periodEnd);
+  const since30d = customWindow ? customWindow.start : parisDateStr(_periodStart);
+  const until30d = customWindow ? customWindow.end : parisDateStr(_periodEnd);
 
-  const [leadsRes, lmRes, calendlyRes, overridesRes, lmHistoryRes, prospectLinksRes, contentLinksRes, lmClickedEvents, linkClickedEvents] = await Promise.all([
-    supabase.from('instagram_leads')
-      .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, source')
-      .eq('profile_id', targetId).order('detected_at', { ascending: false }).limit(500),
+  const [leadsRows, lmRes, calendlyRes, overridesRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents] = await Promise.all([
+    // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, trop facile à
+    // atteindre sur le mode "Depuis connexion" (jusqu'à ~1 an) pour un profil actif.
+    fetchAllPages<any>(() =>
+      supabase.from('instagram_leads')
+        .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, source')
+        .eq('profile_id', targetId).order('detected_at', { ascending: false })
+    ),
     supabase.from('lead_magnets')
       .select('id, name, keyword, url').eq('profile_id', targetId).order('created_at', { ascending: true }),
     supabase.from('integrations')
       .select('metadata').eq('profile_id', targetId).eq('provider', 'calendly').maybeSingle(),
     supabase.from('pipeline_overrides')
       .select('prospect_key, stage').eq('profile_id', targetId).eq('stage', 'dismissed'),
-    // Historique complet LM — pour les stats par keyword (1 ligne par interaction, pas par prospect)
-    supabase.from('instagram_lead_lm_history')
-      .select('ig_user_id, keyword_matched, media_id, lead_magnet_sent, detected_at')
-      .eq('profile_id', targetId).limit(2000),
-    // Liens Calendly envoyés par prospect — source de vérité pour la table Performance LM
-    supabase.from('prospect_links')
-      .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched, source_at_creation')
-      .eq('profile_id', targetId).order('created_at', { ascending: false }).limit(500),
+    // Historique complet LM — pour les stats par keyword (1 ligne par interaction, pas par prospect).
+    // Paginé (fetchAllPages) — plafond fixe .limit(2000) auparavant, même raison.
+    fetchAllPages<any>(() =>
+      supabase.from('instagram_lead_lm_history')
+        .select('ig_user_id, keyword_matched, media_id, lead_magnet_sent, detected_at')
+        .eq('profile_id', targetId)
+    ),
+    // Liens Calendly envoyés par prospect — source de vérité pour la table Performance LM.
+    // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, même raison.
+    fetchAllPages<any>(() =>
+      supabase.from('prospect_links')
+        .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched, source_at_creation')
+        .eq('profile_id', targetId).order('created_at', { ascending: false })
+    ),
     // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
     supabase.from('content_links')
       .select('lm_id, lm_keyword')
@@ -5810,6 +5855,11 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
   const [tab, setTab] = useState(0);
   const [period, setPeriod] = useState<Period>(30);
   const [periodIndex, setPeriodIndex] = useState(0);
+  // Mode "Depuis connexion" — coexiste avec period/periodIndex, ne les remplace
+  // jamais. Volontairement séparé du système 7j/30j existant (voir commentaire
+  // ligne ~295 sur Period : étendre ce type a déjà été exploré et reporté, 15+
+  // sites font de l'arithmétique littérale sur 7/30).
+  const [sinceConnection, setSinceConnection] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [stripeRefreshing, setStripeRefreshing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
