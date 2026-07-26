@@ -2928,7 +2928,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // Clics totaux : toutes catégories business connues (bio + desc + lm_dm_auto + calendly_dm_prospect)
   // En S-0 : businessClicsFromDb couvre déjà toutes les BUSINESS_CATEGORIES
   // En S-1+ : sommer tous les clics de clicksByUrl (snapshots DB filtrés sur la fenêtre)
-  const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
+  const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect','calendly_story']);
   const totalClics = (() => {
     if (shortioChartHistory && shortioChartHistory.length > 0) {
       const startStr = utcDateStr(periodStart);
@@ -3645,8 +3645,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             return isInPeriod(l.calendly_link_sent_at ?? l.created_at);
           };
           const sourceForLink = (l: any) => l.ig_lead_id ? leads.find((ml: any) => ml.id === l.ig_lead_id)?.source : null;
+          // "story_reply" a sa propre catégorie dédiée ("Story - Lead Magnet", cf. rows
+          // plus bas) — fix d'un bug latent où ces leads tombaient silencieusement dans
+          // "DM organique" (même condition que "comment"), sans distinction possible.
           const coldDMLinks = dmDirectLinks.filter((l: any) => sourceForLink(l) !== 'story_reply' && sourceForLink(l) !== 'comment' && dmLinkSentInPeriod(l));
-          const organicDMLinks = dmDirectLinks.filter((l: any) => (sourceForLink(l) === 'story_reply' || sourceForLink(l) === 'comment') && dmLinkSentInPeriod(l));
+          const organicDMLinks = dmDirectLinks.filter((l: any) => sourceForLink(l) === 'comment' && dmLinkSentInPeriod(l));
+          const storyReplyDMLinks = dmDirectLinks.filter((l: any) => sourceForLink(l) === 'story_reply' && dmLinkSentInPeriod(l));
 
           // Calls bookés/honorés/closés comptés selon LEUR PROPRE date (scheduled_at dans
           // la période), indépendamment de la date d'envoi du lien Calendly — convention
@@ -3674,6 +3678,26 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const organicClosed = organicCalls.filter(c => c.deal_closed === true).length;
           const organicRevenue = organicCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const organicClics = organicDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
+
+          // "Story - Lead Magnet" : calls dont le lead vient d'un reply à une story
+          // (source='story_reply') — pivot toujours story_sequence_id en amont, jamais
+          // ig_story_id seul (cf. principe d'attribution du chantier Stories).
+          const storyLmCalls = storyReplyDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
+          const storyLmBooked = storyLmCalls.filter(c => c.status === 'active').length;
+          const storyLmHonored = storyLmCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const storyLmClosed = storyLmCalls.filter(c => c.deal_closed === true).length;
+          const storyLmRevenue = storyLmCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
+          const storyLmClics = storyReplyDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
+
+          // "Story - Calendly" : calls dont utm_content matche une séquence story dont
+          // le CTA est Calendly (utm_content=sequenceId, généré au moment de la création
+          // de la séquence — voir POST /api/client/story-sequences).
+          const calendlySequenceIds = new Set(storySequenceRows.filter(s => s.ctaType === 'calendly').map(s => s.sequenceId));
+          const storyCalendlyCalls = callsInWindow.filter(c => c.utm_content && calendlySequenceIds.has(c.utm_content));
+          const storyCalendlyBooked = storyCalendlyCalls.filter(c => c.status === 'active').length;
+          const storyCalendlyHonored = storyCalendlyCalls.filter(c => c.status === 'active' && !c.no_show).length;
+          const storyCalendlyClosed = storyCalendlyCalls.filter(c => c.deal_closed === true).length;
+          const storyCalendlyRevenue = storyCalendlyCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
           // LM : liens envoyés = filtrés sur calendly_link_sent_at (comme avant) pour le
           // KPI "liens Calendly envoyés", mais calls booked/honored/closed = tout lead LM
@@ -3721,6 +3745,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             ...lmCalls.map(c => c.id),
             ...coldCalls.map(c => c.id),
             ...organicCalls.map(c => c.id),
+            ...storyLmCalls.map(c => c.id),
+            ...storyCalendlyCalls.map(c => c.id),
           ]);
           const otherCalls = callsInWindow.filter(c => !categorizedCallIds.has(c.id));
           const otherBooked = otherCalls.filter(c => c.status === 'active').length;
@@ -3753,6 +3779,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             { label: 'Lien contenu IG', badge: 'IG', badgeColor: '#F06292', liens: null, liensLabel: null, clics: igContentClics, booked: igContentBooked, honored: igContentHonored, closed: igContentClosed, revenue: igContentRevenue, isContentType: true },
             { label: 'Lien contenu YT', badge: 'YT', badgeColor: '#FF0000', liens: null, liensLabel: null, clics: ytContentClics, booked: ytContentBooked, honored: ytContentHonored, closed: ytContentClosed, revenue: ytContentRevenue, isContentType: true },
             { label: 'Lead magnet', badge: 'LM', badgeColor: '#8B5CF6', liens: lmCalendlyLinks, liensLabel: 'liens Calendly', clics: lmProspectLinksDb.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length, booked: lmBooked, honored: lmHonored, closed: lmClosed, revenue: lmRevenue, isContentType: false },
+            { label: 'Story - Lead Magnet', badge: 'STORY', badgeColor: '#8B5CF6', liens: storyReplyDMLinks.length, liensLabel: 'liens envoyés', clics: storyReplyDMLinks.length > 0 ? storyLmClics : null, booked: storyLmBooked, honored: storyLmHonored, closed: storyLmClosed, revenue: storyLmRevenue, isContentType: false },
+            { label: 'Story - Calendly', badge: 'STORY', badgeColor: BLUE, liens: null, liensLabel: null, clics: null, booked: storyCalendlyBooked, honored: storyCalendlyHonored, closed: storyCalendlyClosed, revenue: storyCalendlyRevenue, isContentType: false },
             { label: 'Cold DM', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (sortant <ArrowOut />)</span>, badge: 'DM', badgeColor: BLUE, liens: coldDMLinks.length, liensLabel: 'liens envoyés', clics: coldDMLinks.length > 0 ? coldClics : null, booked: coldBooked, honored: coldHonored, closed: coldClosed, revenue: coldRevenue, isContentType: false },
             { label: 'DM organique', labelSuffix: <span style={{ fontSize: 10, color: 'var(--muted)', fontWeight: 500 }}> (entrant <ArrowIn />)</span>, badge: 'DM', badgeColor: '#10B981', liens: organicDMLinks.length, liensLabel: 'conversations', clics: organicDMLinks.length > 0 ? organicClics : null, booked: organicBooked, honored: organicHonored, closed: organicClosed, revenue: organicRevenue, isContentType: false },
             ...(otherCalls.length > 0 ? [{ label: 'Autre / non catégorisé', badge: '?', badgeColor: 'var(--muted)', liens: null, liensLabel: null, clics: null, booked: otherBooked, honored: otherHonored, closed: otherClosed, revenue: otherRevenue, isContentType: false }] : []),
@@ -4843,7 +4871,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // retour, jamais de risque de troncature à 1000 même avec des centaines de liens).
   const snapClicksByUrl = new Map<string, number>();
   const snapClicksByPath = new Map<string, number>();
-  const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
+  const SNAP_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect','calendly_story']);
   let snapBusinessClicsFromDb = 0;
   for (const row of shortioClickRows as { short_url: string | null; path: string | null; link_category: string | null; total_clicks: number }[]) {
     const clicks = row.total_clicks ?? 0;
@@ -5467,7 +5495,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   // Graphique historique : déjà agrégé côté DB par get_shortio_clicks_by_day
   // (1 ligne par jour × catégorie, plus jamais 1 ligne par lien — voir le
   // commentaire détaillé plus haut sur la root cause de troncature à 1000 lignes).
-  const CHART_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect']);
+  const CHART_BUSINESS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect','calendly_story']);
   const chartByDate = new Map<string, number>();
   // Sous-totaux par catégorie de source (bio/contenu/dm) — alimente les graphiques
   // filtrés "DM/Contenu/Bio uniquement" sur la vraie période sélectionnée.

@@ -511,6 +511,11 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       if (p.startsWith('lm-')) return 'lm_dm_auto';
       return 'calendly_dm_prospect';
     }
+    // Lien Calendly d'une séquence story — généré par POST /api/client/story-sequences
+    // avec utm_medium=story et path=story-calendly-{slug}. Le CTA Lead Magnet d'une
+    // séquence n'a pas de lien Short.io propre (mot-clé en reply, pas de clic à tracker
+    // ici) — seule la catégorie Calendly a besoin d'exister côté link_category.
+    if (linkType === 'story') return 'calendly_story';
     return null;
   };
 
