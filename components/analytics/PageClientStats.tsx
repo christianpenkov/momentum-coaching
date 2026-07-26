@@ -4657,12 +4657,22 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       }
                     }
 
-                    // Leads : depuis instagram_leads — match sur tous les keywords du LM
-                    const lmLeads = leads.filter(l =>
-                      altKws.has((l.keyword || '').toLowerCase()) &&
-                      (!l.commentedAt || (l.commentedAt >= periodStartDate && (!periodEndDate || l.commentedAt <= periodEndDate)))
+                    // Leads : depuis instagram_lead_lm_history — une ligne par VRAIE interaction
+                    // (detected_at figé à cet événement précis), pas depuis instagram_leads qui
+                    // n'a qu'une ligne par personne et écrase keyword_matched à chaque nouvelle
+                    // interaction (ex: un lead qui prend #GUIDE en juin puis #PROMO en août
+                    // disparaissait silencieusement des stats de #GUIDE — bug découvert en test
+                    // réel sur le flux stories, cf. session 2026-07-26).
+                    const lmHistoryMatches = (lmHistory ?? []).filter(h =>
+                      altKws.has((h.keyword_matched || '').toLowerCase()) &&
+                      h.detected_at >= periodStartDate && (!periodEndDate || h.detected_at <= periodEndDate)
                     );
-                    const leadsCount = lmLeads.filter(l => l.leadMagnetSent).length;
+                    const leadsCount = lmHistoryMatches.filter(h => h.lead_magnet_sent).length;
+                    // reponses/clicsLM restent basés sur l'état ACTUEL du lead (instagram_leads) —
+                    // pas d'historique par-interaction disponible pour hookReplied/clics aujourd'hui ;
+                    // matché par ig_user_id présent dans lmHistoryMatches pour rester scopé au LM.
+                    const lmHistoryUserIds = new Set(lmHistoryMatches.map(h => h.ig_user_id));
+                    const lmLeads = leads.filter(l => l.igUserId && lmHistoryUserIds.has(l.igUserId));
                     const reponses = lmLeads.filter(l => l.hookReplied).length;
 
                     // Clics LM : même logique que le pipeline — prospect_events.lm_clicked par lead
