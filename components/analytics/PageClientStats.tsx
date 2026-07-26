@@ -231,26 +231,6 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
 
 // ─── TAB 1 : Vue Générale — helpers ──────────────────────────────────────────
 
-function DeltaBadge({ value, suffix = '%' }: { value: number; suffix?: string }) {
-  const color = value > 0 ? GREEN : value < 0 ? RED : 'var(--muted)';
-  const sign = value > 0 ? '+' : '';
-  return (
-    <span style={{ fontSize: 11, fontWeight: 600, color }}>
-      {sign}{fmt(value, 1)}{suffix} vs S-1
-    </span>
-  );
-}
-
-function TodayStat({ label, value, delta, deltaLabel }: { label: string; value: string; delta?: number; deltaLabel?: string }) {
-  return (
-    <div style={{ flex: 1, minWidth: 0, padding: '20px 24px', borderRight: '1px solid var(--border)' }}>
-      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 6 }}>{value}</div>
-      {delta !== undefined && <DeltaBadge value={delta} suffix={deltaLabel || '%'} />}
-    </div>
-  );
-}
-
 function LeverCard({ label, value, formula }: { label: string; value: string; formula: string }) {
   return (
     <div style={{ padding: '16px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
