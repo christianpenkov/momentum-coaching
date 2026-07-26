@@ -108,18 +108,13 @@ export async function GET(request: Request) {
 
   // Priorité à utm_content = sequenceId (daté au clic du lien Calendly de CETTE
   // séquence, insensible aux interactions ultérieures de la même personne ailleurs)
-  // — fallback sur ig_lead_id pour les calls du flux DM classique, qui portent
-  // utm_content=pseudo Instagram (jamais l'id de séquence, cf. webhook
-  // instagram/route.ts:477/768) plutôt que d'être vides. On exclut du fallback les
-  // calls dont utm_content pointe déjà vers une AUTRE séquence connue du profil
-  // (évite le double-compte et les faux rattachements) — même principe que
-  // matchesContent (PageClientStats.tsx:3195) pour les posts.
-  const { data: allProfileSequences } = await serviceSupabase
-    .from('story_sequences')
-    .select('id')
-    .eq('profile_id', targetProfileId);
-  const allSequenceIds = (allProfileSequences || []).map(s => s.id);
-
+  // — fallback sur ig_lead_id UNIQUEMENT si utm_content est totalement absent, MÊME
+  // règle exacte que matchesContent (PageClientStats.tsx:3276) pour les posts. Ne
+  // jamais retomber sur le lead si utm_content pointe vers un contenu différent (autre
+  // séquence OU un post) : instagram_leads.media_id est un état COURANT mutable,
+  // écrasé à chaque nouvelle interaction de la même personne — un call réel de juin
+  // depuis un post se retrouverait sinon attribué à tort à une séquence stories
+  // réclamée par la même personne en juillet (cas réel découvert en test).
   let callsBooked = 0, callsHonored = 0, dealsClosed = 0, revenue = 0;
   {
     const { data: bySequence } = await serviceSupabase
@@ -135,9 +130,10 @@ export async function GET(request: Request) {
           .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
           .eq('coach_id', targetProfileId)
           .in('ig_lead_id', leadIds)
+          .is('utm_content', null)
           .neq('ignored', true)
       : { data: [] };
-    const byLeadFiltered = (byLead || []).filter(c => !c.utm_content || !allSequenceIds.includes(c.utm_content));
+    const byLeadFiltered = byLead || [];
 
     const seenCallIds = new Set<string>();
     const now = new Date();
@@ -285,12 +281,16 @@ async function listSequenceFunnelRows(profileId: string) {
     const seqLeads = leadsBySequence.get(seq.id) || [];
     const leadIds = seqLeads.map(l => l.id);
 
-    // Priorité utm_content (daté au clic, fiable) puis fallback ig_lead_id — même
-    // principe que matchesContent (PageClientStats.tsx:3195) pour les posts : un call
-    // du flux DM porte utm_content=pseudo Instagram (pas l'id de séquence, cf. webhook
-    // instagram/route.ts:477/768), donc le fallback par lead est nécessaire pour ne pas
-    // perdre ces calls. On exclut du fallback les calls dont utm_content pointe déjà
-    // vers une AUTRE séquence connue (évite le double-compte et les faux rattachements).
+    // Priorité utm_content (daté au clic, fiable) puis fallback ig_lead_id — MÊME règle
+    // exacte que matchesContent (PageClientStats.tsx:3276) pour les posts : le fallback
+    // par lead ne s'applique QUE si utm_content est totalement absent, jamais s'il pointe
+    // vers un contenu différent (autre séquence, ou un POST — cf. cas réel découvert :
+    // un lead qui a d'abord commenté un post en juin, puis répondu à une story de test en
+    // juillet, a un call de juin dont utm_content pointe vers son pseudo Instagram — pas
+    // vide — qui ne doit JAMAIS être réattribué à la séquence stories via le lead, sous
+    // peine de double-compte avec le post d'origine. instagram_leads.media_id est un état
+    // COURANT mutable écrasé à chaque interaction — non fiable comme pivot d'attribution,
+    // contrairement à utm_content qui est figé au moment du clic).
     const { data: bySequence } = await serviceSupabase
       .from('calls')
       .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome')
@@ -303,9 +303,10 @@ async function listSequenceFunnelRows(profileId: string) {
           .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
           .eq('coach_id', profileId)
           .in('ig_lead_id', leadIds)
+          .is('utm_content', null)
           .neq('ignored', true)
       : { data: [] };
-    const byLeadFiltered = (byLead || []).filter(c => !c.utm_content || !sequenceIds.includes(c.utm_content));
+    const byLeadFiltered = byLead || [];
 
     // Deux compteurs séparés (Calendly via bySequence, LM/DM via byLeadFiltered) en plus
     // du total dédupliqué — nécessaire pour distinguer callsBookedLm/revenueLm de
