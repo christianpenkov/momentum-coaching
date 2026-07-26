@@ -50,10 +50,14 @@ export async function POST(request: Request) {
   if (!ig_username || !short_url) return NextResponse.json({ error: 'ig_username et short_url requis' }, { status: 400 });
   if (ig_username.length > 100) return NextResponse.json({ error: 'ig_username trop long' }, { status: 400 });
 
-  // Résoudre ig_lead_id et keyword_matched depuis instagram_leads
+  // Résoudre ig_lead_id, keyword_matched et source depuis instagram_leads. source est
+  // figée dans source_at_creation au moment de CETTE création — instagram_leads.source
+  // est un état courant, écrasé à chaque nouvelle interaction du même lead (ex: un lead
+  // qui a commenté un post puis répondu à une story plus tard verrait ce lien historique
+  // classé à tort "story_reply" dans le breakdown business si on lisait l'état courant).
   const { data: leadRow } = await supa
     .from('instagram_leads')
-    .select('id, keyword_matched')
+    .select('id, keyword_matched, source')
     .eq('profile_id', user.id)
     .eq('ig_username', ig_username)
     .order('detected_at', { ascending: false })
@@ -61,10 +65,11 @@ export async function POST(request: Request) {
     .maybeSingle();
   const ig_lead_id = leadRow?.id ?? null;
   const keyword_matched = leadRow?.keyword_matched ?? null;
+  const source_at_creation = leadRow?.source ?? null;
 
   const { data, error } = await supa
     .from('prospect_links')
-    .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null, ig_lead_id, keyword_matched })
+    .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null, ig_lead_id, keyword_matched, source_at_creation })
     .select()
     .single();
 
