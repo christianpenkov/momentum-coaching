@@ -361,7 +361,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       }, 0);
   // DM prospects : 1 clic par lead ayant link_clicked dans la période
   const prospectCalendlyClics = (prospectLinksData && linkClickedByLeadId)
-    ? (prospectLinksData as any[]).filter((pl: any) => {
+    ? prospectLinksData.filter((pl: any) => {
         if (!pl.calendly_link_sent) return false;
         const ts = pl.calendly_link_sent_at ?? pl.created_at;
         if (!ts) return false;
@@ -2116,7 +2116,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       return !!lead?.leadMagnetSent;
     };
     // DM clics (non-LM)
-    const dmClics = (prospectLinksData as any[]).filter((pl: any) => {
+    const dmClics = prospectLinksData.filter((pl: any) => {
       if (!pl.calendly_link_sent) return false;
       const ts = pl.calendly_link_sent_at ?? pl.created_at;
       if (!ts || !isTsInFunnelWindow(ts)) return false;
@@ -2124,7 +2124,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
     }).length;
     // LM clics
-    const lmClics = (prospectLinksData as any[]).filter((pl: any) => {
+    const lmClics = prospectLinksData.filter((pl: any) => {
       if (!pl.calendly_link_sent) return false;
       const ts = pl.calendly_link_sent_at ?? pl.created_at;
       if (!ts || !isTsInFunnelWindow(ts)) return false;
@@ -4577,7 +4577,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     }
 
                     // Leads : depuis instagram_leads — match sur tous les keywords du LM
-                    const lmLeads = (leads as any[]).filter(l =>
+                    const lmLeads = leads.filter(l =>
                       altKws.has((l.keyword || '').toLowerCase()) &&
                       (!l.commentedAt || (l.commentedAt >= periodStartDate && (!periodEndDate || l.commentedAt <= periodEndDate)))
                     );
