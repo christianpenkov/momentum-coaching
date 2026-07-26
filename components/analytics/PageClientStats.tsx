@@ -4817,20 +4817,25 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .gte('date', startDateStr)
       .lte('date', endDateStr)
       .order('date', { ascending: true }),
-    supabase
-      .from('analytics_ig_posts_history')
-      .select('*')
-      .eq('profile_id', targetId)
-      .gte('snapshot_date', startDateStr)
-      .lte('snapshot_date', endDateStr)
-      .order('snapshot_date', { ascending: false }),
-    supabase
-      .from('analytics_yt_videos_history')
-      .select('*')
-      .eq('profile_id', targetId)
-      .gte('snapshot_date', startDateStr)
-      .lte('snapshot_date', endDateStr)
-      .order('snapshot_date', { ascending: false }),
+    // Agrégé côté DB via get_ig_posts_history (DISTINCT ON post_id, garde le snapshot
+    // le plus récent par post sur la fenêtre) — reproduit exactement la dédup faite
+    // plus bas côté client, mais ne peut plus jamais être tronqué à 1000 lignes même
+    // pour un profil avec beaucoup de posts, contrairement au SELECT * brut (une
+    // ligne par post PAR JOUR).
+    supabase.rpc('get_ig_posts_history', {
+      p_profile_id: targetId,
+      p_start_date: startDateStr,
+      p_end_date: endDateStr,
+    }),
+    // Agrégé côté DB via get_yt_videos_history, même raison — analytics_yt_videos_history
+    // dépasse déjà 1000 lignes/30j sur le profil de test avant ce fix (troncature
+    // silencieuse probable), ne peut plus dépasser 1000 lignes en sortie tant qu'un
+    // profil a moins de 1000 vidéos distinctes.
+    supabase.rpc('get_yt_videos_history', {
+      p_profile_id: targetId,
+      p_start_date: startDateStr,
+      p_end_date: endDateStr,
+    }),
     supabase.from('calls').select('*')
       .eq('coach_id', targetId)
       .gte('scheduled_at', periodStart.toISOString())
@@ -4859,7 +4864,9 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   ]);
 
   const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
+  if (igPostsRes.status === 'fulfilled' && igPostsRes.value.error) console.error('[PageClientStats] get_ig_posts_history a échoué:', igPostsRes.value.error.message);
   const igPostsRows = igPostsRes.status === 'fulfilled' ? (igPostsRes.value.data ?? []) : [];
+  if (ytVideosRes.status === 'fulfilled' && ytVideosRes.value.error) console.error('[PageClientStats] get_yt_videos_history a échoué:', ytVideosRes.value.error.message);
   const ytVideosRows = ytVideosRes.status === 'fulfilled' ? (ytVideosRes.value.data ?? []) : [];
   const stripeRows = stripeRes.status === 'fulfilled' ? (stripeRes.value.data ?? []) : [];
   const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
