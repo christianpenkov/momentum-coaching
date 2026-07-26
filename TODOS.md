@@ -41,3 +41,17 @@
 **Contexte pour la reprise** : identifié lors du chantier "Interactions posts à 0 en vue période actuelle" (2026-07-07, voir `~/.claude/plans/ok-parfait-maintenant-on-peppy-firefly.md`, section "Chantier séparé — Interactions posts / Taux d'engagement à 0"). Ce chantier a résolu le problème pour les comptes déjà connectés (extension du cron + lecture 100%-DB), mais délibérément pas backfillé l'historique des nouvelles connexions.
 
 **Dépend de / bloqué par** : rien, peut être fait indépendamment — mais bénéficie d'être fait après le chantier ci-dessus (cron écrivant déjà ces métriques quotidiennement), pour ne pas dupliquer deux fois la même logique `fetchIgDayMetrics` par jour.
+
+## Permettre de dissocier un lead magnet (posts ET séquences stories)
+
+**Quoi** : ajouter un bouton "Dissocier" dans `TabLm` (posts, `PageLiens.tsx`) et dans le futur `TabStoryLeadMagnet` (séquences) qui retire le lead magnet associé sans en choisir un nouveau — retour à l'état "aucun LM configuré".
+
+**Pourquoi** : `TabLm` permet déjà de changer de LM (re-sélection), mais aucun endroit du produit ne permet de revenir à "pas de LM du tout" une fois qu'un LM a été associé à un post ou une séquence. Asymétrie déjà présente sur les posts avant ce chantier, identifiée en revue en préparant `TabStoryLeadMagnet` (qui reproduira la même limitation par cohérence).
+
+**Pour** : cohérence produit — un coach qui a associé un LM par erreur, ou qui veut arrêter une campagne, peut revenir à un état neutre sans devoir associer un LM factice ou vide.
+
+**Contre** : aucun signal qu'un client ait rencontré ce besoin jusqu'ici — pure hypothèse d'usage futur, pas un bug bloquant.
+
+**Contexte pour la reprise** : identifié lors de la revue `/plan-eng-review` du chantier "Refonte du modèle CTA des séquences stories" (2026-07-26, voir `~/.claude/plans/ok-nous-ici-on-proud-rocket.md`). Concerne `components/liens/PageLiens.tsx` — fonctions `TabLm` (existant) et `TabStoryLeadMagnet` (à créer par ce chantier).
+
+**Dépend de / bloqué par** : rien, mais logique à faire après la refonte `TabStoryLeadMagnet` pour traiter les deux composants ensemble.

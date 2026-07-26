@@ -108,13 +108,23 @@ export async function GET(request: Request) {
 
   // Priorité à utm_content = sequenceId (daté au clic du lien Calendly de CETTE
   // séquence, insensible aux interactions ultérieures de la même personne ailleurs)
-  // — fallback sur ig_lead_id uniquement pour les calls sans utm_content (ex: LM
-  // story sans lien Calendly tracké, cf. discussion produit sur ce trou connu).
+  // — fallback sur ig_lead_id pour les calls du flux DM classique, qui portent
+  // utm_content=pseudo Instagram (jamais l'id de séquence, cf. webhook
+  // instagram/route.ts:477/768) plutôt que d'être vides. On exclut du fallback les
+  // calls dont utm_content pointe déjà vers une AUTRE séquence connue du profil
+  // (évite le double-compte et les faux rattachements) — même principe que
+  // matchesContent (PageClientStats.tsx:3195) pour les posts.
+  const { data: allProfileSequences } = await serviceSupabase
+    .from('story_sequences')
+    .select('id')
+    .eq('profile_id', targetProfileId);
+  const allSequenceIds = (allProfileSequences || []).map(s => s.id);
+
   let callsBooked = 0, callsHonored = 0, dealsClosed = 0, revenue = 0;
   {
     const { data: bySequence } = await serviceSupabase
       .from('calls')
-      .select('status, scheduled_at, no_show, deal_closed, revenue, outcome, ig_lead_id')
+      .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, ig_lead_id')
       .eq('coach_id', targetProfileId)
       .eq('utm_content', sequenceId)
       .neq('ignored', true);
@@ -122,15 +132,18 @@ export async function GET(request: Request) {
     const { data: byLead } = leadIds.length
       ? await serviceSupabase
           .from('calls')
-          .select('status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
+          .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
           .eq('coach_id', targetProfileId)
           .in('ig_lead_id', leadIds)
-          .is('utm_content', null)
           .neq('ignored', true)
       : { data: [] };
+    const byLeadFiltered = (byLead || []).filter(c => !c.utm_content || !allSequenceIds.includes(c.utm_content));
 
+    const seenCallIds = new Set<string>();
     const now = new Date();
-    for (const c of [...(bySequence || []), ...(byLead || [])]) {
+    for (const c of [...(bySequence || []), ...byLeadFiltered]) {
+      if (seenCallIds.has(c.id)) continue;
+      seenCallIds.add(c.id);
       if (c.status === 'active') {
         callsBooked++;
         if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) callsHonored++;
@@ -272,24 +285,33 @@ async function listSequenceFunnelRows(profileId: string) {
     const seqLeads = leadsBySequence.get(seq.id) || [];
     const leadIds = seqLeads.map(l => l.id);
 
+    // Priorité utm_content (daté au clic, fiable) puis fallback ig_lead_id — même
+    // principe que matchesContent (PageClientStats.tsx:3195) pour les posts : un call
+    // du flux DM porte utm_content=pseudo Instagram (pas l'id de séquence, cf. webhook
+    // instagram/route.ts:477/768), donc le fallback par lead est nécessaire pour ne pas
+    // perdre ces calls. On exclut du fallback les calls dont utm_content pointe déjà
+    // vers une AUTRE séquence connue (évite le double-compte et les faux rattachements).
     const { data: bySequence } = await serviceSupabase
       .from('calls')
-      .select('status, scheduled_at, no_show, deal_closed, revenue, outcome')
+      .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome')
       .eq('coach_id', profileId)
       .eq('utm_content', seq.id)
       .neq('ignored', true);
     const { data: byLead } = leadIds.length
       ? await serviceSupabase
           .from('calls')
-          .select('status, scheduled_at, no_show, deal_closed, revenue, outcome')
+          .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
           .eq('coach_id', profileId)
           .in('ig_lead_id', leadIds)
-          .is('utm_content', null)
           .neq('ignored', true)
       : { data: [] };
+    const byLeadFiltered = (byLead || []).filter(c => !c.utm_content || !sequenceIds.includes(c.utm_content));
 
+    const seenCallIds = new Set<string>();
     let callsBooked = 0, callsHonored = 0, closed = 0, revenue = 0;
-    for (const c of [...(bySequence || []), ...(byLead || [])]) {
+    for (const c of [...(bySequence || []), ...byLeadFiltered]) {
+      if (seenCallIds.has(c.id)) continue;
+      seenCallIds.add(c.id);
       if (c.status === 'active') {
         callsBooked++;
         if (new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show) callsHonored++;

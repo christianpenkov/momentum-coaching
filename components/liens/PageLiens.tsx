@@ -2807,10 +2807,10 @@ export default function PageLiens() {
                 const hasDesc = !!post.hasDescLink;
                 const hasLm = !!post.hasLeadMagnet;
                 const isChecked = isStory && selectedStoryIds.has(post.id);
-                const isGroupedElsewhere = isStory && !!post.sequenceId && (post.sequenceStoryCount ?? 0) > 1;
+                const isGroupedElsewhere = isStory && !!post.sequenceId;
                 const handleClick = () => {
                   if (isStory && selectionMode) {
-                    if (isGroupedElsewhere) return; // déjà dans une vraie séquence multi-story, non cochable
+                    if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
                     setSelectedStoryIds(prev => {
                       const next = new Set(prev);
                       if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
