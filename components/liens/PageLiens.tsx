@@ -4,7 +4,6 @@ import { useState, useEffect, useRef, useCallback, useMemo, createContext, useCo
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
-import { SequenceDetailModal } from './StoriesTab';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -74,6 +73,7 @@ interface Post {
   ctaStoryId?: string | null;
   dm1Message?: string | null;
   dm2StoryMessage?: string | null;
+  calendlyShortUrl?: string | null;
   reach?: number | null;
   views?: number | null;
   postedAt?: string;
@@ -1400,18 +1400,29 @@ function formatDefaultSequenceName(isoDate: string): string {
   return `Séquence du ${dd}/${mm} - ${hh}h${min}`;
 }
 
-function PanneauStorySequence({ story, stories, profileId, leadMagnets, onSequenceSaved, onStatsOpen }: {
+function PanneauStorySequence({ story, stories, allStories, profileId, leadMagnets, onSequenceSaved, onNavigateStory }: {
   story?: Post;
   stories?: Post[];
+  allStories: Post[];
   profileId: string;
   leadMagnets: LeadMagnet[];
   onSequenceSaved: (affectedPostIds: string[], patch: Partial<Post>) => void;
-  onStatsOpen: (post: Post) => void;
+  onNavigateStory: (post: Post) => void;
 }) {
   const isGroup = !story && !!stories?.length;
   const groupStories = stories ?? [];
   const primary = story ?? groupStories[0];
   const isExistingSequence = !isGroup && !!primary?.sequenceId;
+  const sequenceMates = !isGroup && primary?.sequenceId
+    ? allStories.filter(p => p.sequenceId === primary.sequenceId).sort((a, b) => new Date(a.postedAt || 0).getTime() - new Date(b.postedAt || 0).getTime())
+    : [];
+  const retentionPct = sequenceMates.length > 1
+    ? (() => {
+        const first = sequenceMates[0]?.reach;
+        const cta = (sequenceMates.find(s => s.id === primary.ctaStoryId) ?? sequenceMates[sequenceMates.length - 1])?.reach;
+        return first && cta != null && first > 0 ? Math.round((cta / first) * 1000) / 10 : null;
+      })()
+    : null;
 
   const [name, setName] = useState('');
   const [ctaStoryId, setCtaStoryId] = useState('');
@@ -1508,15 +1519,22 @@ function PanneauStorySequence({ story, stories, profileId, leadMagnets, onSequen
           </div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 13, fontWeight: 600, color: INK }}>
-              {isGroup ? `Regrouper ${groupStories.length} stories` : (primary.sequenceStoryCount ?? 0) > 1 ? primary.sequenceName : 'Story'}
+              {isGroup ? `Regrouper ${groupStories.length} stories` : (primary.sequenceStoryCount ?? 0) > 1 ? `Fait partie de « ${primary.sequenceName} » (${primary.sequenceStoryCount} stories)` : 'Story'}
             </div>
-            {!isGroup && (primary.sequenceStoryCount ?? 0) > 1 && (
-              <button onClick={() => onStatsOpen(primary)} style={{ fontSize: 11, color: BLUE, background: 'none', border: 'none', padding: 0, cursor: 'pointer', marginTop: 2 }}>
-                Voir les stats de la séquence →
-              </button>
+            {retentionPct != null && (
+              <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{retentionPct}% ont vu la séquence jusqu'au bout</div>
             )}
           </div>
         </div>
+        {sequenceMates.length > 1 && (
+          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+            {sequenceMates.map(s => (
+              <div key={s.id} onClick={() => onNavigateStory(s)} style={{ width: 28, height: 28, borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0 }}>
+                {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Formulaire */}
@@ -1583,7 +1601,17 @@ function PanneauStorySequence({ story, stories, profileId, leadMagnets, onSequen
                 <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>DM 2 — message libre (envoyé juste après)</label>
                 <textarea value={dm2StoryMessage} onChange={e => setDm2StoryMessage(e.target.value)} rows={2} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box', resize: 'vertical' }} />
               </>
-            ) : !isExistingSequence && (
+            ) : isExistingSequence ? (
+              <div style={{ marginBottom: 14 }}>
+                <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Lien Calendly (généré, figé)</label>
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input readOnly value={primary.calendlyShortUrl || ''} style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE2, color: INK }} />
+                  {primary.calendlyShortUrl && (
+                    <button onClick={() => navigator.clipboard.writeText(primary.calendlyShortUrl!)} style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer' }}>Copier</button>
+                  )}
+                </div>
+              </div>
+            ) : (
               <div style={{ fontSize: 12, color: MUTED, marginBottom: 14, lineHeight: 1.5 }}>
                 Un lien Calendly trackable sera généré. Tu devras l'ajouter toi-même via le sticker "Lien" natif d'Instagram sur ta story CTA.
               </div>
@@ -2272,6 +2300,13 @@ export default function PageLiens() {
     staleTime: 60 * 1000,
   });
 
+  const { data: sequencesData } = useQuery({
+    queryKey: ['story-sequences', profileId],
+    queryFn: () => fetch(`/api/client/story-sequences?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 60 * 1000,
+  });
+
   // ── Dérivations depuis les queries ───────────────────────────────────────
   const domains: ShortDomain[] = domainsData?.domains?.length ? domainsData.domains : [];
   const domainsLoaded = !domainsLoading;
@@ -2373,6 +2408,7 @@ export default function PageLiens() {
         lmKeyword: s.lm_keyword ?? undefined,
         dm1Message: s.dm1_message ?? null,
         dm2StoryMessage: s.dm2_story_message ?? null,
+        calendlyShortUrl: s.calendly_short_url ?? null,
         hasLeadMagnet: s.cta_type === 'lead_magnet',
         hasDescLink: false,
         reach: s.reach,
@@ -2405,7 +2441,6 @@ export default function PageLiens() {
     });
   };
 
-  const [statsSequence, setStatsSequence] = useState<Post | null>(null);
 
   const handleStorySequenceSaved = (affectedPostIds: string[], patch: Partial<Post>) => {
     setPostsOverrides(prev => {
@@ -2442,6 +2477,8 @@ export default function PageLiens() {
   const selectedStoriesForGroup = rightView?.type === 'story-multi'
     ? posts.filter(p => rightView.postIds.includes(p.id))
     : [];
+  const [storiesSubTab, setStoriesSubTab] = useState<'stories' | 'sequences'>('stories');
+  const sequences: any[] = sequencesData?.sequences ?? [];
 
   // Mobile : onglet actif + overlay détail
   const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
@@ -2637,13 +2674,13 @@ export default function PageLiens() {
                 <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
               ) : rightView.type === 'story' ? (
                 <PanneauStorySequence
-                  story={selectedStory || rightView.post} profileId={profileId} leadMagnets={leadMagnets}
-                  onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+                  story={selectedStory || rightView.post} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
+                  onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
                 />
               ) : rightView.type === 'story-multi' ? (
                 <PanneauStorySequence
-                  stories={selectedStoriesForGroup} profileId={profileId} leadMagnets={leadMagnets}
-                  onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+                  stories={selectedStoriesForGroup} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
+                  onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
                 />
               ) : (
                 <PanneauActions
@@ -2700,6 +2737,17 @@ export default function PageLiens() {
               </div>
 
               {filterPlatform === 'STORY' && (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['stories', 'sequences'] as const).map(t => (
+                    <button key={t} onClick={() => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }} style={{
+                      padding: '4px 11px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+                      background: storiesSubTab === t ? INK : SURFACE2, color: storiesSubTab === t ? 'var(--bg)' : MUTED, transition: 'all .12s',
+                    }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
+                  ))}
+                </div>
+              )}
+
+              {filterPlatform === 'STORY' && storiesSubTab === 'stories' && (
                 selectionMode ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <span style={{ fontSize: 11, color: MUTED }}>{selectedStoryIds.size} sélectionnée{selectedStoryIds.size > 1 ? 's' : ''}</span>
@@ -2707,13 +2755,13 @@ export default function PageLiens() {
                       Annuler
                     </button>
                     <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'story-multi', postIds: Array.from(selectedStoryIds) }))} disabled={selectedStoryIds.size < 2} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: 'none', background: selectedStoryIds.size < 2 ? SURFACE2 : BLUE, color: selectedStoryIds.size < 2 ? MUTED : '#fff', cursor: selectedStoryIds.size < 2 ? 'default' : 'pointer' }}>
-                      Regrouper en séquence
+                      Continuer
                     </button>
                   </div>
                 ) : (
                   <div style={{ display: 'flex', gap: 6 }}>
                     <button onClick={() => setSelectionMode(true)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                      Regrouper des stories
+                      Créer une séquence stories
                     </button>
                     <button onClick={async () => {
                       await fetch('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) });
@@ -2728,7 +2776,26 @@ export default function PageLiens() {
 
             {/* Liste contenus */}
             <div style={{ flex: 1, overflowY: 'auto' }}>
-              {postsLoading ? (
+              {filterPlatform === 'STORY' && storiesSubTab === 'sequences' ? (
+                sequences.length === 0 ? (
+                  <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>Aucune séquence créée pour l'instant.</div>
+                ) : sequences.map(seq => (
+                  <div key={seq.id} onClick={() => {
+                    const ctaStory = posts.find(p => p.id === seq.cta_story_id) ?? posts.find(p => p.sequenceId === seq.id);
+                    if (ctaStory) unsavedGuardApi.guard(() => setRightView({ type: 'story', post: ctaStory }));
+                  }} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: 'pointer', transition: 'all .1s' }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seq.name}</div>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginTop: 3 }}>
+                        <span style={{ fontSize: 10, fontWeight: 600, color: seq.cta_type === 'lead_magnet' ? 'var(--green)' : BLUE, background: seq.cta_type === 'lead_magnet' ? 'var(--green-soft)' : BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>
+                          {seq.cta_type === 'lead_magnet' ? (seq.lm_keyword ? `#${seq.lm_keyword}` : 'LM') : 'Calendly'}
+                        </span>
+                        <span style={{ fontSize: 10, color: FAINT }}>{seq.story_count} story{seq.story_count > 1 ? 'ies' : ''}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : postsLoading ? (
                 <ContentGridSkeleton />
               ) : filteredPosts.length === 0 ? (
                 <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
@@ -2828,13 +2895,13 @@ export default function PageLiens() {
               <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
             ) : rightView.type === 'story' ? (
               <PanneauStorySequence
-                story={selectedStory || rightView.post} profileId={profileId} leadMagnets={leadMagnets}
-                onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+                story={selectedStory || rightView.post} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
+                onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
               />
             ) : rightView.type === 'story-multi' ? (
               <PanneauStorySequence
-                stories={selectedStoriesForGroup} profileId={profileId} leadMagnets={leadMagnets}
-                onSequenceSaved={handleStorySequenceSaved} onStatsOpen={setStatsSequence}
+                stories={selectedStoriesForGroup} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
+                onSequenceSaved={handleStorySequenceSaved} onNavigateStory={post => unsavedGuardApi.guard(() => setRightView({ type: 'story', post }))}
               />
             ) : (
               <PanneauActions
@@ -2847,26 +2914,6 @@ export default function PageLiens() {
           </div>
         </div>
       </div>
-
-      {statsSequence && statsSequence.sequenceId && (
-        <SequenceDetailModal
-          profileId={profileId}
-          sequence={{
-            id: statsSequence.sequenceId,
-            name: statsSequence.sequenceName || '',
-            cta_type: statsSequence.ctaType || 'lead_magnet',
-            cta_story_id: statsSequence.ctaStoryId ?? null,
-            lm_keyword: statsSequence.lmKeyword ?? null,
-            lm_url: null,
-            dm1_message: statsSequence.dm1Message ?? null,
-            dm2_story_message: statsSequence.dm2StoryMessage ?? null,
-            calendly_short_url: null,
-            created_at: '',
-            story_count: statsSequence.sequenceStoryCount ?? 1,
-          }}
-          onClose={() => setStatsSequence(null)}
-        />
-      )}
 
       {pendingLeaveAction && typeof document !== 'undefined' && createPortal(
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}

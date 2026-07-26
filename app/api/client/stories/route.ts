@@ -26,7 +26,7 @@ export async function GET() {
 
   const { data: stories, error } = await serviceSupabase
     .from('ig_stories')
-    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name, cta_type, cta_story_id, lm_keyword, dm1_message, dm2_story_message)')
+    .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name, cta_type, cta_story_id, lm_keyword, dm1_message, dm2_story_message, calendly_short_url)')
     .eq('profile_id', user.id)
     .order('posted_at', { ascending: false })
     .limit(200);
@@ -77,6 +77,7 @@ export async function GET() {
     lm_keyword: s.story_sequences?.lm_keyword ?? null,
     dm1_message: s.story_sequences?.dm1_message ?? null,
     dm2_story_message: s.story_sequences?.dm2_story_message ?? null,
+    calendly_short_url: s.story_sequences?.calendly_short_url ?? null,
     reach: latestSnapshotByStory.get(s.ig_story_id)?.reach ?? null,
     views: latestSnapshotByStory.get(s.ig_story_id)?.views ?? null,
   }));

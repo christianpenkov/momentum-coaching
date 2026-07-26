@@ -64,6 +64,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Une des stories sélectionnées appartient déjà à une séquence' }, { status: 409 });
   }
 
+  // Contrainte de contiguïté : deux séquences distinctes ne peuvent jamais être
+  // "entrelacées" — aucune story appartenant à une AUTRE séquence ne doit se situer
+  // (dans l'ordre chronologique posted_at) entre le min et le max de la sélection.
+  // Des stories encore libres (sans séquence) peuvent en revanche s'intercaler librement.
+  const { data: selectedStories } = await serviceSupabase
+    .from('ig_stories')
+    .select('id, posted_at')
+    .eq('profile_id', user.id)
+    .in('id', storyIds);
+  if (!selectedStories || selectedStories.length !== storyIds.length) {
+    return NextResponse.json({ error: 'Stories introuvables' }, { status: 400 });
+  }
+  const postedDates = selectedStories.map(s => new Date(s.posted_at).getTime());
+  const minPosted = new Date(Math.min(...postedDates)).toISOString();
+  const maxPosted = new Date(Math.max(...postedDates)).toISOString();
+
+  const { data: interleaved } = await serviceSupabase
+    .from('ig_stories')
+    .select('id, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name)')
+    .eq('profile_id', user.id)
+    .not('sequence_id', 'is', null)
+    .gt('posted_at', minPosted)
+    .lt('posted_at', maxPosted)
+    .not('id', 'in', `(${storyIds.join(',')})`);
+  if (interleaved && interleaved.length > 0) {
+    const clashName = (interleaved[0] as any).story_sequences?.name || 'une autre séquence';
+    return NextResponse.json({ error: `Cette sélection chevauche la séquence « ${clashName} »` }, { status: 409 });
+  }
+
   if (ctaType === 'calendly') {
     const { data: settings } = await serviceSupabase.from('clients').select('calendly_url').eq('profile_id', user.id).single();
     if (!settings?.calendly_url) return NextResponse.json({ error: 'Aucun lien Calendly configuré dans les Réglages' }, { status: 400 });
