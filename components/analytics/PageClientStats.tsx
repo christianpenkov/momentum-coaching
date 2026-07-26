@@ -2840,7 +2840,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   yt: YTStats | null;
   leads: MockLead[];
   leadMagnets: LeadMagnet[];
-  lmHistory?: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[];
+  lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[];
   destinations: DestinationLink[];
   period: Period;
   periodIndex?: number;
@@ -3216,10 +3216,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     ...prospectLinks
       .filter((l: any) => isValidPostId(l.postId) && !['bio-ig', 'bio-yt'].includes(l.postId))
       .map((l: any) => l.postId + '|' + (l.postPlatform || (isValidYtVideoId(l.postId) ? 'YT' : 'IG'))),
-    ...leads.filter(lead => {
-      if (!lead.leadMagnetSent || !isValidPostId(lead.postId, lead.postType)) return false;
-      return isInPeriod(lead.commentedAt);
-    }).map(lead => lead.postId + '|' + lead.postType),
+    // Basé sur lmHistory (media_id figé par interaction), pas leads.postId (état courant du
+    // lead, écrasé par sa DERNIÈRE interaction) — sinon un post/story ancien qui n'a plus
+    // que des leads "périmés" par une interaction plus récente ailleurs disparaît du tableau.
+    ...(lmHistory ?? []).filter(h => {
+      if (!h.lead_magnet_sent || !isValidPostId(h.media_id, isValidYtVideoId(h.media_id) ? 'YT' : 'IG')) return false;
+      return isInPeriod(h.detected_at);
+    }).map(h => h.media_id + '|' + (isValidYtVideoId(h.media_id) ? 'YT' : 'IG')),
   ]));
 
   // Map keyword (lowercase) → nom du LM pour affichage dans Performance par contenu
@@ -5404,7 +5407,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
       .select('prospect_key, stage').eq('profile_id', targetId).eq('stage', 'dismissed'),
     // Historique complet LM — pour les stats par keyword (1 ligne par interaction, pas par prospect)
     supabase.from('instagram_lead_lm_history')
-      .select('ig_user_id, keyword_matched, lead_magnet_sent, detected_at')
+      .select('ig_user_id, keyword_matched, media_id, lead_magnet_sent, detected_at')
       .eq('profile_id', targetId).limit(2000),
     // Liens Calendly envoyés par prospect — source de vérité pour la table Performance LM
     supabase.from('prospect_links')
@@ -5503,7 +5506,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const dismissedKeys = new Set((overridesRes.data ?? []).map((o: any) => o.prospect_key));
   const callsData = (callsRes.data ?? []).filter((c: any) => !dismissedKeys.has(c.id));
 
-  const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] =
+  const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] =
     (lmHistoryRes.data ?? []).filter((h: any) => h.ig_user_id && h.keyword_matched);
 
   // Map ig_lead_id (UUID) → media_id pour attribution réelle calls/contenu
@@ -5791,7 +5794,7 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
   const leadMagnets: LeadMagnet[] = supaData?.leadMagnets ?? [];
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
-  const lmHistory: { ig_user_id: string; keyword_matched: string; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
+  const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
