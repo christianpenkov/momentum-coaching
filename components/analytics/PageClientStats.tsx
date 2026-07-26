@@ -1911,7 +1911,6 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const [modalPeriodIndex, setModalPeriodIndex] = useState(0);
   const [expandedEff, setExpandedEff] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[] } | null>(null);
   const now = new Date();
-  const mrr = stripe?.mrr || 0;
 
   // ── Fenêtre temporelle de la période sélectionnée (bornes calendaires réelles) ──
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
