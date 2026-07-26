@@ -14,7 +14,10 @@ async function resolveProfileId(userId: string, profileId: string | null): Promi
 }
 
 // GET /api/instagram/story-sequences-stats?profileId=&sequenceId=
-// Combine deux niveaux dans un seul objet stats :
+// Sans sequenceId : liste TOUTES les séquences du profil avec des stats légères
+// (reach 1ère/dernière story, rétention, nb stories) — utilisé par les vignettes
+// TabInstagram et le funnel business TabFunnel/Business micro de PageClientStats.
+// Avec sequenceId : combine deux niveaux dans un objet stats détaillé pour UNE séquence :
 // 1. Funnel business de la séquence entière (leads/calls/deals/revenue), pivot = story_sequence_id
 // 2. Détail story par story (reach, navigation...) pour le funnel de rétention visuel
 export async function GET(request: Request) {
@@ -25,10 +28,13 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const sequenceId = searchParams.get('sequenceId');
   const profileIdParam = searchParams.get('profileId');
-  if (!sequenceId) return NextResponse.json({ error: 'sequenceId requis' }, { status: 400 });
 
   const targetProfileId = await resolveProfileId(user.id, profileIdParam);
   if (!targetProfileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
+  if (!sequenceId) {
+    return listAllSequences(targetProfileId);
+  }
 
   const { data: sequence, error: seqErr } = await serviceSupabase
     .from('story_sequences')
@@ -139,4 +145,70 @@ export async function GET(request: Request) {
       storiesDetail,
     },
   });
+}
+
+// Liste légère de toutes les séquences d'un profil, avec reach 1ère/dernière story
+// et % de rétention — sans funnel business détaillé (trop coûteux à calculer pour
+// N séquences d'un coup ; le détail complet reste accessible via ?sequenceId=).
+async function listAllSequences(profileId: string) {
+  const { data: sequences, error: seqErr } = await serviceSupabase
+    .from('story_sequences')
+    .select('id, name, cta_type, cta_story_id, lm_keyword, created_at')
+    .eq('profile_id', profileId)
+    .order('created_at', { ascending: false });
+  if (seqErr) return NextResponse.json({ error: seqErr.message }, { status: 500 });
+  if (!sequences || sequences.length === 0) return NextResponse.json({ sequences: [] });
+
+  const sequenceIds = sequences.map(s => s.id);
+  const { data: stories } = await serviceSupabase
+    .from('ig_stories')
+    .select('id, ig_story_id, sequence_id, storage_url, posted_at')
+    .in('sequence_id', sequenceIds)
+    .order('posted_at', { ascending: true });
+
+  const storyIds = (stories || []).map(s => s.ig_story_id);
+  const { data: snapshots } = storyIds.length
+    ? await serviceSupabase
+        .from('analytics_ig_stories_history')
+        .select('ig_story_id, reach, views')
+        .eq('profile_id', profileId)
+        .in('ig_story_id', storyIds)
+        .order('snapshot_date', { ascending: false })
+    : { data: [] };
+
+  const latestByStory = new Map<string, { reach: number | null; views: number | null }>();
+  for (const snap of snapshots || []) {
+    if (!latestByStory.has(snap.ig_story_id)) latestByStory.set(snap.ig_story_id, { reach: snap.reach, views: snap.views });
+  }
+
+  const storiesBySequence = new Map<string, typeof stories>();
+  for (const s of stories || []) {
+    if (!s.sequence_id) continue;
+    if (!storiesBySequence.has(s.sequence_id)) storiesBySequence.set(s.sequence_id, []);
+    storiesBySequence.get(s.sequence_id)!.push(s);
+  }
+
+  const rows = sequences.map(seq => {
+    const seqStories = storiesBySequence.get(seq.id) || [];
+    const firstReach = seqStories[0] ? latestByStory.get(seqStories[0].ig_story_id)?.reach ?? null : null;
+    const ctaStory = seqStories.find(s => s.id === seq.cta_story_id) ?? seqStories[seqStories.length - 1];
+    const ctaReach = ctaStory ? latestByStory.get(ctaStory.ig_story_id)?.reach ?? null : null;
+    const retentionPct = firstReach && ctaReach != null && firstReach > 0
+      ? Math.round((ctaReach / firstReach) * 1000) / 10
+      : null;
+    return {
+      id: seq.id,
+      name: seq.name,
+      cta_type: seq.cta_type,
+      lm_keyword: seq.lm_keyword,
+      story_count: seqStories.length,
+      thumbnail: seqStories[0]?.storage_url ?? null,
+      first_reach: firstReach,
+      cta_reach: ctaReach,
+      retention_pct: retentionPct,
+      created_at: seq.created_at,
+    };
+  });
+
+  return NextResponse.json({ sequences: rows });
 }

@@ -324,7 +324,6 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   const noShowRate   = callsBookes > 0 ? pct(noShows, callsBookes) : 0;
   const closingRate  = callsHonores > 0 ? pct(dealsCloses, callsHonores) : 0;
   const revPerCall   = callsBookes > 0 ? Math.round(totalRev / callsBookes) : 0;
-  const mrr          = stripe?.mrr || 0;
 
   // ── Tendance reach (sparkline) ────────────────────────────────────────────
   // Filtre par vraie date calendaire (ovPeriodStart/ovPeriodEnd), pas par position
@@ -530,7 +529,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'No-show', value: `${fmt(noShowRate, 0)} %`, sub: `${noShows} calls`, color: noShowRate > 20 ? RED : noShowRate > 10 ? AMBER : GREEN },
           { label: 'Closing', value: `${fmt(closingRate, 0)} %`, sub: `${dealsCloses} deals closés`, color: closingRate >= 25 ? GREEN : closingRate >= 15 ? AMBER : RED },
           { label: 'Rev / call', value: fmtEur(revPerCall), sub: 'par call booké', color: GREEN },
-          { label: 'Revenue', value: fmtEur(mrr || totalRev), sub: `${period}j`, color: GREEN },
+          { label: 'Revenue', value: fmtEur(totalRev), sub: `${period}j`, color: GREEN },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
             <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
@@ -693,9 +692,19 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
 
 // ─── TAB 2 : Instagram ────────────────────────────────────────────────────────
 
-function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period: Period; periodIndex?: number }) {
+function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
+  const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
+  const [selectedSequence, setSelectedSequence] = useState<any | null>(null);
+
+  const { data: sequencesData } = useQuery({
+    queryKey: ['story-sequences-stats-all', profileId],
+    queryFn: () => fetch(`/api/instagram/story-sequences-stats?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 60 * 1000,
+  });
+  const storySequences: any[] = sequencesData?.sequences ?? [];
 
   if (!ig) return <Empty msg={periodIndex && periodIndex > 0 ? "Pas de données Instagram pour cette période." : "Connecte ton compte Instagram pour voir les stats."} />;
 
@@ -939,7 +948,17 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
         </Card>
       )}
 
-      <Card title={`Posts (${ig.posts.length})`} sub="Cliquer pour le détail">
+      <Card title={contentSubTab === 'posts' ? `Posts (${ig.posts.length})` : `Stories (${storySequences.length})`} sub="Cliquer pour le détail">
+        <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
+          {(['posts', 'stories'] as const).map(t => (
+            <button key={t} onClick={() => setContentSubTab(t)} style={{
+              padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+              background: contentSubTab === t ? 'var(--ink)' : 'var(--surface-2)', color: contentSubTab === t ? 'var(--bg)' : 'var(--muted)', transition: 'all .12s',
+            }}>{t === 'posts' ? 'Posts' : 'Stories'}</button>
+          ))}
+        </div>
+
+        {contentSubTab === 'posts' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
           {ig.posts.map(post => {
             const er = post.totalInteractions && post.reach ? fmtPct(pct(post.totalInteractions, post.reach)) : '—';
@@ -972,6 +991,33 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
             );
           })}
         </div>
+        ) : storySequences.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucune séquence de story avec un CTA pour l'instant.</div>
+        ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+          {storySequences.map(seq => (
+            <div key={seq.id} onClick={() => setSelectedSequence(seq)} style={{ cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', transition: 'box-shadow .15s' }}
+              onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.08)')}
+              onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
+              <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
+                {seq.thumbnail
+                  ? <img src={seq.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>📸</div>}
+                <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>
+                  {seq.story_count} story{seq.story_count > 1 ? 'ies' : ''}
+                </div>
+              </div>
+              <div style={{ padding: '8px 10px' }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--ink)', marginBottom: 4, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seq.name}</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                  <span>👁 {seq.first_reach ?? '—'} → {seq.cta_reach ?? '—'}</span>
+                  <span>{seq.retention_pct != null ? `${seq.retention_pct}%` : '—'}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+        )}
       </Card>
 
       {/* Modal stat IG */}
@@ -1106,7 +1152,84 @@ function TabInstagram({ ig, period, periodIndex }: { ig: IGStats | null; period:
           </div>
         </ModalOverlay>
       )}
+
+      {selectedSequence && (
+        <StorySequenceDetailModal profileId={profileId} sequence={selectedSequence} onClose={() => setSelectedSequence(null)} />
+      )}
     </div>
+  );
+}
+
+// Modal mini-funnel — barres de reach décroissantes story par story, pour repérer
+// où la plus grosse chute d'audience survient dans une séquence. Aucune donnée
+// business ici (calls/revenue) — volontairement exclu de cet onglet Instagram.
+function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?: string; sequence: any; onClose: () => void }) {
+  const { data, isLoading } = useQuery({
+    queryKey: ['story-sequence-detail', sequence.id],
+    queryFn: () => fetch(`/api/instagram/story-sequences-stats?profileId=${profileId}&sequenceId=${sequence.id}`).then(r => r.json()),
+    staleTime: 60 * 1000,
+  });
+  const stats = data?.stats;
+  const storiesDetail: any[] = stats?.storiesDetail ?? [];
+  const maxReach = Math.max(1, ...storiesDetail.map(s => s.reach ?? 0));
+
+  return (
+    <ModalOverlay onClose={onClose} maxWidth={560}>
+      <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>{sequence.name}</div>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
+        </div>
+        <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 20 }}>
+          {sequence.cta_type === 'lead_magnet' ? `Lead Magnet — mot-clé #${sequence.lm_keyword}` : 'Calendly'}
+        </div>
+
+        {isLoading ? (
+          <div style={{ fontSize: 12, color: 'var(--faint)' }}>Chargement...</div>
+        ) : storiesDetail.length === 0 ? (
+          <div style={{ fontSize: 12, color: 'var(--faint)' }}>Pas encore de données pour cette séquence.</div>
+        ) : (
+          <>
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Rétention story par story</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {storiesDetail.map((s, i) => {
+                const prevReach = i > 0 ? storiesDetail[i - 1].reach : null;
+                const dropPct = prevReach && s.reach != null && prevReach > 0 ? Math.round(((prevReach - s.reach) / prevReach) * 1000) / 10 : null;
+                const barWidth = maxReach > 0 ? Math.max(4, ((s.reach ?? 0) / maxReach) * 100) : 4;
+                return (
+                  <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <div style={{ width: 32, height: 32, borderRadius: 6, overflow: 'hidden', flexShrink: 0, background: 'var(--surface-2)' }}>
+                      {s.storage_url && <img src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ height: 16, borderRadius: 4, background: 'var(--accent)', width: `${barWidth}%`, minWidth: 4 }} />
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--ink)', fontWeight: 600, width: 50, textAlign: 'right' }}>{s.reach ?? '—'}</div>
+                    <div style={{ fontSize: 10, color: dropPct != null && dropPct > 0 ? 'var(--red)' : 'var(--faint)', width: 44, textAlign: 'right' }}>{dropPct != null ? `-${dropPct}%` : ''}</div>
+                  </div>
+                );
+              })}
+            </div>
+            {stats?.retentionPct != null && (
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20 }}>
+                <strong style={{ color: 'var(--ink)' }}>{stats.retentionPct}%</strong> ont vu la séquence jusqu'au bout (reach dernière story / reach 1ère story)
+              </div>
+            )}
+
+            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Détail par story</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+              {storiesDetail.map((s, i) => (
+                <div key={s.id} style={{ fontSize: 11, color: 'var(--muted)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  Story {i + 1} — vues {s.views ?? '–'} · partages {s.shares ?? '–'} · visites profil {s.profile_visits ?? '–'} · abonnements {s.follows ?? '–'} · interactions {s.total_interactions ?? '–'}
+                  <br />
+                  tap→ {s.navigation_taps_forward ?? '–'} · tap← {s.navigation_taps_back ?? '–'} · sorties {s.navigation_exits ?? '–'}
+                </div>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </ModalOverlay>
   );
 }
 
@@ -5691,7 +5814,7 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
       {loading ? <InlineLoader /> : (
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} />}
-          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
