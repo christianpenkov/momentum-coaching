@@ -4664,6 +4664,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const ytVideosRows = ytVideosRes.status === 'fulfilled' ? (ytVideosRes.value.data ?? []) : [];
   const stripeRows = stripeRes.status === 'fulfilled' ? (stripeRes.value.data ?? []) : [];
   const shortioData = shortioResult.status === 'fulfilled' ? shortioResult.value : null;
+  if (shortioClicksRes.status === 'fulfilled' && shortioClicksRes.value.error) console.error('[PageClientStats] get_shortio_clicks_by_url (fetchSnapshot) a échoué:', shortioClicksRes.value.error.message);
   const shortioClickRows = shortioClicksRes.status === 'fulfilled' ? (shortioClicksRes.value.data ?? []) : [];
 
   // clicksByUrl / clicksByPath — agrégés côté DB via get_shortio_clicks_by_url (SUM
@@ -4703,11 +4704,12 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const snapContentYtByDate = new Map<string, number>();
   const snapDmCalendlyByDate = new Map<string, number>();
   const snapDmLmByDate = new Map<string, number>();
-  const { data: snapChartRpcData } = await supabase.rpc('get_shortio_clicks_by_day', {
+  const { data: snapChartRpcData, error: snapChartRpcError } = await supabase.rpc('get_shortio_clicks_by_day', {
     p_profile_id: targetId,
     p_start_date: startDateStr,
     p_end_date: endDateStr,
   });
+  if (snapChartRpcError) console.error('[PageClientStats] get_shortio_clicks_by_day (fetchSnapshot, période courante) a échoué:', snapChartRpcError.message);
   for (const row of (snapChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
     if (!row.date || !row.link_category) continue;
     const clicks = row.total_clicks ?? 0;
@@ -4726,11 +4728,12 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // n'est jamais 0 (cette fonction ne sert que l'historique), donc la précédente
   // est toujours periodIndex + 1, pas un +1 fixe sur periodIndex=0.
   const { periodStart: snapPrevPeriodStart, periodEnd: snapPrevPeriodEnd } = getPeriodWindow(periodIndex + 1, period === 7 ? 'week' : 'month');
-  const { data: snapPrevChartRpcData } = await supabase.rpc('get_shortio_clicks_by_day', {
+  const { data: snapPrevChartRpcData, error: snapPrevChartRpcError } = await supabase.rpc('get_shortio_clicks_by_day', {
     p_profile_id: targetId,
     p_start_date: parisDateStr(snapPrevPeriodStart),
     p_end_date: parisDateStr(snapPrevPeriodEnd),
   });
+  if (snapPrevChartRpcError) console.error('[PageClientStats] get_shortio_clicks_by_day (fetchSnapshot, période précédente) a échoué:', snapPrevChartRpcError.message);
   let snapPrevBusinessClics = 0;
   for (const row of (snapPrevChartRpcData ?? []) as { date: string; link_category: string; total_clicks: number }[]) {
     if (row.link_category && SNAP_BUSINESS_CATS.has(row.link_category)) snapPrevBusinessClics += (row.total_clicks ?? 0);
@@ -5126,6 +5129,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
     p_start_date: shortioHistoryFloor,
     p_end_date: parisDateStr(new Date()),
   });
+  if (shortioChartHistoryRpc.error) console.error('[PageClientStats] get_shortio_clicks_by_day (fetchSupabaseStats) a échoué:', shortioChartHistoryRpc.error.message);
 
   // Dans la table calls, coach_id = profile_id de l'élève (leadsProfileId dans le sync Calendly)
   const callsOwnerId = profileId ?? user.id;
@@ -5181,11 +5185,12 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30) {
   const clicksByUrl = new Map<string, number>();
   const clicksByPath = new Map<string, number>();
   const urlToCategoryFromDb = new Map<string, string>();
-  const { data: clicksByUrlRpcData } = await supabase.rpc('get_shortio_clicks_by_url', {
+  const { data: clicksByUrlRpcData, error: clicksByUrlRpcError } = await supabase.rpc('get_shortio_clicks_by_url', {
     p_profile_id: targetId,
     p_start_date: since30d,
     p_end_date: until30d,
   });
+  if (clicksByUrlRpcError) console.error('[PageClientStats] get_shortio_clicks_by_url (fetchSupabaseStats) a échoué:', clicksByUrlRpcError.message);
   for (const row of (clicksByUrlRpcData ?? []) as { short_url: string | null; path: string | null; link_category: string | null; total_clicks: number }[]) {
     const clicks = row.total_clicks ?? 0;
     if (row.short_url) {
