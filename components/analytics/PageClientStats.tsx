@@ -702,8 +702,10 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
 
   const { data: sequencesData } = useQuery({
     queryKey: ['story-sequences-stats-all', profileId],
-    queryFn: () => fetch(`/api/instagram/story-sequences-stats?profileId=${profileId}`).then(r => r.json()),
-    enabled: !!profileId,
+    // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
+    // — resolveProfileId (story-sequences-stats/route.ts) ne retombe sur user.id que si le
+    // param est absent, pas s'il vaut littéralement la string "undefined".
+    queryFn: () => fetch(profileId ? `/api/instagram/story-sequences-stats?profileId=${profileId}` : '/api/instagram/story-sequences-stats').then(r => r.json()),
     staleTime: 60 * 1000,
   });
   const storySequences: any[] = sequencesData?.sequences ?? [];
@@ -712,8 +714,11 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
   // (déjà utilisée dans Gérer mes liens, pas de nouvelle route).
   const { data: allStoriesData } = useQuery({
     queryKey: ['stories', profileId],
-    queryFn: () => fetch(`/api/client/stories?profileId=${profileId}`).then(r => r.json()),
-    enabled: !!profileId && contentSubTab === 'stories',
+    // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
+    // — l'API resolveProfileId retombe sur user.id uniquement si le param est absent, pas
+    // s'il vaut littéralement la string "undefined".
+    queryFn: () => fetch(profileId ? `/api/client/stories?profileId=${profileId}` : '/api/client/stories').then(r => r.json()),
+    enabled: contentSubTab === 'stories',
     staleTime: 60 * 1000,
   });
   const allStories: any[] = allStoriesData?.stories ?? [];
@@ -1244,7 +1249,7 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
 function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?: string; sequence: any; onClose: () => void }) {
   const { data, isLoading } = useQuery({
     queryKey: ['story-sequence-detail', sequence.id],
-    queryFn: () => fetch(`/api/instagram/story-sequences-stats?profileId=${profileId}&sequenceId=${sequence.id}`).then(r => r.json()),
+    queryFn: () => fetch(`/api/instagram/story-sequences-stats?sequenceId=${sequence.id}${profileId ? `&profileId=${profileId}` : ''}`).then(r => r.json()),
     staleTime: 60 * 1000,
   });
   const stats = data?.stats;
@@ -2899,8 +2904,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 }) {
   const { data: storySequenceFunnelData } = useQuery({
     queryKey: ['story-sequences-funnel', profileId],
-    queryFn: () => fetch(`/api/instagram/story-sequences-stats?profileId=${profileId}&mode=funnel`).then(r => r.json()),
-    enabled: !!profileId,
+    // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
+    // ni bloquer la query via enabled — resolveProfileId retombe sur user.id si le param
+    // est absent (cf. même bug corrigé pour allStoriesData/sequencesData plus haut).
+    queryFn: () => fetch(profileId ? `/api/instagram/story-sequences-stats?profileId=${profileId}&mode=funnel` : '/api/instagram/story-sequences-stats?mode=funnel').then(r => r.json()),
     staleTime: 60 * 1000,
   });
   const storySequenceRows: any[] = storySequenceFunnelData?.rows ?? [];
