@@ -300,7 +300,7 @@ type Period = 7 | 30;
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const _ovPIdx = periodIndex ?? 0;
@@ -311,8 +311,10 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   const cutoff = ovPeriodStart;
 
   // ── Métriques business ─────────────────────────────────────────────────────
-  // callsEff est déjà filtré par la DB en S-1+ → on filtre juste par status ici
-  const callsInPeriod = calls.filter(c => {
+  // callsEff est déjà filtré par la DB en S-1+ → on filtre juste par status ici.
+  // En mode "depuis connexion", calls est déjà borné [connectedAt, aujourd'hui] par le
+  // fetch — ne pas re-filtrer avec la fenêtre calendaire du mois en cours (cutoff).
+  const callsInPeriod = sinceConnection ? calls : calls.filter(c => {
     const t = new Date(c.scheduled_at).getTime();
     return t >= cutoff.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
   });
@@ -692,7 +694,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
 
 // ─── TAB 2 : Instagram ────────────────────────────────────────────────────────
 
-function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string }) {
+function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: { ig: IGStats | null; period: Period; periodIndex?: number; profileId?: string; sinceConnection?: boolean }) {
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
@@ -731,7 +733,9 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
   // "période" n'est plus un compte de jours fixe — un mois calendaire fait 28 à 31
   // jours, pas "30" exactement).
   const { periodStart: igPeriodStart, periodEnd: igPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
-  const igDaysSlice = ig.chartData.filter(d => {
+  // En mode "depuis connexion", ig.chartData est déjà borné [connectedAt, aujourd'hui]
+  // par le fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
+  const igDaysSlice = sinceConnection ? ig.chartData : ig.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= igPeriodStart.getTime() && t <= igPeriodEnd.getTime();
   });
@@ -1321,7 +1325,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean }) {
+function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
@@ -1380,7 +1384,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: 
   const { periodStart: ytPeriodStart, periodEnd: ytPeriodEnd } = getPeriodWindow(periodIndex ?? 0, period === 7 ? 'week' : 'month');
   const todayUTCStrYT = parisDateStr(new Date());
   const isFutureDayYT = (date: string) => date > todayUTCStrYT;
-  const ytDaysRaw = yt.chartData.filter(d => {
+  // En mode "depuis connexion", yt.chartData est déjà borné [connectedAt, aujourd'hui]
+  // par le fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
+  const ytDaysRaw = sinceConnection ? yt.chartData : yt.chartData.filter(d => {
     const t = new Date(d.date + 'T12:00:00Z').getTime();
     return t >= ytPeriodStart.getTime() && t <= ytPeriodEnd.getTime();
   });
@@ -1388,9 +1394,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: 
   // graphique s'arrête à la dernière ligne connue en base (souvent en retard de 2-3
   // jours côté API YouTube Analytics) au lieu de couvrir tout le mois/semaine avec les
   // jours sans donnée simplement vides.
+  // En mode "depuis connexion", ytDaysRaw n'est plus borné [ytPeriodStart, ytPeriodEnd]
+  // (mois/semaine en cours) — ne pas reconstruire une plage calendaire sur cette même
+  // fenêtre ici, sinon ytDays (et ytViewsP qui en dérive) reste clippé malgré le fix
+  // de ytDaysRaw plus haut. On complète juste les jours manquants à l'intérieur de la
+  // vraie fenêtre déjà présente dans ytDaysRaw (pas de recalcul de bornes calendaires).
   const ytDayByDate = new Map(ytDaysRaw.map(d => [d.date, d]));
   const ytDaysNoDataSet = new Set<string>();
-  const ytDays: typeof ytDaysRaw = (() => {
+  const ytDays: typeof ytDaysRaw = sinceConnection ? ytDaysRaw : (() => {
     const days: typeof ytDaysRaw = [];
     let d = ytPeriodStart;
     while (d.getTime() <= ytPeriodEnd.getTime()) {
@@ -2136,7 +2147,7 @@ function delta(current: number, previous: number): { value: number; label: strin
   };
 }
 
-function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number> }) {
+function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, onModalChange, leads: leadsFromProp, prospectLinksData, linkClickedByLeadId, clicksByUrl, sinceConnection }: { msgs: IGMessages | null; calls: CallRecord[]; stripe: StripeStats | null; ig: IGStats | null; yt: YTStats | null; shortio: ShortioStats | null; period: Period; periodIndex: number; onModalChange?: (open: boolean) => void; leads?: MockLead[]; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; sinceConnection?: boolean }) {
   const leads = leadsFromProp && leadsFromProp.length > 0 ? leadsFromProp : [];
   const [callsFilter, setCallsFilter] = useState<'all' | 'ig' | 'yt'>('all');
   const [expandedHero, setExpandedHero] = useState<number | null>(null);
@@ -2150,7 +2161,9 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
   const todayUTCStrFunnel = parisDateStr(new Date());
   const isFutureDayFunnel = (date: string) => date > todayUTCStrFunnel;
-  const callsInWindow = calls.filter(c => {
+  // En mode "depuis connexion", calls est déjà borné [connectedAt, aujourd'hui] par le
+  // fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
+  const callsInWindow = sinceConnection ? calls : calls.filter(c => {
     const t = new Date(c.scheduled_at).getTime();
     return t >= periodStart.getTime() && t <= periodEnd.getTime();
   });
@@ -2711,7 +2724,7 @@ const isValidPostId = (id: any, platform?: string) => {
   return isValidIgPostId(id) || isValidYtVideoId(id);
 };
 
-function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean }) {
+function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing, sinceConnection }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean }) {
   if (!stripe) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
@@ -2727,13 +2740,15 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
 
   const { periodStart, periodEnd } = getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
-  const allInPeriod = stripe.recentPayments.filter(p => {
+  // En mode "depuis connexion", stripe/calls sont déjà bornés [connectedAt, aujourd'hui]
+  // par le fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
+  const allInPeriod = sinceConnection ? stripe.recentPayments : stripe.recentPayments.filter(p => {
     const d = new Date(p.date);
     return d >= periodStart && d <= periodEnd;
   });
   const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
 
-  const callsInPeriod = calls.filter(c => {
+  const callsInPeriod = sinceConnection ? calls : calls.filter(c => {
     const d = new Date(c.scheduled_at);
     return d >= periodStart && d <= periodEnd;
   });
@@ -2864,7 +2879,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -2901,6 +2916,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   setSelectedMetric: (m: 'clics' | 'leads' | 'hookReply' | 'calendlyLinks' | 'activation' | 'calls') => void;
   chartFilter: 'all' | 'dm' | 'content' | 'bio';
   setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
+  sinceConnection?: boolean;
 }) {
   // Stories individuelles avec CTA (LM ou Calendly) — pour afficher titre/miniature des
   // stories orphelines (hors séquence) dans "Performance par contenu". Même queryKey que
@@ -3025,21 +3041,27 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (dbClics !== undefined) return dbClics;
     if (sPeriod === 30) return l.humanClicks30d || 0;
     const pts: { date?: string; clicks: number }[] = l.chartData || [];
+    if (sinceConnection) return pts.reduce((s, p) => s + (p.clicks || 0), 0);
     return pts.filter(p => p.date && new Date(p.date).getTime() >= periodStart.getTime() && new Date(p.date).getTime() <= periodEnd.getTime())
       .reduce((s, p) => s + (p.clicks || 0), 0);
   };
 
   // Helper : clics agrégés domaine pour la période
-  const domainClicsPeriod = sPeriod === 30
+  const domainClicsPeriod = sinceConnection
+    ? (shortio.chartData ?? []).reduce((s: number, d: any) => s + (d.clicks || 0), 0)
+    : sPeriod === 30
     ? (shortio.humanClicks30d ?? 0)
     : (shortio.chartData ?? []).filter((d: any) => d.date && new Date(d.date).getTime() >= periodStart.getTime() && new Date(d.date).getTime() <= periodEnd.getTime())
         .reduce((s: number, d: any) => s + (d.clicks || 0), 0);
 
   // Filtre par période (fenêtre [periodStart, periodEnd]) — fonction unique réutilisée
   // partout dans ce composant, pour ne pas dupliquer la logique de bornage _pIdx.
+  // En mode "depuis connexion", les données reçues sont déjà bornées [connectedAt,
+  // aujourd'hui] par le fetch — ne rien re-clipper avec la fenêtre du mois/semaine en cours.
   const periodCutoff = periodStart.getTime();
   const periodEndMs = periodEnd.getTime();
   const isInPeriod = (ts: string | null | undefined) => {
+    if (sinceConnection) return !!ts;
     if (!ts) return false;
     const t = new Date(ts).getTime();
     return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
@@ -3059,6 +3081,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const TOTAL_CLICS_CATS = new Set(['calendly_bio_ig','calendly_bio_yt','lm_bio_ig','lm_bio_yt','calendly_desc_ig','calendly_desc_yt','lm_desc_ig','lm_desc_yt','lm_dm_auto','calendly_dm_prospect','calendly_story']);
   const totalClics = (() => {
     if (shortioChartHistory && shortioChartHistory.length > 0) {
+      // shortioChartHistory est déjà borné à la bonne fenêtre en amont (branchement 3
+      // voies incluant "depuis connexion") — ne pas re-filtrer avec periodStart/periodEnd
+      // (mois/semaine en cours) qui n'a de sens qu'en mode 7j/30j.
+      if (sinceConnection) return shortioChartHistory.reduce((s, d) => s + d.clicks, 0);
       const startStr = utcDateStr(periodStart);
       const endStr   = utcDateStr(periodEnd);
       return shortioChartHistory
@@ -4715,8 +4741,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     // Pivot unique : keyword_matched — même clé sur lmHistory, prospect_links, et shortio path
                     const kw = (lm.keyword || '').toLowerCase();
                     const kwSlug = kw.replace(/[^a-z0-9-]/g, '');
-                    const periodStartDate = periodStart.toISOString();
-                    const periodEndDate = _pIdx === 0 ? null : periodEnd.toISOString();
+                    // En mode "depuis connexion", lmHistory/prospectLinksData sont déjà bornés
+                    // [connectedAt, aujourd'hui] par le fetch — pas de re-filtre calendaire ici.
+                    const periodStartDate = sinceConnection ? '' : periodStart.toISOString();
+                    const periodEndDate = sinceConnection ? null : (_pIdx === 0 ? null : periodEnd.toISOString());
 
                     // Tous les mots-clés alternatifs pour ce LM (définis dans content_links par contenu)
                     // Ex: LM Ubizen AI (keyword: LM) peut aussi être déclenché par BEAU via un contenu
@@ -6215,12 +6243,12 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} />}
-          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} />}
-          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} />}
-          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} />}
+          {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} />}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
+          {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} />}
         </>
       )}
     </div>
