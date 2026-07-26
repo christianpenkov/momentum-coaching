@@ -4853,10 +4853,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 }
 
 // ── Pill période flottante (onglet Funnel & Calls) ────────────────────────────
-function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedAt }: {
+function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedAt, sinceConnection, setSinceConnection }: {
   period: Period; setPeriod: (p: Period) => void;
   periodIndex: number; setPeriodIndex: (fn: (i: number) => number) => void;
   connectedAt?: string | null;
+  sinceConnection?: boolean; setSinceConnection?: (v: boolean) => void;
 }) {
   const maxIndex = connectedAt
     ? Math.max(0, Math.floor((Date.now() - new Date(connectedAt).getTime()) / (period * 86400000)))
@@ -4871,26 +4872,40 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedA
         userSelect: 'none', WebkitUserSelect: 'none',
       } as React.CSSProperties}
     >
-      <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={periodIndex >= maxIndex}
-        style={{ background: 'none', border: 'none', cursor: periodIndex >= maxIndex ? 'default' : 'pointer', fontSize: 20, color: periodIndex >= maxIndex ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>‹</button>
+      <button onClick={() => setPeriodIndex(i => Math.min(i + 1, maxIndex))} disabled={sinceConnection || periodIndex >= maxIndex}
+        style={{ background: 'none', border: 'none', cursor: (sinceConnection || periodIndex >= maxIndex) ? 'default' : 'pointer', fontSize: 20, color: (sinceConnection || periodIndex >= maxIndex) ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 120 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-          {periodIndex === 0 ? 'Période actuelle' : `${period === 7 ? 'S' : 'M'}−${periodIndex}`}
+          {sinceConnection ? 'Depuis connexion' : (periodIndex === 0 ? 'Période actuelle' : `${period === 7 ? 'S' : 'M'}−${periodIndex}`)}
         </div>
-        <div style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{periodLabel(period, periodIndex)}</div>
+        <div style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sinceConnection ? (connectedAt ? `depuis le ${new Date(connectedAt).toLocaleDateString('fr-FR')}` : '') : periodLabel(period, periodIndex)}</div>
       </div>
-      <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={periodIndex === 0}
-        style={{ background: 'none', border: 'none', cursor: periodIndex === 0 ? 'default' : 'pointer', fontSize: 20, color: periodIndex === 0 ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>›</button>
+      <button onClick={() => setPeriodIndex(i => Math.max(i - 1, 0))} disabled={sinceConnection || periodIndex === 0}
+        style={{ background: 'none', border: 'none', cursor: (sinceConnection || periodIndex === 0) ? 'default' : 'pointer', fontSize: 20, color: (sinceConnection || periodIndex === 0) ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>›</button>
       <div style={{ width: 1, height: 24, background: 'var(--border)', margin: '0 4px' }} />
       <div style={{ display: 'flex', gap: 2, background: 'var(--surface-chat-field)', borderRadius: 8, padding: 3 }}>
         {([7, 30] as Period[]).map(p => (
-          <button key={p} onClick={() => { setPeriod(p); setPeriodIndex(() => 0); }} style={{
+          <button key={p} onClick={() => { setSinceConnection?.(false); setPeriod(p); setPeriodIndex(() => 0); }} style={{
             padding: '4px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, cursor: 'pointer', border: 'none',
-            background: period === p ? 'var(--ink)' : 'transparent',
-            color: period === p ? 'var(--surface)' : 'var(--muted)',
+            background: !sinceConnection && period === p ? 'var(--ink)' : 'transparent',
+            color: !sinceConnection && period === p ? 'var(--surface)' : 'var(--muted)',
             transition: 'all .15s',
           }}>{p}j</button>
         ))}
+        {setSinceConnection && (
+          <button
+            key="since-connection"
+            onClick={() => connectedAt && setSinceConnection(true)}
+            disabled={!connectedAt}
+            title={!connectedAt ? "Date de connexion inconnue" : undefined}
+            style={{
+              padding: '4px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: 'none',
+              cursor: connectedAt ? 'pointer' : 'not-allowed',
+              background: sinceConnection ? 'var(--ink)' : 'transparent',
+              color: !connectedAt ? 'var(--faint)' : (sinceConnection ? 'var(--surface)' : 'var(--muted)'),
+              transition: 'all .15s', whiteSpace: 'nowrap',
+            }}>Depuis connexion</button>
+        )}
       </div>
     </div>
   );
@@ -5147,7 +5162,12 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   }
 
   // Dernier snapshot connu pour les valeurs cumulatives (followers, abonnés, etc.)
-  const lastSnap = snaps[snaps.length - 1] ?? null;
+  // snaps est trié 'date' descendant (requête ligne ~5044) donc le plus récent est
+  // le premier élément, pas le dernier — snaps[snaps.length-1] serait le plus ancien.
+  // yt_subscribers peut être null les derniers jours (backfill/collecte pas encore
+  // passés) : on cherche le snapshot le plus récent qui a réellement une valeur.
+  const lastSnap = snaps[0] ?? null;
+  const lastSnapWithYtSubs = snaps.find(r => r.yt_subscribers != null) ?? null;
 
   // ── IG ──────────────────────────────────────────────────────────────────────
   const igReachTotal  = snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0);
@@ -5268,11 +5288,11 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     subsGained30d:      ytSubsGTotal,
     subsLost30d:        ytSubsLTotal,
     netSubs30d:         ytNetSubsTotal,
-    subscribers:        lastSnap?.yt_subscribers ?? 0,
+    subscribers:        lastSnapWithYtSubs?.yt_subscribers ?? 0,
     likes30d:           ytLikesTotal,
     comments30d:        ytCommentsTotal,
     shares30d:          ytSharesTotal,
-    avgViewDurationSec: lastSnap?.yt_avg_view_duration_sec ?? 0,
+    avgViewDurationSec: (snaps.find(r => r.yt_avg_view_duration_sec != null))?.yt_avg_view_duration_sec ?? 0,
     chartData: snaps.map(r => ({
       date:       r.date,
       views:      r.yt_views ?? 0,
@@ -5966,29 +5986,9 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
   });
   const shortio: ShortioStats | null = shortioRaw ?? null;
 
-  // Snapshot historique — chargé dès que periodIndex > 0, quel que soit l'onglet actif
-  const { data: snapData, isLoading: snapLoading } = useQuery({
-    queryKey: ['stats-snapshot', profileId, periodIndex, period],
-    queryFn: () => fetchSnapshot(profileId, periodIndex, period),
-    enabled: periodIndex > 0,
-    staleTime: 30 * 60 * 1000,
-  });
-
-  // En S-1+ : clics filtrés sur la fenêtre exacte de la période (depuis fetchSnapshot)
-  // En S-0 : clics filtrés sur le period actif (7j ou 30j) depuis supaData
-  const clicksByPath: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByPath : null) ?? supaData?.clicksByPath ?? new Map();
-  const clicksByUrl: Map<string, number> = (periodIndex > 0 ? snapData?.clicksByUrl : null) ?? supaData?.clicksByUrl ?? new Map();
-  const urlToCategoryFromDb: Map<string, string> = supaData?.urlToCategoryFromDb ?? new Map();
-  const businessClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.businessClicsFromDb : snapData?.businessClicsFromDb;
-  const totalClicsChangePct: number | null | undefined = periodIndex === 0 ? supaData?.totalClicsChangePct : snapData?.totalClicsChangePct;
-  const shortioChartHistory: { date: string; clicks: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistory : snapData?.shortioChartHistory;
-  const shortioChartHistoryBio: { date: string; ig: number; yt: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryBio : snapData?.shortioChartHistoryBio;
-  const shortioChartHistoryContent: { date: string; ig: number; yt: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryContent : snapData?.shortioChartHistoryContent;
-  const shortioChartHistoryDm: { date: string; calendly: number; lm: number }[] | undefined = periodIndex === 0 ? supaData?.shortioChartHistoryDm : snapData?.shortioChartHistoryDm;
-  // Clics Calendly statiques (bio + desc) depuis DB — pour Vue générale uniquement
-  const calendlyStaticClicsFromDb: number | undefined = periodIndex === 0 ? supaData?.calendlyStaticClicsFromDb : undefined;
-
-  // État intégrations — backfill + fraîcheur
+  // État intégrations — backfill + fraîcheur + connectedAt (déplacé plus haut car
+  // nécessaire au calcul de connectedAt/sinceConnSnap/sinceConnSupa ci-dessous,
+  // eux-mêmes utilisés par les branchements clicksByPath/etc. qui suivent).
   const { data: integStatus, refetch: refetchIntegStatus } = useQuery({
     queryKey: ['integ-status', profileId],
     queryFn: () => fetchIntegrationStatus(profileId),
@@ -6002,6 +6002,84 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
     },
   });
 
+  // Mode "Depuis connexion" — connectedAt = la plus ancienne des deux plateformes
+  // (même pattern déjà utilisé par PeriodPill pour maxIndex, réutilisé ici pour la
+  // fenêtre de fetch réelle). Calculé une seule fois, partagé entre PeriodPill/
+  // SectionControls et les fetchs sinceConnection ci-dessous.
+  const igConnectedAt = integStatus?.ig?.connectedAt ?? null;
+  const ytConnectedAt = integStatus?.yt?.connectedAt ?? null;
+  const connectedAt = [igConnectedAt, ytConnectedAt].filter(Boolean).sort()[0] ?? null;
+  // Divergence significative entre les deux dates de connexion (>30j) — sans ça, le
+  // mode "Depuis connexion" afficherait un graphique à plat sur la plateforme
+  // connectée plus tard, sans qu'aucune UI n'explique pourquoi (trouvé en revue croisée).
+  const connectionDatesDiverge = !!(igConnectedAt && ytConnectedAt &&
+    Math.abs(new Date(igConnectedAt).getTime() - new Date(ytConnectedAt).getTime()) > 30 * 86400000);
+  const laterConnectedPlatform = connectionDatesDiverge
+    ? (new Date(igConnectedAt!).getTime() > new Date(ytConnectedAt!).getTime() ? { name: 'Instagram', date: igConnectedAt } : { name: 'YouTube', date: ytConnectedAt })
+    : null;
+
+  const sinceConnWindow = connectedAt ? { start: parisDateStr(new Date(connectedAt)), end: parisDateStr(new Date()) } : undefined;
+  const { data: sinceConnSnap, isLoading: sinceConnSnapLoading } = useQuery({
+    queryKey: ['stats-since-connection-snap', profileId, connectedAt],
+    queryFn: () => fetchSnapshot(profileId, 1 /* ignoré, customWindow fourni */, 30, sinceConnWindow),
+    enabled: sinceConnection && !!connectedAt,
+    staleTime: 30 * 60 * 1000,
+  });
+  const { data: sinceConnSupa, isLoading: sinceConnSupaLoading } = useQuery({
+    queryKey: ['stats-since-connection-supa', profileId, connectedAt],
+    queryFn: () => fetchSupabaseStats(profileId, 30, sinceConnWindow),
+    enabled: sinceConnection && !!connectedAt,
+    staleTime: 30 * 60 * 1000,
+  });
+  const sinceConnLoading = sinceConnSnapLoading || sinceConnSupaLoading;
+
+  // Snapshot historique — chargé dès que periodIndex > 0, quel que soit l'onglet actif
+  const { data: snapData, isLoading: snapLoading } = useQuery({
+    queryKey: ['stats-snapshot', profileId, periodIndex, period],
+    queryFn: () => fetchSnapshot(profileId, periodIndex, period),
+    enabled: periodIndex > 0,
+    staleTime: 30 * 60 * 1000,
+  });
+
+  // En S-1+ : clics filtrés sur la fenêtre exacte de la période (depuis fetchSnapshot)
+  // En S-0 : clics filtrés sur le period actif (7j ou 30j) depuis supaData
+  // "Depuis connexion" : prioritaire, utilise sinceConnSnap/sinceConnSupa (mêmes
+  // formes de données que snapData/supaData respectivement, RPC déjà génériques
+  // sur des dates arbitraires).
+  const clicksByPath: Map<string, number> = sinceConnection
+    ? (sinceConnSnap?.clicksByPath ?? new Map())
+    : (periodIndex > 0 ? snapData?.clicksByPath : null) ?? supaData?.clicksByPath ?? new Map();
+  const clicksByUrl: Map<string, number> = sinceConnection
+    ? (sinceConnSnap?.clicksByUrl ?? new Map())
+    : (periodIndex > 0 ? snapData?.clicksByUrl : null) ?? supaData?.clicksByUrl ?? new Map();
+  const urlToCategoryFromDb: Map<string, string> = (sinceConnection ? sinceConnSupa?.urlToCategoryFromDb : supaData?.urlToCategoryFromDb) ?? new Map();
+  const businessClicsFromDb: number | undefined = sinceConnection
+    ? sinceConnSnap?.businessClicsFromDb
+    : (periodIndex === 0 ? supaData?.businessClicsFromDb : snapData?.businessClicsFromDb);
+  // Pas de "période précédente" avant la connexion — le delta n'a pas de sens en
+  // mode "depuis connexion", volontairement undefined (masque le badge, voir
+  // consommateurs de ce champ vérifiés en point 9 du plan).
+  const totalClicsChangePct: number | null | undefined = sinceConnection
+    ? undefined
+    : (periodIndex === 0 ? supaData?.totalClicsChangePct : snapData?.totalClicsChangePct);
+  const shortioChartHistory: { date: string; clicks: number }[] | undefined = sinceConnection
+    ? sinceConnSnap?.shortioChartHistory
+    : (periodIndex === 0 ? supaData?.shortioChartHistory : snapData?.shortioChartHistory);
+  const shortioChartHistoryBio: { date: string; ig: number; yt: number }[] | undefined = sinceConnection
+    ? sinceConnSnap?.shortioChartHistoryBio
+    : (periodIndex === 0 ? supaData?.shortioChartHistoryBio : snapData?.shortioChartHistoryBio);
+  const shortioChartHistoryContent: { date: string; ig: number; yt: number }[] | undefined = sinceConnection
+    ? sinceConnSnap?.shortioChartHistoryContent
+    : (periodIndex === 0 ? supaData?.shortioChartHistoryContent : snapData?.shortioChartHistoryContent);
+  const shortioChartHistoryDm: { date: string; calendly: number; lm: number }[] | undefined = sinceConnection
+    ? sinceConnSnap?.shortioChartHistoryDm
+    : (periodIndex === 0 ? supaData?.shortioChartHistoryDm : snapData?.shortioChartHistoryDm);
+  // Clics Calendly statiques (bio + desc) depuis DB — pour Vue générale uniquement.
+  // Jamais calculé pour periodIndex>0 aujourd'hui (undefined) — même chose en mode
+  // "depuis connexion", cohérent avec ce comportement existant.
+  const calendlyStaticClicsFromDb: number | undefined = (!sinceConnection && periodIndex === 0) ? supaData?.calendlyStaticClicsFromDb : undefined;
+
+  // État intégrations — backfill + fraîcheur
   const backfillInProgress = !!(
     (integStatus?.ig && !integStatus.ig.backfillDone && integStatus.ig.backfillStarted) ||
     (integStatus?.yt && !integStatus.yt.backfillDone && integStatus.yt.backfillStarted)
@@ -6033,15 +6111,17 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
     await Promise.all([refetchSupa(), refetchIg(), refetchShortio()]);
   }
 
-  // Données effectives : historiques si periodIndex > 0, live sinon (tous onglets)
-  const igEff      = (periodIndex > 0 ? (snapData?.igHist      ?? null) : ig)      as IGStats | null;
-  const ytEff      = (periodIndex > 0 ? (snapData?.ytHist      ?? null) : yt)      as YTStats | null;
+  // Données effectives : "depuis connexion" en priorité si actif, sinon historiques
+  // si periodIndex > 0, live sinon (tous onglets). sinceConnection est un mode
+  // séparé et prioritaire — jamais mélangé avec la logique periodIndex existante.
+  const igEff      = (sinceConnection ? (sinceConnSnap?.igHist      ?? null) : (periodIndex > 0 ? (snapData?.igHist      ?? null) : ig))      as IGStats | null;
+  const ytEff      = (sinceConnection ? (sinceConnSnap?.ytHist      ?? null) : (periodIndex > 0 ? (snapData?.ytHist      ?? null) : yt))      as YTStats | null;
   // true quand yt est retombé sur ytRaw brut (pas de snapshot pour la période) — ytRaw agrège toujours sur 30j côté API
-  const ytIsFallback = periodIndex === 0 && !ytCurrentPeriodTotals;
-  const shortioEff = (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio) as ShortioStats | null;
-  const stripeEff  = (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe)  as StripeStats | null;
-  const msgsEff    = (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs)    as IGMessages | null;
-  const callsEff   = periodIndex > 0 ? (snapData?.callsHist ?? []) : calls;
+  const ytIsFallback = !sinceConnection && periodIndex === 0 && !ytCurrentPeriodTotals;
+  const shortioEff = (sinceConnection ? (sinceConnSnap?.shortioHist ?? null) : (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio)) as ShortioStats | null;
+  const stripeEff  = (sinceConnection ? (sinceConnSnap?.stripeHist  ?? null) : (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe))  as StripeStats | null;
+  const msgsEff    = (sinceConnection ? (sinceConnSnap?.msgsHist    ?? null) : (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs))    as IGMessages | null;
+  const callsEff   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
   // Alias pour compat. TabFunnel (déjà existant)
   const funnelIg      = igEff;
   const funnelYt      = ytEff;
@@ -6115,9 +6195,21 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
           >
             {refreshing ? 'Rafraîchissement…' : '↻ Rafraîchir'}
           </button>
-          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} connectedAt={[integStatus?.ig?.connectedAt, integStatus?.yt?.connectedAt].filter(Boolean).sort()[0] ?? null} />
+          <PeriodPill period={period} setPeriod={setPeriod} periodIndex={periodIndex} setPeriodIndex={setPeriodIndex} connectedAt={connectedAt} sinceConnection={sinceConnection} setSinceConnection={setSinceConnection} />
         </div>
       </div>
+
+      {sinceConnection && connectionDatesDiverge && laterConnectedPlatform && (
+        <div style={{ marginBottom: 16, padding: '10px 16px', background: '#b5802510', border: '1px solid #b5802540', borderRadius: 8, fontSize: 13, color: '#b58025' }}>
+          ⚠️ {laterConnectedPlatform.name} connecté plus récemment (le {new Date(laterConnectedPlatform.date!).toLocaleDateString('fr-FR')}) — données limitées avant cette date pour cette plateforme.
+        </div>
+      )}
+
+      {sinceConnection && sinceConnLoading && (
+        <div style={{ marginBottom: 16, padding: '10px 16px', background: 'var(--surface-chat-field)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, color: 'var(--muted)' }}>
+          Chargement des données depuis la connexion… (peut prendre quelques secondes sur un historique long)
+        </div>
+      )}
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
 
