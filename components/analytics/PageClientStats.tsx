@@ -3002,6 +3002,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     return t >= periodCutoff && (_pIdx === 0 || t <= periodEndMs);
   };
   const leadsInPeriod = leads.filter(l => isInPeriod(l.commentedAt));
+  // Historique complet des interactions LM datées (une ligne par vraie interaction,
+  // jamais écrasée) — utilisé pour "Leads commentaires" (graphique par jour) à la place
+  // de leadsInPeriod, qui ne compte qu'une ligne par personne (état courant écrasé à
+  // chaque nouvelle interaction). Cf. fix Performance LM (même session) pour le détail.
+  const lmHistoryInPeriod = (lmHistory ?? []).filter(h => isInPeriod(h.detected_at));
 
   // ── Section 0 : KPIs ──
   // Clics totaux : bio Calendly + description (Calendly + LM) + clics DM/LM (prospect_links cliqués)
@@ -3085,10 +3090,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   }));
   const clicsSeriesHasData = (shortioChartHistory ?? []).length > 0;
 
-  // 2. Leads commentaires — group by detected_at (jour) sur leadsInPeriod
+  // 2. Leads commentaires — group by detected_at (jour) sur lmHistoryInPeriod (une ligne
+  // par vraie interaction datée, jamais écrasée — pas leadsInPeriod qui ne compte qu'une
+  // fois par personne avec la date de sa DERNIÈRE interaction).
   const leadsPerDay = new Map<string, number>();
-  for (const l of leadsInPeriod) {
-    const day = utcDateStr(new Date(l.commentedAt));
+  for (const h of lmHistoryInPeriod) {
+    const day = utcDateStr(new Date(h.detected_at));
     leadsPerDay.set(day, (leadsPerDay.get(day) ?? 0) + 1);
   }
   const leadsSeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (leadsPerDay.get(date) ?? 0) }));
@@ -3434,9 +3441,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               <div style={{ width: 1, background: 'var(--border)', alignSelf: 'stretch' }} />
 
-              {/* 2 — Leads commentaires */}
+              {/* 2 — Leads commentaires/DM (compte aussi les réponses story avec mot-clé LM, cf. lmHistory) */}
               <div onClick={() => toggleMetric('leads')} style={cardStyle('leads')}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Leads commentaires</div>
+                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Leads commentaires/DM</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>mots-clés détectés</div>
               </div>
@@ -3498,7 +3505,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)' }}>
             {{
               clics: 'Clics totaux / jour',
-              leads: 'Leads commentaires / jour',
+              leads: 'Leads commentaires/DM / jour',
               hookReply: 'Réponses accroche LM DM / jour',
               calendlyLinks: 'Liens Calendly envoyés DM / jour',
               activation: "Taux d'activation DM / jour",
