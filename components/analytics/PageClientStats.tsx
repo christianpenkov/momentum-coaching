@@ -2479,7 +2479,6 @@ const isValidPostId = (id: any, platform?: string) => {
 };
 
 function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean }) {
-  const [payFilter, setPayFilter] = useState<'all' | 'succeeded' | 'failed'>('all');
   if (!stripe) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
@@ -2567,13 +2566,8 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       </Card>
 
       <div className="card">
-        <div className="card-head" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="card-head">
           <div className="card-title">Derniers paiements</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            {([['all', 'Tous'], ['succeeded', 'Réussis'], ['failed', 'Échoués']] as const).map(([key, label]) => (
-              <button key={key} onClick={() => setPayFilter(key)} style={{ padding: '4px 12px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: `1px solid ${payFilter === key ? (key === 'failed' ? RED : key === 'succeeded' ? GREEN : 'var(--ink)') : 'var(--border)'}`, background: payFilter === key ? (key === 'failed' ? RED + '15' : key === 'succeeded' ? GREEN + '15' : 'var(--surface-2)') : 'transparent', color: payFilter === key ? (key === 'failed' ? RED : key === 'succeeded' ? GREEN : 'var(--ink)') : 'var(--muted)', transition: 'all .12s' }}>{label}</button>
-            ))}
-          </div>
         </div>
         <table className="table" style={{ width: '100%' }}>
           <thead>
@@ -2584,7 +2578,7 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
             </tr>
           </thead>
           <tbody>
-            {stripe.recentPayments.filter(p => payFilter === 'all' || (payFilter === 'succeeded' ? p.status === 'succeeded' : p.status !== 'succeeded')).map((p, i) => (
+            {stripe.recentPayments.map((p, i) => (
               <tr key={i} style={{ borderTop: '1px solid var(--border-soft)' }}>
                 <td style={{ padding: '10px', fontSize: 12, color: 'var(--muted)' }}>{new Date(p.date).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: '2-digit' })}</td>
                 <td style={{ padding: '10px', fontSize: 12 }}>{p.description || '—'}</td>
