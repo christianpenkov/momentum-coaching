@@ -1235,7 +1235,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 // ─── TAB 3 : YouTube ──────────────────────────────────────────────────────────
 
-function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number }) {
+function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
@@ -1505,9 +1505,9 @@ function TabYouTube({ yt, period, profileId, periodIndex }: { yt: YTStats | null
         {[
           { label: 'Watch time', value: `${watchTimeH}h`, sub: `${period}j`, color: AMBER, key: 'Watch time' },
           null, // carte Watch time moyen custom
-          { label: 'Likes', value: fmt(yt.likes30d), sub: `${period}j`, color: 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires', value: fmt(yt.comments30d), sub: `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages', value: fmt(yt.shares30d), sub: `${period}j`, color: 'var(--ink)', key: 'Partages' },
+          { label: 'Likes', value: fmt(yt.likes30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
+          { label: 'Commentaires', value: fmt(yt.comments30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
+          { label: 'Partages', value: fmt(yt.shares30d), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
         ].map((s, i) => {
           if (s === null) return (
             <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
@@ -5728,6 +5728,8 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
   // Données effectives : historiques si periodIndex > 0, live sinon (tous onglets)
   const igEff      = (periodIndex > 0 ? (snapData?.igHist      ?? null) : ig)      as IGStats | null;
   const ytEff      = (periodIndex > 0 ? (snapData?.ytHist      ?? null) : yt)      as YTStats | null;
+  // true quand yt est retombé sur ytRaw brut (pas de snapshot pour la période) — ytRaw agrège toujours sur 30j côté API
+  const ytIsFallback = periodIndex === 0 && !ytCurrentPeriodTotals;
   const shortioEff = (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio) as ShortioStats | null;
   const stripeEff  = (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe)  as StripeStats | null;
   const msgsEff    = (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs)    as IGMessages | null;
@@ -5815,7 +5817,7 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
         <>
           {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} />}
-          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} />}
+          {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} />}
