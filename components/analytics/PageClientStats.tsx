@@ -696,7 +696,9 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
   const [selectedPost, setSelectedPost] = useState<IGPost | null>(null);
   const [statModal, setStatModal] = useState<{ label: string; value: string; color: string; data: { date: string; v: number }[]; unit?: string } | null>(null);
   const [contentSubTab, setContentSubTab] = useState<'posts' | 'stories'>('posts');
+  const [storiesInnerTab, setStoriesInnerTab] = useState<'story' | 'sequences'>('story');
   const [selectedSequence, setSelectedSequence] = useState<any | null>(null);
+  const [selectedStory, setSelectedStory] = useState<any | null>(null);
 
   const { data: sequencesData } = useQuery({
     queryKey: ['story-sequences-stats-all', profileId],
@@ -705,6 +707,16 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
     staleTime: 60 * 1000,
   });
   const storySequences: any[] = sequencesData?.sequences ?? [];
+
+  // Toutes les stories du profil, avec ou sans CTA — réutilise GET /api/client/stories
+  // (déjà utilisée dans Gérer mes liens, pas de nouvelle route).
+  const { data: allStoriesData } = useQuery({
+    queryKey: ['stories', profileId],
+    queryFn: () => fetch(`/api/client/stories?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId && contentSubTab === 'stories',
+    staleTime: 60 * 1000,
+  });
+  const allStories: any[] = allStoriesData?.stories ?? [];
 
   if (!ig) return <Empty msg={periodIndex && periodIndex > 0 ? "Pas de données Instagram pour cette période." : "Connecte ton compte Instagram pour voir les stats."} />;
 
@@ -948,7 +960,7 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
         </Card>
       )}
 
-      <Card title={contentSubTab === 'posts' ? `Posts (${ig.posts.length})` : `Stories (${storySequences.length})`} sub="Cliquer pour le détail">
+      <Card title={contentSubTab === 'posts' ? `Posts (${ig.posts.length})` : storiesInnerTab === 'story' ? `Stories (${allStories.length})` : `Séquences (${storySequences.length})`} sub="Cliquer pour le détail">
         <div style={{ display: 'flex', gap: 6, marginBottom: 12 }}>
           {(['posts', 'stories'] as const).map(t => (
             <button key={t} onClick={() => setContentSubTab(t)} style={{
@@ -957,6 +969,17 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
             }}>{t === 'posts' ? 'Posts' : 'Stories'}</button>
           ))}
         </div>
+
+        {contentSubTab === 'stories' && (
+          <div style={{ display: 'flex', gap: 4, marginBottom: 12 }}>
+            {(['story', 'sequences'] as const).map(t => (
+              <button key={t} onClick={() => setStoriesInnerTab(t)} style={{
+                padding: '3px 10px', fontSize: 10, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: `1px solid var(--border)`,
+                background: storiesInnerTab === t ? 'var(--surface-2)' : 'transparent', color: storiesInnerTab === t ? 'var(--ink)' : 'var(--faint)', transition: 'all .12s',
+              }}>{t === 'story' ? 'Story' : 'Séquences'}</button>
+            ))}
+          </div>
+        )}
 
         {contentSubTab === 'posts' ? (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
@@ -991,8 +1014,36 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
             );
           })}
         </div>
+        ) : storiesInnerTab === 'story' ? (
+          allStories.length === 0 ? (
+            <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucune story pour l'instant.</div>
+          ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+            {allStories.map(s => (
+              <div key={s.id} onClick={() => setSelectedStory(s)} style={{ cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', transition: 'box-shadow .15s' }}
+                onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.08)')}
+                onMouseLeave={e => (e.currentTarget.style.boxShadow = 'none')}>
+                <div style={{ position: 'relative', aspectRatio: '1', background: 'var(--surface-2)' }}>
+                  {s.storage_url
+                    ? <img src={s.storage_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--faint)', fontSize: 24 }}>📸</div>}
+                  {(s.lm_keyword || s.calendly_short_url) && (
+                    <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>CTA</div>
+                  )}
+                </div>
+                <div style={{ padding: '8px 10px' }}>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(s.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
+                    <span>👁 {s.reach ?? '—'}</span>
+                    <span>▶ {s.views ?? '—'}</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+          )
         ) : storySequences.length === 0 ? (
-          <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucune séquence de story avec un CTA pour l'instant.</div>
+          <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucune séquence pour l'instant.</div>
         ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
           {storySequences.map(seq => (
@@ -1155,6 +1206,33 @@ function TabInstagram({ ig, period, periodIndex, profileId }: { ig: IGStats | nu
 
       {selectedSequence && (
         <StorySequenceDetailModal profileId={profileId} sequence={selectedSequence} onClose={() => setSelectedSequence(null)} />
+      )}
+
+      {selectedStory && (
+        <ModalOverlay onClose={() => setSelectedStory(null)}>
+          <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxWidth: 480 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>{new Date(selectedStory.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</div>
+              <button onClick={() => setSelectedStory(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {[
+                ['👁 Reach', selectedStory.reach],
+                ['▶️ Vues', selectedStory.views],
+              ].map(([label, value], i) => (
+                <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{value ?? '—'}</div>
+                </div>
+              ))}
+            </div>
+            {selectedStory.permalink && (
+              <a href={selectedStory.permalink} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
+                Voir sur Instagram →
+              </a>
+            )}
+          </div>
+        </ModalOverlay>
       )}
     </div>
   );

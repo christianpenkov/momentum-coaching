@@ -7,18 +7,30 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
-// GET /api/client/stories — lecture DB uniquement (pattern DB-first), pas d'appel Meta.
+async function resolveProfileId(userId: string, profileId: string | null): Promise<string | null> {
+  if (!profileId || profileId === userId) return userId;
+  const { data: clientRow } = await serviceSupabase.from('clients').select('id').eq('profile_id', profileId).eq('coach_id', userId).single();
+  return clientRow ? profileId : null;
+}
+
+// GET /api/client/stories?profileId= — lecture DB uniquement (pattern DB-first), pas
+// d'appel Meta. profileId optionnel : permet à un coach de lire les stories d'un élève
+// (analytics), sinon lit celles de l'utilisateur connecté (Gérer mes liens élève).
 // Le live-refresh (POST /api/client/stories/live-refresh) est un endpoint séparé,
 // déclenché explicitement par le bouton "Actualiser" de l'onglet Stories.
-export async function GET() {
+export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
+  const { searchParams } = new URL(request.url);
+  const targetProfileId = await resolveProfileId(user.id, searchParams.get('profileId'));
+  if (!targetProfileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
+
   const { data: integ } = await serviceSupabase
     .from('integrations')
     .select('profile_id')
-    .eq('profile_id', user.id)
+    .eq('profile_id', targetProfileId)
     .eq('provider', 'instagram')
     .maybeSingle();
 
@@ -27,7 +39,7 @@ export async function GET() {
   const { data: stories, error } = await serviceSupabase
     .from('ig_stories')
     .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name, cta_story_id, lm_id, lm_keyword, dm1_message, dm2_story_message, calendly_short_url)')
-    .eq('profile_id', user.id)
+    .eq('profile_id', targetProfileId)
     .order('posted_at', { ascending: false })
     .limit(200);
 
@@ -38,7 +50,7 @@ export async function GET() {
     ? await serviceSupabase
         .from('analytics_ig_stories_history')
         .select('ig_story_id, reach, views, snapshot_date')
-        .eq('profile_id', user.id)
+        .eq('profile_id', targetProfileId)
         .in('ig_story_id', storyIds)
         .order('snapshot_date', { ascending: false })
     : { data: [] };
