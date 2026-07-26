@@ -463,11 +463,11 @@ async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
   return allLinks;
 }
 
-async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string }): Promise<{ errors: string[] }> {
+async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string }): Promise<{ errors: string[]; rawClicks: { path: string; dt: string; human: boolean }[] }> {
   const errors: string[] = [];
   let links: any[];
-  try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`] }; }
-  if (!links.length) return { errors: [] };
+  try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`], rawClicks: [] }; }
+  if (!links.length) return { errors: [], rawClicks: [] };
 
   const dateToday = new Date().toISOString().split('T')[0];
   const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
@@ -533,9 +533,13 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     return null;
   };
 
-  // Récupérer last_clicks une seule fois pour J-0 — stable vs API stats (eventually consistent)
-  // On compte les clics humains bruts par path pour aujourd'hui UTC
+  // Récupérer last_clicks une seule fois pour J-0 — stable vs API stats (eventually consistent).
+  // rawClicks est aussi retourné à l'appelant (voir fin de fonction) pour que
+  // syncLmClickStream réutilise ce même appel au lieu de refaire une requête identique
+  // (même afterDate 48h, même endpoint) juste après — la duplication provoquait un
+  // rate limit 429 Short.io sur le second appel (découvert via les logs D3 du 2026-07-26).
   const todayClicksByPath = new Map<string, number>();
+  let rawClicks: { path: string; dt: string; human: boolean }[] = [];
   try {
     const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
     const lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`, {
@@ -545,7 +549,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
     });
     if (lcRes.ok) {
       const lcData = await safeJson(lcRes);
-      const rawClicks: { path: string; dt: string; human: boolean }[] = lcData?.clicks ?? lcData ?? [];
+      rawClicks = lcData?.clicks ?? lcData ?? [];
       for (const click of rawClicks) {
         if (!click.human || !click.path) continue;
         const clickDate = click.dt ? click.dt.split('T')[0] : dateToday;
@@ -633,21 +637,15 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   ]));
 
   for (const s of settled) if (s.status === 'rejected') errors.push(String(s.reason?.message || 'link_snapshot_failed'));
-  return { errors };
+  return { errors, rawClicks };
 }
 
-async function syncLmClickStream(profileId: string, creds: { apiKey: string; domainId: string }, afterDate: string): Promise<string[]> {
+// rawClicks vient désormais de snapshotShortioLinks (même fenêtre afterDate 48h, même
+// endpoint Short.io) — ne refait plus l'appel réseau, qui provoquait un rate limit 429
+// en se déclenchant juste après le premier appel identique dans le même run.
+async function syncLmClickStream(profileId: string, rawClicks: { path: string; dt: string; human: boolean }[]): Promise<string[]> {
   const errors: string[] = [];
   try {
-    const res = await fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`, {
-      method: 'POST',
-      headers: { authorization: creds.apiKey, 'content-type': 'application/json', accept: 'application/json' },
-      body: JSON.stringify({ limit: 500, afterDate }),
-    });
-    if (!res.ok) return [`click_stream_${res.status}`];
-
-    const data = await safeJson(res);
-    const rawClicks: { path: string; dt: string; human: boolean }[] = data?.clicks ?? data ?? [];
     const humanClicks = rawClicks.filter(c => c.human === true && c.path);
 
     // Mise à jour du compteur human_clicks dans shortio_link_daily_snapshots pour aujourd'hui
@@ -1023,10 +1021,9 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const shioCreds = await getShortioLinkCreds(profileId);
   if (shioCreds) {
     try {
-      const { errors: shioErrors } = await snapshotShortioLinks(profileId, shioCreds);
+      const { errors: shioErrors, rawClicks } = await snapshotShortioLinks(profileId, shioCreds);
       if (shioErrors.length) errors.push(...shioErrors.map(e => `shortio_link: ${e}`));
-      const afterDate = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const csErrors = await syncLmClickStream(profileId, shioCreds, afterDate);
+      const csErrors = await syncLmClickStream(profileId, rawClicks);
       if (csErrors.length) errors.push(...csErrors.map(e => `shortio_click_stream: ${e}`));
       // Invalider le cache Short.io pour que le prochain chargement re-fetche les données fraîches
       await supa.from('shortio_stats_cache').delete().eq('profile_id', profileId);
