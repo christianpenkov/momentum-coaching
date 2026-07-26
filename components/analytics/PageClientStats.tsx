@@ -1401,7 +1401,6 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback }: { yt: 
     'Partages':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.shares ?? 0) })), color: GREEN },
     'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: 'var(--accent-brand)', unit: '%' },
     'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: RED },
-    'Vues all-time':      { data: mockFromTotalYT(yt.totalViews, 7), color: RED },
   };
 
   const openStatModal = (label: string, value: string) => {
