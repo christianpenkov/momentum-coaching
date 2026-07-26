@@ -1,5 +1,19 @@
 # TODOS
 
+## Unifier le calcul de date "Paris" entre poll-leads (Deno) et le reste du repo (Next.js)
+
+**Quoi** : remplacer la table de fuseau horaire codée en dur dans `supabase/functions/poll-leads/index.ts` (`lastSundayOfMonth`/`parisOffsetHours`, règle UE recalculée manuellement) par le même mécanisme que `lib/period.ts` (`Intl.DateTimeFormat` avec `timeZone: 'Europe/Paris'`), ou au minimum documenter clairement pourquoi les deux existent séparément et s'assurer qu'ils restent testés en synchronisation.
+
+**Pourquoi** : identifié lors du chantier "trous silencieux dans la collecte YouTube" (2026-07-26). Le fuseau horaire a été écarté comme cause des trous par vérification numérique (simulation comparant les deux mécanismes sur toutes les heures des dates concernées, zéro divergence) — donc pas un bug aujourd'hui. Mais c'est une duplication de logique sensible (règles DST) entre deux runtimes (Deno pour l'edge function, Node/Next.js pour le reste), dupliquée uniquement parce qu'un import cross-runtime n'est pas possible entre les deux. Si les règles DST européennes changent un jour (rare mais déjà arrivé historiquement), il faudrait se souvenir de mettre à jour les deux implémentations séparément.
+
+**Pour** : élimine un risque de divergence future silencieuse entre deux calculs de la même date, sans changer le comportement actuel (déjà vérifié identique).
+
+**Contre** : `Intl.DateTimeFormat` avec support de fuseaux horaires n'est pas garanti disponible dans tous les runtimes Deno Edge (à vérifier avant de migrer) — si indisponible, il faudra soit garder la table maison, soit trouver un tiers mécanisme compatible Deno Edge. Effort de vérification avant tout changement, pas un simple copier-coller.
+
+**Contexte pour la reprise** : voir `supabase/functions/poll-leads/index.ts` lignes ~21-46 (`lastSundayOfMonth`, `parisOffsetHours`, `isoDate`) vs `lib/period.ts` lignes ~30-45 (`parisDateParts`, utilisant `Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', ... })`).
+
+**Dépend de / bloqué par** : rien, mais pas urgent — vérifié sans impact fonctionnel actuel.
+
 ## Mettre en place un framework de tests automatisés
 
 **Quoi** : installer Vitest (recommandé pour Next.js) et écrire les premiers tests, à commencer par les policies RLS critiques (permissions messages, isolation coach/élève).

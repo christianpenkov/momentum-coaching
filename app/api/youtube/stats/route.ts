@@ -159,6 +159,21 @@ export async function GET(request: Request) {
   const authHeader = { Authorization: `Bearer ${accessToken}` };
 
   // Étape 1 : channel + analytics 30j + sources trafic + devices + démographie — tout en parallèle
+  //
+  // NOTE IMPORTANTE sur le délai des likes/comments/shares ci-dessous (colonnes 5,6,7,
+  // agrégées en likes30d/comments30d/shares30d, alimentent aussi le KPI en haut de
+  // l'onglet YouTube et les courbes Likes/Commentaires/Partages) : cette requête utilise
+  // la YouTube Analytics API (dimensions=day), dont Google documente officiellement un
+  // délai de traitement de 2-3 jours — un like/commentaire tout récent n'apparaît pas
+  // immédiatement dans ce rapport, même en interrogeant "jusqu'à aujourd'hui". C'est un
+  // délai structurel côté Google, pas un bug de ce fichier (déjà signalé à l'utilisateur
+  // via le libellé "données J-3" affiché sous les graphiques concernés).
+  //
+  // À NE PAS CONFONDRE avec les colonnes Likes/Commentaires du tableau des vidéos
+  // individuelles (plus bas, ligne ~337 : v.statistics?.likeCount/commentCount) — celles-ci
+  // viennent de la YouTube Data API v3 (compteurs publics de la vidéo), qui n'a PAS ce
+  // délai et se met à jour quasi instantanément. Ce sont deux APIs Google différentes
+  // avec des garanties différentes, pas la même donnée vue à deux endroits.
   const [channelRes, analyticsRes, trafficRes, devicesRes, demoRes, searchTermsRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&mine=true', {
       headers: authHeader,

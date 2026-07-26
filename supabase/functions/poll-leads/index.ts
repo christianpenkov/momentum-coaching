@@ -315,11 +315,25 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`, { headers: auth }),
   ]);
+  // D1 : un statut HTTP non-2xx sur l'Analytics API (429 rate limit, 5xx...) doit
+  // être une vraie erreur, pas silencieusement traité comme "pas encore de données".
+  // safeJson() absorbe tout, donc sans ce check un corps d'erreur Google (sans clé
+  // rows) redevient rows=[] indistinguable d'un délai de traitement normal.
+  if (!analyticsRes.ok) {
+    const errBody = await analyticsRes.text().catch(() => '');
+    throw new Error(`yt_analytics_http_${analyticsRes.status}: ${errBody.slice(0, 300)}`);
+  }
   const [channelData, analyticsData] = await Promise.all([safeJson(channelRes), safeJson(analyticsRes)]);
   // ?? plutôt que || : un vrai 0 (0 vue, 0 like, 0 commentaire...) est une donnée
   // légitime, pas une absence de donnée — || le convertissait à tort en null.
   const subscribers = parseInt(channelData?.items?.[0]?.statistics?.subscriberCount ?? '0') ?? null;
   const rows: any[] = analyticsData?.rows || [];
+  // D2 : signaler seulement si le jour le PLUS ANCIEN de la fenêtre demandée (startDate)
+  // est absent — Google a largement eu le temps de le traiter. Si seul endDate (le plus
+  // récent) manque, c'est le délai normal de 2-3 jours documenté par Google, pas suspect.
+  if (!rows.some((r: any) => r[0] === startDate)) {
+    console.error(`[poll-leads] yt_missing_oldest_day: startDate=${startDate} endDate=${endDate} reçu=${rows.length} jour(s), startDate absent de la réponse Analytics API`);
+  }
   return rows.map((r: any) => ({
     date: r[0], yt_views: r[1] ?? null,
     yt_watch_time_min: Math.round((r[2] ?? 0) / 60) ?? null,
@@ -1033,7 +1047,13 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       syncYtCtr(profileId, ytToken),
       snapshotYtVideos(profileId, ytToken, yesterday),
     ]);
-    if (ytMetricsResult.status === 'rejected') errors.push(`yt_fetch: ${ytMetricsResult.reason?.message || 'unknown'}`);
+    if (ytMetricsResult.status === 'rejected') {
+      const msg = `yt_fetch: ${ytMetricsResult.reason?.message || 'unknown'}`;
+      errors.push(msg);
+      // D3 : ce cas existait déjà via errors.push mais n'était jamais imprimé — rendait
+      // les échecs YouTube (429, 5xx...) invisibles même en consultant get_logs.
+      console.error(`[poll-leads] profile=${profileId} ${msg}`);
+    }
     if (ytCtrResult.status === 'fulfilled') { if (ytCtrResult.value.errors.length) errors.push(...ytCtrResult.value.errors.map(e => `yt_ctr: ${e}`)); }
     else errors.push(`yt_ctr: ${ytCtrResult.reason?.message || 'unknown'}`);
     if (ytVideosResult.status === 'fulfilled') errors.push(...ytVideosResult.value);
@@ -1168,11 +1188,24 @@ Deno.serve(async (req: Request) => {
     }));
   } catch { /* non bloquant */ }
 
+  // D3 : allErrors était calculé puis jamais relu — un run avec des échecs sur
+  // plusieurs profils "réussissait" en apparence (202 déjà envoyé), sans jamais
+  // apparaître dans get_logs. Un seul récapitulatif suffit ici (pas de détail par
+  // profil dans un log séparé — errors.push/console.error dans snapshotProfile
+  // couvrent déjà le détail par profil).
+  if (Object.keys(allErrors).length) {
+    console.error(`[poll-leads] run terminé avec des erreurs sur ${Object.keys(allErrors).length} profil(s):`, JSON.stringify(allErrors));
+  }
+
   };
 
   // Lancer le traitement en arrière-plan — la réponse 202 est envoyée immédiatement
   // pour éviter le timeout 30s de cron-job.org. Le Edge Runtime continue jusqu'à 150s.
-  (globalThis as any).EdgeRuntime?.waitUntil(runMain());
+  // D4 : runMain() n'était jamais catché — une exception précoce (avant même
+  // d'atteindre le bloc YouTube) devenait une rejection non gérée totalement
+  // invisible, la réponse 202 étant déjà partie. Sans ce filet, un run qui plante
+  // au démarrage rendrait tous les logs D1-D3 inopérants sans que personne ne le sache.
+  (globalThis as any).EdgeRuntime?.waitUntil(runMain().catch((e: any) => console.error('[poll-leads] runMain_fatal:', e?.message || e)));
 
   return new Response(JSON.stringify({ status: 'accepted' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
 });
