@@ -2,6 +2,7 @@
 
 import { useState, useRef, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
+import Image from 'next/image';
 import Icon from '@/components/ui/Icon';
 import type { ProspectContext } from './PagePipeline';
 import { avatarColor, avatarInitials } from './PagePipeline';
@@ -253,9 +254,11 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
             <div style={{ paddingBottom: 20, minWidth: 0, flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                 {ev.thumbnail && (
-                  <img
+                  <Image
                     src={ev.thumbnail}
                     alt=""
+                    width={32}
+                    height={32}
                     style={{ width: 32, height: 32, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }}
                   />
                 )}
@@ -347,7 +350,7 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {context.lead?.avatar_url ? (
-              <img
+              <Image
                 src={context.lead.avatar_url}
                 alt={displayName}
                 width={36}

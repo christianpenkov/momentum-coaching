@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModal';
@@ -399,7 +400,7 @@ function PipelineCard({
       {/* Row 1 : avatar + nom + badges */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         {card.avatarUrl ? (
-          <img
+          <Image
             src={card.avatarUrl}
             alt={card.name}
             width={26}
