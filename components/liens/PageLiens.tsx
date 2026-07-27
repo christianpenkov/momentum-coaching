@@ -1601,8 +1601,8 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
       {/* Onglets internes Lead Magnet / Calendly */}
       <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, margin: '10px 24px 0' }}>
         {([
-          { key: 'lm' as const, label: `Lead Magnet${primary.lmKeyword ? ' ✓' : ''}` },
           { key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` },
+          { key: 'lm' as const, label: `Lead Magnet${primary.lmKeyword ? ' ✓' : ''}` },
         ]).map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
             flex: 1, padding: '9px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
@@ -2443,11 +2443,17 @@ export default function PageLiens() {
     staleTime: 15 * 60 * 1000,
   });
 
+  // refetchOnWindowFocus/refetchOnMount: 'always' — un changement fait depuis un autre
+  // appareil (ex: lien Calendly généré sur PC) doit être visible dès qu'on revient sur
+  // cette page/onglet mobile, sans attendre l'expiration de staleTime (60s) ni action
+  // manuelle. Cf. bug rapporté : "Calendly non généré" alors qu'il l'était sur PC.
   const { data: storiesData, isLoading: storiesLoading } = useQuery({
     queryKey: ['stories', profileId],
     queryFn: () => fetch(`/api/client/stories?profileId=${profileId}`).then(r => r.json()),
     enabled: !!profileId,
     staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
   });
 
   const { data: sequencesData } = useQuery({
@@ -2455,6 +2461,8 @@ export default function PageLiens() {
     queryFn: () => fetch(`/api/client/story-sequences?profileId=${profileId}`).then(r => r.json()),
     enabled: !!profileId,
     staleTime: 60 * 1000,
+    refetchOnWindowFocus: true,
+    refetchOnMount: 'always',
   });
 
   // ── Dérivations depuis les queries ───────────────────────────────────────
@@ -2752,7 +2760,7 @@ export default function PageLiens() {
               </button>
               <div style={{ fontSize: 12, color: MUTED, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>Liens par contenu</div>
               {filteredPosts.slice(0, 20).map(post => (
-                <button key={post.id} onClick={() => openMobileDetail({ type: 'post', post })} style={{
+                <button key={post.id} onClick={() => openMobileDetail(post.platform === 'STORY' ? { type: 'story', post } : { type: 'post', post })} style={{
                   width: '100%', padding: '12px 14px', fontSize: 13, fontWeight: 600, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
                   border: `1px solid ${BORDER}`, background: SURFACE, color: INK,
                 }}>
@@ -2770,25 +2778,168 @@ export default function PageLiens() {
           )}
           {mobileTab === 'liens' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…"
+              <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
+                width: '100%', padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
+              }}>
+                📅 Lien Calendly prospect DM
+              </button>
+
+              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-              {filteredPosts.map(post => (
-                <button key={post.id} onClick={() => openMobileDetail({ type: 'post', post })} style={{
-                  width: '100%', padding: '12px 14px', fontSize: 13, fontWeight: 500, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
-                  border: `1px solid ${BORDER}`, background: SURFACE, color: INK,
-                }}>
-                  {post.thumbnail && <img src={post.thumbnail} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600 }}>{post.caption}</div>
-                    <div style={{ fontSize: 11, color: MUTED, marginTop: 2, display: 'flex', gap: 6 }}>
-                      <span>{post.platform}</span>
-                      {post.hasDescLink && <span style={{ color: 'var(--green)' }}>· Lien desc.</span>}
-                      {post.hasLeadMagnet && <span style={{ color: 'var(--amber)' }}>· Lead Magnet</span>}
+
+              <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
+                {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
+                  const active = filterPlatform === f;
+                  return (
+                    <button key={f} onClick={() => setFilterPlatform(f)} style={{
+                      display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+                      background: active ? INK : SURFACE2, color: active ? 'var(--bg)' : MUTED, transition: 'all .12s',
+                    }}>
+                      {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {filterPlatform === 'STORY' && (
+                <div style={{ display: 'flex', gap: 4 }}>
+                  {(['stories', 'sequences'] as const).map(t => (
+                    <button key={t} onClick={() => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }} style={{
+                      padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+                      background: storiesSubTab === t ? INK : SURFACE2, color: storiesSubTab === t ? 'var(--bg)' : MUTED, transition: 'all .12s',
+                    }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
+                  ))}
+                </div>
+              )}
+
+              {filterPlatform === 'STORY' && storiesSubTab === 'stories' && (
+                selectionMode ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                    <span style={{ fontSize: 12, color: MUTED }}>{selectedStoryIds.size} sélectionnée{selectedStoryIds.size > 1 ? 's' : ''}</span>
+                    <button onClick={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }} style={{ marginLeft: 'auto', padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                      Annuler
+                    </button>
+                    <button onClick={() => openMobileDetail({ type: 'story-multi', postIds: Array.from(selectedStoryIds) })} disabled={selectedStoryIds.size < 2} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: 'none', background: selectedStoryIds.size < 2 ? SURFACE2 : BLUE, color: selectedStoryIds.size < 2 ? MUTED : '#fff', cursor: selectedStoryIds.size < 2 ? 'default' : 'pointer' }}>
+                      Continuer
+                    </button>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', gap: 6 }}>
+                    <button onClick={() => setSelectionMode(true)} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                      Créer une séquence stories
+                    </button>
+                    <button onClick={async () => {
+                      await fetch('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) });
+                      queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
+                    }} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                      ↻ Actualiser
+                    </button>
+                  </div>
+                )
+              )}
+
+              {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
+                <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                  Créer une séquence stories
+                </button>
+              )}
+
+              {filterPlatform === 'STORY' && storiesSubTab === 'sequences' ? (
+                sequences.length === 0 ? (
+                  <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
+                    Aucune séquence pour l'instant.
+                    <div style={{ marginTop: 10 }}>
+                      <button onClick={() => { setStoriesSubTab('stories'); setSelectionMode(true); }} style={{ padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
+                        + Créer une séquence stories
+                      </button>
                     </div>
                   </div>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-                </button>
-              ))}
+                ) : sequences.map(seq => (
+                  <div key={seq.id} onClick={() => {
+                    const ctaStory = posts.find(p => p.id === seq.cta_story_id) ?? posts.find(p => p.sequenceId === seq.id);
+                    if (ctaStory) openMobileDetail({ type: 'story', post: ctaStory });
+                  }} style={{
+                    display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', borderRadius: 10, border: `1px solid ${BORDER}`,
+                    background: highlightedSequenceId === seq.id ? BLUE_SOFT : SURFACE, transition: 'all .3s',
+                  }}>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seq.name}</div>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center', marginTop: 3, flexWrap: 'wrap' }}>
+                        {seq.lm_keyword && (
+                          <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{seq.lm_keyword}</span>
+                        )}
+                        {seq.calendly_short_url && (
+                          <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
+                        )}
+                        {!seq.lm_keyword && !seq.calendly_short_url && (
+                          <span style={{ fontSize: 10, color: FAINT }}>Aucun CTA</span>
+                        )}
+                        <span style={{ fontSize: 10, color: FAINT }}>{seq.story_count} story{seq.story_count > 1 ? 'ies' : ''}</span>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : postsLoading ? (
+                <ContentGridSkeleton />
+              ) : filteredPosts.length === 0 ? (
+                <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
+                  {search ? 'Aucun résultat.' : 'Aucun contenu trouvé.'}
+                </div>
+              ) : filteredPosts.map(post => {
+                const isStory = post.platform === 'STORY';
+                const hasDesc = !!post.hasDescLink;
+                const hasLm = !!post.hasLeadMagnet;
+                const isChecked = isStory && selectedStoryIds.has(post.id);
+                const isGroupedElsewhere = isStory && !!post.sequenceId;
+                const handleClick = () => {
+                  if (isStory && selectionMode) {
+                    if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
+                    setSelectedStoryIds(prev => {
+                      const next = new Set(prev);
+                      if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
+                      return next;
+                    });
+                    return;
+                  }
+                  openMobileDetail(isStory ? { type: 'story', post } : { type: 'post', post });
+                };
+                return (
+                  <button key={post.id} onClick={handleClick} style={{
+                    width: '100%', padding: '12px 14px', fontSize: 13, fontWeight: 500, borderRadius: 10, cursor: isGroupedElsewhere && selectionMode ? 'default' : 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                    border: `1px solid ${BORDER}`, background: SURFACE, color: INK, opacity: isGroupedElsewhere && selectionMode ? 0.45 : 1,
+                  }}>
+                    {isStory && selectionMode && (
+                      <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${isChecked ? BLUE : BORDER}`, background: isChecked ? BLUE : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {isChecked && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </div>
+                    )}
+                    {post.thumbnail && <img src={post.thumbnail} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600 }}>{post.caption}</div>
+                      <div style={{ fontSize: 11, color: MUTED, marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span>{post.platform}</span>
+                        {isStory ? (
+                          (post.sequenceStoryCount ?? 0) > 1
+                            ? <span style={{ color: '#8b5cf6' }}>· {post.sequenceName}</span>
+                            : <>
+                                {post.lmKeyword && <span style={{ color: 'var(--green)' }}>· #{post.lmKeyword}</span>}
+                                {post.calendlyShortUrl && <span style={{ color: BLUE }}>· Calendly</span>}
+                              </>
+                        ) : (
+                          <>
+                            {hasDesc && <span style={{ color: 'var(--green)' }}>· Lien desc.</span>}
+                            {hasLm && <span style={{ color: 'var(--amber)' }}>· Lead Magnet</span>}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {!(isStory && selectionMode) && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    )}
+                  </button>
+                );
+              })}
             </div>
           )}
         </div>
