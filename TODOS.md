@@ -1,5 +1,19 @@
 # TODOS
 
+## Documenter/vérifier l'origine exacte de `calls.ignored=true` sur les lignes historiques
+
+**Quoi** : `calls.ignored=true` fait qu'un call ne compte nulle part (exclu explicitement des requêtes Analytics/Pipeline via `.neq('ignored', true)`, ex. `app/api/client/pipeline/route.ts:31`). Les chemins de code trouvés qui posent ce flag (grep exhaustif du 2026-07-27) sont **tous** des suppressions manuelles déclenchées depuis l'UI (route `app/api/client/pipeline/route.ts`, actions `delete-call`/`delete-prospect`/suppression de leads, ainsi que `app/api/client/calls/[id]/route.ts` et `app/api/calendly/sync/route.ts` pour le cas "prospect supprimé → call fantôme au resync"). Tous ces chemins posent `lead_deleted: true` en même temps que `ignored: true`, **sauf** la suppression de leads en masse (`pipeline/route.ts:238`, ne pose que `ignored: true`).
+
+**Constat en base (vérifié le 2026-07-27)** : 32 calls ont `ignored=true` au total. Seulement 4 ont `lead_deleted=true` (cohérent avec les chemins de code identifiés). Les **28 autres** ont `ignored=true` mais `lead_deleted=false` — origine non confirmée avec certitude : soit via la route de suppression de leads en masse (le seul chemin de code qui ne pose pas `lead_deleted`), soit via une intervention SQL manuelle ponctuelle (nettoyage de calls de test, backfill) non tracée dans le code applicatif. Pas de mécanisme automatique trouvé qui poserait `ignored=true` pour des calls antérieurs à la date de connexion Calendly — cette hypothèse n'est pas confirmée par le code actuel.
+
+**Pourquoi** : signalé par Chris (2026-07-27) — besoin de clarté sur pourquoi ces calls existent en base sans compter nulle part, pour ne pas s'emmêler plus tard en pensant qu'il manque des données alors qu'elles sont juste volontairement exclues.
+
+**Pour** : évite une confusion future ("pourquoi ce call n'apparaît dans aucune stat alors qu'il est en base ?") et sécurise contre une éventuelle suppression accidentelle de ces lignes en pensant qu'elles sont un bug, alors qu'elles sont peut-être un nettoyage volontaire déjà fait.
+
+**Contexte pour la reprise** : requête de vérification utilisée — `select * from calls where ignored = true` (32 lignes, dont 28 avec `lead_deleted=false`, principalement des calls `source='ig_description'` datés du 19 mai au 30 juin 2026, plus quelques `call_type='google'`).
+
+**Dépend de / bloqué par** : rien — vérification ponctuelle à faire avec Chris (lui seul sait s'il a fait un nettoyage SQL manuel à cette période), pas un vrai chantier de code.
+
 ## Unifier les interfaces `Call` locales dupliquées vers le type officiel `lib/supabase/types.ts`
 
 **Quoi** : `components/pages/client/PageClientCalls.tsx` et `components/pipeline/PagePipeline.tsx` définissent chacun leur propre `interface Call` locale, structurellement différente l'une de l'autre (nullabilité divergente sur les mêmes champs, ex. `status: string` vs `string | null` ; champs présents dans l'une absents de l'autre, ex. `call_type` seulement côté `PageClientCalls`, `utm_campaign`/`short_link_path`/`is_follow_up` seulement côté `PagePipeline`). `components/analytics/PageClientStats.tsx` a aussi son propre `CallRecord` local (voir point suivant). Aucun des trois ne réutilise le type officiel déjà existant `Call` (`lib/supabase/types.ts:102`).
