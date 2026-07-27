@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isValidContentId } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -270,7 +271,21 @@ export async function syncCalendlyEleve(
         reminder_sent: false,
       };
       if (utmCampaign)          upsertData.utm_campaign    = utmCampaign;
-      if (utmContent)           upsertData.utm_content     = utmContent;
+      if (utmContent) {
+        // Garde anti-écrasement : voir commentaire équivalent dans
+        // app/api/webhooks/calendly/route.ts — ne jamais remplacer un utm_content déjà
+        // valide (vrai ID de contenu) par la valeur figée côté Calendly au moment du clic
+        // initial (qui peut être un pseudo, cf. bug PageLiens.tsx corrigé).
+        if (!isValidContentId(utmContent)) {
+          const { data: existingUtm } = await serviceSupabase.from('calls')
+            .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
+          upsertData.utm_content = (existingUtm?.utm_content && isValidContentId(existingUtm.utm_content))
+            ? existingUtm.utm_content
+            : utmContent;
+        } else {
+          upsertData.utm_content = utmContent;
+        }
+      }
       if (utmMedium)            upsertData.utm_medium      = utmMedium;
       if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
       if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;

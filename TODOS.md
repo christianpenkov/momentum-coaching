@@ -1,5 +1,33 @@
 # TODOS
 
+## Corriger la construction de `short_link_path` (bare slug vs path complet)
+
+**Quoi** : `short_link_path` sur `calls` est aujourd'hui dérivé de `utm_content` (`app/api/webhooks/calendly/route.ts`, `app/api/calendly/sync/route.ts`, `supabase/functions/sync-calendly/index.ts` — même valeur, jamais le path Short.io complet avec préfixe). Résultat : pour tout call issu de Calendly, `short_link_path` vaut par exemple `christian-penkov` (bare), alors que `components/pipeline/PagePipeline.tsx` (lignes ~279-285, ~1190-1203) compare ce champ contre `new URL(prospect.short_url).pathname.slice(1)`, qui vaut `prendre-rdv-christian-penkov` (path complet). Ce matching échoue systématiquement pour tous les calls DM, déjà avant tout autre changement.
+
+**Pourquoi** : découvert lors du chantier "utm_content = pseudo au lieu du post ID" (2026-07-27, voir plan `briefing-jour-1-cryptic-wigderson.md` si encore présent). Défaut préexistant et distinct du bug `utm_content` — pas corrigé ni aggravé par ce chantier (il était déjà cassé, il reste cassé de la même façon). Concerne spécifiquement la résolution "prospect sans lead (cold DM pur)" dans `PagePipeline.tsx` (commentaire ligne ~1202).
+
+**Pour** : corrige un vrai trou d'attribution pour les cold DM sans `ig_lead_id` — actuellement invisibles/mal résolus dans le Pipeline malgré un lien Short.io correctement créé et un call bien booké.
+
+**Contre** : touche les 3 mêmes fichiers de sync Calendly déjà modifiés une fois pour la garde anti-écrasement `utm_content` (voir chantier ci-dessus) — risque de complexifier encore ce code partagé sans plan clair pour l'instant sur la bonne source de vérité (stocker le path complet dans un nouveau champ ? Changer la comparaison côté `PagePipeline.tsx` pour reconstituer le bare slug plutôt que l'inverse ?).
+
+**Contexte pour la reprise** : voir la section "5. short_link_path" de l'audit du chantier `utm_content` (2026-07-27) pour le détail complet des 3 logiques incohérentes déjà en place.
+
+**Dépend de / bloqué par** : rien, mais à traiter après une nouvelle revue — pas un correctif d'une ligne comme le chantier `utm_content`.
+
+## Corriger le second site utm_content = pseudo (lead magnet envoyé en DM sur commentaire)
+
+**Quoi** : `app/api/webhooks/instagram/route.ts` ligne ~767 (`destUrl.searchParams.set('utm_content', cleanUsername)`) a exactement le même défaut que celui corrigé dans `components/liens/PageLiens.tsx` (2026-07-27) — pose le pseudo au lieu du `mediaId` (disponible dans la fonction, ligne ~698, déjà utilisé pour chercher le `content_link`).
+
+**Pourquoi** : identifié lors de l'audit du chantier `utm_content`, volontairement écarté du périmètre. Ce lien (lead magnet envoyé automatiquement en DM après un commentaire matchant un mot-clé) ne génère jamais de `calls.utm_content` — ce n'est pas un lien Calendly. Son tracking de clics passe déjà par `link_category = 'lm_dm_auto'` (colonne dédiée sur les snapshots Short.io) et son attribution au lead par `lmClickedByLeadId` (via `ig_lead_id`, jamais `utm_content`). Corriger ce site n'apporterait donc aucun bénéfice mesurable dans les stats actuelles (`components/analytics/PageClientStats.tsx`) — seulement un risque de toucher un flux automatisé qui fonctionne aujourd'hui, sans qu'aucun lecteur n'exploite cette valeur.
+
+**Pour** : cohérence de convention (`utm_content` = toujours un ID de contenu ou absent, jamais un pseudo, partout dans le repo) si un futur chantier venait à exploiter `utm_content` sur ce type de lien pour du "Performance par contenu" côté lead magnets DM.
+
+**Contre** : aucun bénéfice mesurable aujourd'hui — changement pour la forme, pas pour un bug visible actuellement.
+
+**Contexte pour la reprise** : voir `app/api/webhooks/instagram/route.ts` lignes 687-769 (le flux complet : recherche `content_link` par `mediaId`, matching keyword, construction du lien Short.io).
+
+**Dépend de / bloqué par** : rien, priorité basse — appliquer seulement si un futur besoin business apparaît.
+
 ## Unifier le calcul de date "Paris" entre poll-leads (Deno) et le reste du repo (Next.js)
 
 **Quoi** : remplacer la table de fuseau horaire codée en dur dans `supabase/functions/poll-leads/index.ts` (`lastSundayOfMonth`/`parisOffsetHours`, règle UE recalculée manuellement) par le même mécanisme que `lib/period.ts` (`Intl.DateTimeFormat` avec `timeZone: 'Europe/Paris'`), ou au minimum documenter clairement pourquoi les deux existent séparément et s'assurer qu'ils restent testés en synchronisation.

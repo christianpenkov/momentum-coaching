@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { upsertProspect } from '@/lib/prospects';
+import { isValidContentId } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -266,6 +267,13 @@ export async function POST() {
       }
     }
 
+    // Si le call existe déjà et est ignoré (supprimé manuellement), on ne le réimporte pas
+    const { data: existingCall } = await serviceSupabase.from('calls')
+      .select('id, ignored, utm_content')
+      .eq('calendly_event_uuid', eventUuid)
+      .maybeSingle();
+    if (existingCall?.ignored) { synced++; continue; }
+
     // Champs de base — toujours écrits
     const baseUpsert: Record<string, any> = {
       coach_id: leadsProfileId,
@@ -287,18 +295,20 @@ export async function POST() {
     if (effectiveSource)                       baseUpsert.source = effectiveSource;
     if (utmCampaign || inheritedUtmCampaign)   baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;
     if (utmMedium)                             baseUpsert.utm_medium = utmMedium;
-    if (utmContent || inheritedUtmContent)     baseUpsert.utm_content = utmContent ?? inheritedUtmContent;
+    const newUtmContentSync = utmContent ?? inheritedUtmContent;
+    // Garde anti-écrasement : voir commentaire équivalent dans
+    // app/api/webhooks/calendly/route.ts — un resync périodique ne doit jamais remplacer
+    // un utm_content déjà valide (vrai ID de contenu) par la valeur figée côté Calendly
+    // au moment du clic initial (qui peut être un pseudo, cf. bug PageLiens.tsx corrigé).
+    if (newUtmContentSync && !isValidContentId(newUtmContentSync) && existingCall?.utm_content && isValidContentId(existingCall.utm_content)) {
+      baseUpsert.utm_content = existingCall.utm_content;
+    } else if (newUtmContentSync) {
+      baseUpsert.utm_content = newUtmContentSync;
+    }
     if (shortLinkPath || inheritedUtmContent)  baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
     if (igLeadId)        baseUpsert.ig_lead_id = igLeadId;
     if (prospectLinkId)  baseUpsert.prospect_link_id = prospectLinkId;
     if (prospectId)      baseUpsert.prospect_id = prospectId;
-
-    // Si le call existe déjà et est ignoré (supprimé manuellement), on ne le réimporte pas
-    const { data: existingCall } = await serviceSupabase.from('calls')
-      .select('id, ignored')
-      .eq('calendly_event_uuid', eventUuid)
-      .maybeSingle();
-    if (existingCall?.ignored) { synced++; continue; }
 
     // Prospect supprimé manuellement → nouveau call fantôme : ignoré, ne compte nulle part
     if (prospectDeleted) {

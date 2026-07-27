@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { upsertProspect } from '@/lib/prospects';
+import { isValidContentId } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -231,7 +232,24 @@ export async function POST(request: NextRequest) {
     if (effectiveSource)                     baseUpsert.source = effectiveSource;
     if (utmCampaign || inheritedUtmCampaign) baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;
     if (utmMedium)                           baseUpsert.utm_medium = utmMedium;
-    if (utmContent || inheritedUtmContent)   baseUpsert.utm_content = utmContent ?? inheritedUtmContent;
+    const newUtmContent = utmContent ?? inheritedUtmContent;
+    // Garde anti-écrasement : si la ligne existante a déjà un utm_content valide (vrai
+    // ID de post/vidéo/séquence, ex: backfillé après le bug de PageLiens.tsx qui posait
+    // le pseudo au lieu du postId) et que la nouvelle valeur reçue de Calendly ne l'est
+    // pas, on garde l'ancienne — sinon chaque resync réécraserait silencieusement le
+    // backfill par la valeur figée au moment du clic initial du prospect (comportement
+    // UTM Calendly standard : capturée une fois pour toutes, jamais réévaluée).
+    if (newUtmContent && !isValidContentId(newUtmContent)) {
+      const { data: existing } = await serviceSupabase.from('calls')
+        .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
+      if (existing?.utm_content && isValidContentId(existing.utm_content)) {
+        baseUpsert.utm_content = existing.utm_content;
+      } else if (newUtmContent) {
+        baseUpsert.utm_content = newUtmContent;
+      }
+    } else if (newUtmContent) {
+      baseUpsert.utm_content = newUtmContent;
+    }
     if (shortLinkPath || inheritedUtmContent) baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
     if (igLeadId)      baseUpsert.ig_lead_id = igLeadId;
     if (prospectLinkId) baseUpsert.prospect_link_id = prospectLinkId;

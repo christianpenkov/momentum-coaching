@@ -8,6 +8,18 @@ const CALENDLY_CLIENT_SECRET = Deno.env.get('CALENDLY_CLIENT_SECRET') || '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// Dupliqué depuis lib/contentId.ts (Deno edge function, pas d'import cross-runtime
+// possible — même pattern déjà accepté ailleurs dans ce repo, ex. poll-leads/index.ts).
+// Un utm_content valide est un vrai identifiant de contenu (post IG, vidéo YT, ou
+// séquence story) — jamais un pseudo Instagram slugifié ou une autre valeur libre.
+function isValidContentId(s: string | null | undefined): boolean {
+  if (!s) return false;
+  if (/^\d{10,}$/.test(s)) return true; // post IG
+  if (/^[A-Za-z0-9_-]{11}$/.test(s)) return true; // vidéo YT
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true; // séquence story
+  return false;
+}
+
 async function getCalendlyToken(profileId: string): Promise<string | null> {
   const { data: integ } = await supabase
     .from('integrations')
@@ -246,7 +258,21 @@ async function syncCalendlyEleve(
       reminder_sent: false,
     };
     if (utmCampaign)         upsertData.utm_campaign    = utmCampaign;
-    if (utmContent)          upsertData.utm_content     = utmContent;
+    if (utmContent) {
+      // Garde anti-écrasement : voir commentaire équivalent dans
+      // app/api/webhooks/calendly/route.ts — ne jamais remplacer un utm_content déjà
+      // valide (vrai ID de contenu) par la valeur figée côté Calendly au moment du clic
+      // initial (qui peut être un pseudo, cf. bug PageLiens.tsx corrigé).
+      if (!isValidContentId(utmContent)) {
+        const { data: existingUtm } = await supabase.from('calls')
+          .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
+        upsertData.utm_content = (existingUtm?.utm_content && isValidContentId(existingUtm.utm_content))
+          ? existingUtm.utm_content
+          : utmContent;
+      } else {
+        upsertData.utm_content = utmContent;
+      }
+    }
     if (utmMedium)           upsertData.utm_medium      = utmMedium;
     if (shortLinkPath)       upsertData.short_link_path = shortLinkPath;
     if (finalProspectLinkId) upsertData.prospect_link_id = finalProspectLinkId;

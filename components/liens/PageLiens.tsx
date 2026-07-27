@@ -1856,7 +1856,11 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
         title: `RDV avec @${username}`,
         utmSource: 'ig', utmMedium: 'dm',
         utmCampaign: igUserId ? `lead-${igUserId}` : `prospect-${us}`,
-        utmContent: us,
+        // Doit toujours être un vrai ID de contenu (post/vidéo), jamais le pseudo — c'est
+        // ce que Performance par contenu (PageClientStats.tsx, matchesContent) attend pour
+        // rattacher le call à son post d'origine. Le pseudo est déjà disponible ailleurs
+        // (utm_term, ig_lead_id → instagram_leads.ig_username) donc rien n'est perdu ici.
+        utmContent: resolvedPostId,
         utmTerm: username,
         path: `prendre-rdv-${us}`,
       });
