@@ -3237,7 +3237,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const cur = callsPerDay.get(day) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 };
     if (c.status === 'active') {
       cur.booked += 1;
-      if (!c.no_show) cur.honored += 1;
+      if (isCallHonored(c, now)) cur.honored += 1;
     }
     if (c.deal_closed) cur.closed += 1;
     cur.revenue += c.revenue || 0;
