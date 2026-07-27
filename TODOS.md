@@ -1,5 +1,37 @@
 # TODOS
 
+## Unifier les interfaces `Call` locales dupliquées vers le type officiel `lib/supabase/types.ts`
+
+**Quoi** : `components/pages/client/PageClientCalls.tsx` et `components/pipeline/PagePipeline.tsx` définissent chacun leur propre `interface Call` locale, structurellement différente l'une de l'autre (nullabilité divergente sur les mêmes champs, ex. `status: string` vs `string | null` ; champs présents dans l'une absents de l'autre, ex. `call_type` seulement côté `PageClientCalls`, `utm_campaign`/`short_link_path`/`is_follow_up` seulement côté `PagePipeline`). `components/analytics/PageClientStats.tsx` a aussi son propre `CallRecord` local (voir point suivant). Aucun des trois ne réutilise le type officiel déjà existant `Call` (`lib/supabase/types.ts:102`).
+
+**Pourquoi** : identifié lors de l'audit "Jour 6" (2026-07-27) sur la robustesse du code — signalé dans le brief initial comme "à confirmer avant de trancher", jamais traité dans l'exécution du chantier. Le type officiel `Call` existe déjà (avec le commentaire documentant `call_type` vs `calendly_event_uuid`, cf. contrainte DB `calls_call_type_uuid_consistency` — vérifiée existante en base le 2026-07-27), donc l'étape "créer une source de vérité" est déjà faite ; il ne reste que la migration des 3 fichiers vers ce type.
+
+**Pour** : élimine un risque de divergence silencieuse — si un champ est ajouté/retiré de la table `calls`, il faut aujourd'hui penser à répercuter le changement manuellement dans 3 endroits distincts, sans garde-fou du compilateur pour le rappeler.
+
+**Contre** : chaque interface locale ne contient que les champs réellement utilisés par son fichier — ce n'est pas un bug aujourd'hui, juste de la duplication de définition. Migrer vers le type officiel demande de vérifier champ par champ que la nullabilité du type partagé n'introduit pas de faux positifs TypeScript dans chacun des 3 fichiers (risque de régression pour un gain cosmétique tant qu'aucun bug concret ne le justifie).
+
+**Signal de déclenchement concret** : le jour où un champ est ajouté à `calls` en base et qu'il faut le répercuter à la main dans 3 interfaces différentes pour qu'un composant y ait accès — c'est le signal qu'il est temps de migrer.
+
+**Contexte pour la reprise** : `components/pages/client/PageClientCalls.tsx:10`, `components/pipeline/PagePipeline.tsx:43`, `components/analytics/PageClientStats.tsx:85` (interfaces locales) vs `lib/supabase/types.ts:102` (type officiel `Call`).
+
+**Dépend de / bloqué par** : rien, mais pas urgent — aucun bug actif ne le justifie aujourd'hui.
+
+## Trancher la définition officielle de "call honoré" (2 définitions coexistent + logique inline dupliquée ailleurs)
+
+**Quoi** : `components/analytics/PageClientStats.tsx` factorise 17 anciennes occurrences dupliquées en 2 helpers documentés (`isCallHonoredStrict` — exige un rapport rempli, `outcome != null` + call passé ; `isCallHonoredSimple` — ne demande que `!no_show`), qui coexistent intentionnellement (voir commentaire ligne 95-104 de ce fichier). Mais `components/pipeline/ProspectDetailModal.tsx` (ligne ~194, `call.outcome === 'showed_up' || call.outcome === 'second_call' || call.deal_closed`) et `components/pipeline/PagePipeline.tsx` (ligne ~1207-1224, calcul de `natural` depuis `outcome`/`no_show`/`deal_closed`) ont chacun leur **propre** logique inline, ni l'une ni l'autre ne réutilisant les 2 helpers de `PageClientStats.tsx`. Au total, ce sont donc au moins 3-4 définitions distinctes de "call honoré"/"showed_up" réparties dans 3 fichiers, pas 2.
+
+**Pourquoi** : identifié lors de l'audit "Jour 6" (2026-07-27). La factorisation dans `PageClientStats.tsx` était volontairement scopée à ce fichier seul ("factoriser sans rien changer") après avoir déterminé qu'une fusion complète était risquée sans d'abord trancher une décision produit — vérifié à cette date que les deux définitions donnent 0 écart chiffré sur les données réelles actuelles (les calls sans rapport restants étaient tous `ignored=true`/tests). Mais si un vrai call reste un jour longtemps sans rapport rempli, Strict et Simple (et les logiques inline de Pipeline/ProspectDetailModal) peuvent diverger silencieusement sur le même call.
+
+**Pour** : élimine un risque de chiffres incohérents entre Analytics (Funnel & Calls) et Pipeline Leads (badges/stages) pour un même call, sans avoir à deviner laquelle des ~4 définitions fait foi.
+
+**Contre** : nécessite une vraie décision produit (quelle est LA bonne définition de "honoré" ?) avant tout changement de code — pas un simple refactoring technique. Risque de casser des affichages existants (badges du kanban Pipeline, KPIs Analytics) si la définition choisie change des chiffres déjà visibles aux utilisateurs.
+
+**Signal de déclenchement concret** : le jour où un call reste sans rapport rempli pendant une durée significative et qu'un coach/élève signale une incohérence entre ce qu'affiche le Pipeline et ce qu'affichent les Stats pour ce même call.
+
+**Contexte pour la reprise** : `components/analytics/PageClientStats.tsx:95-109` (les 2 helpers + commentaire), `components/pipeline/ProspectDetailModal.tsx:194-199`, `components/pipeline/PagePipeline.tsx:1207-1224`.
+
+**Dépend de / bloqué par** : décision produit (quelle définition officielle adopter) avant toute exécution technique.
+
 ## Corriger la construction de `short_link_path` (bare slug vs path complet)
 
 **Quoi** : `short_link_path` sur `calls` est aujourd'hui dérivé de `utm_content` (`app/api/webhooks/calendly/route.ts`, `app/api/calendly/sync/route.ts`, `supabase/functions/sync-calendly/index.ts` — même valeur, jamais le path Short.io complet avec préfixe). Résultat : pour tout call issu de Calendly, `short_link_path` vaut par exemple `christian-penkov` (bare), alors que `components/pipeline/PagePipeline.tsx` (lignes ~279-285, ~1190-1203) compare ce champ contre `new URL(prospect.short_url).pathname.slice(1)`, qui vaut `prendre-rdv-christian-penkov` (path complet). Ce matching échoue systématiquement pour tous les calls DM, déjà avant tout autre changement.
