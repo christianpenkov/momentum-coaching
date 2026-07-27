@@ -2645,8 +2645,8 @@ export default function PageLiens() {
     setTimeout(() => setHighlightedSequenceId(null), 2000);
   };
 
-  // Mobile : onglet actif + overlay détail
-  const [mobileTab, setMobileTab] = useState<'liens' | 'generer'>('liens');
+  // Mobile : overlay détail (un seul onglet "Mes liens" depuis la fusion avec l'ancien
+  // "Générer un lien", qui faisait exactement la même chose)
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -2686,11 +2686,9 @@ export default function PageLiens() {
         @media (max-width: 767px) {
           .liens-shell { flex-direction: column !important; }
           .liens-desktop-only { display: none !important; }
-          .liens-mobile-tabs { display: flex !important; }
           .liens-mobile-panel { display: block !important; }
         }
         @media (min-width: 768px) {
-          .liens-mobile-tabs { display: none !important; }
           .liens-mobile-panel { display: none !important; }
         }
       `}</style>
@@ -2732,51 +2730,11 @@ export default function PageLiens() {
           </div>
         </div>
 
-        {/* ── Onglets mobiles ── */}
-        <div className="liens-mobile-tabs" style={{ display: 'none', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
-          {([
-            { key: 'liens', label: 'Mes liens' },
-            { key: 'generer', label: 'Générer un lien' },
-          ] as const).map(t => (
-            <button key={t.key} onClick={() => setMobileTab(t.key)} style={{
-              flex: 1, padding: '12px 0', fontSize: 13, fontWeight: 600, border: 'none', background: 'transparent', cursor: 'pointer',
-              color: mobileTab === t.key ? BLUE : MUTED,
-              borderBottom: `2px solid ${mobileTab === t.key ? BLUE : 'transparent'}`,
-              transition: 'all .15s',
-            }}>{t.label}</button>
-          ))}
-        </div>
-
-        {/* ── Panneau mobile "Générer" ── */}
+        {/* ── Panneau mobile "Mes liens" (seul onglet — fusion de l'ancien "Générer un
+             lien", qui faisait exactement la même chose : lister les contenus et ouvrir
+             le même panneau au clic) ── */}
         <div className="liens-mobile-panel" style={{ display: 'none', flex: 1, overflowY: 'auto', padding: '16px 14px' }}>
-          {mobileTab === 'generer' && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-              <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
-                width: '100%', padding: '14px 16px', fontSize: 14, fontWeight: 700, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
-                border: `1.5px solid ${BLUE}`, background: BLUE_SOFT, color: BLUE,
-              }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-                Lien Calendly prospect DM
-              </button>
-              <div style={{ fontSize: 12, color: MUTED, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginTop: 4 }}>Liens par contenu</div>
-              {filteredPosts.slice(0, 20).map(post => (
-                <button key={post.id} onClick={() => openMobileDetail(post.platform === 'STORY' ? { type: 'story', post } : { type: 'post', post })} style={{
-                  width: '100%', padding: '12px 14px', fontSize: 13, fontWeight: 600, borderRadius: 10, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
-                  border: `1px solid ${BORDER}`, background: SURFACE, color: INK,
-                }}>
-                  {post.thumbnail && <img src={post.thumbnail} alt="" style={{ width: 44, height: 44, borderRadius: 6, objectFit: 'cover', flexShrink: 0 }} />}
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13 }}>{post.caption}</div>
-                    <div style={{ fontSize: 11, color: MUTED, marginTop: 2 }}>{post.platform}</div>
-                  </div>
-                  {(post.hasDescLink || post.hasLeadMagnet) && (
-                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', flexShrink: 0 }} />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-          {mobileTab === 'liens' && (
+          {(
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
                 width: '100%', padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
