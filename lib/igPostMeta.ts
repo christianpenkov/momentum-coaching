@@ -12,6 +12,21 @@ export interface IgPostMeta {
   thumbnail: string | null;
 }
 
+// Les URLs Instagram Graph (thumbnail_url/media_url) sont signées et temporaires —
+// le paramètre oe= est un timestamp Unix hex d'expiration (vérifié sur données réelles :
+// oe=6A5E8A5D décode en 2026-07-20, ~4 jours après l'écriture en cache). Une entrée dont
+// le thumbnail est expiré doit être retraitée comme "manquante" (refetch), sinon elle
+// reste un lien mort en cache pour toujours (cf. bug miniatures blanches Pipeline Leads).
+const EXPIRY_SAFETY_MARGIN_MS = 60 * 60 * 1000; // 1h de marge avant la vraie expiration
+function isThumbnailUrlExpired(url: string | null): boolean {
+  if (!url) return true;
+  const match = url.match(/[?&]oe=([0-9a-fA-F]+)/);
+  if (!match) return false; // pas de paramètre oe= (ex: URL Supabase) — jamais considéré expiré ici
+  const expiresAtMs = parseInt(match[1], 16) * 1000;
+  if (!Number.isFinite(expiresAtMs)) return false;
+  return Date.now() >= expiresAtMs - EXPIRY_SAFETY_MARGIN_MS;
+}
+
 async function fetchGraphPostMeta(mediaId: string, token: string): Promise<IgPostMeta | null> {
   try {
     const r = await fetch(
@@ -52,8 +67,14 @@ export async function resolveIgPostMeta(
   const missing: string[] = [];
   for (const id of uniqueIds) {
     const row = cached?.find(c => c.media_id === id);
-    if (row) result[id] = { caption: row.caption, permalink: row.permalink, thumbnail: row.thumbnail };
-    else missing.push(id);
+    if (row && !isThumbnailUrlExpired(row.thumbnail)) {
+      result[id] = { caption: row.caption, permalink: row.permalink, thumbnail: row.thumbnail };
+    } else {
+      // Absent du cache, ou présent mais thumbnail expiré (URL Instagram signée périmée) —
+      // dans les deux cas on refetch. Si le refetch échoue plus bas, l'ancienne ligne (même
+      // expirée) reste en base et servira de dernier recours via un appel ultérieur.
+      missing.push(id);
+    }
   }
 
   if (missing.length === 0) return result;
