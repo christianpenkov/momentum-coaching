@@ -11,7 +11,7 @@ const serviceSupabase = createClient(
 // Cron toutes les 30 min — détecte les calls Google coach-élève terminés sans rapport
 // de session et envoie une push PROACTIVE au coach (pas à l'élève, contrairement au
 // reminder Calendly). La notif part à l'heure exacte de fin du call (scheduled_at + duration).
-// Calls Google Meet uniquement (calendly_event_uuid IS NULL, call_type = 'google').
+// Calls Google Meet uniquement (call_type = 'google').
 // Calls annulés/reportés (status != 'active') → ignorés, cf. décision produit (Partie A).
 export async function GET(request: Request) {
   const authHeader = request.headers.get('authorization');
@@ -25,7 +25,6 @@ export async function GET(request: Request) {
     .select('id, coach_id, client_id, scheduled_at, duration')
     .eq('status', 'active')
     .eq('call_type', 'google')
-    .is('calendly_event_uuid', null)
     .eq('session_rapport_reminder_sent', false)
     .is('session_completed', null)
     .is('session_no_show', null)

@@ -27,7 +27,7 @@ export async function GET() {
   let callsQuery = supa.from('calls')
     .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up')
     .eq('coach_id', user.id)
-    .not('calendly_event_uuid', 'is', null)
+    .eq('call_type', 'calendly')
     .neq('ignored', true)
     .order('scheduled_at', { ascending: false });
 

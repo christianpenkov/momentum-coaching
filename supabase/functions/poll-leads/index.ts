@@ -1058,7 +1058,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   }
 
   // Calls stats J-1
-  const { data: callsData } = await supa.from('calls').select('status, scheduled_at, no_show, deal_closed, revenue, outcome').eq('coach_id', profileId).not('calendly_event_uuid', 'is', null).neq('ignored', true);
+  const { data: callsData } = await supa.from('calls').select('status, scheduled_at, no_show, deal_closed, revenue, outcome').eq('coach_id', profileId).eq('call_type', 'calendly').neq('ignored', true);
   const calls = callsData || [];
   const now = new Date();
   await supa.from('analytics_daily_snapshots').upsert({
@@ -1157,7 +1157,7 @@ Deno.serve(async (req: Request) => {
   let rapportNotified = 0;
   try {
     const now = new Date();
-    const { data: pendingCalls } = await supa.from('calls').select('id, coach_id, invitee_name, scheduled_at, duration').eq('status', 'active').is('no_show', null).eq('rapport_notif_sent', false).neq('ignored', true).not('calendly_event_uuid', 'is', null).not('scheduled_at', 'is', null).not('duration', 'is', null).lt('scheduled_at', now.toISOString());
+    const { data: pendingCalls } = await supa.from('calls').select('id, coach_id, invitee_name, scheduled_at, duration').eq('status', 'active').is('no_show', null).eq('rapport_notif_sent', false).neq('ignored', true).eq('call_type', 'calendly').not('scheduled_at', 'is', null).not('duration', 'is', null).lt('scheduled_at', now.toISOString());
 
     const eligibleCalls = (pendingCalls || []).filter(call => {
       const match = (call.duration as string).match(/(\d+)/);

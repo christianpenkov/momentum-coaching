@@ -95,7 +95,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       // ── Rapports de session Google Meet en attente ──
       const { data: googleCalls } = await supabase
         .from('calls')
-        .select('id, client_id, topic, scheduled_at, duration, call_type, calendly_event_uuid, status, session_completed, session_no_show')
+        .select('id, client_id, topic, scheduled_at, duration, call_type, status, session_completed, session_no_show')
         .eq('coach_id', profileId)
         .eq('call_type', 'google')
         .eq('status', 'active');

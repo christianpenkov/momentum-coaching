@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
     .eq('rapport_notif_sent', false)
     .eq('rescheduled', false)
     .neq('ignored', true)
-    .not('calendly_event_uuid', 'is', null)
+    .eq('call_type', 'calendly')
     .not('scheduled_at', 'is', null)
     .not('duration', 'is', null);
 

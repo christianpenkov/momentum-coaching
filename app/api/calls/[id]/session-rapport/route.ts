@@ -25,7 +25,7 @@ export async function PATCH(
 
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('id, coach_id, client_id, call_type, calendly_event_uuid, session_completed, session_no_show')
+    .select('id, coach_id, client_id, call_type, session_completed, session_no_show')
     .eq('id', id)
     .single();
 
@@ -33,7 +33,7 @@ export async function PATCH(
   if (call.coach_id !== user.id) {
     return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
   }
-  if (call.call_type !== 'google' || call.calendly_event_uuid !== null) {
+  if (call.call_type !== 'google') {
     return NextResponse.json({ error: 'Ce call ne fait pas partie du flux coach-élève Google Meet' }, { status: 400 });
   }
   if (call.session_completed || call.session_no_show) {

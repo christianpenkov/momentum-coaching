@@ -104,7 +104,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     .from('calls')
     .select('status, scheduled_at, no_show, deal_closed, revenue')
     .eq('coach_id', profileId)
-    .not('calendly_event_uuid', 'is', null);
+    .eq('call_type', 'calendly');
 
   const calls = callsData || [];
   const now = new Date();
@@ -264,7 +264,7 @@ export async function GET(request: Request) {
       .eq('status', 'active')
       .is('no_show', null)
       .eq('rapport_notif_sent', false)
-      .not('calendly_event_uuid', 'is', null)
+      .eq('call_type', 'calendly')
       .not('scheduled_at', 'is', null)
       .not('duration', 'is', null)
       .lt('scheduled_at', now.toISOString());

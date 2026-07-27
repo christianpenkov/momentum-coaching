@@ -60,7 +60,7 @@ export async function PATCH(
   // Récupère le call avec ig_lead_id + source pour le lien pipeline
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('id, coach_id, client_id, calendly_event_uuid, ig_lead_id, source, prospect_id')
+    .select('id, coach_id, client_id, ig_lead_id, source, prospect_id')
     .eq('id', id)
     .single();
 

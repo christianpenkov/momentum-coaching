@@ -26,12 +26,12 @@ export async function PATCH(
 
   const { data: call } = await serviceSupabase
     .from('calls')
-    .select('id, coach_id, client_id, call_type, calendly_event_uuid')
+    .select('id, coach_id, client_id, call_type')
     .eq('id', callId)
     .single();
 
   if (!call) return NextResponse.json({ error: 'Call introuvable' }, { status: 404 });
-  if (call.call_type !== 'google' || call.calendly_event_uuid !== null) {
+  if (call.call_type !== 'google') {
     return NextResponse.json({ error: 'Ce call ne fait pas partie du flux coach-élève Google Meet' }, { status: 400 });
   }
 
