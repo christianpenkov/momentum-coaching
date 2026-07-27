@@ -30,21 +30,13 @@
 
 **Dépend de / bloqué par** : rien, mais pas urgent — aucun bug actif ne le justifie aujourd'hui.
 
-## Trancher la définition officielle de "call honoré" (2 définitions coexistent + logique inline dupliquée ailleurs)
+## ~~Trancher la définition officielle de "call honoré"~~ — RÉSOLU (2026-07-27)
 
-**Quoi** : `components/analytics/PageClientStats.tsx` factorise 17 anciennes occurrences dupliquées en 2 helpers documentés (`isCallHonoredStrict` — exige un rapport rempli, `outcome != null` + call passé ; `isCallHonoredSimple` — ne demande que `!no_show`), qui coexistent intentionnellement (voir commentaire ligne 95-104 de ce fichier). Mais `components/pipeline/ProspectDetailModal.tsx` (ligne ~194, `call.outcome === 'showed_up' || call.outcome === 'second_call' || call.deal_closed`) et `components/pipeline/PagePipeline.tsx` (ligne ~1207-1224, calcul de `natural` depuis `outcome`/`no_show`/`deal_closed`) ont chacun leur **propre** logique inline, ni l'une ni l'autre ne réutilisant les 2 helpers de `PageClientStats.tsx`. Au total, ce sont donc au moins 3-4 définitions distinctes de "call honoré"/"showed_up" réparties dans 3 fichiers, pas 2.
+Décision produit tranchée avec Chris : un call sans rapport rempli compte comme **non honoré** (tant que le rapport n'est pas rempli, c'est comme si le call n'avait pas encore eu lieu). Vérifié avant implémentation : 0 call `call_type='calendly'` sans rapport en base à cette date → impact chiffré rétroactif nul.
 
-**Pourquoi** : identifié lors de l'audit "Jour 6" (2026-07-27). La factorisation dans `PageClientStats.tsx` était volontairement scopée à ce fichier seul ("factoriser sans rien changer") après avoir déterminé qu'une fusion complète était risquée sans d'abord trancher une décision produit — vérifié à cette date que les deux définitions donnent 0 écart chiffré sur les données réelles actuelles (les calls sans rapport restants étaient tous `ignored=true`/tests). Mais si un vrai call reste un jour longtemps sans rapport rempli, Strict et Simple (et les logiques inline de Pipeline/ProspectDetailModal) peuvent diverger silencieusement sur le même call.
+Unifié dans `lib/callHonored.ts` (fonction `isCallHonored(call, now)`), réutilisée dans les 3 fichiers qui avaient chacun leur propre définition : `components/analytics/PageClientStats.tsx` (remplace `isCallHonoredStrict`/`isCallHonoredSimple`, 17 usages + 1 inline oublié), `components/pipeline/ProspectDetailModal.tsx` (remplace la condition inline ligne ~194), `components/pipeline/PagePipeline.tsx` (3 branches — leads IG, IG description/bio, YT/Autre — alignées sur la même règle pour le calcul du stage `natural` du kanban). Le badge Pipeline reste "Call booké" tant qu'aucun rapport n'est rempli, comme validé avec Chris.
 
-**Pour** : élimine un risque de chiffres incohérents entre Analytics (Funnel & Calls) et Pipeline Leads (badges/stages) pour un même call, sans avoir à deviner laquelle des ~4 définitions fait foi.
-
-**Contre** : nécessite une vraie décision produit (quelle est LA bonne définition de "honoré" ?) avant tout changement de code — pas un simple refactoring technique. Risque de casser des affichages existants (badges du kanban Pipeline, KPIs Analytics) si la définition choisie change des chiffres déjà visibles aux utilisateurs.
-
-**Signal de déclenchement concret** : le jour où un call reste sans rapport rempli pendant une durée significative et qu'un coach/élève signale une incohérence entre ce qu'affiche le Pipeline et ce qu'affichent les Stats pour ce même call.
-
-**Contexte pour la reprise** : `components/analytics/PageClientStats.tsx:95-109` (les 2 helpers + commentaire), `components/pipeline/ProspectDetailModal.tsx:194-199`, `components/pipeline/PagePipeline.tsx:1207-1224`.
-
-**Dépend de / bloqué par** : décision produit (quelle définition officielle adopter) avant toute exécution technique.
+Vérifié en conditions réelles après implémentation : `tsc --noEmit` propre, chiffres Analytics (Vue générale, Funnel & Calls, Performance LM, mode "Depuis connexion") strictement identiques avant/après, badge Pipeline correct sur un vrai no-show et sur les calls avec rapport rempli.
 
 ## Corriger la construction de `short_link_path` (bare slug vs path complet)
 

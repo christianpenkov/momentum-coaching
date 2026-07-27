@@ -7,6 +7,7 @@ import Icon from '@/components/ui/Icon';
 import type { ProspectContext } from './PagePipeline';
 import { avatarColor, avatarInitials } from './PagePipeline';
 import { isYtVideoId } from '@/lib/ytId';
+import { isCallHonored } from '@/lib/callHonored';
 
 // ── TimelineEvent ────────────────────────────────────────────────────────────
 
@@ -69,6 +70,7 @@ function resolveIgPostLink(
 
 function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
   const events: TimelineEvent[] = [];
+  const now = new Date();
 
   for (const e of ctx.events) {
     let label = e.event_type;
@@ -191,7 +193,7 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
         label: 'Call annulé',
         detail: call.cancellation_reason ?? undefined,
       });
-    } else if (call.outcome === 'showed_up' || call.outcome === 'second_call' || call.deal_closed) {
+    } else if (isCallHonored(call, now)) {
       const hasRealShowedUpEvent = ctx.events.some(e => e.event_type === 'showed_up' && e.call_id === call.id);
       if (!hasRealShowedUpEvent) {
         events.push({

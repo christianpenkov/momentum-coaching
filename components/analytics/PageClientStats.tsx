@@ -15,6 +15,7 @@ import {
   AreaChart as ReAreaChart, Area,
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
+import { isCallHonored } from '@/lib/callHonored';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
 function usePortalMounted() {
@@ -92,22 +93,6 @@ interface CallRecord {
   qualified?: boolean | null;
 }
 
-// Deux définitions de "call honoré" coexistent intentionnellement dans ce fichier
-// pour l'instant (jour 6 — audit du 27/07/2026) : Strict exige un rapport rempli
-// (outcome renseigné) + call passé ; Simple ne demande que !no_show, donc compte
-// aussi les calls jamais rapportés comme "honorés" par défaut. Vérifié en base à
-// cette date : 0 écart chiffré sur les données réelles (les calls sans rapport
-// restants étaient tous `ignored=true`/tests), mais si un vrai call reste un jour
-// sans rapport rempli, Strict et Simple donneront des chiffres différents pour le
-// même call. Choisir UNE définition officielle est une décision produit distincte,
-// pas traitée ici — ce chantier ne fait que factoriser le code dupliqué sans
-// changer aucun comportement. Voir le point 4 du brief "Jour 6" pour le contexte.
-function isCallHonoredStrict(c: CallRecord, now: Date): boolean {
-  return c.status === 'active' && new Date(c.scheduled_at) < now && c.outcome != null && !c.no_show;
-}
-function isCallHonoredSimple(c: CallRecord): boolean {
-  return c.status === 'active' && !c.no_show;
-}
 interface StripeStats {
   mrr: number; monthlyRevenue: number; activeSubscriptions: number;
   availableBalance: number;
@@ -321,6 +306,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const _ovPIdx = periodIndex ?? 0;
+  const now = new Date();
   // Bornes calendaires réelles (semaine lundi-dimanche / mois calendaire) via
   // lib/period.ts — remplace l'ancien calcul en heure locale du navigateur (pas UTC
   // strict), source potentielle de décalage d'un jour vs les autres composants.
@@ -336,7 +322,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     return t >= cutoff.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
   });
   const callsBookes  = callsInPeriod.filter(c => c.status === 'active').length;
-  const callsHonores = callsInPeriod.filter(c => c.status === 'active' && c.outcome != null && !c.no_show).length;
+  const callsHonores = callsInPeriod.filter(c => isCallHonored(c, now)).length;
   const noShows      = callsInPeriod.filter(c => c.status === 'active' && c.no_show).length;
   const dealsCloses  = callsInPeriod.filter(c => c.deal_closed).length;
   const totalRev     = callsInPeriod.reduce((s, c) => s + (c.revenue || 0), 0);
@@ -2191,7 +2177,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
   const calcCalls = (subset: CallRecord[]) => {
     const bookes = subset.filter(c => c.status === 'active').length;
-    const honores = subset.filter(c => isCallHonoredStrict(c, now)).length;
+    const honores = subset.filter(c => isCallHonored(c, now)).length;
     const closes = subset.filter(c => c.deal_closed).length;
     const rev = subset.reduce((acc, c) => acc + (c.revenue || 0), 0);
     const noShows = subset.filter(c => c.no_show).length;
@@ -2311,7 +2297,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       if (isFutureDayFunnel(iso)) return { date: iso, v: null as any };
       const cs = platformCalls.filter(c => c.scheduled_at?.startsWith(iso));
       const booked = cs.filter(c => c.status === 'active').length;
-      const honored = cs.filter(c => isCallHonoredStrict(c, now)).length;
+      const honored = cs.filter(c => isCallHonored(c, now)).length;
       const closed = cs.filter(c => c.deal_closed).length;
       const rev = cs.reduce((s, c) => s + (c.revenue || 0), 0);
       const noShows = cs.filter(c => c.no_show).length;
@@ -2465,7 +2451,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                         });
                         let v = 0;
                         if (key === 'booked') v = daySubset.filter(c => c.status === 'active').length;
-                        else if (key === 'honored') v = daySubset.filter(c => isCallHonoredStrict(c, now)).length;
+                        else if (key === 'honored') v = daySubset.filter(c => isCallHonored(c, now)).length;
                         else if (key === 'closed') v = daySubset.filter(c => c.deal_closed).length;
                         else if (key === 'rev') v = daySubset.reduce((s, c) => s + (c.revenue || 0), 0);
                         return { date, v };
@@ -2649,7 +2635,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         <div style={{ display: 'flex', gap: 20, marginBottom: 12 }}>
           {[
             { label: 'Bookés', value: fmt(filteredCalls.filter(c => c.status === 'active').length), color: 'var(--ink)' },
-            { label: 'Honorés', value: fmt(filteredCalls.filter(c => isCallHonoredStrict(c, now)).length), color: GREEN },
+            { label: 'Honorés', value: fmt(filteredCalls.filter(c => isCallHonored(c, now)).length), color: GREEN },
             { label: 'No-show', value: fmt(filteredCalls.filter(c => c.no_show).length), color: RED },
             { label: 'Closés', value: fmt(filteredCalls.filter(c => c.deal_closed).length), color: 'var(--accent)' },
             { label: 'Revenue', value: fmtEur(filteredCalls.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
@@ -2935,6 +2921,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
   sinceConnection?: boolean;
 }) {
+  const now = new Date();
   // Stories individuelles avec CTA (LM ou Calendly) — pour afficher titre/miniature des
   // stories orphelines (hors séquence) dans "Performance par contenu". Même queryKey que
   // TabInstagram (['stories', profileId]) : React Query déduplique l'appel réseau.
@@ -3385,16 +3372,16 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const postCallsLifetime = (callsAllTime && leadIdToMediaId) ? callsAllTime.filter(matchesContent) : [];
     const postCallsDesc = postCalls.filter(c => c.utm_medium === 'description' || (!c.ig_lead_id && c.utm_content === postId));
     const callsBooked = postCalls.filter(c => c.status === 'active').length;
-    const callsHonored = postCalls.filter(c => isCallHonoredSimple(c)).length;
+    const callsHonored = postCalls.filter(c => isCallHonored(c, now)).length;
     const closed = postCalls.filter(c => c.deal_closed).length;
     const revenue = postCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const callsBookedDesc = postCallsDesc.filter(c => c.status === 'active').length;
-    const callsHonoredDesc = postCallsDesc.filter(c => isCallHonoredSimple(c)).length;
+    const callsHonoredDesc = postCallsDesc.filter(c => isCallHonored(c, now)).length;
     const closedDesc = postCallsDesc.filter(c => c.deal_closed).length;
     const revenueDesc = postCallsDesc.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const postCallsLm = postCalls.filter(c => !!c.ig_lead_id);
     const callsBookedLm = postCallsLm.filter(c => c.status === 'active').length;
-    const callsHonoredLm = postCallsLm.filter(c => isCallHonoredSimple(c)).length;
+    const callsHonoredLm = postCallsLm.filter(c => isCallHonored(c, now)).length;
     const closedLm = postCallsLm.filter(c => c.deal_closed).length;
     const revenueLm = postCallsLm.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
     const vuesParCall = callsBooked > 0 && views > 0 ? Math.round(views / callsBooked) : null;
@@ -3404,7 +3391,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const cashParVue = viewsLifetime !== null && viewsLifetime > 0 ? revenueLifetime / viewsLifetime : null;
 
     // % qualifié : parmi les calls honorés avec qualified renseigné (exclut no-show et non-renseignés)
-    const qualifiableCalls = postCallsLifetime.filter(c => isCallHonoredSimple(c) && c.qualified !== null && c.qualified !== undefined);
+    const qualifiableCalls = postCallsLifetime.filter(c => isCallHonored(c, now) && c.qualified !== null && c.qualified !== undefined);
     const qualifiedCount = qualifiableCalls.filter(c => c.qualified === true).length;
     const qualifiedAnswered = qualifiableCalls.length;
     const qualifiedPct = qualifiedAnswered > 0 ? Math.round((qualifiedCount / qualifiedAnswered) * 100) : null;
@@ -3793,11 +3780,11 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const bioIGCalls = (calls ?? []).filter(c => c.source === 'ig_bio' && isInPeriod(c.scheduled_at));
           const bioYTCalls = (calls ?? []).filter(c => c.source === 'yt_bio' && isInPeriod(c.scheduled_at));
           const bioIGBooked = bioIGCalls.filter(c => c.status === 'active').length;
-          const bioIGHonored = bioIGCalls.filter(c => isCallHonoredSimple(c)).length;
+          const bioIGHonored = bioIGCalls.filter(c => isCallHonored(c, now)).length;
           const bioIGClosed = bioIGCalls.filter(c => c.deal_closed === true).length;
           const bioIGRevenue = bioIGCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const bioYTBooked = bioYTCalls.filter(c => c.status === 'active').length;
-          const bioYTHonored = bioYTCalls.filter(c => isCallHonoredSimple(c)).length;
+          const bioYTHonored = bioYTCalls.filter(c => isCallHonored(c, now)).length;
           const bioYTClosed = bioYTCalls.filter(c => c.deal_closed === true).length;
           const bioYTRevenue = bioYTCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
@@ -3855,14 +3842,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
           const coldCalls = coldDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
           const coldBooked = coldCalls.filter(c => c.status === 'active').length;
-          const coldHonored = coldCalls.filter(c => isCallHonoredSimple(c)).length;
+          const coldHonored = coldCalls.filter(c => isCallHonored(c, now)).length;
           const coldClosed = coldCalls.filter(c => c.deal_closed === true).length;
           const coldRevenue = coldCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const coldClics = coldDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
           const organicCalls = organicDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
           const organicBooked = organicCalls.filter(c => c.status === 'active').length;
-          const organicHonored = organicCalls.filter(c => isCallHonoredSimple(c)).length;
+          const organicHonored = organicCalls.filter(c => isCallHonored(c, now)).length;
           const organicClosed = organicCalls.filter(c => c.deal_closed === true).length;
           const organicRevenue = organicCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const organicClics = organicDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
@@ -3872,7 +3859,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // ig_story_id seul (cf. principe d'attribution du chantier Stories).
           const storyLmCalls = storyReplyDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
           const storyLmBooked = storyLmCalls.filter(c => c.status === 'active').length;
-          const storyLmHonored = storyLmCalls.filter(c => isCallHonoredSimple(c)).length;
+          const storyLmHonored = storyLmCalls.filter(c => isCallHonored(c, now)).length;
           const storyLmClosed = storyLmCalls.filter(c => c.deal_closed === true).length;
           const storyLmRevenue = storyLmCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const storyLmClics = storyReplyDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
@@ -3883,7 +3870,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const calendlySequenceIds = new Set(storySequenceRows.filter(s => !!s.calendlyShortUrl).map(s => s.sequenceId));
           const storyCalendlyCalls = callsInWindow.filter(c => c.utm_content && calendlySequenceIds.has(c.utm_content));
           const storyCalendlyBooked = storyCalendlyCalls.filter(c => c.status === 'active').length;
-          const storyCalendlyHonored = storyCalendlyCalls.filter(c => isCallHonoredSimple(c)).length;
+          const storyCalendlyHonored = storyCalendlyCalls.filter(c => isCallHonored(c, now)).length;
           const storyCalendlyClosed = storyCalendlyCalls.filter(c => c.deal_closed === true).length;
           const storyCalendlyRevenue = storyCalendlyCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
@@ -3905,7 +3892,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             .filter(([leadId]) => lmLeadIds.has(leadId))
             .map(([, c]) => c);
           const lmBooked = lmCalls.filter(c => c.status === 'active').length;
-          const lmHonored = lmCalls.filter(c => isCallHonoredSimple(c)).length;
+          const lmHonored = lmCalls.filter(c => isCallHonored(c, now)).length;
           const lmClosed = lmCalls.filter(c => c.deal_closed === true).length;
           const lmRevenue = lmCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
@@ -3938,7 +3925,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           ]);
           const otherCalls = callsInWindow.filter(c => !categorizedCallIds.has(c.id));
           const otherBooked = otherCalls.filter(c => c.status === 'active').length;
-          const otherHonored = otherCalls.filter(c => isCallHonoredSimple(c)).length;
+          const otherHonored = otherCalls.filter(c => isCallHonored(c, now)).length;
           const otherClosed = otherCalls.filter(c => c.deal_closed === true).length;
           const otherRevenue = otherCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
 
@@ -5708,7 +5695,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     if (c.ig_lead_id) {
       callByLeadId.set(c.ig_lead_id, {
         callBooked:  c.status === 'active',
-        callHonored: isCallHonoredStrict(c, now),
+        callHonored: isCallHonored(c, now),
         dealClosed:  !!c.deal_closed,
         revenue:     c.revenue || 0,
         qualified:   c.qualified ?? null,

@@ -8,6 +8,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import RapportModal from '@/components/ui/RapportModal';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
+import { isCallHonored } from '@/lib/callHonored';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1226,9 +1227,12 @@ export default function PagePipeline() {
         } else if (call.outcome === 'to_recontact') {
           natural = 'showed_up';
           badge = 'to_recontact';
+        } else if (call.deal_closed) {
+          natural = 'closed';
+        } else if (isCallHonored(call, new Date())) {
+          natural = 'showed_up';
         } else {
           natural = 'call_booked';
-          if (call.deal_closed) natural = 'closed';
         }
       }
 
@@ -1277,7 +1281,7 @@ export default function PagePipeline() {
       const cardKey = `ig_link_${call.id}`;
       let natural: IgStageKey = 'call_booked';
       if (call.deal_closed) natural = 'closed';
-      else if (call.outcome === 'showed_up' || call.outcome === 'second_call') natural = 'showed_up';
+      else if (isCallHonored(call, new Date())) natural = 'showed_up';
       else if (call.no_show) natural = 'call_booked';
       else if (['canceled', 'cancelled'].includes(call.status ?? '')) natural = 'call_booked';
 
@@ -1348,7 +1352,7 @@ export default function PagePipeline() {
       // Étape naturelle : la plus avancée parmi tous les calls du prospect
       let natural: YtStageKey = 'call_booked';
       if (calls.some(c => c.deal_closed)) natural = 'closed';
-      else if (calls.some(c => c.outcome === 'showed_up' || c.outcome === 'second_call')) natural = 'showed_up';
+      else if (calls.some(c => isCallHonored(c, new Date()))) natural = 'showed_up';
 
       const effectiveSrc = latestCall.source?.toLowerCase() ?? '';
       const platform: 'yt' | 'other' = effectiveSrc.startsWith('yt') ? 'yt' : 'other';
