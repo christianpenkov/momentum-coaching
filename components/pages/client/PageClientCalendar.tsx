@@ -45,7 +45,7 @@ export default function PageClientCalendar() {
 
       let calendlyQuery = supabase.from('calls').select('*')
         .eq('coach_id', client.profile_id)
-        .not('calendly_event_uuid', 'is', null)
+        .eq('call_type', 'calendly')
         .neq('status', 'cancelled')
         .neq('status', 'canceled')
         .order('scheduled_at', { ascending: true });
@@ -58,7 +58,7 @@ export default function PageClientCalendar() {
       // Calls Google Calendar : client_id = client.id
       const { data: googleCalls } = await supabase.from('calls').select('*')
         .eq('client_id', client.id)
-        .is('calendly_event_uuid', null)
+        .neq('call_type', 'calendly')
         .neq('status', 'canceled')
         .neq('status', 'cancelled')
         .neq('status', 'declined')

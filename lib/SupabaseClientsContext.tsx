@@ -21,8 +21,8 @@ interface SupabaseClientsContextValue {
   loading: boolean;
   error: string | null;
   getClient: (id: string) => ClientWithMetrics | undefined;
-  addTask: (clientId: string, task: Omit<Task, 'id' | 'created_at'>) => Promise<void>;
-  toggleTask: (clientId: string, taskId: string, done: boolean) => Promise<void>;
+  addTask: (clientId: string, task: Omit<Task, 'id' | 'created_at'>) => Promise<boolean>;
+  toggleTask: (clientId: string, taskId: string, done: boolean) => Promise<boolean>;
   refetch: () => void;
 }
 
@@ -111,6 +111,12 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (tasksRes.error) throw tasksRes.error;
       if (sessionReportsRes.error) throw sessionReportsRes.error;
       if (callsRes.error) throw callsRes.error;
+      if (avatarsRes.error) throw avatarsRes.error;
+      if (callsThisMonthRes.error) throw callsThisMonthRes.error;
+      if (stripeIntegRes.error) throw stripeIntegRes.error;
+      if (stripePaymentsRes.error) throw stripePaymentsRes.error;
+      if (stripePaymentsAllTimeRes.error) throw stripePaymentsAllTimeRes.error;
+      if ('error' in leadsThisMonthRes && leadsThisMonthRes.error) throw leadsThisMonthRes.error;
 
       const metricsMap: Record<string, any[]> = {};
       (metricsRes.data || []).forEach((m: any) => {
@@ -191,7 +197,10 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         supabase.from('calls').select('*').eq('coach_id', userId)
           .neq('ignored', true)
           .order('scheduled_at', { ascending: false }).limit(100)
-          .then(({ data }) => { if (data) setCalls(data); });
+          .then(({ data, error }) => {
+            if (error) { console.error('[SupabaseClientsContext] refresh calls realtime:', error.message); return; }
+            if (data) setCalls(data);
+          });
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
@@ -200,21 +209,39 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
   const getClient = useCallback((id: string) => clients.find(c => c.id === id), [clients]);
 
   const addTask = useCallback(async (clientId: string, task: Omit<Task, 'id' | 'created_at'>) => {
-    const { data } = await supabase.from('tasks').insert({ ...task, client_id: clientId }).select().single();
-    if (data) {
-      setClients(prev => prev.map(c =>
-        c.id === clientId ? { ...c, tasks: [...c.tasks, data] } : c
-      ));
-    }
+    const { data, error } = await supabase.from('tasks').insert({ ...task, client_id: clientId }).select().single();
+    if (error || !data) return false;
+    setClients(prev => prev.map(c =>
+      c.id === clientId ? { ...c, tasks: [...c.tasks, data] } : c
+    ));
+    return true;
   }, []);
 
+  // Mise à jour optimiste, annulée (rollback à l'état précédent) si l'update échoue —
+  // pour ne jamais laisser une checkbox cochée visuellement sans écriture réussie en base.
   const toggleTask = useCallback(async (clientId: string, taskId: string, done: boolean) => {
-    await supabase.from('tasks').update({ done }).eq('id', taskId);
-    setClients(prev => prev.map(c =>
-      c.id === clientId
-        ? { ...c, tasks: c.tasks.map(t => t.id === taskId ? { ...t, done } : t) }
-        : c
-    ));
+    let previousDone: boolean | undefined;
+    setClients(prev => prev.map(c => {
+      if (c.id !== clientId) return c;
+      return {
+        ...c,
+        tasks: c.tasks.map(t => {
+          if (t.id !== taskId) return t;
+          previousDone = t.done;
+          return { ...t, done };
+        }),
+      };
+    }));
+    const { error } = await supabase.from('tasks').update({ done }).eq('id', taskId);
+    if (error) {
+      setClients(prev => prev.map(c =>
+        c.id === clientId
+          ? { ...c, tasks: c.tasks.map(t => t.id === taskId ? { ...t, done: previousDone ?? !done } : t) }
+          : c
+      ));
+      return false;
+    }
+    return true;
   }, []);
 
   return (

@@ -1,51 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { getYtToken } from '@/lib/yt-fetch';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-async function getFreshToken(profileId: string): Promise<string | null> {
-  const { data: integ } = await serviceSupabase
-    .from('integrations')
-    .select('access_token, refresh_token, expires_at')
-    .eq('profile_id', profileId)
-    .eq('provider', 'youtube')
-    .single();
-
-  if (!integ?.access_token) return null;
-
-  const expired = integ.expires_at && new Date(integ.expires_at).getTime() < Date.now() + 5 * 60 * 1000;
-  if (!expired) return integ.access_token;
-  if (!integ.refresh_token) return null;
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: integ.refresh_token,
-      client_id: process.env.YOUTUBE_CLIENT_ID!,
-      client_secret: process.env.YOUTUBE_CLIENT_SECRET!,
-    }),
-  });
-
-  const data = await res.json();
-  if (!data.access_token) return null;
-
-  const expiresAt = data.expires_in
-    ? new Date(Date.now() + data.expires_in * 1000).toISOString()
-    : null;
-
-  await serviceSupabase.from('integrations').update({
-    access_token: data.access_token,
-    expires_at: expiresAt,
-  }).eq('profile_id', profileId).eq('provider', 'youtube');
-
-  return data.access_token;
-}
 
 function getToday() {
   return new Date().toISOString().split('T')[0];
@@ -80,7 +41,7 @@ export async function GET(request: Request) {
     targetProfileId = rawProfileId;
   }
 
-  const accessToken = await getFreshToken(targetProfileId);
+  const accessToken = await getYtToken(targetProfileId);
   if (!accessToken) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
   const authHeader = { Authorization: `Bearer ${accessToken}` };

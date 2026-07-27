@@ -25,12 +25,17 @@ async function handleConnectEvent(event: any) {
   const supabase = getServiceSupabase();
   const connectedAccountId = event.account as string;
 
-  const { data: integration } = await supabase
+  const { data: integration, error: integrationErr } = await supabase
     .from('integrations')
     .select('profile_id')
     .eq('provider', 'stripe')
     .eq('account_label', connectedAccountId)
     .single();
+
+  // PGRST116 = "no rows" (compte vraiment inconnu, pas d'erreur) — toute autre erreur
+  // (réseau, permissions) doit throw pour que le webhook réponde 500 et que Stripe
+  // retente, plutôt que de silencieusement perdre un paiement derrière un faux "ignoré".
+  if (integrationErr && integrationErr.code !== 'PGRST116') throw integrationErr;
 
   if (!integration?.profile_id) {
     console.warn(`Stripe Connect event ignoré — compte inconnu: ${connectedAccountId}`);

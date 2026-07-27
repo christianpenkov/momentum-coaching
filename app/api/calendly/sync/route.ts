@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { getCalendlyToken } from '@/lib/calendly-fetch';
 import { upsertProspect } from '@/lib/prospects';
 import { isValidContentId } from '@/lib/contentId';
 
@@ -8,56 +9,6 @@ const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-async function getFreshToken(profileId: string): Promise<string | null> {
-  const { data: integ } = await serviceSupabase
-    .from('integrations')
-    .select('access_token, refresh_token, expires_at')
-    .eq('profile_id', profileId)
-    .eq('provider', 'calendly')
-    .single();
-
-  if (!integ?.access_token) return null;
-
-  // Si token non expiré (avec 5 min de marge), on l'utilise directement
-  const expired = integ.expires_at && new Date(integ.expires_at).getTime() < Date.now() + 5 * 60 * 1000;
-
-  if (!expired) return integ.access_token;
-
-  // Token expiré — on rafraîchit
-  if (!integ.refresh_token) return null;
-
-  const credentials = Buffer.from(
-    `${process.env.CALENDLY_CLIENT_ID}:${process.env.CALENDLY_CLIENT_SECRET}`
-  ).toString('base64');
-
-  const res = await fetch('https://auth.calendly.com/oauth/token', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${credentials}`,
-    },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: integ.refresh_token,
-    }),
-  });
-
-  const data = await res.json();
-  if (!data.access_token) return null;
-
-  const expiresAt = data.expires_in
-    ? new Date(Date.now() + data.expires_in * 1000).toISOString()
-    : null;
-
-  await serviceSupabase.from('integrations').update({
-    access_token: data.access_token,
-    refresh_token: data.refresh_token || integ.refresh_token,
-    expires_at: expiresAt,
-  }).eq('profile_id', profileId).eq('provider', 'calendly');
-
-  return data.access_token;
-}
 
 export async function POST() {
   const supabase = await createServerClient();
@@ -83,7 +34,7 @@ export async function POST() {
     // calendlyProfileId reste user.id — l'élève héberge son propre Calendly leads
   }
 
-  const accessToken = await getFreshToken(calendlyProfileId);
+  const accessToken = await getCalendlyToken(calendlyProfileId);
   if (!accessToken) {
     return NextResponse.json({ error: 'Token Calendly expiré — reconnecte Calendly dans les réglages', needsReconnect: true }, { status: 401 });
   }

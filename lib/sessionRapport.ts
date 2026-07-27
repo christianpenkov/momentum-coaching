@@ -18,7 +18,6 @@ export function getPendingSessionRapports(calls: Call[]): Call[] {
   const now = Date.now();
   return calls.filter(c =>
     c.call_type === 'google' &&
-    c.calendly_event_uuid === null &&
     c.status === 'active' &&
     c.scheduled_at !== null &&
     new Date(c.scheduled_at).getTime() <= now &&

@@ -65,6 +65,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const [step, setStep] = useState<RapportStep>('show_up');
   const [revenue, setRevenue] = useState('');
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -82,6 +83,9 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setConfirmClose(true);
   }
 
+  // Lève une erreur si l'un des PATCH échoue — les appelants doivent catcher et ne PAS
+  // avancer d'étape (setStep) en cas d'échec, sinon l'UI célèbre un succès inexistant
+  // (deal/no-show/revenu jamais persisté en base sans que le coach s'en rende compte).
   async function patchRapport(patch: Record<string, any>) {
     const rapportFields: Record<string, any> = {};
     const callFields: Record<string, any> = {};
@@ -89,7 +93,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
       if (['rescheduled', 'rescheduled_at', 'scheduled_at'].includes(k)) callFields[k] = v;
       else rapportFields[k] = v;
     }
-    const calls: Promise<any>[] = [];
+    const calls: Promise<Response>[] = [];
     if (Object.keys(rapportFields).length > 0) {
       calls.push(fetch(`/api/calls/${callId}/rapport`, {
         method: 'PATCH',
@@ -104,7 +108,12 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
         body: JSON.stringify(callFields),
       }));
     }
-    await Promise.all(calls);
+    const results = await Promise.all(calls);
+    const failed = results.find(r => !r.ok);
+    if (failed) {
+      const data = await failed.json().catch(() => ({}));
+      throw new Error(data.error || "Erreur lors de l'enregistrement du rapport");
+    }
     window.dispatchEvent(new Event('notifs-refresh'));
   }
 
@@ -134,28 +143,40 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   async function confirmRescheduled(fields: Record<string, any> = {}) {
     setSaving(true);
-    await patchRapport({
-      outcome: 'rescheduled',
-      rescheduled: true,
-      rescheduled_at: new Date().toISOString(),
-      ...fields,
-    });
-    setSaving(false);
-    setStep('rescheduled_done');
+    setError(null);
+    try {
+      await patchRapport({
+        outcome: 'rescheduled',
+        rescheduled: true,
+        rescheduled_at: new Date().toISOString(),
+        ...fields,
+      });
+      setStep('rescheduled_done');
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function confirmRescheduledManual() {
     if (!manualValid) return;
     setSaving(true);
+    setError(null);
     const scheduledAtNew = new Date(`${manualDate}T${manualTimeStart}`).toISOString();
-    await patchRapport({
-      outcome: 'rescheduled',
-      rescheduled: true,
-      rescheduled_at: new Date().toISOString(),
-      scheduled_at: scheduledAtNew,
-    });
-    setSaving(false);
-    setStep('rescheduled_done');
+    try {
+      await patchRapport({
+        outcome: 'rescheduled',
+        rescheduled: true,
+        rescheduled_at: new Date().toISOString(),
+        scheduled_at: scheduledAtNew,
+      });
+      setStep('rescheduled_done');
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
   }
 
   // ── 2ème call ────────────────────────────────────────────────────────────────
@@ -184,48 +205,74 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   async function confirmSecondCallFound() {
     if (!foundCall) return;
     setSaving(true);
-    // Marquer le 2ème call comme is_follow_up=true
-    await fetch(`/api/client/calls/${foundCall.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ is_follow_up: true }),
-    });
-    await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-    setSaving(false);
-    setStep('second_call_done');
+    setError(null);
+    try {
+      // Marquer le 2ème call comme is_follow_up=true
+      const res = await fetch(`/api/client/calls/${foundCall.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_follow_up: true }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur lors de la liaison du 2ème call");
+      }
+      await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
+      setStep('second_call_done');
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function confirmSecondCallViaCalendly() {
     setSaving(true);
-    await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-    setSaving(false);
-    setStep('second_call_done');
+    setError(null);
+    try {
+      await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
+      setStep('second_call_done');
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function confirmSecondCallManual() {
     if (!manualValid) return;
     setSaving(true);
+    setError(null);
     const scheduledAtNew = new Date(`${manualDate}T${manualTimeStart}`).toISOString();
     // Calculer la durée depuis heure de fin
     const startMs = new Date(`${manualDate}T${manualTimeStart}`).getTime();
     const endMs   = new Date(`${manualDate}T${manualTimeEnd}`).getTime();
     const durationMin = Math.round((endMs - startMs) / 60000);
-    // Créer le 2ème call manuellement
-    await fetch('/api/client/calls', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        ig_username: null,
-        scheduled_at: scheduledAtNew,
-        duration: `${durationMin} min`,
-        invitee_name: inviteeName,
-        is_follow_up: true,
-        source: 'manual',
-      }),
-    });
-    await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-    setSaving(false);
-    setStep('second_call_done');
+    try {
+      // Créer le 2ème call manuellement
+      const res = await fetch('/api/client/calls', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ig_username: null,
+          scheduled_at: scheduledAtNew,
+          duration: `${durationMin} min`,
+          invitee_name: inviteeName,
+          is_follow_up: true,
+          source: 'manual',
+        }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || "Erreur lors de la création du 2ème call");
+      }
+      await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
+      setStep('second_call_done');
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
   }
 
   // ── Étapes existantes ────────────────────────────────────────────────────────
@@ -233,9 +280,15 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   async function handleShowUp(showedUp: boolean) {
     if (!showedUp) {
       setSaving(true);
-      await patchRapport({ no_show: true, deal_closed: false, revenue: 0, outcome: 'no_show' });
-      setSaving(false);
-      onClose();
+      setError(null);
+      try {
+        await patchRapport({ no_show: true, deal_closed: false, revenue: 0, outcome: 'no_show' });
+        onClose();
+      } catch (e: any) {
+        setError(e.message || 'Erreur lors de l\'enregistrement');
+      } finally {
+        setSaving(false);
+      }
     } else {
       setStep('qualified');
     }
@@ -243,17 +296,42 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
   async function handleQualified(qualified: boolean) {
     setSaving(true);
-    await patchRapport({ qualified });
-    setSaving(false);
-    setStep('closed');
+    setError(null);
+    try {
+      await patchRapport({ qualified });
+      setStep('closed');
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleRevenue() {
     const amount = parseFloat(revenue.replace(',', '.')) || 0;
     setSaving(true);
-    await patchRapport({ no_show: false, deal_closed: true, revenue: amount, outcome: 'closed' });
-    setSaving(false);
-    setStep('celebration');
+    setError(null);
+    try {
+      await patchRapport({ no_show: false, deal_closed: true, revenue: amount, outcome: 'closed' });
+      setStep('celebration');
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleToRecontact() {
+    setSaving(true);
+    setError(null);
+    try {
+      await patchRapport({ no_show: false, deal_closed: false, revenue: 0, outcome: 'to_recontact' });
+      onClose();
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
   }
 
   // ── Loading spinner ──────────────────────────────────────────────────────────
@@ -309,6 +387,13 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <Icon name="x" size={18} />
             </button>
           </div>
+
+          {error && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--red-soft, rgba(205,91,63,0.14))', color: 'var(--red)', borderRadius: 10, fontSize: 13, marginBottom: 20 }}>
+              <Icon name="alert" size={14} style={{ flexShrink: 0 }} />
+              {error}
+            </div>
+          )}
 
           {/* ── Étape 1 — présent ? ─────────────────────────────────────────── */}
           {step === 'show_up' && (
@@ -432,7 +517,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                   {isFollowUp ? 'Prochain call prévu' : '2ème call prévu'}
                 </button>
                 <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={async () => { setSaving(true); await patchRapport({ no_show: false, deal_closed: false, revenue: 0, outcome: 'to_recontact' }); setSaving(false); onClose(); }}>
+                  onClick={handleToRecontact}>
                   Pas closé — à recontacter
                 </button>
               </div>

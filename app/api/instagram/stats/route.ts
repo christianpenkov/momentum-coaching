@@ -1,48 +1,12 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { getIgCreds } from '@/lib/ig-fetch';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
-
-async function getRefreshedToken(profileId: string): Promise<{ token: string; igAccountId: string } | null> {
-  const { data: integ } = await serviceSupabase
-    .from('integrations')
-    .select('access_token, expires_at, metadata')
-    .eq('profile_id', profileId)
-    .eq('provider', 'instagram')
-    .single();
-
-  if (!integ?.access_token) return null;
-
-  const needsRefresh = integ.expires_at &&
-    new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
-
-  let token = integ.access_token;
-
-  if (needsRefresh) {
-    const res = await fetch(
-      `https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${token}`
-    );
-    const data = await res.json();
-    if (data.access_token) {
-      token = data.access_token;
-      const expiresAt = data.expires_in
-        ? new Date(Date.now() + data.expires_in * 1000).toISOString()
-        : null;
-      await serviceSupabase.from('integrations').update({
-        access_token: token,
-        expires_at: expiresAt,
-      }).eq('profile_id', profileId).eq('provider', 'instagram');
-    }
-  }
-
-  const igAccountId: string | null = (integ.metadata as any)?.ig_account_id || null;
-  if (!igAccountId) return null;
-  return { token, igAccountId };
-}
 
 export async function GET(request: Request) {
   const supabase = await createServerClient();
@@ -64,7 +28,7 @@ export async function GET(request: Request) {
     targetProfileId = profileId;
   }
 
-  const creds = await getRefreshedToken(targetProfileId);
+  const creds = await getIgCreds(targetProfileId);
   if (!creds) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
   const { token, igAccountId } = creds;

@@ -98,7 +98,6 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         .select('id, client_id, topic, scheduled_at, duration, call_type, calendly_event_uuid, status, session_completed, session_no_show')
         .eq('coach_id', profileId)
         .eq('call_type', 'google')
-        .is('calendly_event_uuid', null)
         .eq('status', 'active');
 
       const pendingSessionCalls = getPendingSessionRapports((googleCalls ?? []) as Call[]);
@@ -150,7 +149,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .eq('status', 'active')
       .is('outcome', null)
       .neq('ignored', true)
-      .not('calendly_event_uuid', 'is', null)
+      .eq('call_type', 'calendly')
       .lt('scheduled_at', now);
 
     if (calendlyConnectedAt) {
@@ -178,7 +177,7 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .from('calls')
       .select('id, topic, scheduled_at, duration')
       .eq('status', 'pending_acceptance')
-      .is('calendly_event_uuid', null);
+      .neq('call_type', 'calendly');
 
     const callRequestNotifs: AppNotif[] = (pendingCalls ?? []).map(c => ({
       id: `call_request_${c.id}`,

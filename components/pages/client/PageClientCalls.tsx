@@ -59,15 +59,18 @@ function MyCallNotes({ callId, initialNotes, initialDismissed, coachHasReported 
   const [dismissed, setDismissed] = useState(initialDismissed);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState(false);
 
   async function save() {
     setSaving(true);
-    await fetch(`/api/session-reports/by-call/${callId}/student-notes`, {
+    setError(false);
+    const res = await fetch(`/api/session-reports/by-call/${callId}/student-notes`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ student_notes: value }),
     });
     setSaving(false);
+    if (!res.ok) { setError(true); return; }
     setDismissed(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -75,12 +78,14 @@ function MyCallNotes({ callId, initialNotes, initialDismissed, coachHasReported 
 
   async function markDismissed() {
     setSaving(true);
-    await fetch(`/api/session-reports/by-call/${callId}/student-notes`, {
+    setError(false);
+    const res = await fetch(`/api/session-reports/by-call/${callId}/student-notes`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ dismissed: true }),
     });
     setSaving(false);
+    if (!res.ok) { setError(true); return; }
     setDismissed(true);
   }
 
@@ -116,8 +121,8 @@ function MyCallNotes({ callId, initialNotes, initialDismissed, coachHasReported 
                 Je n'ai rien à ajouter
               </button>
             ) : <span />}
-            <button className="btn-ghost" style={{ fontSize: 11 }} type="button" onClick={save} disabled={saving}>
-              {saved ? '✓ Sauvegardé' : saving ? 'Enregistrement…' : 'Sauvegarder'}
+            <button className="btn-ghost" style={{ fontSize: 11, color: error ? 'var(--red)' : undefined }} type="button" onClick={save} disabled={saving}>
+              {error ? 'Erreur — réessayer' : saved ? '✓ Sauvegardé' : saving ? 'Enregistrement…' : 'Sauvegarder'}
             </button>
           </div>
         </div>
@@ -173,7 +178,7 @@ export default function PageClientCalls() {
       .from('calls')
       .select('*')
       .eq('coach_id', user.id)
-      .not('calendly_event_uuid', 'is', null)
+      .eq('call_type', 'calendly')
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false });
 
@@ -199,7 +204,7 @@ export default function PageClientCalls() {
         .from('calls')
         .select('*')
         .eq('client_id', clientRow.id)
-        .is('calendly_event_uuid', null)
+        .neq('call_type', 'calendly')
         .neq('ignored', true)
         .order('scheduled_at', { ascending: false });
       googleCalls = (data as Call[]) || [];
@@ -252,7 +257,7 @@ export default function PageClientCalls() {
   }
 
   const now = new Date();
-  const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && !c.calendly_event_uuid);
+  const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && c.call_type !== 'calendly');
   const canceledCalls = calls.filter(c => ['canceled', 'cancelled', 'declined'].includes(c.status || ''));
   const upcoming = calls
     .filter(c => c.scheduled_at && new Date(c.scheduled_at) >= now && c.status === 'active')
@@ -267,7 +272,7 @@ export default function PageClientCalls() {
   // Rapports en attente : calls Calendly passés sans rapport rempli
   // outcome = source de vérité : null = pas rempli, renseigné = rempli (tous les chemins du formulaire écrivent outcome)
   const pendingRapports = calls.filter(c =>
-    c.calendly_event_uuid !== null &&
+    c.call_type === 'calendly' &&
     c.outcome === null &&
     c.status === 'active' &&
     c.scheduled_at !== null &&
@@ -543,7 +548,7 @@ export default function PageClientCalls() {
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {history.map((call) => {
-              const rapportPending = call.calendly_event_uuid && call.no_show === null && call.status === 'active';
+              const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
               return (
                 <div key={call.id} className="card" style={{ padding: '18px 20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
@@ -589,7 +594,7 @@ export default function PageClientCalls() {
                       {call.notes}
                     </div>
                   )}
-                  {!call.calendly_event_uuid && (
+                  {call.call_type !== 'calendly' && (
                     <MyCallNotes
                       callId={call.id}
                       initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
@@ -636,9 +641,12 @@ export default function PageClientCalls() {
                         onClick={async () => {
                           setDismissingCanceledId(call.id);
                           setConfirmDismissId(null);
-                          const res = await fetch(`/api/client/calls/${call.id}`, { method: 'DELETE' });
-                          if ((await res.json()).ok) setCalls(prev => prev.filter(c => c.id !== call.id));
-                          setDismissingCanceledId(null);
+                          try {
+                            const res = await fetch(`/api/client/calls/${call.id}`, { method: 'DELETE' });
+                            if (res.ok) setCalls(prev => prev.filter(c => c.id !== call.id));
+                          } finally {
+                            setDismissingCanceledId(null);
+                          }
                         }}
                         disabled={dismissingCanceledId === call.id}
                         style={{ fontSize: 11, color: 'var(--red)', border: 'none', background: 'none', cursor: 'pointer', padding: '2px 6px' }}

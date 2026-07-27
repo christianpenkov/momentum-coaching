@@ -5,6 +5,7 @@ import { AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Avatar from '@/components/ui/Avatar';
+import InlineLoader from '@/components/ui/InlineLoader';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon, { type IconName } from '@/components/ui/Icon';
@@ -28,12 +29,18 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
   const [accessMap, setAccessMap] = useState<Record<string, boolean>>({});
   const [toggling, setToggling] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const [resourcesRes, accessRes] = await Promise.all([
       supabase.from('resources').select('id, title, type').eq('coach_id', coachId).order('position'),
       supabase.from('resource_access').select('resource_id, unlocked').eq('client_id', clientProfileId),
     ]);
+    if (resourcesRes.error || accessRes.error) {
+      setError('Erreur de chargement des ressources');
+      setLoading(false);
+      return;
+    }
     setResources(resourcesRes.data || []);
     const map: Record<string, boolean> = {};
     for (const row of accessRes.data || []) map[row.resource_id] = row.unlocked;
@@ -45,14 +52,20 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
 
   async function toggleAccess(resourceId: string) {
     setToggling(t => ({ ...t, [resourceId]: true }));
+    setError(null);
     const current = accessMap[resourceId] ?? false;
     const newVal = !current;
-    await supabase.from('resource_access').upsert({
+    const { error: upsertErr } = await supabase.from('resource_access').upsert({
       resource_id: resourceId,
       client_id: clientProfileId,
       unlocked: newVal,
       unlocked_at: newVal ? new Date().toISOString() : null,
     }, { onConflict: 'resource_id,client_id' });
+    if (upsertErr) {
+      setError("Erreur — l'accès n'a pas pu être modifié");
+      setToggling(t => ({ ...t, [resourceId]: false }));
+      return;
+    }
     if (newVal) await supabase.from('resources').update({ is_new: true }).eq('id', resourceId);
     setAccessMap(prev => ({ ...prev, [resourceId]: newVal }));
     setToggling(t => ({ ...t, [resourceId]: false }));
@@ -63,6 +76,9 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
   const unlockedCount = Object.values(accessMap).filter(Boolean).length;
 
   if (loading) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Chargement des ressources…</div>;
+  if (error && resources.length === 0) return (
+    <div style={{ fontSize: 13, color: 'var(--red)', padding: '16px 0' }}>{error}</div>
+  );
   if (resources.length === 0) return (
     <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>
       Aucune ressource créée. Crée des ressources depuis la page <Link href="/ressources" style={{ color: 'var(--accent)' }}>Ressources</Link>.
@@ -71,6 +87,9 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
 
   return (
     <div>
+      {error && (
+        <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>
+      )}
       <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 12 }}>
         {unlockedCount}/{resources.length} ressource{resources.length !== 1 ? 's' : ''} débloquée{unlockedCount !== 1 ? 's' : ''} pour cet élève
       </div>
@@ -135,7 +154,7 @@ function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boo
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
-  const { getClient, toggleTask: ctxToggle, calls, refetch } = useSupabaseClients();
+  const { getClient, toggleTask: ctxToggle, calls, refetch, loading: clientsLoading } = useSupabaseClients();
   const client = getClient(id);
   const allTasks = client?.tasks || [];
   const tasks = allTasks.filter(t => !t.resolved_by_coach);
@@ -144,6 +163,8 @@ export default function PageClientDetail({ id }: Props) {
   const [note, setNote] = useState(client?.private_notes || '');
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
+  const [noteError, setNoteError] = useState(false);
+  const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [depotComment, setDepotComment] = useState('');
   const [depotFiles, setDepotFiles] = useState<{ name: string; type: string; comment: string }[]>([]);
@@ -220,6 +241,10 @@ export default function PageClientDetail({ id }: Props) {
     });
   }, [client?.profile_id]);
 
+  if (!client && clientsLoading) return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>
+  );
+
   if (!client) return (
     <div className="page-content">
       <div className="page-header"><h1 className="page-title">Client introuvable</h1></div>
@@ -247,30 +272,42 @@ export default function PageClientDetail({ id }: Props) {
   }
 
   async function resolveTask(taskId: string) {
-    await fetch(`/api/tasks/${taskId}`, {
+    setTaskActionError(null);
+    const res = await fetch(`/api/tasks/${taskId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ resolved_by_coach: true }),
     });
+    if (!res.ok) { setTaskActionError('Erreur — la tâche n\'a pas pu être résolue'); return; }
     refetch();
   }
 
   async function acknowledgeNoShow(reportId: string) {
-    await fetch(`/api/session-reports/${reportId}/acknowledge`, { method: 'PATCH' });
+    setTaskActionError(null);
+    const res = await fetch(`/api/session-reports/${reportId}/acknowledge`, { method: 'PATCH' });
+    if (!res.ok) { setTaskActionError('Erreur — l\'action n\'a pas pu être enregistrée'); return; }
     loadSessionReports();
   }
 
   async function saveNote() {
     setNoteSaving(true);
+    setNoteError(false);
     const supabase = createSupabase();
-    await supabase.from('clients').update({ private_notes: note }).eq('id', id);
+    const { error } = await supabase.from('clients').update({ private_notes: note }).eq('id', id);
     setNoteSaving(false);
+    if (error) { setNoteError(true); return; }
     setNoteSaved(true);
     setTimeout(() => setNoteSaved(false), 2000);
   }
 
   return (
     <div className="page-content">
+      {taskActionError && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 14px', background: 'var(--red-soft, rgba(205,91,63,0.14))', color: 'var(--red)', borderRadius: 10, fontSize: 13, marginBottom: 16 }}>
+          <Icon name="alert" size={14} style={{ flexShrink: 0 }} />
+          {taskActionError}
+        </div>
+      )}
       {/* Header */}
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
@@ -530,7 +567,9 @@ export default function PageClientDetail({ id }: Props) {
           style={{ width: '100%', minHeight: 120, marginTop: 16, padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface-2)', fontSize: 13, color: 'var(--accent)', resize: 'vertical', fontFamily: 'inherit', lineHeight: 1.6, outline: 'none', boxSizing: 'border-box' }}
         />
         <div style={{ marginTop: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <span style={{ fontSize: 11, color: 'var(--muted)' }}>{note.length} car.</span>
+          <span style={{ fontSize: 11, color: noteError ? 'var(--red)' : 'var(--muted)' }}>
+            {noteError ? 'Erreur — non sauvegardé' : `${note.length} car.`}
+          </span>
           <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={saveNote} disabled={noteSaving}>
             {noteSaved ? '✓ Sauvegardé' : noteSaving ? 'Enregistrement…' : 'Sauvegarder'}
           </button>
