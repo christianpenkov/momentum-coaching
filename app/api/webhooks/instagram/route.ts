@@ -343,8 +343,9 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Clic sur le bouton Quick Reply LM_LINK_CLICKED → envoyer DM2 (lien) puis DM3 (ouverture)
-      const quickReplyPayload = messaging.message?.quick_reply?.payload;
+      // Clic sur le bouton LM_LINK_CLICKED → envoyer DM2 (lien) puis DM3 (ouverture)
+      // Test generic template (postback) vs quick_reply — Meta peut renvoyer l'un ou l'autre selon le format envoyé
+      const quickReplyPayload = messaging.message?.quick_reply?.payload || messaging.postback?.payload;
       if (quickReplyPayload === 'LM_LINK_CLICKED' && senderId) {
         const { data: leadForDm2 } = await serviceSupabase
           .from('instagram_leads')
@@ -809,7 +810,9 @@ export async function POST(request: Request) {
       pushEvent({ type: 'lm_found', lmShortUrl: shortLink, dm1Text, dm2Text, dm3Text, mediaId });
 
       // Envoie DM 1 via private reply sur le commentaire
-      // Quick Reply : force l'utilisateur à cliquer pour ouvrir la fenêtre 24h Meta
+      // Test : generic template (attachment) au lieu de quick_replies — quick_replies ne
+      // s'affichait jamais côté client sur un envoi via recipient.comment_id (private reply).
+      // Le bouton postback force l'utilisateur à cliquer pour ouvrir la fenêtre 24h Meta.
       // Sans ce clic, le message reste en "Demandes" sans notification push
       const dm1Res = await fetch(
         `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
@@ -820,14 +823,24 @@ export async function POST(request: Request) {
             recipient: { comment_id: commentId },
             messaging_type: 'RESPONSE',
             message: {
-              text: dm1Text,
-              quick_replies: [
-                {
-                  content_type: 'text',
-                  title: buttonText,
-                  payload: 'LM_LINK_CLICKED',
+              attachment: {
+                type: 'template',
+                payload: {
+                  template_type: 'generic',
+                  elements: [
+                    {
+                      title: dm1Text.slice(0, 80),
+                      buttons: [
+                        {
+                          type: 'postback',
+                          title: buttonText,
+                          payload: 'LM_LINK_CLICKED',
+                        },
+                      ],
+                    },
+                  ],
                 },
-              ],
+              },
             },
             access_token,
           }),

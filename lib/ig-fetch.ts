@@ -344,14 +344,24 @@ export async function pollIgComments(
                   recipient: { comment_id: comment.id },
                   messaging_type: 'RESPONSE',
                   message: {
-                    text: dm1Text,
-                    quick_replies: [
-                      {
-                        content_type: 'text',
-                        title: buttonText,
-                        payload: 'LM_LINK_CLICKED',
+                    attachment: {
+                      type: 'template',
+                      payload: {
+                        template_type: 'generic',
+                        elements: [
+                          {
+                            title: dm1Text.slice(0, 80),
+                            buttons: [
+                              {
+                                type: 'postback',
+                                title: buttonText,
+                                payload: 'LM_LINK_CLICKED',
+                              },
+                            ],
+                          },
+                        ],
                       },
-                    ],
+                    },
                   },
                   access_token: token,
                 }),
