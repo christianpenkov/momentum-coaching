@@ -70,6 +70,7 @@ export default function PageClientSettings() {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false });
+  const [integrationLabels, setIntegrationLabels] = useState<Partial<Record<Provider, string>>>({});
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -95,11 +96,16 @@ export default function PageClientSettings() {
         if (coachProfile?.full_name) setCoachName(coachProfile.full_name.split(' ')[0]);
       }
 
-      const { data: integs } = await supabase.from('integrations').select('provider').eq('profile_id', user.id);
+      const { data: integs } = await supabase.from('integrations').select('provider, account_label').eq('profile_id', user.id);
       if (integs) {
         const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false } as Record<Provider, boolean>;
-        integs.forEach((i: { provider: string }) => { if (i.provider in map) map[i.provider as Provider] = true; });
+        const labels: Partial<Record<Provider, string>> = {};
+        integs.forEach((i: { provider: string; account_label: string | null }) => {
+          if (i.provider in map) map[i.provider as Provider] = true;
+          if (i.account_label) labels[i.provider as Provider] = i.account_label;
+        });
         setIntegrations(map);
+        setIntegrationLabels(labels);
       }
 
 }
@@ -275,6 +281,9 @@ export default function PageClientSettings() {
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc.replace('ton coach', coachName || 'ton coach')}</div>
+                    {integrationLabels[cfg.provider] && (
+                      <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integrationLabels[cfg.provider]}</div>
+                    )}
                   </div>
                   {connected ? (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
