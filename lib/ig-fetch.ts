@@ -307,7 +307,28 @@ export async function pollIgComments(
 
         leadsFound++;
 
-        // Upsert lead
+        // Le webhook temps réel traite normalement ce commentaire en quelques secondes.
+        // Un second DM1 envoyé trop tôt après le premier est silencieusement dégradé par
+        // Meta (bouton absent) — donc le poll n'envoie JAMAIS au premier passage où il
+        // constate l'absence de DM. Il note juste first_seen_without_dm. Ce n'est qu'au
+        // passage SUIVANT (≥ 4 min plus tard, marge de sécurité avant le prochain cycle
+        // de cron à 5 min) que le poll considère le webhook en échec et envoie lui-même.
+        const { data: existingLeadForMedia } = await serviceSupabase
+          .from('instagram_leads')
+          .select('id, lead_magnet_sent, first_seen_without_dm')
+          .eq('profile_id', profileId)
+          .eq('ig_user_id', commenterId)
+          .eq('media_id', media.id)
+          .maybeSingle();
+
+        if (existingLeadForMedia?.lead_magnet_sent) continue;
+
+        const firstSeenAt = existingLeadForMedia?.first_seen_without_dm
+          ? new Date(existingLeadForMedia.first_seen_without_dm).getTime()
+          : null;
+        const readyForBackupSend = firstSeenAt !== null && Date.now() - firstSeenAt >= 4 * 60 * 1000;
+
+        // Upsert lead — pose first_seen_without_dm seulement s'il n'existe pas déjà
         await serviceSupabase.from('instagram_leads').upsert({
           profile_id: profileId,
           source: 'comment',
@@ -320,10 +341,18 @@ export async function pollIgComments(
           detected_at: detectedAt,
           lead_magnet_sent: false,
           tracking_link: cl.lm_short_url || null,
+          first_seen_without_dm: existingLeadForMedia?.first_seen_without_dm || new Date().toISOString(),
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
 
-        // Envoyer DM LM (backup — le webhook l'a peut-être déjà envoyé)
-        // DM1 : accroche SANS le lien + bouton Quick Reply
+        if (!readyForBackupSend) {
+          console.warn(`[IG Poll] Commentaire "${cl.lm_keyword}" vu sans DM du webhook (ig_user_id=${commenterId}, media=${media.id}) — 1er passage, on attend le prochain cycle avant de backup.`);
+          continue;
+        }
+
+        console.warn(`[IG Poll] Webhook n'a toujours pas envoyé le DM1 après ${Math.round((Date.now() - firstSeenAt!) / 60000)} min — envoi backup (ig_user_id=${commenterId}, media=${media.id}).`);
+
+        // Envoyer DM LM (backup — le webhook a probablement échoué)
+        // DM1 : accroche SANS le lien + bouton postback (generic template)
         // DM2 (lien) et DM3 (ouverture) stockés en pending_dm2/pending_dm3, envoyés après clic du bouton
         if (cl.lm_short_url && cl.dm_lm_message) {
           const dm1Text = (cl.dm_lm_message || 'Clique sur le bouton pour recevoir le lien !')

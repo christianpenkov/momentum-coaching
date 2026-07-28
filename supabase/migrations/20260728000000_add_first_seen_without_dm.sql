@@ -1,0 +1,2 @@
+alter table instagram_leads add column if not exists first_seen_without_dm timestamptz;
+comment on column instagram_leads.first_seen_without_dm is 'Timestamp du premier passage du cron poll-leads (backup) constatant que ce commentaire n''a pas encore reçu de DM1 du webhook temps réel. Utilisé pour laisser une marge (~1 cycle de cron) avant que le poll envoie lui-même le DM1, évitant un double-envoi rapproché qui fait perdre le bouton côté Instagram.';
