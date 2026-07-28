@@ -210,6 +210,20 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
         if (!count || count === 0) continue;
 
         leadsFound++;
+
+        // Le webhook temps réel (Vercel, app/api/webhooks/instagram/route.ts) traite
+        // normalement ce commentaire en quelques secondes et pose lead_magnet_sent=true.
+        // Cette Edge Function tourne sur un cron indépendant — si elle retrouve un
+        // commentaire déjà traité par le webhook, elle ne doit JAMAIS renvoyer de DM1
+        // (un 2e envoi rapproché vers la même personne perd son bouton côté Instagram).
+        const { data: existingLead } = await supa
+          .from('instagram_leads')
+          .select('lead_magnet_sent')
+          .eq('profile_id', profileId)
+          .eq('ig_user_id', commenterId)
+          .eq('media_id', media.id)
+          .maybeSingle();
+
         await supa.from('instagram_leads').upsert({
           profile_id: profileId, source: 'comment',
           ig_username: commenterUsername || null, ig_user_id: commenterId,
@@ -218,15 +232,40 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
           detected_at: detectedAt, lead_magnet_sent: false, tracking_link: cl.lm_short_url || null,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
 
+        if (existingLead?.lead_magnet_sent) continue;
+
         if (cl.lm_short_url && cl.dm_lm_message) {
-          const dm1Text = (cl.dm_lm_message || '')
-            .replace(/\{\{lien_lm\}\}/gi, cl.lm_short_url)
-            .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`);
+          const buttonText = '🚀 Je veux le lien !';
+          const dm1Text = (cl.dm_lm_message || 'Clique sur le bouton pour recevoir le lien !')
+            .replace(/\{\{lien_lm\}\}/gi, '')
+            .replace(/{{username}}/gi, `@${commenterUsername || 'toi'}`)
+            .replace(/\s{2,}/g, ' ')
+            .trim();
           try {
             await fetch(`https://graph.instagram.com/v21.0/${igAccountId}/messages`, {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ recipient: { comment_id: comment.id }, message: { text: dm1Text }, access_token: token }),
+              body: JSON.stringify({
+                recipient: { comment_id: comment.id },
+                messaging_type: 'RESPONSE',
+                message: {
+                  attachment: {
+                    type: 'template',
+                    payload: {
+                      template_type: 'generic',
+                      elements: [{
+                        title: dm1Text.slice(0, 80),
+                        buttons: [{ type: 'postback', title: buttonText.slice(0, 20), payload: 'LM_LINK_CLICKED' }],
+                      }],
+                    },
+                  },
+                },
+                access_token: token,
+              }),
             });
+            await supa.from('instagram_leads')
+              .update({ pending_dm2: cl.lm_short_url, pending_dm3: cl.dm_opener_message || null })
+              .eq('profile_id', profileId)
+              .eq('ig_user_id', commenterId);
           } catch { /* non bloquant */ }
         }
       }
