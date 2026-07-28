@@ -361,6 +361,13 @@ export default function PageSettings() {
                   )}
                 </div>
 
+                {cfg.provider === 'instagram' && (
+                  <div style={{ padding: '0 20px 14px', fontSize: 11, color: 'var(--muted)', lineHeight: 1.5 }}>
+                    Votre compte Instagram est connecté via la technologie sécurisée UbizenAI. Vous pouvez révoquer cet accès ou demander la suppression de vos données à tout moment conformément à notre{' '}
+                    <a href="https://ubizenai.com/data-deletion.html" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Politique de suppression</a>.
+                  </div>
+                )}
+
                 {/* Formulaire clé API inline */}
                 {isEditing && cfg.mode === 'apikey' && (
                   <div style={{ padding: '0 20px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
