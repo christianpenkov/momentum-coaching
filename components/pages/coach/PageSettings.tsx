@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
 import type { Integration, Provider } from '@/lib/supabase/types';
+import LegalFooter from '@/components/ui/LegalFooter';
 
 type IntegrationMode = 'oauth' | 'apikey';
 
@@ -57,9 +58,9 @@ const INTEGRATION_CONFIG: {
     provider: 'instagram',
     name: 'Instagram',
     icon: 'instagram',
-    desc: 'Followers, engagement, métriques IG',
-    mode: 'apikey',
-    placeholder: 'Token API Instagram',
+    desc: 'Followers, engagement, métriques IG — connexion sécurisée via Facebook',
+    mode: 'oauth',
+    oauthPath: '/api/oauth/instagram',
   },
   {
     provider: 'youtube',
@@ -425,12 +426,6 @@ export default function PageSettings() {
                         <div>4. Copie la clé (commence par <code style={{ background: 'var(--surface-2)', padding: '1px 4px', borderRadius: 3 }}>sk_</code>) et colle-la ci-dessous — elle ne sera plus visible après</div>
                       </div>
                     )}
-                    {cfg.provider === 'instagram' && (
-                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Connexion Instagram :</div>
-                        <div>Le token Instagram est généré automatiquement via la connexion OAuth dans les réglages de compte. Si tu ne l'as pas encore, utilise le bouton <strong>"Connecter Instagram"</strong> depuis la page Analytics.</div>
-                      </div>
-                    )}
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                       Clé API {cfg.name}
                     </label>
@@ -490,6 +485,10 @@ export default function PageSettings() {
             </div>
           </button>
         </div>
+      </div>
+
+      <div style={{ marginTop: 28, padding: '0 20px' }}>
+        <LegalFooter />
       </div>
     </div>
   );

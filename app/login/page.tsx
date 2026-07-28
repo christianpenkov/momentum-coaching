@@ -4,6 +4,7 @@ import { useState, useRef } from 'react';
 import Image from 'next/image';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
+import LegalFooter from '@/components/ui/LegalFooter';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -123,10 +124,9 @@ export default function LoginPage() {
           </form>
         )}
       </div>
-      <p style={{ marginTop: 16, fontSize: 11, color: 'var(--muted)', textAlign: 'center', lineHeight: 1.6, width: 'min(400px, 100%)' }}>
-        Momentum est une plateforme éditée par l'Entreprise Individuelle Penkov Christian (UbizenAI) — SIREN 924 627 988 — Saint-Martin-d'Hères, France. Tous droits réservés.{' '}
-        <a href="/privacy" style={{ color: 'var(--muted)', textDecoration: 'underline' }}>Politique de confidentialité</a>
-      </p>
+      <div style={{ marginTop: 16, width: 'min(400px, 100%)' }}>
+        <LegalFooter />
+      </div>
     </div>
   );
 }
