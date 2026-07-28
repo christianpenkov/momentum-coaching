@@ -483,12 +483,14 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
     setError(null);
   }, [post.id]);
 
-  // Pré-sélectionner le LM associé quand on passe sur l'onglet leadmagnet
+  // Pré-sélectionner le LM associé quand on passe sur l'onglet leadmagnet — lmLmId
+  // (content_links.lm_id, le LM du DM) est la source de vérité stable, prioritaire sur
+  // descLmLmId (lien Description) et sur le mot-clé (casse si le LM est renommé après coup).
   useEffect(() => {
     if (destType === 'leadmagnet' && !selectedLmId) {
-      const linked = post.descLmLmId
-        ? leadMagnets.find(lm => lm.id === post.descLmLmId)
-        : leadMagnets.find(lm => lm.keyword === post.lmKeyword);
+      const linked = (post.lmLmId ? leadMagnets.find(lm => lm.id === post.lmLmId) : undefined)
+        ?? (post.descLmLmId ? leadMagnets.find(lm => lm.id === post.descLmLmId) : undefined)
+        ?? (post.lmKeyword ? leadMagnets.find(lm => lm.keyword === post.lmKeyword) : undefined);
       if (linked) setSelectedLmId(linked.id);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -629,10 +631,12 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
       )}
       {/* Lead magnet : uniquement le LM associé à ce contenu */}
       {destType === 'leadmagnet' && (() => {
-        // Trouve le LM associé : d'abord via desc_lm_lm_id, sinon via lm_keyword de l'onglet LM
-        const assocLm = leadMagnets.find(lm => lm.id === post.descLmLmId)
-          || (post.lmKeyword ? leadMagnets.find(lm => lm.keyword === post.lmKeyword) : undefined)
-          || (post.hasLeadMagnet ? leadMagnets[0] : undefined);
+        // Trouve le LM associé : lm_id (stable) en priorité, puis desc_lm_lm_id, puis
+        // mot-clé en dernier recours — jamais leadMagnets[0] au hasard (pouvait afficher
+        // un LM totalement incorrect si aucune des références ci-dessus ne matchait).
+        const assocLm = (post.lmLmId ? leadMagnets.find(lm => lm.id === post.lmLmId) : undefined)
+          ?? leadMagnets.find(lm => lm.id === post.descLmLmId)
+          ?? (post.lmKeyword ? leadMagnets.find(lm => lm.keyword === post.lmKeyword) : undefined);
         if (!assocLm) return (
           <div style={{ fontSize: 12, color: FAINT, background: SURFACE2, borderRadius: 8, padding: '10px 12px' }}>
             Associe d'abord un lead magnet à ce contenu via l'onglet <strong>Lead magnet</strong>.
@@ -898,11 +902,14 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   };
 
   const handleEditClick = () => {
-    // Pré-sélectionner le LM actuellement associé au post — post.descLmLmId appartient
-    // au lien Description (TabDesc), pas au lead magnet DM édité ici : le lookup par
-    // lmKeyword (celui réellement associé à ce DM) doit primer, descLmLmId en dernier
-    // recours seulement si aucun keyword n'est associé.
-    if (!selectedLmId && post.lmKeyword) {
+    // Pré-sélectionner le LM actuellement associé au post — lmLmId (content_links.lm_id)
+    // est la source de vérité stable, pas le mot-clé : si le mot-clé du LM est modifié
+    // après coup, le lookup par lmKeyword ne matche plus alors que lm_id reste valide.
+    // post.descLmLmId appartient au lien Description (TabDesc), à n'utiliser qu'en tout
+    // dernier recours si ni lm_id ni keyword ne donnent de résultat.
+    if (!selectedLmId && post.lmLmId) {
+      setSelectedLmId(post.lmLmId);
+    } else if (!selectedLmId && post.lmKeyword) {
       const linked = leadMagnets.find(lm => lm.keyword === post.lmKeyword);
       if (linked) setSelectedLmId(linked.id);
     } else if (!selectedLmId && post.descLmLmId) {
