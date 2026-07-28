@@ -898,12 +898,15 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
   };
 
   const handleEditClick = () => {
-    // Pré-sélectionner le LM actuellement associé au post
-    if (!selectedLmId && post.descLmLmId) {
-      setSelectedLmId(post.descLmLmId);
-    } else if (!selectedLmId && post.lmKeyword) {
+    // Pré-sélectionner le LM actuellement associé au post — post.descLmLmId appartient
+    // au lien Description (TabDesc), pas au lead magnet DM édité ici : le lookup par
+    // lmKeyword (celui réellement associé à ce DM) doit primer, descLmLmId en dernier
+    // recours seulement si aucun keyword n'est associé.
+    if (!selectedLmId && post.lmKeyword) {
       const linked = leadMagnets.find(lm => lm.keyword === post.lmKeyword);
       if (linked) setSelectedLmId(linked.id);
+    } else if (!selectedLmId && post.descLmLmId) {
+      setSelectedLmId(post.descLmLmId);
     }
     setEditing(true);
   };
