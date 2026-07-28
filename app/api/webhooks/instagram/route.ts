@@ -739,6 +739,33 @@ export async function POST(request: Request) {
         }
       }
 
+      // Verrou anti-course : Meta envoie parfois 2 notifications webhook quasi simultanées
+      // pour le même commentaire (double delivery), avec un detected_at parfois légèrement
+      // différent — le cooldown ci-dessus ne suffit pas seul car il lit avant que l'écriture
+      // finale (instagram_lead_lm_history, en fin de traitement) n'ait eu lieu. Cet INSERT est
+      // atomique : si une requête concurrente a déjà posé le verrou dans les 2 dernières
+      // minutes, celle-ci échoue sur la contrainte UNIQUE et on skip tout le traitement (Short.io,
+      // envoi DM1, etc).
+      if (commenterId) {
+        const lockCutoff = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+        await serviceSupabase
+          .from('ig_comment_processing_lock')
+          .delete()
+          .eq('profile_id', profile_id)
+          .eq('ig_user_id', commenterId)
+          .eq('media_id', mediaId)
+          .lt('locked_at', lockCutoff);
+
+        const { error: lockError } = await serviceSupabase
+          .from('ig_comment_processing_lock')
+          .insert({ profile_id, ig_user_id: commenterId, media_id: mediaId });
+
+        if (lockError) {
+          pushEvent({ type: 'concurrent_processing_skip', commenterUsername, keyword: matchedKeyword });
+          continue;
+        }
+      }
+
       let leadMagnetSent = false;
 
       // Génère un lien Short.io unique par (lead × post × keyword) si lm_url est disponible
