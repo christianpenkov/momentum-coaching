@@ -258,6 +258,7 @@ export async function POST(request: Request) {
         }
       } catch (e: any) { console.log(`[IG Webhook] erreur résolution entry.id: ${e?.message}`); }
     }
+    console.log(`[IG Webhook] resolvedMatch après résolution: ${resolvedMatch ? `profile_id=${resolvedMatch.profile_id}` : 'null'} — changes.length=${(entry.changes || []).length}, messaging.length=${(entry.messaging || []).length}`);
 
     // Valeur canonique du compte propriétaire — TOUJOURS celle stockée dans
     // integrations.metadata (résolue une fois via /me au callback OAuth), jamais la
@@ -701,6 +702,8 @@ export async function POST(request: Request) {
       const timestamp = value?.timestamp
         ? new Date(value.timestamp * 1000).toISOString()
         : new Date().toISOString();
+
+      console.log(`[IG Webhook] change comments: commentId=${commentId} mediaId=${mediaId} commenterUsername=${commenterUsername} text="${commentText}"`);
 
       if (!commentId || !commentText) continue;
       if (!commenterUsername) {
