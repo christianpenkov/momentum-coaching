@@ -1,0 +1,46 @@
+import { NextResponse } from 'next/server';
+import { createClient } from '@supabase/supabase-js';
+import { createClient as createServerClient } from '@/lib/supabase/server';
+
+// La déconnexion doit passer par le serveur (pas un DELETE direct depuis le
+// navigateur) car elle doit archiver les données actives AVANT de supprimer
+// integrations — sinon la PROCHAINE connexion (même vers un compte différent)
+// ne trouve plus de previousAccountId et ne déclenche jamais l'archivage
+// attendu (bug découvert le 2026-07-29 : lead/post d'un compte précédent
+// restait visible indéfiniment après une déconnexion manuelle).
+const IG_TABLES = [
+  'analytics_ig_posts_history', 'analytics_ig_stories_history', 'ig_stories',
+  'instagram_leads', 'instagram_lead_lm_history', 'content_links',
+  'ig_post_meta', 'analytics_daily_snapshots',
+];
+
+export async function POST() {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  const serviceSupabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  const now = new Date().toISOString();
+  try {
+    await Promise.all(IG_TABLES.map(t =>
+      serviceSupabase.from(t).update({ archived_at: now })
+        .eq('profile_id', user.id).is('archived_at', null)
+    ));
+  } catch (e) {
+    console.error('[IG disconnect] Erreur archivage:', e);
+    return NextResponse.json({ error: 'Erreur archivage' }, { status: 500 });
+  }
+
+  const { error } = await serviceSupabase
+    .from('integrations')
+    .delete()
+    .eq('profile_id', user.id)
+    .eq('provider', 'instagram');
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+  return NextResponse.json({ success: true });
+}

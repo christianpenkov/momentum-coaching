@@ -159,7 +159,14 @@ export default function PageClientSettings() {
 
   async function disconnect(provider: Provider) {
     if (!profileId) return;
-    await supabase.from('integrations').delete().eq('profile_id', profileId).eq('provider', provider);
+    // Instagram passe par une route serveur qui archive les données actives avant de
+    // supprimer integrations — sinon la prochaine reconnexion ne détecte plus de
+    // compte précédent et ne peut jamais archiver correctement (voir route API).
+    if (provider === 'instagram') {
+      await fetch('/api/oauth/instagram/disconnect', { method: 'POST' });
+    } else {
+      await supabase.from('integrations').delete().eq('profile_id', profileId).eq('provider', provider);
+    }
     setIntegrations(prev => ({ ...prev, [provider]: false }));
   }
 

@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
     .maybeSingle();
   const previousAccountId = (existingInteg?.metadata as any)?.ig_account_id ?? null;
 
-  if (previousAccountId && igAccountId && previousAccountId !== igAccountId) {
+  if (igAccountId) {
     const now = new Date().toISOString();
     const igTables = [
       'analytics_ig_posts_history', 'analytics_ig_stories_history', 'ig_stories',
@@ -102,18 +102,27 @@ export async function GET(request: NextRequest) {
       'ig_post_meta', 'analytics_daily_snapshots',
     ];
     try {
-      // Étape 1 : archiver tout ce qui est actif pour ce profil, peu importe le compte.
+      // Étape 1 : archiver tout ce qui est actif pour ce profil et n'appartient PAS au
+      // compte qu'on connecte maintenant. Se déclenche à CHAQUE connexion (pas
+      // seulement si previousAccountId diffère) — previousAccountId peut être null même
+      // quand une vraie bascule a eu lieu, si la déconnexion précédente a supprimé la
+      // ligne integrations (voir /api/oauth/instagram/disconnect) : il ne faut jamais
+      // dépendre de la mémoire de l'ancien compte pour savoir s'il faut archiver.
       await Promise.all(igTables.map(t =>
         serviceSupabase.from(t).update({ archived_at: now })
           .eq('profile_id', user.id).is('archived_at', null)
+          .or(`ig_account_id.is.null,ig_account_id.neq.${igAccountId}`)
       ));
-      // Étape 2 : désarchiver les lignes qui appartenaient déjà au NOUVEAU compte
-      // (cas "reconnexion d'un compte vu avant" — leurs données réapparaissent).
+      // Étape 2 : désarchiver les lignes qui appartenaient déjà à CE compte (reconnexion
+      // d'un compte déjà vu avant, y compris après une déconnexion qui a effacé
+      // previousAccountId) — leurs données réapparaissent.
       await Promise.all(igTables.map(t =>
         serviceSupabase.from(t).update({ archived_at: null })
           .eq('profile_id', user.id).eq('ig_account_id', igAccountId)
       ));
-      console.log(`[IG callback] Bascule de compte détectée (${previousAccountId} → ${igAccountId}) — archivage effectué.`);
+      if (previousAccountId !== igAccountId) {
+        console.log(`[IG callback] Bascule de compte détectée (${previousAccountId} → ${igAccountId}) — archivage effectué.`);
+      }
     } catch (e) {
       console.error('[IG callback] Erreur archivage bascule de compte:', e);
     }
