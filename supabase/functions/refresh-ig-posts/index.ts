@@ -21,27 +21,40 @@ function isoDate(daysAgo: number): string {
   return d.toISOString().split('T')[0];
 }
 
+// Le navigateur envoie une requête préflight OPTIONS (sans Authorization) avant le
+// vrai POST — sans ces headers CORS, le preflight recevait un 401 et le navigateur
+// bloquait le POST réel avant même qu'il ne parte.
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, content-type',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+};
+
 Deno.serve(async (req: Request) => {
+  if (req.method === 'OPTIONS') return new Response(null, { headers: corsHeaders });
+
+  const jsonHeaders = { ...corsHeaders, 'Content-Type': 'application/json' };
+
   const authHeader = req.headers.get('authorization') || '';
   const jwt = authHeader.replace(/^Bearer\s+/i, '');
-  if (!jwt) return new Response(JSON.stringify({ error: 'Non authentifié' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  if (!jwt) return new Response(JSON.stringify({ error: 'Non authentifié' }), { status: 401, headers: jsonHeaders });
 
   const authedSupa = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, { global: { headers: { Authorization: authHeader } } });
   const { data: { user }, error: authError } = await authedSupa.auth.getUser(jwt);
-  if (authError || !user) return new Response(JSON.stringify({ error: 'Non authentifié' }), { status: 401, headers: { 'Content-Type': 'application/json' } });
+  if (authError || !user) return new Response(JSON.stringify({ error: 'Non authentifié' }), { status: 401, headers: jsonHeaders });
 
   const body = await req.json().catch(() => ({}));
   const profileId: string = body.profile_id || user.id;
 
   if (profileId !== user.id) {
     const { data: clientRow } = await supa.from('clients').select('id').eq('profile_id', profileId).eq('coach_id', user.id).single();
-    if (!clientRow) return new Response(JSON.stringify({ error: 'Accès refusé' }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+    if (!clientRow) return new Response(JSON.stringify({ error: 'Accès refusé' }), { status: 403, headers: jsonHeaders });
   }
 
   const creds = await getIgCreds(supa, profileId);
-  if (!creds) return new Response(JSON.stringify({ error: 'no_token' }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+  if (!creds) return new Response(JSON.stringify({ error: 'no_token' }), { status: 404, headers: jsonHeaders });
 
   const errors = await snapshotIgPosts(supa, profileId, creds.token, creds.igAccountId, isoDate(1), true);
 
-  return new Response(JSON.stringify({ ok: errors.length === 0, errors }), { headers: { 'Content-Type': 'application/json' } });
+  return new Response(JSON.stringify({ ok: errors.length === 0, errors }), { headers: jsonHeaders });
 });
