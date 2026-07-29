@@ -241,30 +241,45 @@ export async function POST(request: Request) {
 
     // Si pas de match direct : Meta envoie systématiquement dans entry.id un ID
     // ALTERNATIF (probablement lié à la Page Facebook connectée), jamais l'ig_account_id
-    // stocké (résolu via /me au callback OAuth). Confirmé empiriquement le 2026-07-30 :
-    // GET graph.instagram.com/{entry.id}?fields=id renvoie le VRAI ig_account_id — donc
-    // il faut résoudre entry.id lui-même via l'API (avec n'importe quel token valide de
-    // la plateforme, cet endpoint accepte l'ID de n'importe quel compte IG public), puis
-    // comparer le id retourné à ig_account_id stocké. L'ancien fallback (avant le
-    // 2026-07-29) appelait cet endpoint avec le MAUVAIS paramètre (l'ig_account_id
-    // stocké au lieu de entry.id), ce qui ne pouvait jamais matcher — et la version
-    // durcie entre-temps (vérifier /me) ne pouvait pas non plus matcher puisque /me
-    // renvoie toujours l'ig_account_id, jamais entry.id. Ce fix résout enfin le bon ID.
-    if (!resolvedMatch && (allIg || []).length > 0) {
-      try {
-        const anyToken = (allIg as any[])[0].access_token;
+    // stocké (résolu via /me au callback OAuth) — confirmé empiriquement le 2026-07-30,
+    // toujours vrai, jamais un cas rare. GET graph.instagram.com/{entry.id}?fields=id
+    // renvoie le vrai ig_account_id, MAIS seulement avec un token du MÊME compte —
+    // n'importe quel autre token échoue avec "missing permissions" (testé : le token de
+    // rdj échoue sur l'entry.id d'un autre compte, exactement comme un token tiers). Pas
+    // de raccourci "un seul appel suffit" : il faut tester les tokens jusqu'à trouver
+    // celui qui répond avec succès. Pour ne pas rescanner tous les tokens à CHAQUE
+    // commentaire (coûteux à 20+ élèves), le mapping entry.id→ig_account_id trouvé une
+    // fois est mis en cache (stable, ne change jamais) dans ig_entry_id_mapping.
+    if (!resolvedMatch) {
+      const { data: cached } = await serviceSupabase
+        .from('ig_entry_id_mapping')
+        .select('ig_account_id')
+        .eq('entry_id', igAccountId)
+        .maybeSingle();
+      if (cached?.ig_account_id) {
+        resolvedMatch = (allIg || []).find((r: any) =>
+          String(r.metadata?.ig_account_id) === cached.ig_account_id
+        ) || null;
+        debugLog('résolution entry.id via cache', { igAccountId, ig_account_id: cached.ig_account_id, matched: !!resolvedMatch });
+      }
+    }
+    if (!resolvedMatch) {
+      const results = await Promise.allSettled((allIg || []).map(async (r: any) => {
         const resolveRes = await fetch(
-          `https://graph.instagram.com/v21.0/${igAccountId}?fields=id&access_token=${anyToken}`
+          `https://graph.instagram.com/v21.0/${igAccountId}?fields=id&access_token=${r.access_token}`
         );
         const resolveData = await resolveRes.json();
-        debugLog('résolution entry.id', { igAccountId, resolveData });
-        const resolvedId = resolveData?.id ? String(resolveData.id) : null;
-        if (resolvedId) {
-          resolvedMatch = (allIg || []).find((r: any) =>
-            String(r.metadata?.ig_account_id) === resolvedId
-          ) || null;
-        }
-      } catch (e: any) { debugLog('erreur résolution entry.id', { message: e?.message }); }
+        if (resolveData?.id && !resolveData.error) return r;
+        throw new Error('no match');
+      }));
+      const found = results.find((res): res is PromiseFulfilledResult<any> => res.status === 'fulfilled');
+      if (found) {
+        resolvedMatch = found.value;
+        debugLog('résolution entry.id via scan parallèle', { igAccountId, profile_id: resolvedMatch.profile_id });
+        serviceSupabase.from('ig_entry_id_mapping')
+          .upsert({ entry_id: igAccountId, ig_account_id: resolvedMatch.metadata?.ig_account_id }, { onConflict: 'entry_id' })
+          .then();
+      }
     }
     debugLog('resolvedMatch après résolution', {
       profile_id: resolvedMatch?.profile_id ?? null,
