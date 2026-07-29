@@ -231,29 +231,32 @@ export async function POST(request: Request) {
       String(r.metadata?.ig_account_id) === igAccountId
     ) || null;
 
-    // Si pas de match direct : Meta envoie parfois un page_id différent de
-    // l'ig_account_id stocké. On appelle /me avec chaque token et on ne retient QUE
-    // celui dont l'id retourné correspond exactement à entry.id — vérifier juste que
-    // le token "répond sans erreur" (ancien comportement) matchait le PREMIER compte
-    // IG de la plateforme dont le token était valide, peu importe s'il appartenait
-    // réellement à cet événement : ça pouvait attribuer un lead/webhook au mauvais
-    // profil dès que 2+ comptes IG étaient connectés sur la plateforme (bug trouvé le
-    // 2026-07-29 en testant l'isolation par compte : un lead a hérité de l'ig_account_id
-    // d'un profil de test totalement différent de celui réellement commenté).
-    if (!resolvedMatch) {
-      for (const r of (allIg || [])) {
-        try {
-          const checkRes = await fetch(
-            `https://graph.instagram.com/v21.0/me?fields=id&access_token=${r.access_token}`
-          );
-          const checkData = await checkRes.json();
-          console.log(`[IG Webhook] fallback /me pour profile_id=${r.profile_id}: ${JSON.stringify(checkData)} — cherché: ${igAccountId}`);
-          if (checkData.id && !checkData.error && String(checkData.id) === igAccountId) {
-            resolvedMatch = r;
-            break;
-          }
-        } catch (e: any) { console.log(`[IG Webhook] fallback /me erreur pour profile_id=${r.profile_id}: ${e?.message}`); }
-      }
+    // Si pas de match direct : Meta envoie systématiquement dans entry.id un ID
+    // ALTERNATIF (probablement lié à la Page Facebook connectée), jamais l'ig_account_id
+    // stocké (résolu via /me au callback OAuth). Confirmé empiriquement le 2026-07-30 :
+    // GET graph.instagram.com/{entry.id}?fields=id renvoie le VRAI ig_account_id — donc
+    // il faut résoudre entry.id lui-même via l'API (avec n'importe quel token valide de
+    // la plateforme, cet endpoint accepte l'ID de n'importe quel compte IG public), puis
+    // comparer le id retourné à ig_account_id stocké. L'ancien fallback (avant le
+    // 2026-07-29) appelait cet endpoint avec le MAUVAIS paramètre (l'ig_account_id
+    // stocké au lieu de entry.id), ce qui ne pouvait jamais matcher — et la version
+    // durcie entre-temps (vérifier /me) ne pouvait pas non plus matcher puisque /me
+    // renvoie toujours l'ig_account_id, jamais entry.id. Ce fix résout enfin le bon ID.
+    if (!resolvedMatch && (allIg || []).length > 0) {
+      try {
+        const anyToken = (allIg as any[])[0].access_token;
+        const resolveRes = await fetch(
+          `https://graph.instagram.com/v21.0/${igAccountId}?fields=id&access_token=${anyToken}`
+        );
+        const resolveData = await resolveRes.json();
+        console.log(`[IG Webhook] résolution entry.id=${igAccountId} → ${JSON.stringify(resolveData)}`);
+        const resolvedId = resolveData?.id ? String(resolveData.id) : null;
+        if (resolvedId) {
+          resolvedMatch = (allIg || []).find((r: any) =>
+            String(r.metadata?.ig_account_id) === resolvedId
+          ) || null;
+        }
+      } catch (e: any) { console.log(`[IG Webhook] erreur résolution entry.id: ${e?.message}`); }
     }
 
     // Valeur canonique du compte propriétaire — TOUJOURS celle stockée dans
