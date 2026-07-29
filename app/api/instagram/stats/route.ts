@@ -65,6 +65,7 @@ export async function GET(request: Request) {
     .from('analytics_daily_snapshots')
     .select('date, ig_reach, ig_followers, ig_accounts_engaged, ig_total_interactions, ig_views, ig_website_clicks, ig_profile_taps, ig_reach_follower, ig_reach_non_follower')
     .eq('profile_id', targetProfileId)
+    .is('archived_at', null)
     .gte('date', sinceDateStr)
     .lte('date', untilDateStr)
     .order('date', { ascending: true });
@@ -72,6 +73,7 @@ export async function GET(request: Request) {
     .from('analytics_ig_posts_history')
     .select('*')
     .eq('profile_id', targetProfileId)
+    .is('archived_at', null)
     .gte('snapshot_date', sinceDateStr)
     .lte('snapshot_date', untilDateStr)
     .order('snapshot_date', { ascending: false });

@@ -55,6 +55,7 @@ export async function GET(request: Request) {
     .from('ig_stories')
     .select('id, ig_story_id, storage_url, posted_at')
     .eq('sequence_id', sequenceId)
+    .is('archived_at', null)
     .order('posted_at', { ascending: true });
 
   const storyIds = (stories || []).map(s => s.ig_story_id);
@@ -101,7 +102,8 @@ export async function GET(request: Request) {
     .from('instagram_leads')
     .select('id')
     .eq('profile_id', targetProfileId)
-    .eq('story_sequence_id', sequenceId);
+    .eq('story_sequence_id', sequenceId)
+    .is('archived_at', null);
 
   const leadIds = (leads || []).map(l => l.id);
   const leadsCount = leadIds.length;
@@ -178,6 +180,7 @@ async function listAllSequences(profileId: string) {
     .from('ig_stories')
     .select('id, ig_story_id, sequence_id, storage_url, posted_at')
     .in('sequence_id', sequenceIds)
+    .is('archived_at', null)
     .order('posted_at', { ascending: true });
 
   const storyIds = (stories || []).map(s => s.ig_story_id);
@@ -202,7 +205,9 @@ async function listAllSequences(profileId: string) {
     storiesBySequence.get(s.sequence_id)!.push(s);
   }
 
-  const rows = sequences.map(seq => {
+  // story_sequences n'a pas d'archived_at propre — exclure les séquences fantômes
+  // dont toutes les stories ont été archivées par une bascule de compte IG.
+  const rows = sequences.filter(seq => (storiesBySequence.get(seq.id) || []).length > 0).map(seq => {
     const seqStories = storiesBySequence.get(seq.id) || [];
     const firstReach = seqStories[0] ? latestByStory.get(seqStories[0].ig_story_id)?.reach ?? null : null;
     const ctaStory = seqStories.find(s => s.id === seq.cta_story_id) ?? seqStories[seqStories.length - 1];
@@ -247,6 +252,7 @@ async function listSequenceFunnelRows(profileId: string) {
     .from('ig_stories')
     .select('id, ig_story_id, sequence_id, storage_url, posted_at')
     .in('sequence_id', sequenceIds)
+    .is('archived_at', null)
     .order('posted_at', { ascending: true });
   const storiesBySequence = new Map<string, typeof stories>();
   for (const s of stories || []) {
@@ -266,6 +272,7 @@ async function listSequenceFunnelRows(profileId: string) {
     .from('instagram_leads')
     .select('id, story_sequence_id, lead_magnet_sent, hook_replied')
     .eq('profile_id', profileId)
+    .is('archived_at', null)
     .not('story_sequence_id', 'is', null);
   const leadsBySequence = new Map<string, typeof leads>();
   for (const l of leads || []) {

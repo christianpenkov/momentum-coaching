@@ -15,7 +15,8 @@ export async function GET() {
   const { data, error } = await supa
     .from('content_links')
     .select('*')
-    .eq('profile_id', user.id);
+    .eq('profile_id', user.id)
+    .is('archived_at', null);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ content_links: data ?? [] });
@@ -44,12 +45,26 @@ export async function POST(request: Request) {
   if (dm_lm_message && dm_lm_message.length > 1000) return NextResponse.json({ error: 'dm_lm_message trop long (max 1000)' }, { status: 400 });
   if (dm_button_text && dm_button_text.length > 20) return NextResponse.json({ error: 'dm_button_text trop long (max 20)' }, { status: 400 });
 
+  // content_links sert aussi YouTube (platform='youtube') — ig_account_id n'a de sens
+  // que pour Instagram, résolu uniquement dans ce cas.
+  let igAccountId: string | null = null;
+  if (platform === 'instagram') {
+    const { data: integ } = await supa
+      .from('integrations')
+      .select('metadata')
+      .eq('profile_id', user.id)
+      .eq('provider', 'instagram')
+      .maybeSingle();
+    igAccountId = (integ?.metadata as any)?.ig_account_id ?? null;
+  }
+
   const { data, error } = await supa
     .from('content_links')
     .upsert({
       profile_id: user.id,
       content_id,
       platform,
+      ...(igAccountId && { ig_account_id: igAccountId }),
       ...(desc_short_url !== undefined && { desc_short_url }),
       ...(desc_short_id !== undefined && { desc_short_id }),
       ...(desc_short_path !== undefined && { desc_short_path }),

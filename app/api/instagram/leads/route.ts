@@ -40,6 +40,7 @@ export async function GET(request: Request) {
     .from('instagram_leads')
     .select('*', { count: 'exact' })
     .eq('profile_id', targetProfileId)
+    .is('archived_at', null)
     .order('detected_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -58,6 +59,7 @@ export async function GET(request: Request) {
     .from('instagram_leads')
     .select('source')
     .eq('profile_id', targetProfileId)
+    .is('archived_at', null)
     .gte('detected_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
 
   const dmCount = (counts || []).filter(l => l.source === 'dm').length;

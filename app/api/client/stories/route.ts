@@ -40,6 +40,7 @@ export async function GET(request: Request) {
     .from('ig_stories')
     .select('id, ig_story_id, storage_url, permalink, posted_at, expired_at, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name, cta_story_id, lm_id, lm_keyword, dm1_message, dm2_story_message, calendly_short_url)')
     .eq('profile_id', targetProfileId)
+    .is('archived_at', null)
     .order('posted_at', { ascending: false })
     .limit(200);
 

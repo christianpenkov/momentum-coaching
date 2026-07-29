@@ -20,15 +20,21 @@ export async function GET() {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const seqIds = (sequences || []).map(s => s.id);
+  // story_sequences n'a pas de colonne archived_at propre (pas dans les 8 tables IG
+  // migrées) — une séquence dont toutes les stories ont été archivées (bascule de
+  // compte IG) doit disparaître ici aussi, sinon elle reste visible en "fantôme" avec
+  // story_count=0. On ne compte donc que les stories actives.
   const { data: counts } = seqIds.length
-    ? await serviceSupabase.from('ig_stories').select('sequence_id').in('sequence_id', seqIds)
+    ? await serviceSupabase.from('ig_stories').select('sequence_id').in('sequence_id', seqIds).is('archived_at', null)
     : { data: [] };
   const countBySeq = new Map<string, number>();
   for (const row of counts || []) {
     countBySeq.set(row.sequence_id, (countBySeq.get(row.sequence_id) || 0) + 1);
   }
 
-  const rows = (sequences || []).map(s => ({ ...s, story_count: countBySeq.get(s.id) || 0 }));
+  const rows = (sequences || [])
+    .filter(s => (countBySeq.get(s.id) || 0) > 0)
+    .map(s => ({ ...s, story_count: countBySeq.get(s.id) || 0 }));
   return NextResponse.json({ sequences: rows });
 }
 
@@ -59,6 +65,7 @@ async function validateContiguity(
     .from('ig_stories')
     .select('id, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name)')
     .eq('profile_id', profileId)
+    .is('archived_at', null)
     .not('sequence_id', 'is', null)
     .gt('posted_at', minPosted)
     .lt('posted_at', maxPosted)

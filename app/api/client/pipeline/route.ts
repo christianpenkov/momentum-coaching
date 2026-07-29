@@ -40,6 +40,7 @@ export async function GET() {
     supa.from('instagram_leads')
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source, avatar_url')
       .eq('profile_id', user.id)
+      .is('archived_at', null)
       .order('detected_at', { ascending: false }),
     supa.from('prospect_links')
       .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached')
@@ -65,6 +66,7 @@ export async function GET() {
     supa.from('instagram_lead_lm_history')
       .select('id, ig_username, ig_user_id, keyword_matched, media_id, detected_at')
       .eq('profile_id', user.id)
+      .is('archived_at', null)
       .order('detected_at', { ascending: false }),
   ]);
 
@@ -76,6 +78,7 @@ export async function GET() {
     .from('ig_stories')
     .select('ig_story_id, sequence_id, story_sequences!ig_stories_sequence_id_fkey(name)')
     .eq('profile_id', user.id)
+    .is('archived_at', null)
     .not('sequence_id', 'is', null);
   const storySequenceByMediaId: Record<string, { sequenceId: string; sequenceName: string }> = {};
   for (const row of storyRows ?? []) {

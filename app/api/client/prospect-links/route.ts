@@ -60,6 +60,7 @@ export async function POST(request: Request) {
     .select('id, keyword_matched, source')
     .eq('profile_id', user.id)
     .eq('ig_username', ig_username)
+    .is('archived_at', null)
     .order('detected_at', { ascending: false })
     .limit(1)
     .maybeSingle();
