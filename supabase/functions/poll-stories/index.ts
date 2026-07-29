@@ -142,6 +142,7 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
         storage_url: storageUrl,
         permalink: story.permalink || null,
         posted_at: story.timestamp ? new Date(story.timestamp).toISOString() : new Date().toISOString(),
+        ig_account_id: igAccountId,
       }, { onConflict: 'profile_id,ig_story_id', ignoreDuplicates: false });
       if (upsertErr) { errors.push(`ig_stories_upsert_${igStoryId}: ${upsertErr.message}`); return; }
 
@@ -187,6 +188,7 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
         navigation_exits: exits,
         snapshot_date: isoDateParis(),
         snapshot_at: new Date().toISOString(),
+        ig_account_id: igAccountId,
       }, { onConflict: 'profile_id,ig_story_id,snapshot_date', ignoreDuplicates: false });
       if (historyErr) errors.push(`analytics_history_upsert_${igStoryId}: ${historyErr.message}`);
     } catch (e: any) {

@@ -82,6 +82,7 @@ export async function POST() {
       storage_url: storageUrl,
       permalink: story.permalink || null,
       posted_at: story.timestamp ? new Date(story.timestamp).toISOString() : new Date().toISOString(),
+      ig_account_id: creds.igAccountId,
     }, { onConflict: 'profile_id,ig_story_id', ignoreDuplicates: false });
     if (!upsertErr) found++;
   }));

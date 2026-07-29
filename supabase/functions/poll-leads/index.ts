@@ -207,6 +207,7 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
           ig_user_id: commenterId, keyword_matched: cl.lm_keyword,
           media_id: media.id, lm_url: cl.lm_short_url || null,
           lead_magnet_sent: false, detected_at: detectedAt,
+          ig_account_id: igAccountId,
         }, { count: 'exact' }).select();
         if (!count || count === 0) continue;
 
@@ -231,6 +232,7 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
           message: comment.text.slice(0, 500), media_id: media.id,
           media_permalink: media.permalink || null, keyword_matched: cl.lm_keyword,
           detected_at: detectedAt, lead_magnet_sent: false, tracking_link: cl.lm_short_url || null,
+          ig_account_id: igAccountId,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
 
         if (existingLead?.lead_magnet_sent) continue;

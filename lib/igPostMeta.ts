@@ -93,6 +93,7 @@ export async function resolveIgPostMeta(
       profile_id: profileId, media_id: id,
       caption: meta!.caption, permalink: meta!.permalink, thumbnail: meta!.thumbnail,
       updated_at: new Date().toISOString(),
+      ig_account_id: creds.igAccountId,
     })),
     { onConflict: 'profile_id,media_id', ignoreDuplicates: false }
   );
