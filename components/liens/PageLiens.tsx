@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, createContext, useCo
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
+import { createClient } from '@/lib/supabase/client';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -2348,6 +2349,27 @@ export default function PageLiens() {
   const { user } = useUser();
   const profileId = user?.id || '';
   const queryClient = useQueryClient();
+  const [refreshingPosts, setRefreshingPosts] = useState(false);
+
+  const handleRefreshPosts = async () => {
+    if (refreshingPosts) return;
+    setRefreshingPosts(true);
+    try {
+      const supabase = createClient();
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) return;
+      await fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/refresh-ig-posts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ profile_id: profileId }),
+      });
+      queryClient.invalidateQueries({ queryKey: ['liens-ig', profileId] });
+    } catch (e: any) {
+      console.error('[refresh-ig-posts]', e?.message);
+    } finally {
+      setRefreshingPosts(false);
+    }
+  };
 
   const [rightView, setRightView] = useState<RightView>(null);
   const [paramOpen, setParamOpen] = useState(false);
@@ -2720,6 +2742,13 @@ export default function PageLiens() {
             <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
           <div style={{ display: 'flex', gap: 6 }}>
+            <button onClick={handleRefreshPosts} disabled={refreshingPosts} style={{
+              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: refreshingPosts ? 'default' : 'pointer', transition: 'all .15s',
+              border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED, opacity: refreshingPosts ? 0.6 : 1,
+            }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshingPosts ? { animation: 'spin 1s linear infinite' } : undefined}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              Actualiser Posts
+            </button>
             <button onClick={handleHeaderLmLibrary} style={{
               display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
               border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
