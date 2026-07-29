@@ -168,6 +168,7 @@ export default function PageClientSettings() {
       await supabase.from('integrations').delete().eq('profile_id', profileId).eq('provider', provider);
     }
     setIntegrations(prev => ({ ...prev, [provider]: false }));
+    setIntegrationLabels(prev => { const next = { ...prev }; delete next[provider]; return next; });
   }
 
 
