@@ -108,21 +108,22 @@ export async function GET(request: NextRequest) {
       // quand une vraie bascule a eu lieu, si la déconnexion précédente a supprimé la
       // ligne integrations (voir /api/oauth/instagram/disconnect) : il ne faut jamais
       // dépendre de la mémoire de l'ancien compte pour savoir s'il faut archiver.
-      await Promise.all(igTables.map(t =>
-        serviceSupabase.from(t).update({ archived_at: now })
+      const archiveResults = await Promise.all(igTables.map(async t => {
+        const { error, count } = await serviceSupabase.from(t).update({ archived_at: now }, { count: 'exact' })
           .eq('profile_id', user.id).is('archived_at', null)
-          .or(`ig_account_id.is.null,ig_account_id.neq.${igAccountId}`)
-      ));
+          .or(`ig_account_id.is.null,ig_account_id.neq.${igAccountId}`);
+        return { t, count, error: error?.message };
+      }));
       // Étape 2 : désarchiver les lignes qui appartenaient déjà à CE compte (reconnexion
       // d'un compte déjà vu avant, y compris après une déconnexion qui a effacé
       // previousAccountId) — leurs données réapparaissent.
-      await Promise.all(igTables.map(t =>
-        serviceSupabase.from(t).update({ archived_at: null })
-          .eq('profile_id', user.id).eq('ig_account_id', igAccountId)
-      ));
-      if (previousAccountId !== igAccountId) {
-        console.log(`[IG callback] Bascule de compte détectée (${previousAccountId} → ${igAccountId}) — archivage effectué.`);
-      }
+      const unarchiveResults = await Promise.all(igTables.map(async t => {
+        const { error, count } = await serviceSupabase.from(t).update({ archived_at: null }, { count: 'exact' })
+          .eq('profile_id', user.id).eq('ig_account_id', igAccountId);
+        return { t, count, error: error?.message };
+      }));
+      console.log(`[IG callback] archive/désarchive pour profile_id=${user.id} previousAccountId=${previousAccountId} igAccountId=${igAccountId}:`,
+        JSON.stringify({ archived: archiveResults, unarchived: unarchiveResults }));
     } catch (e) {
       console.error('[IG callback] Erreur archivage bascule de compte:', e);
     }
@@ -176,6 +177,21 @@ export async function GET(request: NextRequest) {
     },
     body: JSON.stringify({ profile_id: user.id }),
   }).catch(e => console.error('[IG callback] backfill trigger failed:', e));
+
+  // Fire-and-forget refresh des posts — sans ça "Gérer mes liens" reste vide juste
+  // après une connexion tant que l'utilisateur ne clique pas lui-même sur Actualiser
+  // (le cron poll-leads ne tourne qu'1x/jour). Même Edge Function que le bouton
+  // Actualiser, appelée ici en mode serveur-à-serveur via CRON_SECRET.
+  if (igAccountId) {
+    fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/refresh-ig-posts`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'authorization': `Bearer ${process.env.CRON_SECRET}`,
+      },
+      body: JSON.stringify({ profile_id: user.id }),
+    }).catch(e => console.error('[IG callback] refresh-ig-posts trigger failed:', e));
+  }
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
