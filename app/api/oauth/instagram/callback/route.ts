@@ -81,6 +81,44 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  // Isolation par compte IG connecté (bascule + archivage) — si ce profil bascule vers
+  // un compte Instagram DIFFÉRENT de celui précédemment connecté, on archive toutes les
+  // données actives (jamais de DELETE) puis on désarchive celles qui appartenaient déjà
+  // au nouveau compte (reconnexion d'un compte déjà vu avant). Voir
+  // ~/.claude/plans/ok-nous-ici-on-proud-rocket.md pour le contexte complet.
+  const { data: existingInteg } = await serviceSupabase
+    .from('integrations')
+    .select('metadata')
+    .eq('profile_id', user.id)
+    .eq('provider', 'instagram')
+    .maybeSingle();
+  const previousAccountId = (existingInteg?.metadata as any)?.ig_account_id ?? null;
+
+  if (previousAccountId && igAccountId && previousAccountId !== igAccountId) {
+    const now = new Date().toISOString();
+    const igTables = [
+      'analytics_ig_posts_history', 'analytics_ig_stories_history', 'ig_stories',
+      'instagram_leads', 'instagram_lead_lm_history', 'content_links',
+      'ig_post_meta', 'analytics_daily_snapshots',
+    ];
+    try {
+      // Étape 1 : archiver tout ce qui est actif pour ce profil, peu importe le compte.
+      await Promise.all(igTables.map(t =>
+        serviceSupabase.from(t).update({ archived_at: now })
+          .eq('profile_id', user.id).is('archived_at', null)
+      ));
+      // Étape 2 : désarchiver les lignes qui appartenaient déjà au NOUVEAU compte
+      // (cas "reconnexion d'un compte vu avant" — leurs données réapparaissent).
+      await Promise.all(igTables.map(t =>
+        serviceSupabase.from(t).update({ archived_at: null })
+          .eq('profile_id', user.id).eq('ig_account_id', igAccountId)
+      ));
+      console.log(`[IG callback] Bascule de compte détectée (${previousAccountId} → ${igAccountId}) — archivage effectué.`);
+    } catch (e) {
+      console.error('[IG callback] Erreur archivage bascule de compte:', e);
+    }
+  }
+
   await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'instagram',
