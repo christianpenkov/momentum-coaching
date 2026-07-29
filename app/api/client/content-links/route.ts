@@ -45,10 +45,15 @@ export async function POST(request: Request) {
   if (dm_lm_message && dm_lm_message.length > 1000) return NextResponse.json({ error: 'dm_lm_message trop long (max 1000)' }, { status: 400 });
   if (dm_button_text && dm_button_text.length > 20) return NextResponse.json({ error: 'dm_button_text trop long (max 20)' }, { status: 400 });
 
-  // content_links sert aussi YouTube (platform='youtube') — ig_account_id n'a de sens
-  // que pour Instagram, résolu uniquement dans ce cas.
+  // content_links sert aussi YouTube — ig_account_id n'a de sens que pour Instagram
+  // (posts ET stories). Valeurs réelles envoyées par le frontend (PageLiens.tsx) :
+  // 'IG' | 'YT' | 'STORY' — pas 'instagram'/'youtube', comparaison insensible à la
+  // casse pour ne jamais rater ce cas silencieusement (bug trouvé le 2026-07-30 :
+  // ig_account_id restait NULL sur tous les content_links car la comparaison exacte
+  // à 'instagram' ne matchait jamais 'IG').
+  const platformLower = String(platform).toLowerCase();
   let igAccountId: string | null = null;
-  if (platform === 'instagram') {
+  if (platformLower === 'ig' || platformLower === 'story') {
     const { data: integ } = await supa
       .from('integrations')
       .select('metadata')

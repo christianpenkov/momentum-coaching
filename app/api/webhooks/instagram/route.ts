@@ -15,6 +15,14 @@ function sanitizeInstagramUsername(raw: string): string {
   return raw.toLowerCase().trim().replace(/^@/, '').replace(/\s+/g, '').replace(/[^a-z0-9._]/g, '');
 }
 
+// Insensible à la casse ET aux accents pour le matching mot-clé lead magnet — "Méta"
+// doit matcher le mot-clé "Meta" configuré par le coach (demande explicite Chris,
+// 2026-07-30). NFD décompose les caractères accentués en (lettre de base + diacritique
+// séparé), le \p{Diacritic} retire ensuite juste le diacritique.
+function normalizeForKeywordMatch(raw: string): string {
+  return raw.toLowerCase().trim().normalize('NFD').replace(/\p{Diacritic}/gu, '');
+}
+
 async function fetchAndStoreAvatar(igUserId: string, accessToken: string): Promise<string | null> {
   try {
     const profileRes = await fetch(
@@ -112,7 +120,7 @@ async function handleColdDmCandidate(params: {
   // de la conversation avant de créer la fiche.
   try {
     const convRes = await fetch(
-      `https://graph.instagram.com/v22.0/${igAccountId}/conversations?user_id=${recipientId}&fields=id,message_count&access_token=${token}`
+      `https://graph.instagram.com/v22.0/${canonicalIgAccountId ?? igAccountId}/conversations?user_id=${recipientId}&fields=id,message_count&access_token=${token}`
     );
     const convData = await convRes.json();
     const conv = convData?.data?.[0];
@@ -380,7 +388,7 @@ export async function POST(request: Request) {
         if (leadForDm2 && resolvedMatch) {
           const { access_token: at } = resolvedMatch;
           const sendDm = (text: string) => fetch(
-            `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+            `https://graph.instagram.com/v21.0/${canonicalIgAccountId ?? igAccountId}/messages`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -445,7 +453,7 @@ export async function POST(request: Request) {
             .eq('id', story.sequence_id)
             .maybeSingle();
 
-          if (seq?.lm_keyword && msgText.toLowerCase().includes(seq.lm_keyword.toLowerCase())) {
+          if (seq?.lm_keyword && normalizeForKeywordMatch(msgText).includes(normalizeForKeywordMatch(seq.lm_keyword))) {
             // Cooldown 1 min — même garde anti-doublon que le flux commentaires
             const cooldownCutoff = new Date(Date.now() - 60 * 1000).toISOString();
             const { data: recentDm } = await serviceSupabase
@@ -521,7 +529,7 @@ export async function POST(request: Request) {
             const dm2Text = (seq.dm2_story_message || '').replace(/{{username}}/gi, `@${senderUsername || 'toi'}`).trim();
 
             const sendDm = (text: string) => fetch(
-              `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+              `https://graph.instagram.com/v21.0/${canonicalIgAccountId ?? igAccountId}/messages`,
               {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -730,9 +738,11 @@ export async function POST(request: Request) {
         continue;
       }
 
-      // Cherche le content_link dont le keyword matche le commentaire
-      const text = commentText.toLowerCase().trim();
-      const cl = cls.find((c: any) => text.includes(c.lm_keyword.toLowerCase()));
+      // Cherche le content_link dont le keyword matche le commentaire — insensible à la
+      // casse ET aux accents ("Méta" doit matcher le mot-clé "Meta" configuré par le
+      // coach, demande explicite de Chris le 2026-07-30).
+      const text = normalizeForKeywordMatch(commentText);
+      const cl = cls.find((c: any) => text.includes(normalizeForKeywordMatch(c.lm_keyword)));
 
       if (!cl) {
         pushEvent({ type: 'keyword_no_match', text, available: cls.map((c: any) => c.lm_keyword) });
@@ -864,7 +874,7 @@ export async function POST(request: Request) {
       // Le bouton postback force l'utilisateur à cliquer pour ouvrir la fenêtre 24h Meta.
       // Sans ce clic, le message reste en "Demandes" sans notification push
       const dm1Res = await fetch(
-        `https://graph.instagram.com/v21.0/${igAccountId}/messages`,
+        `https://graph.instagram.com/v21.0/${canonicalIgAccountId ?? igAccountId}/messages`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
