@@ -2512,13 +2512,18 @@ export default function PageLiens() {
   const postsLoading = igLoading || ytLoading || shortioLoading || storiesLoading;
 
   const posts: Post[] = useMemo(() => {
-    const igPosts: Post[] = (igData?.posts || []).map((p: any) => ({
-      id: p.id,
-      caption: (p.caption || 'Publication Instagram').slice(0, 60),
-      platform: 'IG' as const,
-      thumbnail: p.thumbnail,
-      permalink: p.permalink || null,
-    }));
+    // Un post marqué deleted_at (absent de la dernière réponse Meta /media, voir
+    // snapshotIgPosts) reste dans l'historique analytics mais ne doit plus apparaître
+    // ici — "Gérer mes liens" ne gère que les posts encore actifs sur Instagram.
+    const igPosts: Post[] = (igData?.posts || [])
+      .filter((p: any) => !p.deletedAt)
+      .map((p: any) => ({
+        id: p.id,
+        caption: (p.caption || 'Publication Instagram').slice(0, 60),
+        platform: 'IG' as const,
+        thumbnail: p.thumbnail,
+        permalink: p.permalink || null,
+      }));
 
     const ytPosts: Post[] = (ytData?.videos || []).map((v: any) => ({
       id: v.id,

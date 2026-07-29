@@ -98,6 +98,27 @@ export async function snapshotIgPosts(
     const mediaData = await safeJson(mediaRes);
     const posts: any[] = mediaData.data || [];
 
+    // Un post absent de la réponse Meta actuelle mais présent en base (parmi les 90
+    // derniers jours, fenêtre couverte par /media limit=15+90j ailleurs dans ce fichier)
+    // a été supprimé côté Instagram — on le marque deleted_at plutôt que de l'effacer :
+    // l'historique de stats (analytics, rapports passés) doit rester intact, seul
+    // "Gérer mes liens" doit filtrer ces posts (deleted_at is null).
+    const currentPostIds = new Set(posts.map((p: any) => p.id));
+    const since90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const { data: existingRows } = await supa.from('analytics_ig_posts_history')
+      .select('post_id')
+      .eq('profile_id', profileId)
+      .is('deleted_at', null)
+      .gte('published_at', since90d);
+    const missingPostIds = [...new Set((existingRows ?? []).map((r: any) => r.post_id))]
+      .filter((id: string) => !currentPostIds.has(id));
+    if (missingPostIds.length) {
+      await supa.from('analytics_ig_posts_history')
+        .update({ deleted_at: new Date().toISOString() })
+        .eq('profile_id', profileId)
+        .in('post_id', missingPostIds);
+    }
+
     const snapshotAt = new Date().toISOString();
 
     const safeInsights = async (postId: string, metrics: string): Promise<Record<string, number>> => {
@@ -145,6 +166,10 @@ export async function snapshotIgPosts(
           total_interactions: m['total_interactions'] ?? null,
           snapshot_date: yesterday,
           snapshot_at: snapshotAt,
+          // Dé-marque explicitement si ce post avait été précédemment marqué supprimé
+          // (republié, ou faux positif d'une exécution antérieure) — un post présent
+          // dans la réponse Meta actuelle n'est par définition pas supprimé.
+          deleted_at: null,
         };
         if (isReel) {
           row.avg_watch_time_ms = m['ig_reels_avg_watch_time'] ?? null;

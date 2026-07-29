@@ -240,6 +240,7 @@ export async function GET(request: Request) {
       id: row.post_id,
       caption: row.caption ?? '',
       type: row.post_type ?? 'IMAGE',
+      deletedAt: row.deleted_at ?? null,
       thumbnail: row.thumbnail ?? null,
       timestamp: row.published_at ?? row.snapshot_date,
       permalink: row.permalink ?? null,
