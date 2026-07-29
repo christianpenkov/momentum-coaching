@@ -225,6 +225,7 @@ export async function POST(request: Request) {
 
   for (const entry of entries) {
     const igAccountId = String(entry.id);
+    console.log(`[IG Webhook] entry.id reçu: ${igAccountId} — comptes connus: ${JSON.stringify((allIg || []).map((r: any) => r.metadata?.ig_account_id))}`);
     // Trouve le profil par ig_account_id d'abord
     let resolvedMatch: any = (allIg || []).find((r: any) =>
       String(r.metadata?.ig_account_id) === igAccountId
@@ -246,11 +247,12 @@ export async function POST(request: Request) {
             `https://graph.instagram.com/v21.0/me?fields=id&access_token=${r.access_token}`
           );
           const checkData = await checkRes.json();
+          console.log(`[IG Webhook] fallback /me pour profile_id=${r.profile_id}: ${JSON.stringify(checkData)} — cherché: ${igAccountId}`);
           if (checkData.id && !checkData.error && String(checkData.id) === igAccountId) {
             resolvedMatch = r;
             break;
           }
-        } catch {}
+        } catch (e: any) { console.log(`[IG Webhook] fallback /me erreur pour profile_id=${r.profile_id}: ${e?.message}`); }
       }
     }
 
