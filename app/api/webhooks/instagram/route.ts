@@ -132,6 +132,7 @@ async function handleColdDmCandidate(params: {
       lead_magnet_sent: false,
       hook_replied:     false,
       detected_at:      now,
+      ig_account_id:    igAccountId,
     })
     .select('id')
     .maybeSingle();
@@ -297,6 +298,7 @@ export async function POST(request: Request) {
               keyword_matched:  'cold_dm',
               lead_magnet_sent: false,
               hook_replied:     false,
+              ig_account_id:    igAccountId,
             })
             .select('id')
             .single();
@@ -555,6 +557,7 @@ export async function POST(request: Request) {
                 story_id: story.id,
                 awaiting_story_followup: true,
                 hook_replied: false,
+                ig_account_id: igAccountId,
               }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
               .select('id')
               .maybeSingle();
@@ -586,6 +589,7 @@ export async function POST(request: Request) {
                   lm_url: shortLink || null,
                   lead_magnet_sent: leadMagnetSent,
                   detected_at: nowIso,
+                  ig_account_id: igAccountId,
                 }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
             }
 
@@ -915,6 +919,7 @@ export async function POST(request: Request) {
           tracking_link: shortLink || null,
           pending_dm2: dm2Text || null,
           pending_dm3: dm3Text || null,
+          ig_account_id: igAccountId,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
         .select('id')
         .maybeSingle();
@@ -968,6 +973,7 @@ export async function POST(request: Request) {
             lm_url: shortLink || null,
             lead_magnet_sent: leadMagnetSent,
             detected_at: timestamp,
+            ig_account_id: igAccountId,
           }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
       }
 
