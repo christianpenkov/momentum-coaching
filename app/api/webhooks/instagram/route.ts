@@ -15,6 +15,14 @@ function sanitizeInstagramUsername(raw: string): string {
   return raw.toLowerCase().trim().replace(/^@/, '').replace(/\s+/g, '').replace(/[^a-z0-9._]/g, '');
 }
 
+// Debug temporaire — les logs Vercel CLI ne capturent qu'un seul message par
+// invocation serverless (rétention courte, indexation lente), insuffisant pour
+// tracer un flux multi-étapes. Écrit en base pour un accès SQL immédiat et fiable.
+// À supprimer une fois l'investigation terminée (voir TODOS.md).
+function debugLog(message: string, data?: any) {
+  serviceSupabase.from('webhook_debug_log').insert({ message, data: data ?? null }).then();
+}
+
 // Insensible à la casse ET aux accents pour le matching mot-clé lead magnet — "Méta"
 // doit matcher le mot-clé "Meta" configuré par le coach (demande explicite Chris,
 // 2026-07-30). NFD décompose les caractères accentués en (lettre de base + diacritique
@@ -225,7 +233,7 @@ export async function POST(request: Request) {
 
   for (const entry of entries) {
     const igAccountId = String(entry.id);
-    console.log(`[IG Webhook] entry.id reçu: ${igAccountId} — comptes connus: ${JSON.stringify((allIg || []).map((r: any) => r.metadata?.ig_account_id))}`);
+    debugLog('entry.id reçu', { igAccountId, comptesConnus: (allIg || []).map((r: any) => r.metadata?.ig_account_id) });
     // Trouve le profil par ig_account_id d'abord
     let resolvedMatch: any = (allIg || []).find((r: any) =>
       String(r.metadata?.ig_account_id) === igAccountId
@@ -249,16 +257,20 @@ export async function POST(request: Request) {
           `https://graph.instagram.com/v21.0/${igAccountId}?fields=id&access_token=${anyToken}`
         );
         const resolveData = await resolveRes.json();
-        console.log(`[IG Webhook] résolution entry.id=${igAccountId} → ${JSON.stringify(resolveData)}`);
+        debugLog('résolution entry.id', { igAccountId, resolveData });
         const resolvedId = resolveData?.id ? String(resolveData.id) : null;
         if (resolvedId) {
           resolvedMatch = (allIg || []).find((r: any) =>
             String(r.metadata?.ig_account_id) === resolvedId
           ) || null;
         }
-      } catch (e: any) { console.log(`[IG Webhook] erreur résolution entry.id: ${e?.message}`); }
+      } catch (e: any) { debugLog('erreur résolution entry.id', { message: e?.message }); }
     }
-    console.log(`[IG Webhook] resolvedMatch après résolution: ${resolvedMatch ? `profile_id=${resolvedMatch.profile_id}` : 'null'} — changes.length=${(entry.changes || []).length}, messaging.length=${(entry.messaging || []).length}`);
+    debugLog('resolvedMatch après résolution', {
+      profile_id: resolvedMatch?.profile_id ?? null,
+      changesLength: (entry.changes || []).length,
+      messagingLength: (entry.messaging || []).length,
+    });
 
     // Valeur canonique du compte propriétaire — TOUJOURS celle stockée dans
     // integrations.metadata (résolue une fois via /me au callback OAuth), jamais la
@@ -703,7 +715,7 @@ export async function POST(request: Request) {
         ? new Date(value.timestamp * 1000).toISOString()
         : new Date().toISOString();
 
-      console.log(`[IG Webhook] change comments: commentId=${commentId} mediaId=${mediaId} commenterUsername=${commenterUsername} text="${commentText}"`);
+      debugLog('change comments', { commentId, mediaId, commenterUsername, text: commentText });
 
       if (!commentId || !commentText) continue;
       if (!commenterUsername) {
@@ -1017,8 +1029,9 @@ export async function POST(request: Request) {
       pushEvent({ type: 'lead_stored', commenterUsername, keyword: matchedKeyword, leadMagnetSent });
     }
   }
-  } catch (err) {
+  } catch (err: any) {
     console.error('[IG Webhook] Erreur non gérée — Meta recevra quand même 200:', err);
+    debugLog('Erreur non gérée', { message: err?.message, stack: err?.stack });
   }
 
   // Meta exige toujours un 200 immédiat
