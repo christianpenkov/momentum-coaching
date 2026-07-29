@@ -103,12 +103,20 @@ export async function snapshotIgPosts(
     // a été supprimé côté Instagram — on le marque deleted_at plutôt que de l'effacer :
     // l'historique de stats (analytics, rapports passés) doit rester intact, seul
     // "Gérer mes liens" doit filtrer ces posts (deleted_at is null).
+    // Filtre ig_account_id + archived_at IS NULL obligatoire : sinon un post d'un AUTRE
+    // compte (archivé après une bascule, donc invisible mais toujours en base) se
+    // retrouve marqué "supprimé" à tort dès que ce compte n'est plus le compte actif —
+    // bug trouvé le 2026-07-29 en testant le cycle A→B→A (le post de A disparaissait
+    // définitivement de "Gérer mes liens" après un passage par B, alors qu'il n'avait
+    // jamais été supprimé sur Instagram).
     const currentPostIds = new Set(posts.map((p: any) => p.id));
     const since90d = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     const { data: existingRows } = await supa.from('analytics_ig_posts_history')
       .select('post_id')
       .eq('profile_id', profileId)
+      .eq('ig_account_id', igAccountId)
       .is('deleted_at', null)
+      .is('archived_at', null)
       .gte('published_at', since90d);
     const missingPostIds = [...new Set((existingRows ?? []).map((r: any) => r.post_id))]
       .filter((id: string) => !currentPostIds.has(id));
