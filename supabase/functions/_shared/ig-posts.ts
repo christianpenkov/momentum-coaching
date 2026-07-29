@@ -170,6 +170,7 @@ export async function snapshotIgPosts(
           // (republié, ou faux positif d'une exécution antérieure) — un post présent
           // dans la réponse Meta actuelle n'est par définition pas supprimé.
           deleted_at: null,
+          ig_account_id: igAccountId,
         };
         if (isReel) {
           row.avg_watch_time_ms = m['ig_reels_avg_watch_time'] ?? null;

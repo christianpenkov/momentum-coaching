@@ -299,6 +299,7 @@ export async function pollIgComments(
             lm_url: cl.lm_short_url || null,
             lead_magnet_sent: false,
             detected_at: detectedAt,
+            ig_account_id: igAccountId,
           }, { count: 'exact' })
           .select();
 
@@ -342,6 +343,7 @@ export async function pollIgComments(
           lead_magnet_sent: false,
           tracking_link: cl.lm_short_url || null,
           first_seen_without_dm: existingLeadForMedia?.first_seen_without_dm || new Date().toISOString(),
+          ig_account_id: igAccountId,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
 
         if (!readyForBackupSend) {
