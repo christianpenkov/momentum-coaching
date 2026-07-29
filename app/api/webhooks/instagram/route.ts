@@ -76,8 +76,9 @@ async function handleColdDmCandidate(params: {
   recipientId: string;
   resolvedMatch: { access_token: string } | null;
   igAccountId: string;
+  canonicalIgAccountId: string | null;
 }): Promise<void> {
-  const { pid, recipientId, resolvedMatch, igAccountId } = params;
+  const { pid, recipientId, resolvedMatch, igAccountId, canonicalIgAccountId } = params;
   if (!recipientId || !resolvedMatch) return;
 
   // Filtre 1 — déjà connu du pipeline (lead ou prospect_link) → relance, pas Cold DM
@@ -132,7 +133,7 @@ async function handleColdDmCandidate(params: {
       lead_magnet_sent: false,
       hook_replied:     false,
       detected_at:      now,
-      ig_account_id:    igAccountId,
+      ig_account_id:    canonicalIgAccountId ?? igAccountId,
     })
     .select('id')
     .maybeSingle();
@@ -221,22 +222,39 @@ export async function POST(request: Request) {
       String(r.metadata?.ig_account_id) === igAccountId
     ) || null;
 
-    // Si pas de match direct : Meta envoie un page_id différent de l'ig_account_id
-    // On teste chaque token pour trouver lequel appartient à ce compte
+    // Si pas de match direct : Meta envoie parfois un page_id différent de
+    // l'ig_account_id stocké. On appelle /me avec chaque token et on ne retient QUE
+    // celui dont l'id retourné correspond exactement à entry.id — vérifier juste que
+    // le token "répond sans erreur" (ancien comportement) matchait le PREMIER compte
+    // IG de la plateforme dont le token était valide, peu importe s'il appartenait
+    // réellement à cet événement : ça pouvait attribuer un lead/webhook au mauvais
+    // profil dès que 2+ comptes IG étaient connectés sur la plateforme (bug trouvé le
+    // 2026-07-29 en testant l'isolation par compte : un lead a hérité de l'ig_account_id
+    // d'un profil de test totalement différent de celui réellement commenté).
     if (!resolvedMatch) {
       for (const r of (allIg || [])) {
         try {
           const checkRes = await fetch(
-            `https://graph.instagram.com/v21.0/${r.metadata?.ig_account_id}?fields=id&access_token=${r.access_token}`
+            `https://graph.instagram.com/v21.0/me?fields=id&access_token=${r.access_token}`
           );
           const checkData = await checkRes.json();
-          if (checkData.id && !checkData.error) {
+          if (checkData.id && !checkData.error && String(checkData.id) === igAccountId) {
             resolvedMatch = r;
             break;
           }
         } catch {}
       }
     }
+
+    // Valeur canonique du compte propriétaire — TOUJOURS celle stockée dans
+    // integrations.metadata (résolue une fois via /me au callback OAuth), jamais la
+    // valeur brute igAccountId (=entry.id) envoyée par Meta dans ce webhook : dès que
+    // le match direct échouait (entry.id ≠ valeur stockée, cas non rare vu le fallback
+    // ci-dessus), toutes les écritures posaient le mauvais ig_account_id — cassant
+    // l'isolation par compte pour n'importe quel lead créé via ce chemin.
+    const canonicalIgAccountId: string | null = resolvedMatch?.metadata?.ig_account_id
+      ? String(resolvedMatch.metadata.ig_account_id)
+      : igAccountId;
 
     // ── Events messaging (DMs entrants) — détection réponse au message d'accroche ──
     for (const messaging of entry.messaging || []) {
@@ -264,7 +282,7 @@ export async function POST(request: Request) {
           // Pas de lien Calendly dans l'echo → candidat Cold DM générique : premier
           // message manuel envoyé par Chris depuis l'app Instagram à quelqu'un qui
           // vient de le suivre, sans commentaire ni lead magnet.
-          await handleColdDmCandidate({ pid, recipientId, resolvedMatch, igAccountId });
+          await handleColdDmCandidate({ pid, recipientId, resolvedMatch, igAccountId, canonicalIgAccountId });
           continue;
         }
 
@@ -298,7 +316,7 @@ export async function POST(request: Request) {
               keyword_matched:  'cold_dm',
               lead_magnet_sent: false,
               hook_replied:     false,
-              ig_account_id:    igAccountId,
+              ig_account_id:    canonicalIgAccountId ?? igAccountId,
             })
             .select('id')
             .single();
@@ -557,7 +575,7 @@ export async function POST(request: Request) {
                 story_id: story.id,
                 awaiting_story_followup: true,
                 hook_replied: false,
-                ig_account_id: igAccountId,
+                ig_account_id: canonicalIgAccountId,
               }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
               .select('id')
               .maybeSingle();
@@ -589,7 +607,7 @@ export async function POST(request: Request) {
                   lm_url: shortLink || null,
                   lead_magnet_sent: leadMagnetSent,
                   detected_at: nowIso,
-                  ig_account_id: igAccountId,
+                  ig_account_id: canonicalIgAccountId,
                 }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
             }
 
@@ -919,7 +937,7 @@ export async function POST(request: Request) {
           tracking_link: shortLink || null,
           pending_dm2: dm2Text || null,
           pending_dm3: dm3Text || null,
-          ig_account_id: igAccountId,
+          ig_account_id: canonicalIgAccountId,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
         .select('id')
         .maybeSingle();
@@ -973,7 +991,7 @@ export async function POST(request: Request) {
             lm_url: shortLink || null,
             lead_magnet_sent: leadMagnetSent,
             detected_at: timestamp,
-            ig_account_id: igAccountId,
+            ig_account_id: canonicalIgAccountId,
           }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
       }
 
