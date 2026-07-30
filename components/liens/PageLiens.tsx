@@ -1251,6 +1251,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         </div>
       </div>
 
+      {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
@@ -1319,6 +1320,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot sous ce contenu, il reçoit le LM en DM automatiquement.</div>
       </div>
 
+      {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
@@ -2741,7 +2743,8 @@ export default function PageLiens() {
       <div className="liens-shell">
 
         {/* Header */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: `1px solid ${BORDER}`, background: SURFACE, flexShrink: 0 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: domainsLoaded && domains.length === 0 ? 'none' : `1px solid ${BORDER}`, background: SURFACE }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: INK, letterSpacing: '-0.01em' }}>Gérer mes liens</div>
             <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
@@ -2772,6 +2775,13 @@ export default function PageLiens() {
               )}
             </button>
           </div>
+        </div>
+
+        {domainsLoaded && domains.length === 0 && (
+          <div style={{ padding: '8px 20px', background: AMBER_SOFT, borderBottom: `1px solid ${BORDER}` }}>
+            <span style={{ fontSize: 12, color: AMBER, fontWeight: 600 }}>⚠ Short.io non connecté — configure ta clé dans Réglages pour pouvoir associer un lead magnet à un contenu.</span>
+          </div>
+        )}
         </div>
 
         {/* ── Panneau mobile "Mes liens" (seul onglet — fusion de l'ancien "Générer un
