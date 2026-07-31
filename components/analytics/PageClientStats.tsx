@@ -1015,7 +1015,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                   {completion && <div style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(63,138,82,.85)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>{completion}</div>}
                 </div>
                 <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span>❤️ {post.likes ?? '—'}</span>
                     <span>👁 {post.reach ?? '—'}</span>
@@ -1044,7 +1044,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                   )}
                 </div>
                 <div style={{ padding: '8px 10px' }}>
-                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(s.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}</div>
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(s.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}</div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11 }}>
                     <span>👁 {s.reach ?? '—'}</span>
                     <span>▶ {s.views ?? '—'}</span>
@@ -1156,7 +1156,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 600 }}>{new Date(selectedPost.timestamp).toLocaleDateString('fr-FR', { dateStyle: 'long' })}</div>
+                <div style={{ fontSize: 13, fontWeight: 600 }}>{new Date(selectedPost.timestamp).toLocaleDateString('fr-FR', { dateStyle: 'long', timeZone: 'Europe/Paris' })}</div>
                 <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
                   {selectedPost.type === 'VIDEO' || selectedPost.type === 'REEL' || selectedPost.type === 'REELS' ? 'Reel' : selectedPost.type === 'CAROUSEL_ALBUM' ? 'Carousel' : 'Image'}
                 </div>
@@ -1195,11 +1195,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               </>}
             </div>
             <div style={{ marginTop: 16, paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
                 {[
                   ['ER', selectedPost.totalInteractions && selectedPost.reach ? fmtPct(pct(selectedPost.totalInteractions, selectedPost.reach)) : '—', 'Engagement rate'],
                   ['Save rate', selectedPost.saved && selectedPost.reach ? fmtPct(pct(selectedPost.saved, selectedPost.reach)) : '—', 'Saves / Reach'],
-                  ['Followers reach rate', selectedPost.reach && ig.followers ? fmtPct(pct(selectedPost.reach, ig.followers)) : '—', 'Reach / Abonnés'],
                 ].map(([label, value, desc], i) => (
                   <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', textAlign: 'center' }}>
                     <div style={{ fontSize: 10, color: 'var(--muted)' }}>{label}</div>
@@ -1224,7 +1223,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
         <ModalOverlay onClose={() => setSelectedStory(null)}>
           <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxWidth: 480 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 16 }}>
-              <div style={{ fontSize: 13, color: 'var(--muted)' }}>{new Date(selectedStory.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' })}</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)' }}>{new Date(selectedStory.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}</div>
               <button onClick={() => setSelectedStory(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

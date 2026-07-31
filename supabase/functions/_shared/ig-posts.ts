@@ -129,15 +129,25 @@ export async function snapshotIgPosts(
 
     const snapshotAt = new Date().toISOString();
 
-    const safeInsights = async (postId: string, metrics: string): Promise<Record<string, number>> => {
+    // Un seul appel groupé (metric=a,b,c) perd TOUTES les métriques du groupe si Meta en
+    // refuse ne serait-ce qu'une seule (posts trop anciens hors fenêtre de rétention
+    // insights, ou publiés avant passage en compte pro) — cas fréquent sur les posts les
+    // plus vieux. On appelle donc chaque métrique individuellement pour isoler les échecs :
+    // une métrique refusée par Meta ne doit plus faire perdre les autres qui auraient
+    // répondu normalement.
+    const safeInsight = async (postId: string, metric: string): Promise<number | null> => {
       try {
-        const r = await fetch(`https://graph.instagram.com/v22.0/${postId}/insights?metric=${metrics}&access_token=${token}`);
+        const r = await fetch(`https://graph.instagram.com/v22.0/${postId}/insights?metric=${metric}&access_token=${token}`);
         const d = r.ok ? await safeJson(r) : {};
-        if (d?.error || !d?.data) return {};
-        const out: Record<string, number> = {};
-        for (const m of d.data) out[m.name] = m.values?.[0]?.value ?? m.total_value?.value ?? 0;
-        return out;
-      } catch { return {}; }
+        if (d?.error || !d?.data?.length) return null;
+        return d.data[0].values?.[0]?.value ?? d.data[0].total_value?.value ?? null;
+      } catch { return null; }
+    };
+    const safeInsights = async (postId: string, metrics: string[]): Promise<Record<string, number>> => {
+      const out: Record<string, number> = {};
+      const values = await Promise.all(metrics.map(metric => safeInsight(postId, metric)));
+      metrics.forEach((metric, i) => { if (values[i] !== null) out[metric] = values[i]!; });
+      return out;
     };
 
     await Promise.allSettled(posts.map(async (post: any) => {
@@ -145,11 +155,11 @@ export async function snapshotIgPosts(
         const isReel = post.media_product_type === 'REELS' || post.media_type === 'VIDEO';
 
         const m: Record<string, number> = {};
-        Object.assign(m, await safeInsights(post.id, 'reach,saved,shares,total_interactions,views'));
+        Object.assign(m, await safeInsights(post.id, ['reach', 'saved', 'shares', 'total_interactions', 'views']));
         if (isReel) {
-          Object.assign(m, await safeInsights(post.id, 'ig_reels_avg_watch_time,ig_reels_video_view_total_time,reels_skip_rate'));
+          Object.assign(m, await safeInsights(post.id, ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_time', 'reels_skip_rate']));
         } else {
-          Object.assign(m, await safeInsights(post.id, 'follows,profile_visits'));
+          Object.assign(m, await safeInsights(post.id, ['follows', 'profile_visits']));
         }
 
         const metaThumbnailUrl = post.thumbnail_url || post.media_url || null;
@@ -184,6 +194,7 @@ export async function snapshotIgPosts(
           row.avg_watch_time_ms = m['ig_reels_avg_watch_time'] ?? null;
           row.total_watch_time_ms = m['ig_reels_video_view_total_time'] ?? null;
           row.video_duration_sec = post.video_duration ? Math.round(post.video_duration) : null;
+          row.skip_rate = m['reels_skip_rate'] ?? null;
         }
 
         const { error } = await supa.from('analytics_ig_posts_history').upsert(row, { onConflict: 'profile_id,post_id,snapshot_date', ignoreDuplicates: false });
