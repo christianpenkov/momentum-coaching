@@ -16,7 +16,7 @@ import { useUser } from '@/lib/UserContext';
 import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
 import { compressImageIfNeeded } from '@/lib/compressImage';
 import { useUnreadCountsByClient } from '@/lib/useUnreadCountsByClient';
-import { useSignedMediaUrls } from '@/lib/useSignedMediaUrls';
+import { useBlobMediaCache } from '@/lib/useBlobMediaCache';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 import ChatContextPanel from '@/components/pages/coach/ChatContextPanel';
 
@@ -1083,14 +1083,13 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
       });
   }, [clientId, userId, supabase]);
 
-  // Résout les URLs signées pour les messages media (image/document/audio) d'un lot donné,
-  // en remplaçant audio_url/thumbnail_url dans le state une fois reçues. Nécessaire depuis que
-  // chat-medias/voice-messages sont des buckets privés — l'URL publique stockée en DB ne
-  // fonctionne plus, il faut la résoudre à la demande via /api/messages/media-url. Passe par
-  // un cache partagé (lib/useSignedMediaUrls) pour éviter de régénérer une URL signée à chaque
-  // montage du composant (un nouveau token = cache HTTP navigateur invalidé à chaque fois,
-  // voir plan ok-nous-ici-on-proud-rocket.md). Même hook côté client dans PageClientMessages.tsx.
-  const resolveMedia = useSignedMediaUrls();
+  // Résout les URLs (images en cache local IndexedDB une fois vues — plus jamais de requête
+  // réseau ensuite, y compris des semaines plus tard ; documents/audio via URL signée avec
+  // cache mémoire+localStorage) pour les messages media d'un lot donné, en remplaçant
+  // audio_url/thumbnail_url dans le state une fois reçues. Nécessaire depuis que
+  // chat-medias/voice-messages sont des buckets privés. Même hook côté client dans
+  // PageClientMessages.tsx. Voir plan ok-nous-ici-on-proud-rocket.md pour le contexte complet.
+  const { resolve: resolveMedia, release: releaseMedia, evictMessage } = useBlobMediaCache();
   const resolveMediaUrls = useCallback((msgs: Msg[]) => resolveMedia(msgs, (updates) => {
     setMessages(prev => prev.map(m => {
       const u = updates[m.id];
@@ -1098,6 +1097,14 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
       return { ...m, audio_url: u.url, thumbnail_url: u.thumbnailUrl || m.thumbnail_url };
     }));
   }), [resolveMedia]);
+
+  // ConversationThread est démonté/remonté à chaque changement de conversation (key={activeId}
+  // au call site) — un seul cleanup au démontage couvre donc à la fois le changement de
+  // conversation et la sortie de la messagerie.
+  useEffect(() => {
+    return () => { releaseMedia(messages.map(m => m.id)); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tant que le calcul du premier non-lu (voir useLayoutEffect de scroll plus bas) n'a pas eu
   // lieu pour cette ouverture de conversation, on refuse tout marquage "lu" automatique — même
@@ -1371,6 +1378,7 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     setMessages(prev => prev.filter(m => m.id !== msgId));
     const { error } = await supabase.from('messages').delete().eq('id', msgId);
     if (error) { setMessages(backup); setActionError('Trop tard pour supprimer ce message'); }
+    else evictMessage(msgId);
   }
 
   // Envoi vocal
@@ -1546,10 +1554,13 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
               onClick={onToggleInfo}
               aria-label={showInfo ? 'Masquer les infos' : 'Afficher les infos'}
               aria-pressed={showInfo}
+              onMouseEnter={e => { e.currentTarget.style.background = showInfo ? 'var(--accent-brand-soft)' : 'var(--surface-2)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = showInfo ? 'var(--accent-brand-soft)' : 'none'; }}
               style={{
                 marginLeft: 'auto', background: showInfo ? 'var(--accent-brand-soft)' : 'none',
                 border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
                 display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                transition: 'background 150ms ease',
                 color: showInfo ? 'var(--accent-brand)' : 'var(--muted)', fontSize: 12, fontWeight: 600,
               }}
             >

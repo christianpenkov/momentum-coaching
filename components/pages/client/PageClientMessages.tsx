@@ -14,7 +14,7 @@ import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { compressImageIfNeeded } from '@/lib/compressImage';
-import { useSignedMediaUrls } from '@/lib/useSignedMediaUrls';
+import { useBlobMediaCache } from '@/lib/useBlobMediaCache';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1234,13 +1234,12 @@ export default function PageClientMessages() {
     load();
   }, [supabase]);
 
-  // Résout les URLs signées pour les messages media (image/document/audio) d'un lot donné —
-  // nécessaire depuis que chat-medias/voice-messages sont des buckets privés. Passe par un
-  // cache partagé (lib/useSignedMediaUrls) pour éviter de régénérer une URL signée à chaque
-  // montage du composant (un nouveau token = cache HTTP navigateur invalidé à chaque fois,
-  // voir plan ok-nous-ici-on-proud-rocket.md). Voir components/pages/coach/PageChat.tsx pour
-  // le pendant côté coach (même logique, même hook).
-  const resolveMedia = useSignedMediaUrls();
+  // Résout les URLs (images en cache local IndexedDB une fois vues — plus jamais de requête
+  // réseau ensuite ; documents/audio via URL signée avec cache mémoire+localStorage) pour les
+  // messages media d'un lot donné — nécessaire depuis que chat-medias/voice-messages sont des
+  // buckets privés. Voir components/pages/coach/PageChat.tsx pour le pendant côté coach (même
+  // logique, même hook). Voir plan ok-nous-ici-on-proud-rocket.md pour le contexte complet.
+  const { resolve: resolveMedia, release: releaseMedia, evictMessage } = useBlobMediaCache();
   const resolveMediaUrls = useCallback((msgs: Msg[]) => resolveMedia(msgs, (updates) => {
     setMessages(prev => prev.map(m => {
       const u = updates[m.id];
@@ -1248,6 +1247,13 @@ export default function PageClientMessages() {
       return { ...m, audio_url: u.url, thumbnail_url: u.thumbnailUrl || m.thumbnail_url };
     }));
   }), [resolveMedia]);
+
+  // Filet de sécurité : libère les object URLs (blob:) créées pour cette conversation quand le
+  // composant est démonté (navigation hors de la page messagerie).
+  useEffect(() => {
+    return () => { releaseMedia(messages.map(m => m.id)); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Tant que le calcul du premier non-lu (voir useLayoutEffect de scroll plus bas) n'a pas eu
   // lieu pour cette ouverture de conversation, on refuse tout marquage "lu" automatique — même
@@ -1571,6 +1577,7 @@ export default function PageClientMessages() {
     setMessages(prev => prev.filter(m => m.id !== msgId));
     const { error } = await supabase.from('messages').delete().eq('id', msgId);
     if (error) { setMessages(backup); setActionError('Trop tard pour supprimer ce message'); }
+    else evictMessage(msgId);
   }
 
   // ── Envoi vocal ────────────────────────────────────────────────────────────
