@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import ModalShell from '@/components/ui/ModalShell';
 
 interface AddClientModalProps {
   open: boolean;
@@ -10,6 +11,7 @@ interface AddClientModalProps {
 }
 
 export default function AddClientModal({ open, onClose }: AddClientModalProps) {
+  const { refetch } = useSupabaseClients();
   const [newName, setNewName] = useState('');
   const [newEmail, setNewEmail] = useState('');
   const [newNiche, setNewNiche] = useState('');
@@ -44,13 +46,13 @@ export default function AddClientModal({ open, onClose }: AddClientModalProps) {
     setNewEmail('');
     setNewNiche('');
     setSaving(false);
-    window.location.reload();
+    refetch();
+    onClose();
   }
 
-  return createPortal(
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', backdropFilter: 'blur(4px)', zIndex: 5000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-      onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ background: 'var(--surface)', borderRadius: 16, padding: '32px 28px', width: 420, boxShadow: 'var(--shadow-elev)', border: '1px solid var(--border)' }}>
+  return (
+    <ModalShell onClose={onClose} width={420}>
+      <div style={{ padding: '32px 28px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>Ajouter un client</div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', fontSize: 18 }}>×</button>
@@ -82,7 +84,6 @@ export default function AddClientModal({ open, onClose }: AddClientModalProps) {
           </div>
         </form>
       </div>
-    </div>,
-    document.body
+    </ModalShell>
   );
 }

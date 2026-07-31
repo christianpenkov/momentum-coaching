@@ -48,11 +48,18 @@
   --amber:      #b58025;
   --amber-soft: #b5802518;
 
+  /* Plateformes — couleurs Instagram/YT, reprises de PageClientStats.tsx (déjà le
+     fichier avec le plus d'usages analytiques cohérents) pour unifier les variantes
+     concurrentes (#E1306C, #FF0000) trouvées ailleurs dans le repo. */
+  --ig-color: #c1355e;
+  --yt-color: #dc2626;
+
   /* Effects */
   --shadow-card:    0 1px 3px rgba(0,0,0,0.03);
   --shadow-elev:    0 1px 2px rgba(0,0,0,0.05), 0 8px 24px rgba(0,0,0,0.04);
   --shadow-item:    0 1px 2px rgba(0,0,0,0.04);
   --shadow-menu:    0 8px 28px rgba(0,0,0,.16);
+  --shadow-modal:   0 32px 80px rgba(0,0,0,0.22);
 
   /* Radii */
   --r-sm: 6px;
@@ -60,6 +67,7 @@
   --r-lg: 10px;
   --r-xl: 12px;
   --r-card: 14px;
+  --r-modal: 18px;
 
   /* Espacements */
   --space-4:  4px;
@@ -89,6 +97,14 @@ textarea:focus-visible, select:focus-visible, [role="button"]:focus-visible,
   outline: none;
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent-brand) 40%, transparent);
   border-radius: var(--r-sm);
+}
+
+/* État désactivé — cohérent sur tous les interactifs, jusqu'ici géré au cas par
+   cas (ou pas du tout) dans chaque composant. */
+button:disabled, [role="button"][aria-disabled="true"], input:disabled,
+textarea:disabled, select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Titres — Helvetica Now Display (chargée en @font-face plus haut), fallback Inter */
@@ -1436,6 +1452,22 @@ a { color: inherit; text-decoration: none; }
   border-right: 1px solid var(--border-soft);
 }
 .kpi-card:last-child { border-right: none; }
+/* Affordance statique (pas seulement au survol, qui n'existe pas sur tactile) pour
+   distinguer un KPI cliquable des autres du ruban — jour 7 design structurel. */
+.kpi-card--clickable {
+  cursor: pointer;
+  position: relative;
+  transition: background 150ms;
+}
+.kpi-card--clickable::after {
+  content: '';
+  position: absolute; top: 18px; right: 18px;
+  width: 6px; height: 6px;
+  border-top: 1.5px solid var(--accent-brand);
+  border-right: 1.5px solid var(--accent-brand);
+  transform: rotate(45deg);
+}
+.kpi-card--clickable:hover { background: var(--surface-2); }
 .kpi-label { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
 .kpi-value { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; color: var(--accent); line-height: 1.1; }
 .kpi-delta { font-size: 11px; margin-top: 4px; font-weight: 500; }

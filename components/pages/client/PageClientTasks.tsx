@@ -6,7 +6,8 @@ import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
-import { getDeadlineStatus, getTaskBucket, type TaskBucket } from '@/lib/clientSignals';
+import { getTaskBucket, type TaskBucket } from '@/lib/clientSignals';
+import DeadlineBadge from '@/components/ui/DeadlineBadge';
 
 const BUCKET_META: Record<Exclude<TaskBucket, 'done'>, { label: string; color: string }> = {
   over: { label: 'En retard', color: 'var(--red)' },
@@ -37,16 +38,6 @@ function combineDeadline(dateStr: string, timeStr: string): string | null {
   const [y, mo, d] = dateStr.split('-').map(Number);
   const [h, m] = (timeStr || '23:59').split(':').map(Number);
   return new Date(y, mo - 1, d, h, m).toISOString();
-}
-
-function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
-  const status = getDeadlineStatus(deadline, done);
-  if (!status) return null;
-  return (
-    <span style={{ fontSize: 10, color: status.color, display: 'inline-flex', alignItems: 'center', gap: 3, fontWeight: status.overdue || status.urgent ? 700 : 400, flexShrink: 0 }}>
-      <Icon name="calendar" size={10} />{status.label}
-    </span>
-  );
 }
 
 // Carte de dépôt d'un fichier — utilisée par item structuré ou en fallback legacy.

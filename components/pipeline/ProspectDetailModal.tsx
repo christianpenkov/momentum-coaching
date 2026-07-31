@@ -1,9 +1,9 @@
 'use client';
 
 import { useState, useRef, useLayoutEffect } from 'react';
-import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import Icon from '@/components/ui/Icon';
+import ModalShell from '@/components/ui/ModalShell';
 import type { ProspectContext } from './PagePipeline';
 import { avatarColor, avatarInitials } from './PagePipeline';
 import { isYtVideoId } from '@/lib/ytId';
@@ -273,7 +273,7 @@ function TimelineList({ timeline }: { timeline: TimelineEvent[] }) {
                         href={ev.linkUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        style={{ color: '#2563EB', textDecoration: 'underline' }}
+                        style={{ color: 'var(--accent-brand)', textDecoration: 'underline' }}
                       >
                         {ev.linkLabel}
                       </a>
@@ -332,15 +332,8 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
 
   const latestCall = context.calls[0];
 
-  return createPortal(
-    <>
-      <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={onClose} />
-      <div style={{
-        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
-        zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
-        borderRadius: 14, width: 420, maxWidth: 'calc(100vw - 32px)',
-        boxShadow: '0 8px 32px rgba(0,0,0,.18)', overflow: 'hidden',
-      }}>
+  return (
+    <ModalShell onClose={onClose} width={420}>
         {/* Header — badge d'étape dominant */}
         <div style={{ padding: '20px 24px 16px', borderBottom: '1px solid var(--border)' }}>
           <div style={{
@@ -413,8 +406,6 @@ export default function ProspectDetailModal({ context, displayName, stageLabel, 
             Fermer
           </button>
         </div>
-      </div>
-    </>,
-    document.body
+    </ModalShell>
   );
 }

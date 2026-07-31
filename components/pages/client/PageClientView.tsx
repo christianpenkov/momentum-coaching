@@ -11,10 +11,11 @@ import { useNotifications } from '@/lib/useNotifications';
 import { useUser } from '@/lib/UserContext';
 import RapportModal from '@/components/ui/RapportModal';
 import { getDeadlineStatus } from '@/lib/clientSignals';
+import DeadlineBadge from '@/components/ui/DeadlineBadge';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
-  medium: { label: 'Moyenne', color: 'var(--amber)', bg: '#f5a62320' },
+  medium: { label: 'Moyenne', color: 'var(--amber)', bg: 'var(--amber-soft)' },
   low:    { label: 'Basse',   color: 'var(--green)', bg: '#22c55e20' },
 };
 
@@ -55,23 +56,6 @@ function daysUntil(dateStr: string) {
 
 function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
   return call?.call_type === 'google';
-}
-
-function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
-  const status = getDeadlineStatus(deadline, done);
-  if (!status) return null;
-  return (
-    <span style={{
-      fontSize: 10, color: status.color,
-      display: 'inline-flex', alignItems: 'center', gap: 3,
-      fontWeight: status.overdue || status.urgent ? 700 : 400,
-      padding: status.overdue ? '2px 7px' : '0',
-      background: status.overdue ? '#ef444418' : 'transparent',
-      borderRadius: 20, flexShrink: 0,
-    }}>
-      <Icon name="calendar" size={10} />{status.label}
-    </span>
-  );
 }
 
 export default function PageClientView() {

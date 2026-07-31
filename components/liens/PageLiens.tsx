@@ -1944,8 +1944,8 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
                   {!leadsLoading && filteredLeads.length === 0 && (
                     <div
                       onMouseDown={() => { setShowLeads(false); setPostMode('none'); setPostId(''); }}
-                      style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: '#2563EB', cursor: 'pointer', transition: 'background .12s' }}
-                      onMouseEnter={e => (e.currentTarget.style.background = '#EFF6FF')}
+                      style={{ padding: '8px 12px', fontSize: 12, fontWeight: 600, color: 'var(--accent-brand)', cursor: 'pointer', transition: 'background .12s' }}
+                      onMouseEnter={e => (e.currentTarget.style.background = 'var(--accent-brand-soft)')}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
                     >
                       + Créer un lead

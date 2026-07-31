@@ -14,7 +14,8 @@ import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
-import { isTaskOverdue, getDeadlineStatus } from '@/lib/clientSignals';
+import { isTaskOverdue } from '@/lib/clientSignals';
+import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import type { Task, SessionReport } from '@/lib/supabase/types';
 
 interface ResourceForClient {
@@ -72,7 +73,7 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
   }
 
   const TYPE_ICON: Record<string, IconName> = { link: 'link', file: 'folder', video: 'play' };
-  const TYPE_COLOR: Record<string, string> = { link: '#2563eb', file: '#b58025', video: '#cd5b3f' };
+  const TYPE_COLOR: Record<string, string> = { link: 'var(--accent-brand)', file: 'var(--amber)', video: 'var(--red)' };
   const unlockedCount = Object.values(accessMap).filter(Boolean).length;
 
   if (loading) return <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0' }}>Chargement des ressources…</div>;
@@ -137,19 +138,9 @@ function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: s
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
-  medium: { label: 'Moyenne', color: 'var(--amber)', bg: '#f5a62320' },
+  medium: { label: 'Moyenne', color: 'var(--amber)', bg: 'var(--amber-soft)' },
   low:    { label: 'Basse',   color: 'var(--green)', bg: '#22c55e20' },
 };
-
-function DeadlineBadge({ deadline, done }: { deadline?: string | null; done: boolean }) {
-  const status = getDeadlineStatus(deadline, done);
-  if (!status) return null;
-  return (
-    <span style={{ fontSize: 10, color: status.color, display: 'flex', alignItems: 'center', gap: 3, fontWeight: status.overdue || status.urgent ? 700 : 400, flexShrink: 0 }}>
-      <Icon name="calendar" size={10} />{status.label}
-    </span>
-  );
-}
 
 interface Props { id: string }
 

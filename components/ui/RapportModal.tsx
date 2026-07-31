@@ -4,6 +4,7 @@ import { useRef, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Lottie from 'lottie-react';
 import Icon from '@/components/ui/Icon';
+import ModalShell from '@/components/ui/ModalShell';
 import celebrationAnimation from '@/public/animations/celebration.json';
 
 type RapportStep =
@@ -339,11 +340,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const isChecking = step === 'rescheduled_check' || step === 'second_call_check';
   const isDone = step === 'rescheduled_done' || step === 'second_call_done';
 
-  return createPortal(
+  return (
     <>
       {step === 'celebration' && <CelebrationOverlay onDone={onClose} />}
 
-      {confirmClose && (
+      {confirmClose && createPortal(
         <>
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 4000 }} />
           <div style={{ position: 'fixed', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', zIndex: 4001, background: 'var(--surface)', borderRadius: 16, padding: '28px 24px', width: '100%', maxWidth: 340, textAlign: 'center' }}>
@@ -356,20 +357,19 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <button type="button" className="btn-primary-brand" style={{ flex: 1, background: 'var(--red, #ef4444)' }} onClick={onClose}>Fermer quand même</button>
             </div>
           </div>
-        </>
+        </>,
+        document.body
       )}
 
       {step !== 'celebration' && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 3000 }} onClick={requestClose} />
-      )}
-
-      {step !== 'celebration' && (
-        <div style={{
-          position: 'fixed', left: 0, right: 0,
-          ...(step === 'revenue' ? { top: 0, bottom: 0, borderRadius: 0 } : { top: 'auto', bottom: 0, borderRadius: '20px 20px 0 0', maxHeight: '90vh' }),
-          margin: '0 auto', width: '100%', maxWidth: 520,
-          background: 'var(--surface)', padding: '48px 24px 32px', overflowY: 'auto', zIndex: 3001,
-        }}>
+        <ModalShell
+          onClose={onClose}
+          onOverlayClick={requestClose}
+          variant="sheet"
+          fullScreen={step === 'revenue'}
+          width={520}
+        >
+        <div style={{ padding: '48px 24px 32px', overflowY: 'auto' }}>
           {/* En-tête */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
@@ -611,9 +611,9 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
             </div>
           )}
         </div>
+        </ModalShell>
       )}
-    </>,
-    document.body
+    </>
   );
 }
 

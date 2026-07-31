@@ -130,6 +130,11 @@ interface PipelineData {
 export type { IgLead, ProspectLink, Call, ProspectEvent, LmHistoryEntry, PipelineData, StorySequenceRef };
 
 // ── Colonnes ──────────────────────────────────────────────────────────────────
+// Les couleurs ci-dessous (IG_STAGES, YT_STAGES, et #2563EB en particulier pour le
+// stage "call_booked") forment une palette de statuts kanban délibérément distincte
+// de --accent-brand (jour 7 design structurel, 2026-07-28) — laissées en dur pour
+// préserver la cohérence visuelle de la palette (cyan/violet/orange/bleu/vert), pas
+// une dérive de la couleur de marque à corriger.
 
 const IG_STAGES = [
   { key: 'cold_dm',       label: 'Cold DM',            color: '#0891B2', lightBg: '#ECFEFF', dot: '#0891B2' },

@@ -261,7 +261,7 @@ function SectionFolderCard({ section, count, subCount, unseen, onClick }: {
         width: 40, height: 40, borderRadius: 11, flexShrink: 0, position: 'relative',
         background: 'rgba(58,106,134,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name="folder" size={19} style={{ color: '#3a6a86' }} />
+        <Icon name="folder" size={19} style={{ color: 'var(--accent-brand)' }} />
         {unseen && (
           <span style={{ position: 'absolute', top: -3, right: -3, width: 9, height: 9, borderRadius: '50%', background: 'var(--green)', border: '2px solid var(--surface)' }} />
         )}

@@ -21,7 +21,7 @@ interface Props {
 }
 
 // Icône et couleur uniques pour tous les dossiers — pas de personnalisation.
-const FOLDER_COLOR = '#3a6a86';
+const FOLDER_COLOR = 'var(--accent-brand)';
 
 function InlineForm({ initialName, onSubmit, onCancel }: {
   initialName: string;

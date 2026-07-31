@@ -53,7 +53,7 @@ export default function KpiRibbon({ items, columns }: KpiRibbonProps) {
         const needsBottomBorder = columns && i < items.length - columns;
         const cardStyle = needsBottomBorder ? { borderBottom: '1px solid var(--border-soft)' } : undefined;
         return item.href ? (
-          <Link key={i} href={item.href} className="kpi-card" style={{ textDecoration: 'none', cursor: 'pointer', ...cardStyle }}>
+          <Link key={i} href={item.href} className="kpi-card kpi-card--clickable" style={{ textDecoration: 'none', ...cardStyle }}>
             {content}
           </Link>
         ) : (

@@ -24,9 +24,9 @@ const TYPE_OPTIONS: { type: ResourceType; icon: IconName; label: string; sub: st
 ];
 
 const TYPE_COLOR: Record<ResourceType, string> = {
-  link: '#2563eb',
-  file: '#b58025',
-  video: '#cd5b3f',
+  link: 'var(--accent-brand)',
+  file: 'var(--amber)',
+  video: 'var(--red)',
 };
 
 export default function ResourceModal({ resource, sections, onClose, onSaved }: Props) {

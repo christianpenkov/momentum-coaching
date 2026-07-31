@@ -48,7 +48,7 @@ function SectionFolderCard({ section, count, subCount, onClick }: {
         width: 40, height: 40, borderRadius: 11, flexShrink: 0,
         background: 'rgba(58,106,134,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
-        <Icon name="folder" size={19} style={{ color: '#3a6a86' }} />
+        <Icon name="folder" size={19} style={{ color: 'var(--accent-brand)' }} />
       </span>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>

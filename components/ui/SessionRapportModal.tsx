@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import ModalShell from '@/components/ui/ModalShell';
 import { SESSION_TOPICS, type SessionTopic } from '@/lib/sessionRapport';
 
 type SessionRapportStep = 'attended' | 'topic_notes' | 'done';
@@ -86,26 +87,8 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
     });
   }
 
-  const modal = createPortal(
-    <div
-      onClick={requestClose}
-      style={{
-        position: 'fixed', inset: 0, zIndex: 5000,
-        background: 'rgba(0,0,0,0.35)',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        backdropFilter: 'blur(2px)',
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          width: 520, maxWidth: '92vw', background: 'var(--surface)', borderRadius: 18,
-          border: '1px solid var(--border)',
-          boxShadow: '0 24px 60px rgba(0,0,0,0.18)',
-          overflow: 'hidden',
-          position: 'relative',
-        }}
-      >
+  const modal = (
+    <ModalShell onClose={onClose} onOverlayClick={requestClose} width={520}>
         {/* Header */}
         <div style={{ padding: '26px 30px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
@@ -258,9 +241,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
             <button onClick={onClose} className="btn-primary-brand" type="button" style={{ fontSize: 14 }}>Fermer</button>
           </div>
         )}
-      </div>
-    </div>,
-    document.body
+    </ModalShell>
   );
 
   return (
