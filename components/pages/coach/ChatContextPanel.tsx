@@ -9,9 +9,10 @@ import type { Call } from '@/lib/supabase/types';
 interface ChatContextPanelProps {
   client: ClientWithMetrics;
   calls: Call[];
+  open: boolean;
 }
 
-export default function ChatContextPanel({ client, calls }: ChatContextPanelProps) {
+export default function ChatContextPanel({ client, calls, open }: ChatContextPanelProps) {
   const signals = getClientSignals(client.tasks, client.sessionReports);
   const nextCall = calls
     .filter(c => c.client_id === client.id && c.scheduled_at && new Date(c.scheduled_at) >= new Date())
@@ -26,10 +27,15 @@ export default function ChatContextPanel({ client, calls }: ChatContextPanelProp
 
   return (
     <aside style={{
-      width: 260, flexShrink: 0, borderLeft: '1px solid var(--border)',
-      background: 'var(--surface)', padding: '20px 16px',
-      display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto',
+      width: open ? 260 : 0, flexShrink: 0,
+      borderLeft: open ? '1px solid var(--border)' : 'none',
+      background: 'var(--surface)', overflow: 'hidden',
+      transition: 'width 200ms ease',
     }}>
+      <div style={{
+        width: 260, flexShrink: 0, padding: '20px 16px',
+        display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', height: '100%',
+      }}>
       <div style={{ textAlign: 'center' }}>
         <div style={{ margin: '0 auto 10px' }}>
           <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={60} />
@@ -75,6 +81,7 @@ export default function ChatContextPanel({ client, calls }: ChatContextPanelProp
         <Link href={`/clients/${client.id}#calls`} className="dc-liftrow" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '11px 0', fontSize: 13, textDecoration: 'none', color: 'var(--ink)' }}>
           Historique des calls<span style={{ color: 'var(--faint)' }}>›</span>
         </Link>
+      </div>
       </div>
     </aside>
   );

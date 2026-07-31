@@ -14,6 +14,7 @@ import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useUser } from '@/lib/UserContext';
 import { compressImageIfNeeded } from '@/lib/compressImage';
+import { useSignedMediaUrls } from '@/lib/useSignedMediaUrls';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1234,28 +1235,19 @@ export default function PageClientMessages() {
   }, [supabase]);
 
   // Résout les URLs signées pour les messages media (image/document/audio) d'un lot donné —
-  // nécessaire depuis que chat-medias/voice-messages sont des buckets privés, voir
-  // components/pages/coach/PageChat.tsx pour le pendant côté coach (même logique).
-  const resolveMediaUrls = useCallback(async (msgs: Msg[]) => {
-    const mediaIds = msgs.filter(m => m.type === 'image' || m.type === 'document' || m.type === 'audio').map(m => m.id);
-    if (mediaIds.length === 0) return;
-    try {
-      const res = await fetch('/api/messages/media-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageIds: mediaIds }),
-      });
-      if (!res.ok) return;
-      const { urls } = await res.json();
-      setMessages(prev => prev.map(m => {
-        const resolved = urls[m.id];
-        if (!resolved?.url) return m;
-        return { ...m, audio_url: resolved.url, thumbnail_url: resolved.thumbnailUrl || m.thumbnail_url };
-      }));
-    } catch {
-      // Échec silencieux — voir commentaire équivalent côté coach.
-    }
-  }, []);
+  // nécessaire depuis que chat-medias/voice-messages sont des buckets privés. Passe par un
+  // cache partagé (lib/useSignedMediaUrls) pour éviter de régénérer une URL signée à chaque
+  // montage du composant (un nouveau token = cache HTTP navigateur invalidé à chaque fois,
+  // voir plan ok-nous-ici-on-proud-rocket.md). Voir components/pages/coach/PageChat.tsx pour
+  // le pendant côté coach (même logique, même hook).
+  const resolveMedia = useSignedMediaUrls();
+  const resolveMediaUrls = useCallback((msgs: Msg[]) => resolveMedia(msgs, (updates) => {
+    setMessages(prev => prev.map(m => {
+      const u = updates[m.id];
+      if (!u) return m;
+      return { ...m, audio_url: u.url, thumbnail_url: u.thumbnailUrl || m.thumbnail_url };
+    }));
+  }), [resolveMedia]);
 
   // Tant que le calcul du premier non-lu (voir useLayoutEffect de scroll plus bas) n'a pas eu
   // lieu pour cette ouverture de conversation, on refuse tout marquage "lu" automatique — même

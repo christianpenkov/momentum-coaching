@@ -16,6 +16,7 @@ import { useUser } from '@/lib/UserContext';
 import { useIsMobile, isMobileViewport } from '@/lib/useIsMobile';
 import { compressImageIfNeeded } from '@/lib/compressImage';
 import { useUnreadCountsByClient } from '@/lib/useUnreadCountsByClient';
+import { useSignedMediaUrls } from '@/lib/useSignedMediaUrls';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
 import ChatContextPanel from '@/components/pages/coach/ChatContextPanel';
 
@@ -1005,11 +1006,14 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
 
 // ─── Zone de conversation ─────────────────────────────────────────────────────
 
-function ConversationThread({ clientId, userId, clientName, clientInitials, clientAvatarUrl, isOnline, supabase, presenceCh, onBack }: {
+function ConversationThread({ clientId, userId, clientName, clientInitials, clientAvatarUrl, isOnline, supabase, presenceCh, onBack, isMobile, showInfo, onToggleInfo }: {
   clientId: string; userId: string; clientName: string; clientInitials: string; clientAvatarUrl?: string | null;
   isOnline: boolean; supabase: ReturnType<typeof createClient>;
   presenceCh: ReturnType<typeof supabase.channel> | null;
   onBack?: () => void;
+  isMobile: boolean;
+  showInfo: boolean;
+  onToggleInfo: () => void;
 }) {
   const { user } = useUser();
   const myAvatarUrl = user?.avatar_url ?? null;
@@ -1082,30 +1086,18 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   // Résout les URLs signées pour les messages media (image/document/audio) d'un lot donné,
   // en remplaçant audio_url/thumbnail_url dans le state une fois reçues. Nécessaire depuis que
   // chat-medias/voice-messages sont des buckets privés — l'URL publique stockée en DB ne
-  // fonctionne plus, il faut la résoudre à la demande via /api/messages/media-url.
-  const resolveMediaUrls = useCallback(async (msgs: Msg[]) => {
-    const mediaIds = msgs.filter(m => m.type === 'image' || m.type === 'document' || m.type === 'audio').map(m => m.id);
-    if (mediaIds.length === 0) return;
-    try {
-      const res = await fetch('/api/messages/media-url', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messageIds: mediaIds }),
-      });
-      if (!res.ok) return;
-      const { urls } = await res.json();
-      setMessages(prev => prev.map(m => {
-        const resolved = urls[m.id];
-        if (!resolved?.url) return m;
-        return { ...m, audio_url: resolved.url, thumbnail_url: resolved.thumbnailUrl || m.thumbnail_url };
-      }));
-    } catch {
-      // Échec silencieux : les messages restent affichés avec l'URL d'origine (audio_url
-      // publique tant que les buckets ne sont pas encore basculés en privé — voir plan de
-      // migration ; après bascule, un échec ici laisserait un média cassé, acceptable en
-      // dégradé plutôt que de bloquer l'affichage de la conversation).
-    }
-  }, []);
+  // fonctionne plus, il faut la résoudre à la demande via /api/messages/media-url. Passe par
+  // un cache partagé (lib/useSignedMediaUrls) pour éviter de régénérer une URL signée à chaque
+  // montage du composant (un nouveau token = cache HTTP navigateur invalidé à chaque fois,
+  // voir plan ok-nous-ici-on-proud-rocket.md). Même hook côté client dans PageClientMessages.tsx.
+  const resolveMedia = useSignedMediaUrls();
+  const resolveMediaUrls = useCallback((msgs: Msg[]) => resolveMedia(msgs, (updates) => {
+    setMessages(prev => prev.map(m => {
+      const u = updates[m.id];
+      if (!u) return m;
+      return { ...m, audio_url: u.url, thumbnail_url: u.thumbnailUrl || m.thumbnail_url };
+    }));
+  }), [resolveMedia]);
 
   // Tant que le calcul du premier non-lu (voir useLayoutEffect de scroll plus bas) n'a pas eu
   // lieu pour cette ouverture de conversation, on refuse tout marquage "lu" automatique — même
@@ -1548,6 +1540,23 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
               {clientTyping ? 'En train d\'écrire…' : isOnline ? 'En ligne' : 'Hors ligne'}
             </div>
           </div>
+          {!isMobile && (
+            <button
+              type="button"
+              onClick={onToggleInfo}
+              aria-label={showInfo ? 'Masquer les infos' : 'Afficher les infos'}
+              aria-pressed={showInfo}
+              style={{
+                marginLeft: 'auto', background: showInfo ? 'var(--accent-brand-soft)' : 'none',
+                border: 'none', borderRadius: 8, padding: '6px 10px', cursor: 'pointer',
+                display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+                color: showInfo ? 'var(--accent-brand)' : 'var(--muted)', fontSize: 12, fontWeight: 600,
+              }}
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+              Infos
+            </button>
+          )}
         </div>
 
         {/* Messages — column-reverse : le navigateur ancre nativement en bas, immunisé
@@ -1963,6 +1972,10 @@ export default function PageChat() {
   const { isClientOnline, getChannel } = useGlobalCoachPresence();
   const supabase = useRef(createClient()).current;
   const unreadCounts = useUnreadCountsByClient(clients.map(c => c.id));
+  // Panneau "Infos" repliable — ouvert par défaut (préserve le comportement d'avant), state au
+  // niveau de PageChat (pas de ConversationThread, démonté/remonté à chaque changement de
+  // conversation via key={activeId}) pour que le choix survive au changement d'élève actif.
+  const [showInfo, setShowInfo] = useState(true);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
@@ -2060,8 +2073,11 @@ export default function PageChat() {
               supabase={supabase}
               presenceCh={presenceCh}
               onBack={isMobile ? () => setActiveId(null) : undefined}
+              isMobile={isMobile}
+              showInfo={showInfo}
+              onToggleInfo={() => setShowInfo(v => !v)}
             />
-            {!isMobile && <ChatContextPanel client={activeClient} calls={calls} />}
+            {!isMobile && <ChatContextPanel client={activeClient} calls={calls} open={showInfo} />}
           </>
         ) : !isMobile ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
