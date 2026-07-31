@@ -10,9 +10,10 @@ interface ChatContextPanelProps {
   client: ClientWithMetrics;
   calls: Call[];
   open: boolean;
+  onClose: () => void;
 }
 
-export default function ChatContextPanel({ client, calls, open }: ChatContextPanelProps) {
+export default function ChatContextPanel({ client, calls, open, onClose }: ChatContextPanelProps) {
   const signals = getClientSignals(client.tasks, client.sessionReports);
   const nextCall = calls
     .filter(c => c.client_id === client.id && c.scheduled_at && new Date(c.scheduled_at) >= new Date())
@@ -33,9 +34,20 @@ export default function ChatContextPanel({ client, calls, open }: ChatContextPan
       transition: 'width 200ms ease',
     }}>
       <div style={{
-        width: 260, flexShrink: 0, padding: '20px 16px',
+        width: 260, flexShrink: 0, padding: '20px 16px', position: 'relative',
         display: 'flex', flexDirection: 'column', gap: 16, overflowY: 'auto', height: '100%',
       }}>
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Fermer le panneau infos"
+        style={{
+          position: 'absolute', top: 12, right: 12, background: 'none', border: 'none',
+          padding: 4, cursor: 'pointer', color: 'var(--muted)', display: 'flex',
+        }}
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
       <div style={{ textAlign: 'center' }}>
         <div style={{ margin: '0 auto 10px' }}>
           <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={60} />

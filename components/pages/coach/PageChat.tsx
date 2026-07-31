@@ -2077,7 +2077,7 @@ export default function PageChat() {
               showInfo={showInfo}
               onToggleInfo={() => setShowInfo(v => !v)}
             />
-            {!isMobile && <ChatContextPanel client={activeClient} calls={calls} open={showInfo} />}
+            {!isMobile && <ChatContextPanel client={activeClient} calls={calls} open={showInfo} onClose={() => setShowInfo(false)} />}
           </>
         ) : !isMobile ? (
           <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)', fontSize: 13 }}>
