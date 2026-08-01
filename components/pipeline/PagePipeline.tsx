@@ -363,6 +363,8 @@ function PipelineCard({
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [confirmNotALead, setConfirmNotALead] = useState(false);
+  const [notALeadConfirmed, setNotALeadConfirmed] = useState(false);
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
   const dragStartedRef = useRef(false);
@@ -556,7 +558,7 @@ function PipelineCard({
           padding: '4px 0', minWidth: 160,
         }}>
           <button
-            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); onNotALead?.(card.key, card.callId); }}
+            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmNotALead(true); setNotALeadConfirmed(false); }}
             style={{
               display: 'block', width: '100%', textAlign: 'left',
               padding: '8px 14px', fontSize: 12, fontWeight: 500,
@@ -620,6 +622,51 @@ function PipelineCard({
               style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#dc2626', color: '#fff', cursor: deleteConfirmed ? 'pointer' : 'not-allowed', opacity: deleteConfirmed ? 1 : 0.4 }}
             >
               Supprimer
+            </button>
+          </div>
+        </div>
+      </>,
+      document.body
+    )}
+
+    {/* Modale confirmation "pas un lead" */}
+    {confirmNotALead && createPortal(
+      <>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={() => setConfirmNotALead(false)} />
+        <div style={{
+          position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+          zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
+          borderRadius: 12, padding: '24px 28px', minWidth: 320, maxWidth: 380, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
+        }}>
+          <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>
+            {platform === 'ig' && !card.isIgLink ? `@${card.name}` : card.name} n'est pas un lead ?
+          </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
+            Cette fiche ne sera plus comptée dans les stats et ne sera pas recréée si la
+            personne vous réécrit en DM. Si elle clique un jour sur un lien tracké
+            (commentaire avec mot-clé, lien bio), un nouveau lead sera créé normalement.
+          </div>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink)', marginBottom: 20, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={notALeadConfirmed}
+              onChange={e => setNotALeadConfirmed(e.target.checked)}
+              style={{ width: 14, height: 14, cursor: 'pointer' }}
+            />
+            Je comprends que cette fiche ne sera plus jamais comptée, quoi qu'elle fasse en DM
+          </label>
+          <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+            <button
+              onMouseDown={() => { setConfirmNotALead(false); setNotALeadConfirmed(false); }}
+              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'transparent', cursor: 'pointer' }}
+            >
+              Annuler
+            </button>
+            <button
+              onMouseDown={() => { if (!notALeadConfirmed) return; setConfirmNotALead(false); setNotALeadConfirmed(false); onNotALead?.(card.key, card.callId); }}
+              style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#2563EB', color: '#fff', cursor: notALeadConfirmed ? 'pointer' : 'not-allowed', opacity: notALeadConfirmed ? 1 : 0.4 }}
+            >
+              Confirmer
             </button>
           </div>
         </div>
