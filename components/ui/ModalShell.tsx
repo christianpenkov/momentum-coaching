@@ -32,7 +32,6 @@ export default function ModalShell({
   onOverlayClick, hidden = false,
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
-  const previouslyFocused = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -53,14 +52,6 @@ export default function ModalShell({
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
-
-  useEffect(() => {
-    if (hidden) return;
-    previouslyFocused.current = document.activeElement as HTMLElement | null;
-    const focusable = boxRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
-    focusable?.[0]?.focus();
-    return () => { previouslyFocused.current?.focus?.(); };
-  }, [hidden]);
 
   if (typeof document === 'undefined' || hidden) return null;
 
