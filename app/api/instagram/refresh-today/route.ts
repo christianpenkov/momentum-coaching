@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgComments, pollIgHookReplied } from '@/lib/ig-fetch';
+import { isoDateCore } from '@/lib/ig-metrics-core';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -33,7 +34,7 @@ export async function POST(request: Request) {
     if (!clientRow) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
   }
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = isoDateCore(0);
   const errors: string[] = [];
 
   let leadsFound = 0;

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { isoDateCore } from './ig-metrics-core';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -381,9 +382,7 @@ export async function snapshotShortioLinks(
     if (error) console.error('[shortio-fetch] metadata_upsert:', error.message);
   });
 
-  const d = new Date();
-  if (period === 'yesterday') d.setDate(d.getDate() - 1);
-  const date = d.toISOString().split('T')[0];
+  const date = isoDateCore(period === 'yesterday' ? 1 : 0);
 
   // Fetch stats pour chaque lien en parallèle (Promise.allSettled → robuste)
   const settled = await Promise.allSettled(

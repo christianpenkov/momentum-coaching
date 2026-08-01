@@ -823,7 +823,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   const postsInPeriod = ig.posts.filter(p => new Date(p.timestamp) >= cutoffIg).length;
   const pubsByDay = igDays.map(d => ({
     date: d.date,
-    v: igDaysNoDataSet.has(d.date) ? (null as any) : ig.posts.filter(p => p.timestamp.startsWith(d.date)).length,
+    v: igDaysNoDataSet.has(d.date) ? (null as any) : ig.posts.filter(p => parisDateStr(new Date(p.timestamp)) === d.date).length,
   }));
 
   // Interactions par jour = vraie donnée quotidienne (ig_total_interactions en DB,
@@ -1481,8 +1481,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // Publications par jour depuis les vrais timestamps des vidéos
   const ytPubsByDay = ytDays.map(d => ({
     date: d.date,
-    shorts: yt.videos.filter(v => v.isShort && v.publishedAt.startsWith(d.date)).length,
-    longues: yt.videos.filter(v => !v.isShort && v.publishedAt.startsWith(d.date)).length,
+    shorts: yt.videos.filter(v => v.isShort && parisDateStr(new Date(v.publishedAt)) === d.date).length,
+    longues: yt.videos.filter(v => !v.isShort && parisDateStr(new Date(v.publishedAt)) === d.date).length,
   }));
 
   const fmtSec = (sec: number) => sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`;

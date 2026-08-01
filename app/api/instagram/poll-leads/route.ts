@@ -4,6 +4,7 @@ import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot, pollIgComments, pollIg
 import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot, syncYtCtr } from '@/lib/yt-fetch';
 import { getShortioLinkCreds, snapshotShortioLinks, syncLmClickStream } from '@/lib/shortio-fetch';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
+import { isoDateCore } from '@/lib/ig-metrics-core';
 
 const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,15 +17,8 @@ const supabase = createClient(
 // YouTube : J-1, J-2, J-3 (délai Google 48h de finalisation).
 async function snapshotProfile(profileId: string): Promise<string[]> {
   const errors: string[] = [];
-  const today = new Date();
 
-  const isoDate = (daysAgo: number) => {
-    const d = new Date(today);
-    d.setDate(d.getDate() - daysAgo);
-    return d.toISOString().split('T')[0];
-  };
-
-  const yesterday = isoDate(1);
+  const yesterday = isoDateCore(1);
 
   // ── IG J-1 ──
   const igCreds = await getIgCreds(profileId);
@@ -80,7 +74,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const ytToken = await getYtToken(profileId);
   if (ytToken) {
     try {
-      const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
+      const ytRows = await fetchYtDayMetrics(ytToken, isoDateCore(3), yesterday);
       for (const row of ytRows) {
         const err = await upsertYtSnapshot(profileId, row, 'cron');
         if (err) errors.push(`yt_upsert_${row.date}: ${err}`);

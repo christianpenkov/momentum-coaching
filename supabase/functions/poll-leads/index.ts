@@ -46,6 +46,14 @@ function isoDate(daysAgo: number): string {
   return parisNow.toISOString().split('T')[0];
 }
 
+// Date calendrier Paris d'un instant ISO quelconque (ex. timestamp brut d'un clic Short.io) —
+// même logique que isoDate() mais pour un instant arbitraire plutôt que "maintenant - N jours".
+function isoDateFromInstant(iso: string): string {
+  const d = new Date(iso);
+  const parisD = new Date(d.getTime() + parisOffsetHours(d) * 3600_000);
+  return parisD.toISOString().split('T')[0];
+}
+
 async function safeJson(res: Response): Promise<any> {
   try { return await res.json(); } catch { return {}; }
 }
@@ -511,9 +519,8 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`], rawClicks: [] }; }
   if (!links.length) return { errors: [], rawClicks: [] };
 
-  const dateToday = new Date().toISOString().split('T')[0];
-  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-  const dateYesterday = yesterday.toISOString().split('T')[0];
+  const dateToday = isoDate(0);
+  const dateYesterday = isoDate(1);
 
   // Préchargement des tables de référence pour le calcul de link_category
   const [{ data: contentLinksRows }, { data: prospectLinksRows }] = await Promise.all([
@@ -594,7 +601,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       rawClicks = lcData?.clicks ?? lcData ?? [];
       for (const click of rawClicks) {
         if (!click.human || !click.path) continue;
-        const clickDate = click.dt ? click.dt.split('T')[0] : dateToday;
+        const clickDate = click.dt ? isoDateFromInstant(click.dt) : dateToday;
         if (clickDate !== dateToday) continue;
         const p = click.path.replace(/^\//, '');
         todayClicksByPath.set(p, (todayClicksByPath.get(p) ?? 0) + 1);
@@ -692,10 +699,10 @@ async function syncLmClickStream(profileId: string, rawClicks: { path: string; d
 
     // Mise à jour du compteur human_clicks dans shortio_link_daily_snapshots pour aujourd'hui
     // On agrège par path (un clic = +1) et on upsert via increment SQL
-    const today = new Date().toISOString().split('T')[0];
+    const today = isoDate(0);
     const clickCountByPath = new Map<string, number>();
     for (const click of humanClicks) {
-      const clickDate = click.dt ? click.dt.split('T')[0] : today;
+      const clickDate = click.dt ? isoDateFromInstant(click.dt) : today;
       if (clickDate === today) {
         const p = click.path.replace(/^\//, '');
         clickCountByPath.set(p, (clickCountByPath.get(p) ?? 0) + 1);

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { getIgCreds, fetchIgDayMetrics, upsertIgSnapshot } from '@/lib/ig-fetch';
+import { isoDateCore } from '@/lib/ig-metrics-core';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -43,9 +44,7 @@ export async function POST(request: Request) {
 
   const days: string[] = [];
   for (let i = 1; i <= 60; i++) {
-    const d = new Date();
-    d.setDate(d.getDate() - i);
-    days.push(d.toISOString().split('T')[0]);
+    days.push(isoDateCore(i));
   }
 
   const errors: string[] = [];

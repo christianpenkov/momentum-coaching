@@ -17,10 +17,30 @@ const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// Offset Paris (+1h hiver / +2h été) — règle UE : dernier dimanche de mars 1h UTC
+// (passage à +2h) → dernier dimanche d'octobre 1h UTC (retour à +1h). Dupliqué dans
+// chaque Edge Function Deno (pas d'import cross-fichier possible) — voir la même
+// logique dans supabase/functions/poll-leads/index.ts et poll-stories/index.ts.
+function lastSundayOfMonth(year: number, month: number): number {
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const lastDate = new Date(Date.UTC(year, month, lastDay));
+  return lastDay - lastDate.getUTCDay();
+}
+
+function parisOffsetHours(utcDate: Date): number {
+  const year = utcDate.getUTCFullYear();
+  const dstStart = Date.UTC(year, 2, lastSundayOfMonth(year, 2), 1, 0, 0);
+  const dstEnd = Date.UTC(year, 9, lastSundayOfMonth(year, 9), 1, 0, 0);
+  const t = utcDate.getTime();
+  return t >= dstStart && t < dstEnd ? 2 : 1;
+}
+
+// Date calendrier Paris (pas UTC) — "aujourd'hui moins daysAgo jours", en heure de Paris.
 function isoDate(daysAgo: number): string {
-  const d = new Date();
-  d.setUTCDate(d.getUTCDate() - daysAgo);
-  return d.toISOString().split('T')[0];
+  const now = new Date();
+  const parisNow = new Date(now.getTime() + parisOffsetHours(now) * 3600_000);
+  parisNow.setUTCDate(parisNow.getUTCDate() - daysAgo);
+  return parisNow.toISOString().split('T')[0];
 }
 
 // Le navigateur envoie une requête préflight OPTIONS (sans Authorization) avant le
