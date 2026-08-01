@@ -1749,6 +1749,10 @@ a { color: inherit; text-decoration: none; }
   /* icon-btn (fermeture modale, actions liste, chevrons/édition/suppression) — cible tactile 44px */
   .icon-btn { min-width: 44px !important; min-height: 44px !important; }
 
+  /* page-header : empile titre puis bouton d'action, jamais de wrap imprévisible selon la longueur du sous-titre */
+  .page-header { flex-direction: column; align-items: stretch; }
+  .page-header > button, .page-header .btn-primary-brand { width: 100%; }
+
   /* Feedback tactile léger sur les boutons */
   .btn-primary:active, .btn-primary-brand:active, .btn-ghost:active, .bottom-nav-item:active {
     transform: scale(0.98);

@@ -90,8 +90,9 @@ export default function PageClientView() {
 
   const tasks = client.tasks.map(t => ({ ...t, done: taskOverrides[t.id] ?? t.done }));
   const last = client.latestMetrics;
-  const doneCount = tasks.filter(t => t.done).length;
-  const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
+  const coachTasks = tasks.filter(t => t.added_by === 'coach');
+  const doneCount = coachTasks.filter(t => t.done).length;
+  const progress = coachTasks.length > 0 ? Math.round((doneCount / coachTasks.length) * 100) : 0;
 
   const { nextCall, callsToday, callsBookedThisMonth, leadsThisMonthCount, cashContracted, cashCollected, closingRate } = client.business;
   const coachingCallsToday = callsToday.filter(isCoachingCall).length;
@@ -261,7 +262,7 @@ export default function PageClientView() {
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                {doneCount}/{tasks.length} tâches
+                {doneCount}/{coachTasks.length} tâches
               </span>
               {last && (
                 <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
@@ -284,7 +285,7 @@ export default function PageClientView() {
           <div className="card-head">
             <div>
               <div className="card-title">Plan de la semaine</div>
-              <div className="card-sub">{doneCount} sur {tasks.length} tâches complétées</div>
+              <div className="card-sub">{doneCount} sur {coachTasks.length} tâches complétées</div>
             </div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 16 }}>
@@ -322,6 +323,9 @@ export default function PageClientView() {
                   )}
                   {task.added_by === 'coach' && (
                     <span title={`Tâche assignée par ${client.coachName || 'ton coach'}`} style={{ fontSize: 11, flexShrink: 0 }}>⭐</span>
+                  )}
+                  {task.added_by === 'client' && (
+                    <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', padding: '2px 7px', borderRadius: 20, flexShrink: 0 }}>Perso</span>
                   )}
                 </div>
               );

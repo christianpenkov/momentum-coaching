@@ -153,6 +153,10 @@ export default function PageClientCalls() {
   // Modal rapport
   const [rapportModal, setRapportModal] = useState<RapportModal | null>(null);
 
+  // Sections pliables — repliées par défaut
+  const [historyExpanded, setHistoryExpanded] = useState(false);
+  const [canceledExpanded, setCanceledExpanded] = useState(false);
+
   // Notes personnelles + statut du rapport coach, par call_id (calls Google coach-élève)
   const [sessionReportsByCall, setSessionReportsByCall] = useState<Record<string, { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null }>>({});
 
@@ -543,9 +547,16 @@ export default function PageClientCalls() {
       {/* Historique — liste verticale */}
       {history.length > 0 && (
         <div>
-          <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 10 }}>
-            Historique des calls
-          </div>
+          <button
+            type="button"
+            onClick={() => setHistoryExpanded(v => !v)}
+            className="eyebrow-lg"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--muted)', marginBottom: 10 }}
+          >
+            <Icon name={historyExpanded ? 'chevron-up' : 'chevron-down'} size={11} />
+            Historique des calls ({history.length})
+          </button>
+          {historyExpanded && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {history.map((call) => {
               const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
@@ -606,15 +617,23 @@ export default function PageClientCalls() {
               );
             })}
           </div>
+          )}
         </div>
       )}
 
       {/* Calls annulés / refusés — en bas de page */}
       {canceledCalls.length > 0 && (
         <div style={{ marginTop: 32 }}>
-          <div className="eyebrow-lg" style={{ color: '#ef4444', marginBottom: 10 }}>
+          <button
+            type="button"
+            onClick={() => setCanceledExpanded(v => !v)}
+            className="eyebrow-lg"
+            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: '#ef4444', marginBottom: 10 }}
+          >
+            <Icon name={canceledExpanded ? 'chevron-up' : 'chevron-down'} size={11} />
             {canceledCalls.length} call{canceledCalls.length > 1 ? 's' : ''} annulé{canceledCalls.length > 1 ? 's' : ''}
-          </div>
+          </button>
+          {canceledExpanded && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {canceledCalls.map(call => {
               const isDeclined = call.status === 'declined';
@@ -678,6 +697,7 @@ export default function PageClientCalls() {
               );
             })}
           </div>
+          )}
         </div>
       )}
 
