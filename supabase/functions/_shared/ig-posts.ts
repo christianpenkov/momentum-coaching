@@ -54,15 +54,24 @@ export async function getPermanentThumbnail(supa: SupabaseClient, postId: string
 
   try {
     const imgRes = await fetch(metaUrl);
-    if (!imgRes.ok) { permanentThumbnailCache.set(postId, null); return null; }
+    if (!imgRes.ok) {
+      console.log(`[getPermanentThumbnail] ${postId} fetch metaUrl HTTP ${imgRes.status}`);
+      permanentThumbnailCache.set(postId, null);
+      return null;
+    }
     const buf = await imgRes.arrayBuffer();
     const { error } = await supa.storage.from('instagram-post-thumbnails')
       .upload(path, buf, { contentType: 'image/jpeg', upsert: true });
-    if (error) { permanentThumbnailCache.set(postId, null); return null; }
+    if (error) {
+      console.log(`[getPermanentThumbnail] ${postId} upload storage erreur: ${error.message}`);
+      permanentThumbnailCache.set(postId, null);
+      return null;
+    }
     const { data: { publicUrl } } = supa.storage.from('instagram-post-thumbnails').getPublicUrl(path);
     permanentThumbnailCache.set(postId, publicUrl);
     return publicUrl;
-  } catch {
+  } catch (e: any) {
+    console.log(`[getPermanentThumbnail] ${postId} exception: ${e?.message || 'unknown'}`);
     permanentThumbnailCache.set(postId, null);
     return null;
   }
@@ -144,10 +153,17 @@ export async function snapshotIgPosts(
     const safeInsight = async (postId: string, metric: string): Promise<number | null> => {
       try {
         const r = await fetch(`https://graph.instagram.com/v22.0/${postId}/insights?metric=${metric}&access_token=${token}`);
-        const d = r.ok ? await safeJson(r) : {};
-        if (d?.error || !d?.data?.length) return null;
+        const d = r.ok ? await safeJson(r) : { error: { message: `HTTP ${r.status}` } };
+        if (d?.error) {
+          console.log(`[snapshotIgPosts] ${postId} metric=${metric} erreur Meta: ${JSON.stringify(d.error)}`);
+          return null;
+        }
+        if (!d?.data?.length) return null;
         return d.data[0].values?.[0]?.value ?? d.data[0].total_value?.value ?? null;
-      } catch { return null; }
+      } catch (e: any) {
+        console.log(`[snapshotIgPosts] ${postId} metric=${metric} exception fetch: ${e?.message || 'unknown'}`);
+        return null;
+      }
     };
     const safeInsights = async (postId: string, metrics: string[]): Promise<Record<string, number>> => {
       const out: Record<string, number> = {};
@@ -157,19 +173,23 @@ export async function snapshotIgPosts(
     };
 
     await Promise.allSettled(posts.map(async (post: any) => {
+      const isReel = post.media_product_type === 'REELS' || post.media_type === 'VIDEO';
+      console.log(`[snapshotIgPosts] début traitement ${post.id} (isReel=${isReel})`);
       try {
-        const isReel = post.media_product_type === 'REELS' || post.media_type === 'VIDEO';
-
         const m: Record<string, number> = {};
         Object.assign(m, await safeInsights(post.id, ['reach', 'saved', 'shares', 'total_interactions', 'views']));
+        console.log(`[snapshotIgPosts] ${post.id} métriques communes ok: ${JSON.stringify(m)}`);
         if (isReel) {
           Object.assign(m, await safeInsights(post.id, ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_time', 'reels_skip_rate']));
+          console.log(`[snapshotIgPosts] ${post.id} métriques reel ok: ${JSON.stringify(m)}`);
         } else {
           Object.assign(m, await safeInsights(post.id, ['follows', 'profile_visits']));
         }
 
         const metaThumbnailUrl = post.thumbnail_url || post.media_url || null;
+        console.log(`[snapshotIgPosts] ${post.id} avant getPermanentThumbnail (metaThumbnailUrl=${metaThumbnailUrl ? 'présent' : 'absent'})`);
         const permanentThumbnail = await getPermanentThumbnail(supa, post.id, metaThumbnailUrl);
+        console.log(`[snapshotIgPosts] ${post.id} après getPermanentThumbnail (résultat=${permanentThumbnail ? 'présent' : 'null'})`);
 
         const row: Record<string, any> = {
           profile_id: profileId,
@@ -202,12 +222,17 @@ export async function snapshotIgPosts(
           row.skip_rate = m['reels_skip_rate'] ?? null;
         }
 
+        console.log(`[snapshotIgPosts] ${post.id} avant upsert, row=${JSON.stringify(row)}`);
         const { error } = await supa.from('analytics_ig_posts_history').upsert(row, { onConflict: 'profile_id,post_id,snapshot_date', ignoreDuplicates: false });
-        if (error) errors.push(`ig_post_upsert_${post.id}: ${error.message}`);
-        else console.log(`[snapshotIgPosts] post ${post.id} upserté avec succès`);
+        if (error) {
+          errors.push(`ig_post_upsert_${post.id}: ${error.message}`);
+          console.log(`[snapshotIgPosts] ${post.id} upsert ÉCHEC: ${JSON.stringify(error)}`);
+        } else {
+          console.log(`[snapshotIgPosts] ${post.id} upserté avec succès`);
+        }
       } catch (e: any) {
         errors.push(`ig_post_${post.id}: ${e?.message || 'unknown'}`);
-        console.log(`[snapshotIgPosts] post ${post.id} a échoué: ${e?.message || 'unknown'}`);
+        console.log(`[snapshotIgPosts] ${post.id} EXCEPTION dans le try principal: ${e?.stack || e?.message || JSON.stringify(e) || 'unknown'}`);
       }
     }));
   } catch (e: any) { errors.push(`ig_posts_snapshot: ${e?.message || 'unknown'}`); }
