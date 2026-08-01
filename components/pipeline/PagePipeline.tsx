@@ -358,7 +358,7 @@ function PipelineCard({
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
   onCardClick?: (cardKey: string) => void;
-  onNotALead?: (key: string) => void;
+  onNotALead?: (key: string, callId?: string | null) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -555,21 +555,19 @@ function PipelineCard({
           borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
           padding: '4px 0', minWidth: 160,
         }}>
-          {platform === 'ig' && card.sub === 'Cold DM' && (
-            <button
-              onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); onNotALead?.(card.key); }}
-              style={{
-                display: 'block', width: '100%', textAlign: 'left',
-                padding: '8px 14px', fontSize: 12, fontWeight: 500,
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--ink)',
-              }}
-              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
-              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
-            >
-              Ce n'est pas un lead
-            </button>
-          )}
+          <button
+            onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); onNotALead?.(card.key, card.callId); }}
+            style={{
+              display: 'block', width: '100%', textAlign: 'left',
+              padding: '8px 14px', fontSize: 12, fontWeight: 500,
+              background: 'none', border: 'none', cursor: 'pointer',
+              color: 'var(--ink)',
+            }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+          >
+            Ce n'est pas un lead
+          </button>
           <button
             onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmDelete(true); setDeleteConfirmed(false); }}
             style={{
@@ -653,7 +651,7 @@ function KanbanColumn({
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
   onCardClick?: (cardKey: string) => void;
-  onNotALead?: (key: string) => void;
+  onNotALead?: (key: string, callId?: string | null) => void;
 }) {
   return (
     <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, transition: 'background .1s', alignSelf: 'stretch' }}>
@@ -1476,13 +1474,25 @@ export default function PagePipeline() {
     await refetch();
   }, [refetch, tab]);
 
-  // ── Marquage "pas un lead" (faux positif Cold DM) ───────────────────────────
+  // ── Marquage "pas un lead" (faux positif) ───────────────────────────────────
 
-  const handleNotALead = useCallback(async (cardKey: string) => {
+  const handleNotALead = useCallback(async (cardKey: string, callId?: string | null) => {
+    const isUUID = /^[0-9a-f-]{36}$/.test(cardKey);
+    let body: Record<string, any>;
+    if (!isUUID) {
+      // IG : cardKey = ig_username
+      body = { ig_username: cardKey, not_a_lead: true };
+    } else if (cardKey === callId) {
+      // YT/Autre fallback : pas de ligne prospects à marquer, rien à faire
+      return;
+    } else {
+      // YT/Autre normal : cardKey = prospect_id
+      body = { prospect_id: cardKey, not_a_lead: true };
+    }
     await fetch('/api/client/pipeline', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ig_username: cardKey, not_a_lead: true }),
+      body: JSON.stringify(body),
     });
     await refetch();
   }, [refetch]);

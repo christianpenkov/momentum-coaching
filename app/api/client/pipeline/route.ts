@@ -51,6 +51,7 @@ export async function GET() {
       .select('id, platform, email, name, source, created_at')
       .eq('profile_id', user.id)
       .neq('deleted', true)
+      .eq('not_a_lead', false)
       .order('created_at', { ascending: false }),
     callsQuery,
     supa.from('pipeline_overrides')
@@ -160,10 +161,12 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true });
 }
 
-// Marque un lead IG comme faux positif ("pas un prospect", ex: un pote détecté
-// en Cold DM) — contrairement à DELETE, la ligne instagram_leads reste en place
-// (not_a_lead = true) pour bloquer la recréation automatique d'une fiche Cold DM
-// par le webhook (voir handleColdDmCandidate), tout en restant exclue des stats.
+// Marque un lead comme faux positif ("pas un prospect", ex: un pote détecté
+// comme lead) — contrairement à DELETE, la ligne reste en place (not_a_lead =
+// true) pour bloquer la recréation automatique d'une fiche Cold DM par le
+// webhook (voir handleColdDmCandidate, IG uniquement), tout en restant exclue
+// des stats sur toutes les plateformes (IG via instagram_leads, YT/Autres via
+// prospects).
 export async function PATCH(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -172,15 +175,20 @@ export async function PATCH(request: Request) {
   let body: any;
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
-  const { ig_username, not_a_lead } = body;
-  if (!ig_username || typeof not_a_lead !== 'boolean') {
-    return NextResponse.json({ error: 'ig_username et not_a_lead requis' }, { status: 400 });
+  const { ig_username, prospect_id, not_a_lead } = body;
+  if (typeof not_a_lead !== 'boolean' || (!ig_username && !prospect_id)) {
+    return NextResponse.json({ error: 'ig_username ou prospect_id, et not_a_lead requis' }, { status: 400 });
   }
 
-  const { error } = await supa.from('instagram_leads')
-    .update({ not_a_lead })
-    .eq('profile_id', user.id)
-    .eq('ig_username', ig_username);
+  const { error } = ig_username
+    ? await supa.from('instagram_leads')
+        .update({ not_a_lead })
+        .eq('profile_id', user.id)
+        .eq('ig_username', ig_username)
+    : await supa.from('prospects')
+        .update({ not_a_lead } as any)
+        .eq('profile_id', user.id)
+        .eq('id', prospect_id);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });
