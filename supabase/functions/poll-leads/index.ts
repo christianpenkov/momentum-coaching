@@ -925,24 +925,24 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
             backfill_source: 'cron',
           }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         }
-        // ig_accounts_engaged/ig_total_interactions : même besoin qu'au-dessus mais pour
-        // l'engagement — la route stats/route.ts passe en lecture 100%-DB pour ces
-        // métriques (2026-07-07), donc le cron doit désormais les actualiser aussi sur
-        // "aujourd'hui" (pas seulement "hier"), sinon "Interactions posts"/"Taux
-        // d'engagement" resteraient à 0/null pour le jour même jusqu'au lendemain matin.
-        // Vrai appel Meta daté sur todayStr (period=day), pas un simple recopiage — ces
-        // métriques nécessitent un appel spécifique par jour, contrairement à ig_followers.
+        // Toutes les métriques day=period (reach, views, accounts_engaged,
+        // total_interactions, etc.) : même besoin que ig_followers ci-dessus, mais elles
+        // nécessitent un vrai appel Meta daté sur todayStr (period=day), pas un simple
+        // recopiage de l'état actuel du compte — la route stats/route.ts passe en lecture
+        // 100%-DB (2026-07-07), donc le cron doit les actualiser aussi sur "aujourd'hui"
+        // (pas seulement "hier"), sinon elles restent à 0/null pour le jour même jusqu'au
+        // lendemain matin. todayMetrics contenait déjà reach/views/impressions depuis le
+        // même appel API, mais seuls accounts_engaged/total_interactions étaient persistés
+        // — le reste était calculé puis jeté sans raison (oubli, pas une limite Meta).
         try {
           const todayMetrics = await fetchIgDayMetrics(igCreds.token, igCreds.igAccountId, todayStr);
-          if (todayMetrics.ig_accounts_engaged != null || todayMetrics.ig_total_interactions != null) {
-            await supa.from('analytics_daily_snapshots').upsert({
-              profile_id: profileId, date: todayStr,
-              ig_accounts_engaged: todayMetrics.ig_accounts_engaged,
-              ig_total_interactions: todayMetrics.ig_total_interactions,
-              backfill_source: 'cron',
-            }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
-          }
-        } catch { /* non bloquant — la ligne "hier" reste écrite normalement */ }
+          const { ig_followers: _tf, ig_following: _tg, ...todayMetricsNoAccount } = todayMetrics;
+          await supa.from('analytics_daily_snapshots').upsert({
+            profile_id: profileId, date: todayStr,
+            ...todayMetricsNoAccount,
+            backfill_source: 'cron',
+          }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+        } catch (e) { console.error(`[poll-leads] todayMetrics IG (${profileId}):`, (e as Error).message); }
       })(),
       snapshotIgPosts(supa, profileId, igCreds.token, igCreds.igAccountId, yesterday),
     ]);
