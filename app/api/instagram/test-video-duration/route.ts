@@ -41,10 +41,10 @@ export async function GET() {
     return NextResponse.json({ error: 'aucun_reel_trouve', mediaData });
   }
 
-  const [fieldsWithVideoDuration, fieldsWithDuration, fieldsAll, insightsTotalTime] = await Promise.all([
+  const [fieldsWithVideoDuration, fieldsWithVideoData, fieldsWithInsightsSubfield, insightsTotalTime] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${latestReel.id}?fields=id,media_type,media_product_type,video_duration&access_token=${token}`).then(safeJson),
-    fetch(`https://graph.instagram.com/v22.0/${latestReel.id}?fields=id,media_type,media_product_type,duration&access_token=${token}`).then(safeJson),
-    fetch(`https://graph.instagram.com/v22.0/${latestReel.id}?fields=id,caption,media_type,media_product_type,media_url,thumbnail_url,timestamp,like_count,comments_count,permalink,video_duration,duration,view_count,total_views_count&access_token=${token}`).then(safeJson),
+    fetch(`https://graph.instagram.com/v22.0/${latestReel.id}?fields=id,media_type,media_product_type,video_data&access_token=${token}`).then(safeJson),
+    fetch(`https://graph.instagram.com/v22.0/${latestReel.id}?fields=id,media_type,media_product_type,insights.metric(ig_reels_video_view_total_time,ig_reels_avg_watch_time,views)&access_token=${token}`).then(safeJson),
     fetch(`https://graph.instagram.com/v22.0/${latestReel.id}/insights?metric=ig_reels_video_view_total_time,ig_reels_avg_watch_time,views&access_token=${token}`).then(safeJson),
   ]);
 
@@ -52,8 +52,8 @@ export async function GET() {
     igAccountId,
     latest_reel: latestReel,
     field_video_duration: fieldsWithVideoDuration,
-    field_duration: fieldsWithDuration,
-    all_fields_attempt: fieldsAll,
+    field_video_data: fieldsWithVideoData,
+    field_insights_subfield: fieldsWithInsightsSubfield,
     insights_watch_time: insightsTotalTime,
   });
 }
