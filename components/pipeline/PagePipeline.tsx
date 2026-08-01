@@ -1308,7 +1308,9 @@ export default function PagePipeline() {
       const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
       const detectedAt = lead?.detected_at ?? prospect?.created_at ?? new Date().toISOString();
-      const sub = (lead?.source === 'cold_dm' || prospect) ? 'Cold DM' : lead?.keyword_matched ? `#${lead.keyword_matched}` : '';
+      const sub = lead?.keyword_matched && lead.keyword_matched !== 'cold_dm'
+        ? `#${lead.keyword_matched}`
+        : (lead?.source === 'cold_dm' || prospect) ? 'Cold DM' : '';
 
       const lmClickedEvent = lead ? events.find(e => e.ig_lead_id === lead.id && e.event_type === 'lm_clicked') : null;
 
