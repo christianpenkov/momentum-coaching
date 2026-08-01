@@ -5445,6 +5445,36 @@ async function fetchYtCurrentPeriodTotals(profileId: string | undefined, period:
   }
 }
 
+async function fetchIgCurrentPeriodTotals(profileId: string | undefined, period: number) {
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const targetId = profileId || user.id;
+
+    const { periodStart, periodEnd } = getPeriodWindow(0, period === 7 ? 'week' : 'month');
+    const startDateStr = parisDateStr(periodStart);
+    const endDateStr = parisDateStr(periodEnd);
+
+    const { data: snaps } = await supabase
+      .from('analytics_daily_snapshots')
+      .select('date, ig_reach, ig_views')
+      .eq('profile_id', targetId)
+      .gte('date', startDateStr)
+      .lte('date', endDateStr)
+      .order('date', { ascending: true });
+
+    if (!snaps || snaps.length === 0) return null;
+
+    return {
+      reach30d: snaps.reduce((s, r) => s + (r.ig_reach ?? 0), 0),
+      views30d: snaps.reduce((s, r) => s + (r.ig_views ?? 0), 0),
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Pagine une query Supabase par tranches de pageSize lignes (défaut 1000, le plafond
 // PostgREST) — évite qu'une requête sans .limit()/.range() se fasse tronquer
 // silencieusement dès que le volume dépasse ce plafond. Pattern dupliqué depuis
@@ -5956,7 +5986,23 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
     enabled: [0, 1, 3].includes(tab),
     staleTime: 5 * 60 * 1000,
   });
-  const ig: IGStats | null = igRaw ?? null;
+  // Totaux Instagram de la période courante depuis la DB (cohérent avec le calendrier
+  // de période affiché) — même mécanisme que ytCurrentPeriodTotals ci-dessous, corrige
+  // reach30d/views30d qui sinon restent une fenêtre glissante de 30j se terminant
+  // "maintenant" (peut englober des données antérieures à la période calendaire choisie).
+  const { data: igCurrentPeriodTotals } = useQuery({
+    queryKey: ['stats-ig-current-period', profileId, period],
+    queryFn: () => fetchIgCurrentPeriodTotals(profileId, period),
+    enabled: [0, 1, 3].includes(tab),
+  });
+
+  const ig: IGStats | null = igRaw ? (
+    igCurrentPeriodTotals ? {
+      ...igRaw,
+      reach30d: igCurrentPeriodTotals.reach30d,
+      views30d: igCurrentPeriodTotals.views30d,
+    } : igRaw
+  ) : null;
 
   // YouTube — onglets 0, 2, 3
   const { data: ytRaw, isLoading: ytLoading } = useQuery<YTStats | null>({
