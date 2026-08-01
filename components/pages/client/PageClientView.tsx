@@ -322,7 +322,7 @@ export default function PageClientView() {
                     </span>
                   )}
                   {task.added_by === 'coach' && (
-                    <span title={`Tâche assignée par ${client.coachName || 'ton coach'}`} style={{ fontSize: 11, flexShrink: 0 }}>⭐</span>
+                    <span title={`Tâche assignée par ${client.coachName || 'ton coach'}`} style={{ fontSize: 10, fontWeight: 600, color: 'var(--accent)', background: 'var(--surface-2)', padding: '2px 7px', borderRadius: 20, flexShrink: 0 }}>Coach</span>
                   )}
                   {task.added_by === 'client' && (
                     <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', background: 'var(--surface-2)', padding: '2px 7px', borderRadius: 20, flexShrink: 0 }}>Perso</span>
