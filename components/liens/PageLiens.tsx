@@ -452,8 +452,8 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
 // ─── Panneau droit : actions pour un contenu ──────────────────────────────────
 
-function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnets, onPostUpdated }: {
-  post: Post; profileId: string; domain: string; canGenerate: boolean;
+function TabDesc({ post, profileId, domain, canGenerate, showDisconnectedWarning, calendlyUrl, leadMagnets, onPostUpdated }: {
+  post: Post; profileId: string; domain: string; canGenerate: boolean; showDisconnectedWarning: boolean;
   calendlyUrl: string; leadMagnets: LeadMagnet[];
   onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
@@ -669,7 +669,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
           style={{ width: '100%', padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none', boxSizing: 'border-box' }} />
       )}
 
-      {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
+      {showDisconnectedWarning && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       {/* Lien Calendly — affiché + vérification post */}
@@ -797,8 +797,8 @@ function DissociateButton({ postId, platform, onPostUpdated, onDissociated }: {
 
 // ─── TabLm ────────────────────────────────────────────────────────────────────
 
-function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated, onPostUpdated }: {
-  post: Post; profileId: string; domain: string; canGenerate: boolean;
+function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, leadMagnets, onLmCreated, onPostUpdated }: {
+  post: Post; profileId: string; domain: string; canGenerate: boolean; showDisconnectedWarning: boolean;
   leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
   onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
@@ -1251,7 +1251,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         </div>
       </div>
 
-      {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
+      {showDisconnectedWarning && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
@@ -1320,7 +1320,7 @@ function TabLm({ post, profileId, domain, canGenerate, leadMagnets, onLmCreated,
         <div style={{ fontSize: 10, color: FAINT, marginTop: 4 }}>Quand quelqu'un commente ce mot sous ce contenu, il reçoit le LM en DM automatiquement.</div>
       </div>
 
-      {!canGenerate && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
+      {showDisconnectedWarning && <div style={{ fontSize: 12, color: AMBER, background: AMBER_SOFT, borderRadius: 6, padding: '8px 10px' }}>⚠ Short.io non connecté — configure ta clé dans Réglages.</div>}
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
@@ -1338,6 +1338,10 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
 }) {
   const domain = domains[0]?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
+  // Le bandeau "non connecté" ne doit apparaître qu'une fois le chargement des domaines Short.io
+  // terminé — sinon il clignote pendant ~1s à chaque ouverture (canGenerate est faux tant que
+  // domainsLoaded ne l'est pas, même si Short.io est bien connecté).
+  const showDisconnectedWarning = domainsLoaded && !canGenerate;
   const [activeTab, setActiveTab] = useState<'desc' | 'lm'>('desc');
   const unsavedGuard = useUnsavedGuard();
 
@@ -1390,8 +1394,8 @@ function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, 
 
       {/* Contenu */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
-        {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onPostUpdated={onPostUpdated} />}
-        {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} leadMagnets={leadMagnets} onLmCreated={onLmCreated} onPostUpdated={onPostUpdated} />}
+        {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onPostUpdated={onPostUpdated} />}
+        {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} leadMagnets={leadMagnets} onLmCreated={onLmCreated} onPostUpdated={onPostUpdated} />}
       </div>
     </div>
   );

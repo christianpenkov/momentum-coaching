@@ -1986,7 +1986,7 @@ export default function PageChat() {
   // Panneau "Infos" repliable — ouvert par défaut (préserve le comportement d'avant), state au
   // niveau de PageChat (pas de ConversationThread, démonté/remonté à chaque changement de
   // conversation via key={activeId}) pour que le choix survive au changement d'élève actif.
-  const [showInfo, setShowInfo] = useState(true);
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id || null));
