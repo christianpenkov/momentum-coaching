@@ -274,18 +274,23 @@ function Sparkline({ data, color = 'var(--accent)', height = 52 }: { data: numbe
   );
 }
 
-function ChartTooltip({ active, payload, label, fmtFn }: any) {
+function ChartTooltip({ active, payload, label, fmtFn, pendingKey }: any) {
   if (!active || !payload?.length) return null;
   return (
     <div className="chart-tooltip">
       <div className="chart-tooltip-label">{label}</div>
-      {payload.map((p: any, i: number) => (
-        <div key={i} className="chart-tooltip-row">
-          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block', marginRight: 6 }} />
-          <span>{p.name}: </span>
-          <strong>{fmtFn ? fmtFn(p.value) : fmt(p.value)}</strong>
-        </div>
-      ))}
+      {payload.map((p: any, i: number) => {
+        const isPending = pendingKey && p.payload?.[pendingKey];
+        return (
+          <div key={i} className="chart-tooltip-row">
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block', marginRight: 6 }} />
+            <span>{p.name}: </span>
+            {isPending
+              ? <strong style={{ color: 'var(--faint)', fontWeight: 500 }}>Pas encore de données</strong>
+              : <strong>{fmtFn ? fmtFn(p.value) : fmt(p.value)}</strong>}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -338,8 +343,42 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     const t = new Date(dateStr + 'T12:00:00Z').getTime();
     return t >= ovPeriodStart.getTime() && t <= ovPeriodEnd.getTime();
   };
-  const igChartSlice  = ig?.chartData.filter(d => inOvWindow(d.date)) || [];
-  const ytChartSlice  = yt?.chartData.filter(d => inOvWindow(d.date)) || [];
+  const igChartSliceRaw  = ig?.chartData.filter(d => inOvWindow(d.date)) || [];
+  const ytChartSliceRaw  = yt?.chartData.filter(d => inOvWindow(d.date)) || [];
+  // Même complétion que igChartSlice — côté YT, "pas de ligne" signifie déjà "pas encore
+  // disponible" (l'API YouTube Analytics a un délai de traitement propre, ~J-3), donc
+  // pending = jour manquant du tout, pas un flag séparé comme reachPending côté IG.
+  const ytChartByDate = new Map(ytChartSliceRaw.map(d => [d.date, d]));
+  const ytChartSlice: (typeof ytChartSliceRaw[number] & { pending?: boolean })[] = (() => {
+    const days: (typeof ytChartSliceRaw[number] & { pending?: boolean })[] = [];
+    let d = ovPeriodStart;
+    while (d.getTime() <= ovPeriodEnd.getTime()) {
+      const iso = parisDateStr(d);
+      const existing = ytChartByDate.get(iso);
+      days.push(existing ? { ...existing, pending: false } : { date: iso, views: 0, pending: true } as any);
+      d = parisAddDays(d, 1);
+    }
+    return days;
+  })();
+  // Complète avec tous les jours calendaires de la période (comme igDays dans
+  // TabInstagram) — sinon un jour sans ligne en base (ex: pas encore de commentaire IG,
+  // premier jour du mois) disparaît totalement du graphique plutôt que d'apparaître
+  // comme un point "pas encore de données". reachPending distingue une vraie valeur 0
+  // (ligne existe, reach mesuré à 0) d'une absence de collecte (voir stats/route.ts).
+  const igChartByDate = new Map(igChartSliceRaw.map(d => [d.date, d]));
+  const igChartSlice: (typeof igChartSliceRaw[number] & { pending?: boolean })[] = (() => {
+    const days: (typeof igChartSliceRaw[number] & { pending?: boolean })[] = [];
+    let d = ovPeriodStart;
+    while (d.getTime() <= ovPeriodEnd.getTime()) {
+      const iso = parisDateStr(d);
+      const existing = igChartByDate.get(iso);
+      days.push(existing
+        ? { ...existing, pending: (existing as any).reachPending }
+        : { date: iso, reach: 0, pending: true } as any);
+      d = parisAddDays(d, 1);
+    }
+    return days;
+  })();
   const igViewRatio   = ig && ig.reach30d > 0 ? (ig.views30d || 0) / ig.reach30d : 1;
 
   const igReach = period === 7
@@ -547,8 +586,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       {/* ── BLOC 2 : Santé contenu — 2 sparklines côte à côte ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {[
-          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: igChartSlice.map(d => ({ date: d.date, v: d.reach })) },
-          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: ytChartSlice.map(d => ({ date: d.date, v: d.views })) },
+          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: igChartSlice.map(d => ({ date: d.date, v: d.reach, pending: d.pending })) },
+          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: ytChartSlice.map(d => ({ date: d.date, v: d.views, pending: d.pending })) },
         ].map((item, i) => (
           <div key={i} className="stats-hover-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
@@ -573,9 +612,23 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                 <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : 'preserveStartEnd'} />
                 <Tooltip content={({ active, payload, label }) => {
                   if (!active || !payload?.length) return null;
-                  return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong></div></div>;
+                  const isPending = (payload[0].payload as any)?.pending;
+                  return (
+                    <div className="chart-tooltip">
+                      <div className="chart-tooltip-label">{label}</div>
+                      <div className="chart-tooltip-row">
+                        {isPending
+                          ? <strong style={{ color: 'var(--faint)', fontWeight: 500 }}>Pas encore de données</strong>
+                          : <strong>{fmt(payload[0].value as number)}</strong>}
+                      </div>
+                    </div>
+                  );
                 }} />
-                <Area type="monotone" dataKey="v" stroke={item.color} strokeWidth={1.5} fill={`url(#grad-v2-${i})`} dot={false} activeDot={{ r: 3, strokeWidth: 0, fill: item.color }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="v" stroke={item.color} strokeWidth={1.5} fill={`url(#grad-v2-${i})`} dot={(props: any) => {
+                  const { cx, cy, payload } = props;
+                  if (cx == null || cy == null || !payload?.pending) return <g key={props.key} />;
+                  return <circle key={props.key} cx={cx} cy={cy} r={2.5} fill="var(--surface)" stroke="var(--faint)" strokeWidth={1.3} strokeDasharray="2,1.5" />;
+                }} activeDot={{ r: 3, strokeWidth: 0, fill: item.color }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           </div>
@@ -817,6 +870,10 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   const igDaysForChart = igDays.map(d => ({
     ...d,
     reach: igDaysNoDataSet.has(d.date) ? (null as any) : d.reach,
+    // Ligne existe (pas dans igDaysNoDataSet) mais reach pas encore collecté par le
+    // cron pour ce jour précis (voir reachPending, stats/route.ts) — point creux/gris
+    // plutôt qu'un 0 muet, distinct d'un jour vraiment sans ligne (coupé ci-dessus).
+    pending: !igDaysNoDataSet.has(d.date) && (d as any).reachPending,
   }));
 
   // Publications par jour depuis les vrais timestamps des posts
@@ -936,7 +993,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
         <Card title="Reach par jour" sub={`${period} jours`}>
-          <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} />
+          <AreaChart data={igDaysForChart} areas={[{ key: 'reach', label: 'Reach', color: 'var(--accent-brand)' }]} xKey="date" height={220} showWeekday={period === 7} pendingKey="pending" />
         </Card>
         <Card title="Abonnés / jour" sub={`${period} jours`}>
           <ResponsiveContainer width="100%" height={220}>
@@ -1700,11 +1757,17 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
           // bug que sur les autres graphiques YT de cette page.
+          // pending (pas null) sur les jours sans donnée : garde le point visible (creux/
+          // gris via todayDotFactory) au lieu de couper totalement le rendu — sinon, en
+          // début de mois/semaine où aucune donnée n'est encore arrivée (délai J-3 API
+          // YouTube), le graphique reste totalement vide plutôt que d'afficher "pas
+          // encore de données" sur chaque jour manquant.
           const netSubsForChart = ytDays.map(d => ({
             date: d.date,
-            netSubs: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0),
+            netSubs: ytDaysNoDataSet.has(d.date) ? 0 : (d.netSubs ?? 0),
+            pending: ytDaysNoDataSet.has(d.date),
           }));
-          const hasMovement = netSubsForChart.some(d => d.netSubs !== null && d.netSubs !== 0);
+          const hasMovement = netSubsForChart.some(d => !ytDaysNoDataSet.has(d.date) && d.netSubs !== 0);
           if (!hasMovement) return <Empty msg="Pas de mouvement d'abonnés sur cette période" />;
           return (
             <ResponsiveContainer width="100%" height={160}>
@@ -1718,8 +1781,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="netSubs" name="Subs nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+                <Tooltip content={<ChartTooltip pendingKey="pending" />} />
+                <Area type="monotone" dataKey="netSubs" name="Subs nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart.filter(d => !d.pending), 'date', 'netSubs'), 'pending')} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           );

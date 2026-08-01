@@ -218,8 +218,13 @@ export async function GET(request: Request) {
   const chartData = dbSnaps.map(r => ({
     date: r.date,
     reach: r.ig_reach ?? 0,
+    // true seulement si la ligne existe mais que cette métrique précise n'a pas encore
+    // été collectée par le cron (distinct d'un vrai 0) — permet à l'UI d'afficher "Pas
+    // encore de données" plutôt qu'un 0 potentiellement trompeur pour le jour courant.
+    reachPending: r.ig_reach == null,
     followerCount: r.ig_followers ?? null,
     views: r.ig_views ?? 0,
+    viewsPending: r.ig_views == null,
     accountsEngaged: r.ig_accounts_engaged ?? 0,
     totalInteractions: r.ig_total_interactions ?? 0,
     websiteClicks: r.ig_website_clicks ?? 0,
