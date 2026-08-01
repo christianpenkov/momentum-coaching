@@ -106,12 +106,6 @@ export async function snapshotIgPosts(
     if (!mediaRes.ok) return [`ig_posts_media: HTTP ${mediaRes.status}`];
     const mediaData = await safeJson(mediaRes);
     const posts: any[] = mediaData.data || [];
-    // Debug temporaire (2026-08-01) — investigation : seuls 6/14 posts se rafraîchissent
-    // à chaque appel, tous les FEED + 1 seul Reel. Vérifie si Meta renvoie bien les 14
-    // posts dans /media (dans ce cas le souci est dans la boucle de traitement/upsert
-    // ci-dessous, probablement timeout) ou seulement un sous-ensemble (dans ce cas le
-    // souci est côté API Meta elle-même, pas notre code).
-    console.log(`[snapshotIgPosts] media reçus de Meta: ${posts.length} — ids: ${posts.map((p: any) => `${p.id}(${p.media_product_type || p.media_type})`).join(', ')}`);
 
     // Un post absent de la réponse Meta actuelle mais présent en base (parmi les 90
     // derniers jours, fenêtre couverte par /media limit=15+90j ailleurs dans ce fichier)
@@ -154,16 +148,10 @@ export async function snapshotIgPosts(
       try {
         const r = await fetch(`https://graph.instagram.com/v22.0/${postId}/insights?metric=${metric}&access_token=${token}`);
         const d = r.ok ? await safeJson(r) : { error: { message: `HTTP ${r.status}` } };
-        if (d?.error) {
-          console.log(`[snapshotIgPosts] ${postId} metric=${metric} erreur Meta: ${JSON.stringify(d.error)}`);
-          return null;
-        }
+        if (d?.error) return null;
         if (!d?.data?.length) return null;
         return d.data[0].values?.[0]?.value ?? d.data[0].total_value?.value ?? null;
-      } catch (e: any) {
-        console.log(`[snapshotIgPosts] ${postId} metric=${metric} exception fetch: ${e?.message || 'unknown'}`);
-        return null;
-      }
+      } catch { return null; }
     };
     const safeInsights = async (postId: string, metrics: string[]): Promise<Record<string, number>> => {
       const out: Record<string, number> = {};
@@ -174,22 +162,17 @@ export async function snapshotIgPosts(
 
     await Promise.allSettled(posts.map(async (post: any) => {
       const isReel = post.media_product_type === 'REELS' || post.media_type === 'VIDEO';
-      console.log(`[snapshotIgPosts] début traitement ${post.id} (isReel=${isReel})`);
       try {
         const m: Record<string, number> = {};
         Object.assign(m, await safeInsights(post.id, ['reach', 'saved', 'shares', 'total_interactions', 'views']));
-        console.log(`[snapshotIgPosts] ${post.id} métriques communes ok: ${JSON.stringify(m)}`);
         if (isReel) {
           Object.assign(m, await safeInsights(post.id, ['ig_reels_avg_watch_time', 'ig_reels_video_view_total_time', 'reels_skip_rate']));
-          console.log(`[snapshotIgPosts] ${post.id} métriques reel ok: ${JSON.stringify(m)}`);
         } else {
           Object.assign(m, await safeInsights(post.id, ['follows', 'profile_visits']));
         }
 
         const metaThumbnailUrl = post.thumbnail_url || post.media_url || null;
-        console.log(`[snapshotIgPosts] ${post.id} avant getPermanentThumbnail (metaThumbnailUrl=${metaThumbnailUrl ? 'présent' : 'absent'})`);
         const permanentThumbnail = await getPermanentThumbnail(supa, post.id, metaThumbnailUrl);
-        console.log(`[snapshotIgPosts] ${post.id} après getPermanentThumbnail (résultat=${permanentThumbnail ? 'présent' : 'null'})`);
 
         const row: Record<string, any> = {
           profile_id: profileId,
@@ -222,17 +205,14 @@ export async function snapshotIgPosts(
           row.skip_rate = m['reels_skip_rate'] ?? null;
         }
 
-        console.log(`[snapshotIgPosts] ${post.id} avant upsert, row=${JSON.stringify(row)}`);
         const { error } = await supa.from('analytics_ig_posts_history').upsert(row, { onConflict: 'profile_id,post_id,snapshot_date', ignoreDuplicates: false });
         if (error) {
           errors.push(`ig_post_upsert_${post.id}: ${error.message}`);
           console.log(`[snapshotIgPosts] ${post.id} upsert ÉCHEC: ${JSON.stringify(error)}`);
-        } else {
-          console.log(`[snapshotIgPosts] ${post.id} upserté avec succès`);
         }
       } catch (e: any) {
         errors.push(`ig_post_${post.id}: ${e?.message || 'unknown'}`);
-        console.log(`[snapshotIgPosts] ${post.id} EXCEPTION dans le try principal: ${e?.stack || e?.message || JSON.stringify(e) || 'unknown'}`);
+        console.log(`[snapshotIgPosts] ${post.id} EXCEPTION: ${e?.stack || e?.message || JSON.stringify(e) || 'unknown'}`);
       }
     }));
   } catch (e: any) { errors.push(`ig_posts_snapshot: ${e?.message || 'unknown'}`); }
