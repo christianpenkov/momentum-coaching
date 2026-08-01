@@ -8,6 +8,8 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+const CRON_SECRET = process.env.CRON_SECRET!;
+
 // POST /api/instagram/refresh-today
 // Body: { profile_id: string }
 // Appelé depuis le bouton Refresh du frontend (coach).
@@ -45,15 +47,26 @@ export async function POST(request: Request) {
       const err = await upsertIgSnapshot(profileId, { date: today, ...metrics }, 'refresh_partial');
       if (err) errors.push(`upsert: ${err}`);
 
-      // Poll backup commentaires (nouveaux leads) + hook_replied (réponses DM)
+      // Poll backup commentaires (nouveaux leads) + hook_replied (réponses DM) + snapshot
+      // des posts individuels (reach/saves/skip_rate/etc. par post — refresh-ig-posts,
+      // skipGuard=true côté Edge Function, donc toujours forcé même si un snapshot du
+      // jour existe déjà). Sans cet appel, le bouton "Rafraîchir" ne mettait à jour que
+      // les métriques compte, jamais les stats par post individuel.
       const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const [commentsResult, hookResult] = await Promise.all([
+      const [commentsResult, hookResult, postsResult] = await Promise.all([
         pollIgComments(profileId, creds.token, creds.igAccountId, since),
         pollIgHookReplied(profileId, creds.token, creds.igAccountId),
+        fetch(`${process.env.NEXT_PUBLIC_SUPABASE_URL}/functions/v1/refresh-ig-posts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${CRON_SECRET}` },
+          body: JSON.stringify({ profile_id: profileId }),
+        }).then(r => r.json()).catch((e: any) => ({ error: e?.message || 'fetch_failed' })),
       ]);
       leadsFound = commentsResult.leadsFound;
       if (commentsResult.error) errors.push(`comment_poll: ${commentsResult.error}`);
       if (hookResult.error) errors.push(`hook_poll: ${hookResult.error}`);
+      if (postsResult?.error) errors.push(`posts_refresh: ${postsResult.error}`);
+      else if (postsResult?.errors?.length) errors.push(`posts_refresh: ${postsResult.errors.join(', ')}`);
     }
   } catch (e: any) {
     errors.push(`fetch_error: ${e?.message || 'unknown'}`);
