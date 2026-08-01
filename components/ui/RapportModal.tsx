@@ -373,7 +373,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           {/* En-tête */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
-              <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>Rapport de call</div>
+              <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 4 }}>Rapport de call</div>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>
                 {inviteeName ? `Appel avec ${inviteeName}` : 'Appel découverte'}
               </div>

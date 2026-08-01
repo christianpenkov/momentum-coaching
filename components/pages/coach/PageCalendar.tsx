@@ -169,7 +169,7 @@ export default function PageCalendar() {
           {/* Jours de la semaine */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
             {DAYS_FR.map(d => (
-              <div key={d} style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <div key={d} className="eyebrow-sm" style={{ padding: '8px 0', textAlign: 'center', color: 'var(--muted)' }}>
                 {d}
               </div>
             ))}

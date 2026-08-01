@@ -289,7 +289,7 @@ export default function Onboarding({ open, onClose, coachName }: OnboardingProps
                 <m.div variants={staggerContainer} initial="hidden" animate="visible">
 
                   {/* Step counter */}
-                  <m.div variants={staggerChild} style={{ fontSize: 11, fontWeight: 600, fontFamily: 'var(--font-mono)', color: 'var(--muted)', letterSpacing: '0.08em', marginBottom: 24, textTransform: 'uppercase' as const }}>
+                  <m.div variants={staggerChild} className="eyebrow-sm" style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)', marginBottom: 24 }}>
                     {current.label}
                   </m.div>
 

@@ -93,7 +93,7 @@ export default function TaskModal({ clientId: fixedClientId, task, onClose, onCr
       <div style={{ padding: '20px 24px', overflowY: 'auto' }}>
         {/* Titre */}
         <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+          <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
             Titre de la tâche *
           </label>
           <input
@@ -116,7 +116,7 @@ export default function TaskModal({ clientId: fixedClientId, task, onClose, onCr
         {/* Deadline + Priorité côte à côte */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
               Deadline *
             </label>
             <div style={{ display: 'flex', gap: 8 }}>
@@ -149,7 +149,7 @@ export default function TaskModal({ clientId: fixedClientId, task, onClose, onCr
             {errorField === 'deadline' && <div style={{ fontSize: 11, color: 'var(--red)', marginTop: 4 }}>{errorMessage}</div>}
           </div>
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
               Priorité
             </label>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -216,7 +216,7 @@ export default function TaskModal({ clientId: fixedClientId, task, onClose, onCr
         {/* Élève (uniquement en création, si pas déjà fixé par le contexte d'appel) */}
         {!isEdit && !fixedClientId && (
           <div>
-            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
               Élève *
             </label>
             <select

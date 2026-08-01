@@ -128,22 +128,22 @@ export default function PageAnalytics() {
       {/* KPIs */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         <div className="card" style={{ padding: '16px 20px' }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Calls Calendly</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>Calls Calendly</div>
           <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{totalCalls}</div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>ce mois</div>
         </div>
         <div className="card" style={{ padding: '16px 20px' }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Deals iClosed</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>Deals iClosed</div>
           <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--accent)' }}>{avgClosing}%</div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>taux closing moy.</div>
         </div>
         <div className="card" style={{ padding: '16px 20px' }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>MRR Stripe</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>MRR Stripe</div>
           <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>{totalMRR.toLocaleString('fr-FR')} €</div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>mensuel récurrent</div>
         </div>
         <div className="card" style={{ padding: '16px 20px' }}>
-          <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 8 }}>Croissance moy.</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>Croissance moy.</div>
           <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'var(--font-mono)', color: avgGrowth >= 0 ? 'var(--green)' : 'var(--red)' }}>
             {avgGrowth >= 0 ? '+' : ''}{avgGrowth}%
           </div>

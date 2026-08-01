@@ -354,7 +354,7 @@ export default function PageClientCalls() {
       {/* Rapports en attente — carrousel, flèches latérales */}
       {pendingRapports.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 10 }}>
             {pendingRapports.length} rapport{pendingRapports.length > 1 ? 's' : ''} en attente
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -407,7 +407,7 @@ export default function PageClientCalls() {
       {/* Demandes de call en attente d'acceptation (Google Calendar) */}
       {pendingCalls.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 10 }}>
             {pendingCalls.length} demande{pendingCalls.length > 1 ? 's' : ''} en attente
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -543,7 +543,7 @@ export default function PageClientCalls() {
       {/* Historique — liste verticale */}
       {history.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 10 }}>
             Historique des calls
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
@@ -612,7 +612,7 @@ export default function PageClientCalls() {
       {/* Calls annulés / refusés — en bas de page */}
       {canceledCalls.length > 0 && (
         <div style={{ marginTop: 32 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: '#ef4444', marginBottom: 10 }}>
             {canceledCalls.length} call{canceledCalls.length > 1 ? 's' : ''} annulé{canceledCalls.length > 1 ? 's' : ''}
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

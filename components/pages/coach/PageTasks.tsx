@@ -397,7 +397,7 @@ function PageTasksInner() {
                         {expandedRow && (
                           <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
                             <div>
-                              <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deadline</label>
+                              <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Deadline</label>
                               <div style={{ display: 'flex', gap: 6 }}>
                                 <input
                                   type="date"

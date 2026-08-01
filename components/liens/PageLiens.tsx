@@ -165,7 +165,7 @@ function GeneratedUrlRow({ url, label }: { url: string; label: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 10, fontWeight: 600, color: MUTED, marginBottom: 2, textTransform: 'uppercase', letterSpacing: '0.05em' }}>{label}</div>
+        <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 2 }}>{label}</div>
         <div style={{ fontSize: 12, fontWeight: 700, color: BLUE, wordBreak: 'break-all' }}>{url}</div>
       </div>
       <CopyBtn url={url} />
@@ -306,7 +306,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
         {/* Calendly */}
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lien Calendly</div>
+          <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 6 }}>Lien Calendly</div>
           <div style={{ display: 'flex', gap: 8 }}>
             <input value={calendlyUrl} onChange={e => setCalendlyUrl(e.target.value)} placeholder="https://calendly.com/ton-nom/discovery"
               style={{ flex: 1, padding: '8px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: BG, color: INK, outline: 'none' }} />
@@ -319,7 +319,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
 
         {/* Liens bio */}
         <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liens bio Calendly</div>
+          <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 10 }}>Liens bio Calendly</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             {[
               { platform: 'instagram' as const, label: 'Bio Instagram', result: bioIg, setResult: setBioIg, loading: genIg, setLoading: setGenIg, path: 'bio-calendly-ig' },
@@ -349,7 +349,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
         {/* Liens bio Lead Magnet */}
         {leadMagnets.length > 0 && (
           <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, marginTop: 4 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Liens bio Lead Magnet</div>
+            <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 10 }}>Liens bio Lead Magnet</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {leadMagnets.map(lm => {
                 const urls = lmBioUrls[lm.id] || {};
@@ -612,7 +612,7 @@ function TabDesc({ post, profileId, domain, canGenerate, calendlyUrl, leadMagnet
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 8, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Destination</div>
+        <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 8 }}>Destination</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {destOptions.map(opt => (
             <button key={opt.key} onClick={() => { setDestType(opt.key as any); setError(null); }} style={{
@@ -2056,7 +2056,7 @@ function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUr
       {history.length > 0 && (
         <div style={{ borderTop: `1px solid ${BORDER}`, paddingTop: 16, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Liens Calendly générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
+            <div className="eyebrow-sm" style={{ color: MUTED }}>Liens Calendly générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
           </div>
           <input
             value={historySearch}
@@ -2187,7 +2187,7 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
       {/* Formulaire création */}
       <div style={{ borderRadius: 10, border: `1px solid ${BORDER}`, overflow: 'hidden' }}>
         <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Nouveau lead magnet</span>
+          <span className="eyebrow-sm" style={{ color: MUTED }}>Nouveau lead magnet</span>
         </div>
         <div style={{ padding: '14px', display: 'flex', flexDirection: 'column', gap: 10 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -2221,7 +2221,7 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
 
       {/* Liste */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: MUTED, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>
+        <div className="eyebrow-lg" style={{ color: MUTED, marginBottom: 10 }}>
           Bibliothèque ({leadMagnets.length})
         </div>
         {lmLoading ? (

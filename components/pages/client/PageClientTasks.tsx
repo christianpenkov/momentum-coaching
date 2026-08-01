@@ -182,7 +182,7 @@ function EditFields({ task, onSave, onDelete }: { task: Task; onSave: (patch: { 
   return (
     <div className="task-row-actions" style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'flex-end', flexWrap: 'wrap' }}>
       <div>
-        <label style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Deadline</label>
+        <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Deadline</label>
         <div style={{ display: 'flex', gap: 6 }}>
           <input
             type="date"
@@ -476,7 +476,7 @@ export default function PageClientTasks() {
                   width: 6, height: 6, borderRadius: '50%', background: meta.color, flexShrink: 0,
                   animation: bucket === 'over' && !reducedMotion ? 'pulse 1.6s ease-in-out infinite' : 'none',
                 }} />
-                <span style={{ fontFamily: "'IBM Plex Mono', ui-monospace, monospace", fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                <span className="eyebrow-sm" style={{ fontFamily: "'IBM Plex Mono', ui-monospace, monospace", color: 'var(--muted)' }}>
                   {meta.label}
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{list.length}</span>

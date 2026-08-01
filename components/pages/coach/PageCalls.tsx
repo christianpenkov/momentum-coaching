@@ -222,7 +222,7 @@ export default function PageCalls() {
       {/* Section calls en attente d'acceptation */}
       {pending.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 10 }}>
             En attente d'acceptation ({pending.length})
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>

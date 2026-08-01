@@ -142,7 +142,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
           {step === 'topic_notes' && (
             <div>
-              <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 10 }}>
                 Sujet principal du call
               </label>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: topic === 'autre' ? 12 : 24 }}>
@@ -181,7 +181,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
               )}
 
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8, flexWrap: 'wrap' }}>
-                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                <label className="eyebrow-sm" style={{ color: 'var(--muted)' }}>
                   Notes — impressions / à suivre / tâches <span style={{ textTransform: 'none', fontWeight: 400 }}>(facultatif)</span>
                 </label>
                 <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--muted)' }}>

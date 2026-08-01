@@ -121,7 +121,7 @@ function DataRangeSection() {
               {expanded._summary && (
                 <div style={{ padding: '16px 20px' }}>
                   <div style={{ marginBottom: 14 }}>
-                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Day-to-day disponible</div>
+                    <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 8 }}>Day-to-day disponible</div>
                     {Object.entries(result._summary.dayToDayAvailable).map(([k, v]: [string, any]) => (
                       <div key={k} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 6 }}>
                         <span style={{ fontSize: 12, fontWeight: 600, minWidth: 180, color: 'var(--muted)' }}>{k}</span>
@@ -130,7 +130,7 @@ function DataRangeSection() {
                     ))}
                   </div>
                   <div>
-                    <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 8 }}>Recommandations</div>
+                    <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 8 }}>Recommandations</div>
                     {result._summary.recommendation.map((r: string, i: number) => (
                       <div key={i} style={{ fontSize: 12, color: 'var(--ink)', marginBottom: 5, paddingLeft: 12, borderLeft: '2px solid var(--border)' }}>→ {r}</div>
                     ))}

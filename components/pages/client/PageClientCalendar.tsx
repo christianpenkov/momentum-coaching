@@ -170,7 +170,7 @@ export default function PageClientCalendar() {
       {/* Demandes de call en attente */}
       {pendingCalls.length > 0 && (
         <div style={{ marginBottom: 16 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 8 }}>
+          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 8 }}>
             {pendingCalls.length} demande{pendingCalls.length > 1 ? 's' : ''} en attente
           </div>
           {pendingCalls.map(call => {
@@ -256,7 +256,7 @@ export default function PageClientCalendar() {
               const label = isToday ? "Aujourd'hui" : isTomorrow ? 'Demain' : d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
               return (
                 <div key={date}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: isToday ? 'var(--accent)' : 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 6, paddingLeft: 2 }}>
+                  <div className="eyebrow-lg" style={{ color: isToday ? 'var(--accent)' : 'var(--muted)', marginBottom: 6, paddingLeft: 2 }}>
                     {label}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
@@ -312,7 +312,7 @@ export default function PageClientCalendar() {
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', borderBottom: '1px solid var(--border)' }}>
             {DAYS_FR.map(d => (
-              <div key={d} style={{ padding: '8px 0', textAlign: 'center', fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>{d}</div>
+              <div key={d} className="eyebrow-sm" style={{ padding: '8px 0', textAlign: 'center', color: 'var(--muted)' }}>{d}</div>
             ))}
           </div>
 

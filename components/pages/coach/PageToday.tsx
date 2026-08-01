@@ -113,7 +113,7 @@ export default function PageToday() {
 
       <div className="page-header">
         <div>
-          <div className="mono" style={{ fontSize: 11, fontWeight: 600, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--faint)', marginBottom: 6 }}>
+          <div className="mono eyebrow-sm" style={{ color: 'var(--faint)', marginBottom: 6 }}>
             {dayCapitalized}
           </div>
           <h1 className="page-title">Bonjour{firstName ? ` ${firstName}` : ''}</h1>
@@ -132,7 +132,7 @@ export default function PageToday() {
       {/* Rapports de session en attente — carrousel avec flèches latérales (miroir du flux Calendly élève-prospect) */}
       {sessionRapportNotifs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent-brand)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: 'var(--accent-brand)', marginBottom: 10 }}>
             {sessionRapportNotifs.length} rapport{sessionRapportNotifs.length > 1 ? 's' : ''} de session en attente
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

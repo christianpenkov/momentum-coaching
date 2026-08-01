@@ -383,7 +383,7 @@ export default function PageResources() {
 
       {/* Ressources directes du dossier en drill-down */}
       {drillDownChildren.length > 0 && filtered.length > 0 && (
-        <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', margin: '18px 0 10px' }}>
+        <div className="eyebrow-sm" style={{ color: 'var(--muted)', margin: '18px 0 10px' }}>
           Dans ce dossier
         </div>
       )}

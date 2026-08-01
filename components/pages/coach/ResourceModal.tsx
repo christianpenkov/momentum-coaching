@@ -238,7 +238,7 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
               {/* Titre */}
               <div>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase' }}>
+                  <label className="eyebrow-sm" style={{ color: 'var(--muted)' }}>
                     Titre *
                   </label>
                   {type === 'video' && videoUrl && (
@@ -294,7 +294,7 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
 
               {/* Description */}
               <div>
-                <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                   Description
                 </label>
                 <input
@@ -313,7 +313,7 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
               {/* Champ URL */}
               {type === 'link' && (
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                  <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                     URL
                   </label>
                   <div style={{ position: 'relative' }}>
@@ -350,7 +350,7 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
               {/* Champ Vidéo */}
               {type === 'video' && (
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                  <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                     URL YouTube / Vimeo
                   </label>
                   <div style={{ position: 'relative' }}>
@@ -463,7 +463,7 @@ export default function ResourceModal({ resource, sections, onClose, onSaved }: 
               {/* Champ Fichier */}
               {type === 'file' && (
                 <div>
-                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', letterSpacing: '0.06em', textTransform: 'uppercase', display: 'block', marginBottom: 6 }}>
+                  <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                     Fichier
                   </label>
                   {fileUrl ? (

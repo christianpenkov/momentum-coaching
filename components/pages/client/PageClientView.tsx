@@ -145,14 +145,14 @@ export default function PageClientView() {
       {/* Demandes de call coaching en attente */}
       {callRequestNotifs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: 'var(--accent)', marginBottom: 10 }}>
             {callRequestNotifs.length} demande{callRequestNotifs.length > 1 ? 's' : ''} de call en attente
           </div>
           {callRequestNotifs.map(notif => (
             <div key={notif.id} className="card" style={{ borderLeft: '4px solid var(--accent)', padding: '18px 20px', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.06em' }}>DEMANDE DE CALL COACHING</div>
+                  <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>DEMANDE DE CALL COACHING</div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
                   {notif.scheduledAt && (
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
@@ -175,7 +175,7 @@ export default function PageClientView() {
       {/* Rapports de call en attente — carrousel avec flèches latérales */}
       {rapportNotifs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: '#f59e0b', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 10 }}>
             {rapportNotifs.length} rapport{rapportNotifs.length > 1 ? 's' : ''} en attente
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -291,7 +291,7 @@ export default function ResourceSectionTree({
     <>
       <div style={{ padding: '15px 14px 10px', borderBottom: '1px solid var(--border)', flexShrink: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.06em', fontFamily: 'var(--font-mono, inherit)' }}>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', fontFamily: 'var(--font-mono, inherit)' }}>
             {readOnly ? 'Mes dossiers' : 'Dossiers'}
           </div>
           <div style={{ display: 'flex', gap: 6 }}>

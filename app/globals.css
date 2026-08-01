@@ -953,6 +953,20 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; gap: 8px;
 }
 
+/* Eyebrows — libellés en majuscules (labels, en-têtes de tableau, titres de section).
+   2 tailles issues de l'usage réel du code (petit label vs titre au-dessus d'un bloc) ;
+   color et margin-bottom restent en inline car ils varient légitimement selon le contexte. */
+.eyebrow-sm {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted);
+}
+.eyebrow-lg {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.07em;
+  color: var(--muted);
+}
+
 /* Analytics ─────────────────────────────────────── */
 .chart-wrapper {
   background: var(--surface);

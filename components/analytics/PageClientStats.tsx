@@ -191,7 +191,7 @@ function Stat({ label, value, sub, color, onClick }: { label: string; value: str
     <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: onClick ? 'pointer' : 'default', borderRadius: 8, padding: onClick ? '6px 8px' : '0', margin: onClick ? '-6px -8px' : '0', transition: 'background .15s' }}
       onMouseEnter={e => { if (onClick) e.currentTarget.style.background = 'var(--surface-2)'; }}
       onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
-      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)' }}>{label}</div>
+      <div className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{label}</div>
       <div style={{ fontSize: 22, fontWeight: 700, color: color || 'var(--ink)', lineHeight: 1.1 }}>{value}</div>
       {sub && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{sub}</div>}
     </div>
@@ -236,7 +236,7 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
 function LeverCard({ label, value, formula }: { label: string; value: string; formula: string }) {
   return (
     <div style={{ padding: '16px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
-      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
+      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
       <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 4 }}>{value}</div>
       <div style={{ fontSize: 10, color: 'var(--faint)', fontFamily: 'monospace' }}>{formula}</div>
     </div>
@@ -499,7 +499,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
         ] as const).map((item, i) => {
           if (item === null) return (
             <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
                 <span>Publications</span>
                 <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
               </div>
@@ -521,7 +521,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           );
           return (
             <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
               <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
               <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
             </div>
@@ -537,7 +537,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'Revenue', value: fmtEur(totalRev), sub: `${period}j`, color: GREEN },
         ].map((item, i) => (
           <div key={i} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-            <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
+            <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{item.label}</div>
             <div style={{ fontSize: 20, fontWeight: 800, color: item.color, lineHeight: 1, marginBottom: 4 }}>{item.value}</div>
             <div style={{ fontSize: 10, color: 'var(--faint)' }}>{item.sub}</div>
           </div>
@@ -553,7 +553,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           <div key={i} className="stats-hover-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
-                <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 4 }}>{item.label}</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>{item.label}</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
                   <span style={{ fontSize: 26, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{item.value}</span>
                   <span style={{ fontSize: 10, color: 'var(--muted)' }}>{item.unit}</span>
@@ -609,7 +609,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                 if (contentSort === 'calls') return ['', 'Contenu', 'Plateforme', 'Calls bookés', 'Calls honorés', 'No-show', 'Closé'];
                 return ['', 'Contenu', 'Plateforme', 'Calls bookés', 'Revenue / call', 'Cash / vue', 'Revenue total'];
               })().map((h, i) => (
-                <th key={i} style={{ textAlign: i <= 1 ? 'left' : 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>{h}</th>
+                <th key={i} className="eyebrow-sm" style={{ textAlign: i <= 1 ? 'left' : 'right', color: 'var(--muted)', padding: '0 8px 8px', borderBottom: '1px solid var(--border)' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -686,7 +686,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       {/* ── BLOC 4 : Signaux ── */}
       {signalData.length > 0 && (
         <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.07em', marginBottom: 12 }}>Signaux récents</div>
+          <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 12 }}>Signaux récents</div>
           {signalData.map((s, i) => <Signal key={i} type={s.type} text={s.text} isLast={i === signalData.length - 1} />)}
         </div>
       )}
@@ -904,7 +904,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
+              <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
@@ -926,7 +926,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
             <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
+              <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: s.color, lineHeight: 1 }}>{s.value}</div>
@@ -1282,7 +1282,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
           <div style={{ fontSize: 12, color: 'var(--faint)' }}>Pas encore de données pour cette séquence.</div>
         ) : (
           <>
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Rétention story par story</div>
+            <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 10 }}>Rétention story par story</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
               {storiesDetail.map((s, i) => {
                 const prevReach = i > 0 ? storiesDetail[i - 1].reach : null;
@@ -1308,7 +1308,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
               </div>
             )}
 
-            <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 10 }}>Détail par story</div>
+            <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 10 }}>Détail par story</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
               {storiesDetail.map((s, i) => (
                 <div key={s.id} style={{ fontSize: 11, color: 'var(--muted)', padding: '8px 10px', borderRadius: 8, border: '1px solid var(--border)' }}>
@@ -1558,7 +1558,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           if (s === null) return (
             <div key="vues-sub" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div style={{ marginBottom: 10 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>Vues pour 1 sub gagné</span>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 sub gagné</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -1579,7 +1579,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
             onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}>
             <div style={{ marginBottom: 8 }}>
-              <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
+              <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
               {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
@@ -1622,7 +1622,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         ].map((s, i) => {
           if (s === null) return (
             <div key="wt-moyen" onClick={() => openStatModal('Watch time moyen', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
-              <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', marginBottom: 10 }}>Watch time moyen / vue</div>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>Watch time moyen / vue</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
@@ -1647,7 +1647,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               onMouseEnter={e => { if (s.key) e.currentTarget.style.background = 'var(--surface-2)'; }}
               onMouseLeave={e => { e.currentTarget.style.background = 'var(--surface)'; }}>
               <div style={{ marginBottom: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</span>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</span>
                 {s.sub && <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{s.sub}</span>}
                 {['Likes', 'Commentaires', 'Partages'].includes(s.label) && (
                   <span
@@ -1745,7 +1745,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 const active = key !== null && videosSortKey === key;
                 return (
                   <th key={h} onClick={key ? () => { if (active) setVideosSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setVideosSortKey(key); setVideosSortDir('desc'); } } : undefined}
-                    style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: active ? BLUE : 'var(--muted)', padding: '8px 10px', cursor: key ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}>
+                    className="eyebrow-sm" style={{ textAlign: 'left', color: active ? BLUE : 'var(--muted)', padding: '8px 10px', cursor: key ? 'pointer' : 'default', userSelect: 'none', whiteSpace: 'nowrap' }}>
                     {h} {active ? (videosSortDir === 'desc' ? '↓' : '↑') : ''}
                   </th>
                 );
@@ -1849,7 +1849,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color1 }} />
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Shorts</span>
+                        <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Shorts</span>
                       </div>
                       <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)' }}>{val1}</span>
                     </div>
@@ -1857,7 +1857,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                     <div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                         <span style={{ width: 8, height: 8, borderRadius: '50%', background: color2 }} />
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.06em' }}>{statModal.label2 || 'Vidéos longues'}</span>
+                        <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{statModal.label2 || 'Vidéos longues'}</span>
                       </div>
                       <span style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)' }}>{val2}</span>
                     </div>
@@ -2396,7 +2396,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                     onMouseEnter={e => { if (!isActive) e.currentTarget.style.background = 'var(--surface-2)'; }}
                     onMouseLeave={e => { if (!isActive) e.currentTarget.style.background = 'var(--surface)'; }}
                   >
-                    <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 8 }}>{h.label}</div>
+                    <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>{h.label}</div>
                     <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 4 }}>{h.value}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>{h.sub}</div>
                   </div>
@@ -2517,7 +2517,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
 
       {/* ── FUNNELS & EFFICACITÉ ── */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 28 }}>Funnels & Efficacité — {periodLabel(period, periodIndex)}</div>
+        <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 28 }}>Funnels & Efficacité — {periodLabel(period, periodIndex)}</div>
 
         {/* Funnels */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: 40, marginBottom: 32 }}>
@@ -2527,7 +2527,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
         </div>
 
         {/* Efficacité par plateforme */}
-        <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)', marginBottom: 16 }}>Efficacité par plateforme</div>
+        <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 16 }}>Efficacité par plateforme</div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           {effRows.map((row, ri) => (
             <div key={ri} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>
@@ -2554,7 +2554,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                       onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}
                     >
-                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)', marginBottom: 6 }}>{m.label}</div>
+                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>{m.label}</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{m.value}</div>
                       {d && d.label !== '—' && (
                         <div style={{ marginTop: 6, display: 'flex', alignItems: 'baseline', gap: 6 }}>
@@ -2611,7 +2611,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
       {/* ── SECTION CALLS TABLE ── */}
       <div>
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: 'var(--muted)' }}>Calls</div>
+          <div className="eyebrow-lg" style={{ color: 'var(--muted)' }}>Calls</div>
           {/* Filtre plateforme */}
           <div style={{ display: 'flex', gap: 4, background: 'var(--surface-2)', borderRadius: 8, padding: 3 }}>
             {[
@@ -2640,7 +2640,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
             { label: 'Revenue', value: fmtEur(filteredCalls.reduce((acc, c) => acc + (c.revenue || 0), 0)), color: GREEN },
           ].map((s, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-              <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)' }}>{s.label}</div>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{s.label}</div>
               <div style={{ fontSize: 16, fontWeight: 800, color: s.color }}>{s.value}</div>
             </div>
           ))}
@@ -2651,7 +2651,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)' }}>
                 {['Date', 'Client', 'Source', 'Statut', 'No-show', 'Closé', 'Revenue'].map((h, i) => (
-                  <th key={i} style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)', padding: '12px 14px' }}>{h}</th>
+                  <th key={i} className="eyebrow-sm" style={{ textAlign: 'left', color: 'var(--muted)', padding: '12px 14px' }}>{h}</th>
                 ))}
               </tr>
             </thead>
@@ -2790,22 +2790,22 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Cash contracté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(cashContracte)}</div>
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>deals closés ({dealsClosed.length})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Cash collecté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: GREEN, lineHeight: 1 }}>{fmtEur(cashCollecte)}</div>
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>paiements reçus ({succeeded.length})</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>par paiement réussi</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
-          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: cashCollectePct >= 80 ? GREEN : cashCollectePct >= 50 ? AMBER : RED, lineHeight: 1 }}>{cashCollectePct}%</div>
           <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>collecté / contracté</div>
         </div>
@@ -2823,7 +2823,7 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
           <thead>
             <tr>
               {['Date', 'Description', 'Montant', 'Statut'].map((h, i) => (
-                <th key={i} style={{ textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '8px 10px' }}>{h}</th>
+                <th key={i} className="eyebrow-sm" style={{ textAlign: 'left', color: 'var(--muted)', padding: '8px 10px' }}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -3504,7 +3504,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 1 — Clics totaux */}
               <div onClick={() => toggleMetric('clics')} style={cardStyle('clics')}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Clics totaux</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Clics totaux</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(totalClics)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>volume global, tous liens</div>
                 {/* totalClicsChangePct (pas shortio.clicksChange) : celui-ci venait de
@@ -3524,7 +3524,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 2 — Leads commentaires/DM (compte aussi les réponses story avec mot-clé LM, cf. lmHistory) */}
               <div onClick={() => toggleMetric('leads')} style={cardStyle('leads')}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Leads commentaires/DM</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Leads commentaires/DM</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: lmEnvoyes > 0 ? 'var(--ink)' : 'var(--faint)', lineHeight: 1 }}>{fmt(lmEnvoyes)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>mots-clés détectés</div>
               </div>
@@ -3533,7 +3533,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 3 — Réponses message d'accroche */}
               <div onClick={() => toggleMetric('hookReply')} style={cardStyle('hookReply')}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Réponses accroche LM DM</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Réponses accroche LM DM</div>
                 <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, lineHeight: 1 }}>
                   <div style={{ fontSize: 24, fontWeight: 800, color: hookReplies > 0 ? GREEN : 'var(--faint)' }}>{fmt(hookReplies)}</div>
                   {lmEnvoyes > 0 && <div style={{ fontSize: 13, fontWeight: 700, color: tauxHookReply >= 30 ? GREEN : tauxHookReply >= 15 ? AMBER : RED }}>{tauxHookReply}%</div>}
@@ -3545,7 +3545,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 4 — Liens Calendly envoyés DM */}
               <div onClick={() => toggleMetric('calendlyLinks')} style={cardStyle('calendlyLinks')}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Liens Calendly envoyés DM</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Liens Calendly envoyés DM</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmt(lmCalendlyLinks)}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>activité commerciale brute</div>
               </div>
@@ -3554,7 +3554,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 5 — Taux d'activation DM */}
               <div onClick={() => toggleMetric('activation')} style={cardStyle('activation')}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation DM</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Taux d'activation DM</div>
                 <div style={{ display: 'flex', gap: 10, alignItems: 'flex-end' }}>
                   <div>
                     <div style={{ fontSize: 10, color: 'var(--faint)', marginBottom: 2 }}>LM</div>
@@ -3573,7 +3573,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
               {/* 5 — Calls bookés depuis liens */}
               <div onClick={() => toggleMetric('calls')} style={cardStyle('calls')}>
-                <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.05em', color: 'var(--muted)', marginBottom: 6 }}>Calls bookés</div>
+                <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Calls bookés</div>
                 <div style={{ fontSize: 24, fontWeight: 800, color: callsTotal > 0 ? GREEN : 'var(--faint)', lineHeight: 1 }}>{callsTotal}</div>
                 <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>résultat final du tracking</div>
               </div>
@@ -3990,7 +3990,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           };
 
           const TH = ({ children, right }: { children: React.ReactNode; right?: boolean }) => (
-            <th style={{ padding: '7px 10px', textAlign: right ? 'right' : 'left', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{children}</th>
+            <th className="eyebrow-sm" style={{ padding: '7px 10px', textAlign: right ? 'right' : 'left', color: 'var(--muted)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{children}</th>
           );
           const TD = ({ children, right, faint }: { children: React.ReactNode; right?: boolean; faint?: boolean }) => (
             <td style={{ padding: '8px 10px', textAlign: right ? 'right' : 'left', fontSize: 12, color: faint ? 'var(--faint)' : 'var(--ink)', verticalAlign: 'middle' }}>{children}</td>
@@ -4019,7 +4019,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             <div style={{ marginTop: 20, border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
               <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                 <div>
-                  <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.07em', color: 'var(--ink)' }}>Breakdown par source — vers Calendly</span>
+                  <span className="eyebrow-lg" style={{ color: 'var(--ink)' }}>Breakdown par source — vers Calendly</span>
                 </div>
                 {/* Sélecteur de tri */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -4134,7 +4134,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   })}
                   {/* Total row */}
                   <tr style={{ background: 'var(--surface-2)', borderTop: '2px solid var(--border)' }}>
-                    <td style={{ padding: '9px 10px', fontSize: 11, fontWeight: 800, textTransform: 'uppercase', letterSpacing: '.06em', color: 'var(--muted)' }}>Total</td>
+                    <td className="eyebrow-lg" style={{ padding: '9px 10px', color: 'var(--muted)' }}>Total</td>
                     <TD right><span style={{ color: 'var(--muted)' }}>—</span></TD>
                     <TD right><span style={{ fontWeight: 800 }}>{totBooked > 0 ? totBooked : <span style={{ color: 'var(--faint)' }}>—</span>}</span></TD>
                     <TD right><span style={{ fontWeight: 800 }}>{totHonored > 0 ? totHonored : <span style={{ color: 'var(--faint)' }}>—</span>}</span></TD>
@@ -4220,7 +4220,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 {/* Thumbnail — fixe au scroll horizontal */}
                 <th style={{ position: 'sticky', left: 0, zIndex: 2, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
                 {/* Contenu — pas de tri, fixe au scroll horizontal */}
-                <th style={{ position: 'sticky', left: 44, zIndex: 2, background: 'var(--surface)', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
+                <th className="eyebrow-sm" style={{ position: 'sticky', left: 44, zIndex: 2, background: 'var(--surface)', textAlign: 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
                 {([
                   ['clicsDesc',    'Clics desc.'],
                   ['lmDetectes',   'Commentaires LM'],
@@ -4238,7 +4238,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   const active = sortKey === key;
                   return (
                     <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
-                      style={{ textAlign: 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+                      className="eyebrow-sm" style={{ textAlign: 'right', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
                       {label} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}
                     </th>
                   );
@@ -4335,13 +4335,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                 <thead style={{ position: 'sticky', top: 0, background: 'var(--surface)', zIndex: 1 }}>
                   <tr>
                     <th style={{ position: 'sticky', left: 0, zIndex: 3, background: 'var(--surface)', width: 44, borderBottom: '1px solid var(--border)', padding: '6px 10px 10px' }} />
-                    <th style={{ position: 'sticky', left: 44, zIndex: 3, background: 'var(--surface)', textAlign: 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
+                    <th className="eyebrow-sm" style={{ position: 'sticky', left: 44, zIndex: 3, background: 'var(--surface)', textAlign: 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>Contenu</th>
                     {(['clicsDesc', 'lmDetectes', 'lmClics', 'lmReponses', 'dmCount', 'callsBooked', 'callsHonored', 'qualifiedPct', 'closed', 'revenue', 'vuesParCall', 'cashParVue'] as SortKey[]).map(key => {
                       const labels: Record<string, string> = { clicsDesc: 'Clics desc.', lmDetectes: 'Commentaires LM', lmClics: 'Clics LM', lmReponses: 'Réponses LM', dmCount: 'Liens DM', callsBooked: 'Calls bookés', callsHonored: 'Calls honorés', qualifiedPct: '% Qualifié', closed: 'Closés', revenue: 'Revenue', vuesParCall: 'Vues / Call', cashParVue: 'Cash / Vue (lifetime)' };
                       const active = sortKey === key;
                       return (
                         <th key={key} onClick={() => { if (active) setSortDir(d => d === 'desc' ? 'asc' : 'desc'); else { setSortKey(key); setSortDir('desc'); } }}
-                          style={{ textAlign: 'right', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
+                          className="eyebrow-sm" style={{ textAlign: 'right', color: active ? BLUE : 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap', cursor: 'pointer', userSelect: 'none' }}>
                           {labels[key]} {active ? (sortDir === 'desc' ? '↓' : '↑') : ''}
                         </th>
                       );
@@ -4525,7 +4525,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       ];
                       return metrics.map(([label, val], i) => (
                         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
-                          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
+                          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
                           <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>{val != null ? (typeof val === 'number' ? fmt(val) : val) : '—'}</div>
                         </div>
                       ));
@@ -4538,7 +4538,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       ];
                       return metrics.map(([label, val], i) => (
                         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
-                          <div style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
+                          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>{label}</div>
                           <div style={{ fontSize: 16, fontWeight: 800, color: 'var(--ink)' }}>{val != null ? val : '—'}</div>
                         </div>
                       ));
@@ -4624,15 +4624,15 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                   {/* Total combiné */}
                   <div style={{ marginTop: 14, padding: '12px 16px', background: 'var(--surface-2)', borderRadius: 9, display: 'flex', justifyContent: 'center', gap: 40, alignItems: 'center' }}>
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Calls totaux</div>
+                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 3 }}>Calls totaux</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: row.callsBooked > 0 ? GREEN : 'var(--faint)' }}>{row.callsBooked || '—'}</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Closés</div>
+                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 3 }}>Closés</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: row.closed > 0 ? GREEN : 'var(--faint)' }}>{row.closed || '—'}</div>
                     </div>
                     <div style={{ textAlign: 'center' }}>
-                      <div style={{ fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', marginBottom: 3 }}>Revenue total</div>
+                      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 3 }}>Revenue total</div>
                       <div style={{ fontSize: 22, fontWeight: 800, color: row.revenue > 0 ? GREEN : 'var(--faint)' }}>{row.revenue > 0 ? fmtEur(row.revenue) : '—'}</div>
                     </div>
                   </div>
@@ -4648,7 +4648,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         <thead>
                           <tr>
                             {['Prospect', 'Canal', 'Lien créé', 'Statut', 'Revenue'].map((h, i) => (
-                              <th key={i} style={{ textAlign: i >= 3 ? 'right' : 'left', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
+                              <th key={i} className="eyebrow-sm" style={{ textAlign: i >= 3 ? 'right' : 'left', color: 'var(--muted)', padding: '6px 10px 10px', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{h}</th>
                             ))}
                           </tr>
                         </thead>
