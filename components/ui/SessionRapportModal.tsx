@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
@@ -30,6 +30,16 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
   const [notes, setNotes] = useState('');
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmChecked, setConfirmChecked] = useState(false);
+  const notesRef = useRef<HTMLTextAreaElement>(null);
+
+  // Mobile uniquement : la modale reste centrée à l'écran (pas de variant "sheet"),
+  // donc rien ne la repositionne quand le clavier s'ouvre — le textarea peut se
+  // retrouver caché dessous. On le scrolle manuellement dans la zone encore visible
+  // au focus, et on redescend la vue normalement au blur.
+  function handleNotesFocus() {
+    if (window.innerWidth > 767) return;
+    setTimeout(() => notesRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+  }
 
   // En plein milieu du rapport (étape topic_notes) : demander confirmation avant de fermer,
   // pour ne pas perdre la saisie en cours. Sinon (attended, ou terminé) fermeture directe.
@@ -189,8 +199,10 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                 </span>
               </div>
               <textarea
+                ref={notesRef}
                 value={notes}
                 onChange={e => setNotes(e.target.value)}
+                onFocus={handleNotesFocus}
                 placeholder="Ressenti sur la séance, points à retravailler, idées de tâches à donner…"
                 style={{
                   width: '100%', minHeight: 130, padding: '12px 14px',

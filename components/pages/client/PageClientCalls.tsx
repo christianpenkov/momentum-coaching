@@ -24,6 +24,7 @@ interface Call {
   deal_closed: boolean | null;
   revenue: number | null;
   outcome: string | null;
+  lead_rapport_comment: string | null;
 }
 
 interface RapportModal {
@@ -603,6 +604,12 @@ export default function PageClientCalls() {
                   {call.notes && (
                     <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
                       {call.notes}
+                    </div>
+                  )}
+                  {call.call_type === 'calendly' && call.lead_rapport_comment && (
+                    <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>Ton commentaire perso</div>
+                      {call.lead_rapport_comment}
                     </div>
                   )}
                   {call.call_type !== 'calendly' && (

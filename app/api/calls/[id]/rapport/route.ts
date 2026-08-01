@@ -84,6 +84,7 @@ export async function PATCH(
   if (typeof body.revenue === 'number')     patch.revenue = body.revenue;
   if (typeof body.outcome === 'string')     patch.outcome = body.outcome;
   if (typeof body.qualified === 'boolean')  patch.qualified = body.qualified;
+  if (typeof body.lead_rapport_comment === 'string') patch.lead_rapport_comment = body.lead_rapport_comment.slice(0, 2000) || null;
 
   if (Object.keys(patch).length === 0) {
     return NextResponse.json({ error: 'Aucune donnée à mettre à jour' }, { status: 400 });

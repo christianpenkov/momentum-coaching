@@ -97,7 +97,10 @@ export default function ModalShell({
           background: 'var(--surface)',
           borderRadius: 'var(--r-modal)',
           boxShadow: 'var(--shadow-modal)',
-          overflow: 'hidden',
+          // 'hidden auto' (pas juste 'hidden') : permet à un champ de saisie interne de
+          // scroller dans la vue restante au-dessus du clavier sur mobile, sans quoi
+          // scrollIntoView() n'a aucun effet — rien à scroller dans un overflow:hidden.
+          overflow: 'hidden auto',
           display: 'flex', flexDirection: 'column',
           zIndex: 2501,
         }}

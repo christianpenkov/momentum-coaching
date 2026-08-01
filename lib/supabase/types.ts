@@ -137,6 +137,7 @@ export interface Call {
   session_completed?: boolean | null;
   session_no_show?: boolean | null;
   session_rapport_reminder_sent?: boolean;
+  lead_rapport_comment?: string | null;
 }
 
 export interface SessionReport {

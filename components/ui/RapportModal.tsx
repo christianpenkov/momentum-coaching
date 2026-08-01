@@ -24,7 +24,10 @@ type RapportStep =
   | 'second_call_found'       // 2ème call trouvé automatiquement
   | 'second_call_how'         // comment va-t-il reréserver ?
   | 'second_call_manual_date' // saisie manuelle date/heure
-  | 'second_call_done';       // confirmation finale
+  | 'second_call_done'        // confirmation finale
+  // Commentaire facultatif — proposé uniquement quand le call a réellement eu lieu
+  // (pas closé, closé, 2ème call prévu) ; jamais sur no-show/reporté.
+  | 'comment';
 
 interface Props {
   callId: string;
@@ -69,6 +72,13 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const [error, setError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Commentaire facultatif — étape intermédiaire commune avant la fermeture définitive
+  // (pas closé, closé, 2ème call). afterComment indique où aller une fois cette étape
+  // passée : 'close' ferme la modale, 'celebration' joue l'animation puis ferme,
+  // 'second_call_done' affiche l'écran de confirmation existant (fermeture manuelle).
+  const [comment, setComment] = useState('');
+  const [afterComment, setAfterComment] = useState<'close' | 'celebration' | 'second_call_done'>('close');
 
   // Données trouvées automatiquement (refresh Calendly)
   const [foundCall, setFoundCall] = useState<{ id: string; scheduledAt: string; inviteeName: string | null } | null>(null);
@@ -219,7 +229,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
         throw new Error(data.error || "Erreur lors de la liaison du 2ème call");
       }
       await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-      setStep('second_call_done');
+      setAfterComment('second_call_done');
+      setStep('comment');
     } catch (e: any) {
       setError(e.message || 'Erreur lors de l\'enregistrement');
     } finally {
@@ -232,7 +243,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setError(null);
     try {
       await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-      setStep('second_call_done');
+      setAfterComment('second_call_done');
+      setStep('comment');
     } catch (e: any) {
       setError(e.message || 'Erreur lors de l\'enregistrement');
     } finally {
@@ -268,7 +280,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
         throw new Error(data.error || "Erreur lors de la création du 2ème call");
       }
       await patchRapport({ outcome: 'second_call', no_show: false, deal_closed: false, revenue: 0 });
-      setStep('second_call_done');
+      setAfterComment('second_call_done');
+      setStep('comment');
     } catch (e: any) {
       setError(e.message || 'Erreur lors de l\'enregistrement');
     } finally {
@@ -314,7 +327,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setError(null);
     try {
       await patchRapport({ no_show: false, deal_closed: true, revenue: amount, outcome: 'closed' });
-      setStep('celebration');
+      setAfterComment('celebration');
+      setStep('comment');
     } catch (e: any) {
       setError(e.message || 'Erreur lors de l\'enregistrement');
     } finally {
@@ -327,12 +341,33 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setError(null);
     try {
       await patchRapport({ no_show: false, deal_closed: false, revenue: 0, outcome: 'to_recontact' });
-      onClose();
+      setAfterComment('close');
+      setStep('comment');
     } catch (e: any) {
       setError(e.message || 'Erreur lors de l\'enregistrement');
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSaveComment() {
+    if (!comment.trim()) { finishAfterComment(); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await patchRapport({ lead_rapport_comment: comment.trim() });
+      finishAfterComment();
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function finishAfterComment() {
+    if (afterComment === 'celebration') setStep('celebration');
+    else if (afterComment === 'second_call_done') setStep('second_call_done');
+    else onClose();
   }
 
   // ── Loading spinner ──────────────────────────────────────────────────────────
@@ -608,6 +643,32 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={handleRevenue}>
                 {saving ? 'Enregistrement…' : 'Enregistrer'}
               </button>
+            </div>
+          )}
+
+          {/* ── Commentaire facultatif et privé — visible uniquement par l'auteur ── */}
+          {step === 'comment' && (
+            <div>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Un commentaire à ajouter ?</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
+                Facultatif et privé — ce que tu penses avoir réussi ou raté, ton ressenti… Visible seulement par toi dans l'historique.
+              </div>
+              <textarea
+                className="input"
+                value={comment}
+                onChange={e => setComment(e.target.value)}
+                placeholder="Ton commentaire personnel sur ce call…"
+                rows={5}
+                style={{ width: '100%', resize: 'vertical', marginBottom: 20, fontFamily: 'inherit' }}
+              />
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button className="btn-ghost" type="button" style={{ flex: 1, padding: '14px', fontSize: 14, border: '1px solid var(--border)' }} disabled={saving} onClick={finishAfterComment}>
+                  Passer
+                </button>
+                <button className="btn-primary-brand" type="button" style={{ flex: 1, padding: '14px', fontSize: 14, fontWeight: 700 }} disabled={saving} onClick={handleSaveComment}>
+                  {saving ? 'Enregistrement…' : 'Enregistrer'}
+                </button>
+              </div>
             </div>
           )}
         </div>
