@@ -2505,7 +2505,12 @@ export default function PageLiens() {
 
   // ── Dérivations depuis les queries ───────────────────────────────────────
   const domains: ShortDomain[] = domainsData?.domains?.length ? domainsData.domains : [];
-  const domainsLoaded = !domainsLoading;
+  // !!profileId est requis en plus de !domainsLoading : tant que profileId n'est pas résolu
+  // (juste après un rechargement de page, avant que `user` n'arrive), la query est "enabled:
+  // false" donc TanStack la rapporte comme idle (isLoading=false) sans jamais l'avoir vraiment
+  // lancée — domainsLoaded passait alors à true avec domains=[] pendant ~1s, déclenchant le
+  // bandeau "Short.io non connecté" à tort.
+  const domainsLoaded = !!profileId && !domainsLoading;
 
   const calendlyUrl = calendlyOverride ?? (settingsData?.calendly_url || '');
 
