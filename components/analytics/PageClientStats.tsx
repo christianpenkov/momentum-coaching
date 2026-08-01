@@ -1159,6 +1159,20 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               </div>
               <button onClick={() => setSelectedPost(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
+            {/* Meta ne conserve les insights média que 2 ans (doc officielle, voir
+                docs/instagram-api-limitations.md) — un post plus vieux avec reach/views
+                encore null n'est pas un bug de collecte, la donnée n'existe simplement
+                plus côté Meta. Évite de laisser croire à un problème corrigeable. */}
+            {(() => {
+              const publishedMsAgo = Date.now() - new Date(selectedPost.timestamp).getTime();
+              const overTwoYears = publishedMsAgo > 2 * 365 * 24 * 60 * 60 * 1000;
+              const noMetrics = selectedPost.reach === null && selectedPost.views === null;
+              return overTwoYears && noMetrics ? (
+                <div style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', marginBottom: 16 }}>
+                  ℹ️ Post publié il y a plus de 2 ans — Instagram ne conserve plus les statistiques détaillées au-delà de cette durée.
+                </div>
+              ) : null;
+            })()}
             {selectedPost.caption && <div style={{ fontSize: 12, color: 'var(--ink-2)', marginBottom: 16, lineHeight: 1.5, borderLeft: '2px solid var(--border)', paddingLeft: 10 }}>{selectedPost.caption}</div>}
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
               {[
