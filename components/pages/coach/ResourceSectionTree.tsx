@@ -308,7 +308,7 @@ export default function ResourceSectionTree({
                 <Icon name="plus" size={13} /> Dossier
               </button>
             )}
-            <button type="button" onClick={onClose} style={{ width: 24, height: 24, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--muted)' }}>
+            <button type="button" onClick={onClose} aria-label="Fermer" className="icon-btn" style={{ width: 24, height: 24, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'var(--muted)' }}>
               <Icon name="x" size={14} />
             </button>
           </div>

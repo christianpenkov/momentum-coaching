@@ -394,7 +394,7 @@ export default function PageClientTasks() {
   return (
     <div className="page-content">
       <div className="page-header">
-        <h1 className="page-title">Mes tâches</h1>
+        <h1 className="page-title">Tâches</h1>
       </div>
 
       <div className="card" style={{ marginBottom: 16, padding: 16 }}>

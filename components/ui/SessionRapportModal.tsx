@@ -102,7 +102,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
               )}
             </div>
           </div>
-          <button onClick={requestClose} type="button" className="icon-btn"><Icon name="x" size={18} /></button>
+          <button onClick={requestClose} type="button" className="icon-btn" aria-label="Fermer"><Icon name="x" size={18} /></button>
         </div>
 
         <div style={{ padding: '26px 30px' }}>

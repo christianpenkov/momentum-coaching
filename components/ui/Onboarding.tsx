@@ -52,9 +52,9 @@ const STEPS: OnboardingStep[] = [
     title: 'Bienvenue sur Momentum',
     subtitle: 'Ton espace de suivi coaching personnalisé. En quelques secondes, découvre tout ce que la plateforme peut faire pour toi.',
     features: [
-      { icon: 'zap',          text: 'Accès instantané à votre plan de la semaine' },
-      { icon: 'trending-up',  text: 'Suivez vos progrès en temps réel' },
-      { icon: 'users',        text: 'Restez connecté(e) à votre coach' },
+      { icon: 'zap',          text: 'Accès instantané à ton plan de la semaine' },
+      { icon: 'trending-up',  text: 'Suis tes progrès en temps réel' },
+      { icon: 'users',        text: 'Reste connecté(e) à ton coach' },
     ],
     ctaLabel: 'Commencer la visite',
   },
@@ -63,10 +63,10 @@ const STEPS: OnboardingStep[] = [
     iconColor: 'var(--green)',
     iconBg: 'rgba(63,138,82,0.1)',
     label: '02 / 07',
-    title: 'Votre plan de la semaine',
-    subtitle: 'Chaque lundi, votre coach dépose votre plan personnalisé. Cochez vos tâches au fil des jours pour suivre votre progression.',
+    title: 'Ton plan de la semaine',
+    subtitle: 'Chaque lundi, ton coach dépose ton plan personnalisé. Coche tes tâches au fil des jours pour suivre ta progression.',
     features: [
-      { icon: 'check',    text: 'Tâches priorisées par votre coach' },
+      { icon: 'check',    text: 'Tâches priorisées par ton coach' },
       { icon: 'calendar', text: 'Deadlines et rappels intégrés' },
       { icon: 'bar-chart',text: 'Taux de complétion affiché en temps réel' },
     ],
@@ -77,12 +77,12 @@ const STEPS: OnboardingStep[] = [
     iconColor: 'var(--amber)',
     iconBg: 'rgba(181,128,37,0.1)',
     label: '03 / 07',
-    title: 'Vos statistiques',
+    title: 'Tes statistiques',
     subtitle: 'Suis tes métriques clés : closing, rétention vidéo, CTR lien en bio. Comprends d\'un coup d\'œil ce qui fonctionne.',
     features: [
       { icon: 'trending-up', text: 'Courbes de progression semaine par semaine' },
       { icon: 'target',      text: 'Objectifs et écarts mis en évidence' },
-      { icon: 'eye',         text: 'Synthèse coach visible sur votre tableau' },
+      { icon: 'eye',         text: 'Synthèse coach visible sur ton tableau' },
     ],
     ctaLabel: 'Suivant',
   },
@@ -91,12 +91,12 @@ const STEPS: OnboardingStep[] = [
     iconColor: '#4a7fa5',
     iconBg: 'rgba(74,127,165,0.1)',
     label: '04 / 07',
-    title: 'Échangez avec votre coach',
-    subtitle: 'Posez vos questions, partagez vos victoires ou vos blocages. Votre coach répond directement dans l\'interface.',
+    title: 'Échange avec ton coach',
+    subtitle: 'Pose tes questions, partage tes victoires ou tes blocages. Ton coach répond directement dans l\'interface.',
     features: [
       { icon: 'send',       text: 'Messagerie directe coach ↔ élève' },
       { icon: 'bell',       text: 'Notifications de nouveaux messages' },
-      { icon: 'phone-call', text: 'Retrouvez vos calls passés et à venir' },
+      { icon: 'phone-call', text: 'Retrouve tes calls passés et à venir' },
     ],
     ctaLabel: 'Suivant',
   },
@@ -105,7 +105,7 @@ const STEPS: OnboardingStep[] = [
     iconColor: 'var(--accent)',
     iconBg: 'rgba(42,42,40,0.07)',
     label: '05 / 07',
-    title: 'Vos ressources exclusives',
+    title: 'Tes ressources exclusives',
     subtitle: 'Guides, templates, replays de calls — débloqués progressivement par ton coach selon ton avancement.',
     features: [
       { icon: 'lock',     text: 'Contenu débloqué étape par étape' },
@@ -119,7 +119,7 @@ const STEPS: OnboardingStep[] = [
     iconColor: '#4a7fa5',
     iconBg: 'rgba(74,127,165,0.1)',
     label: '06 / 07',
-    title: 'Activez votre suivi',
+    title: 'Active ton suivi',
     subtitle: 'Ton coach a besoin de ces données pour t\'accompagner au meilleur niveau. Ces accès sont privés, sécurisés, et uniquement visibles par lui.',
     features: [],
     ctaLabel: 'C\'est parti →',
@@ -130,12 +130,12 @@ const STEPS: OnboardingStep[] = [
     iconColor: 'var(--green)',
     iconBg: 'rgba(63,138,82,0.1)',
     label: '07 / 07',
-    title: 'Vous êtes prêt(e) !',
+    title: 'Tu es prêt(e) !',
     subtitle: 'Tout est en place. Ton coach t\'attend. Lance-toi dès maintenant et commence cette semaine avec élan.',
     features: [
       { icon: 'check', text: 'Profil activé et plan prêt' },
       { icon: 'zap',   text: 'Premier objectif déjà défini' },
-      { icon: 'star',  text: 'Votre coach est en ligne' },
+      { icon: 'star',  text: 'Ton coach est en ligne' },
     ],
     ctaLabel: 'Commencer maintenant',
     isFinal: true,
@@ -388,7 +388,7 @@ export default function Onboarding({ open, onClose, coachName }: OnboardingProps
                       {/* Security badge */}
                       <m.div variants={staggerChild} className="onboarding-badge-secure">
                         <Icon name="shield" size={15} color="var(--green)" style={{ flexShrink: 0 }} />
-                        <span>Vos données sont privées et sécurisées. Accessibles uniquement par {coachName || 'votre coach'}.</span>
+                        <span>Tes données sont privées et sécurisées. Accessibles uniquement par {coachName || 'ton coach'}.</span>
                       </m.div>
                     </>
                   ) : (

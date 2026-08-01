@@ -301,7 +301,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
       <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 14, padding: 28, width: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,.18)', border: `1px solid ${BORDER}` }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: INK }}>Paramètres des liens</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: MUTED, lineHeight: 1, padding: '0 4px' }}>×</button>
+          <button onClick={onClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: MUTED, lineHeight: 1, padding: '0 4px' }}>×</button>
         </div>
 
         {/* Calendly */}

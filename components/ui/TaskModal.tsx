@@ -86,7 +86,7 @@ export default function TaskModal({ clientId: fixedClientId, task, onClose, onCr
           <Icon name={isEdit ? 'edit' : 'plus'} size={16} />
           <span style={{ fontWeight: 700, fontSize: 15, color: 'var(--accent)' }}>{isEdit ? 'Modifier la tâche' : 'Assigner une tâche'}</span>
         </div>
-        <button onClick={onClose} type="button" className="icon-btn"><Icon name="x" size={15} /></button>
+        <button onClick={onClose} type="button" className="icon-btn" aria-label="Fermer"><Icon name="x" size={15} /></button>
       </div>
 
       {/* Body */}

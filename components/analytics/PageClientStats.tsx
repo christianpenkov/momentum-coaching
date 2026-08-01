@@ -1260,7 +1260,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
       <div style={{ background: 'var(--surface)', borderRadius: 14, padding: 24, width: '100%', maxHeight: '80vh', overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{sequence.name}</div>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
+          <button onClick={onClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
         </div>
         <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 20 }}>
           {[

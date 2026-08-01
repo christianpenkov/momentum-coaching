@@ -383,7 +383,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                 </div>
               )}
             </div>
-            <button type="button" onClick={requestClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)' }}>
+            <button type="button" onClick={requestClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, color: 'var(--muted)' }}>
               <Icon name="x" size={18} />
             </button>
           </div>

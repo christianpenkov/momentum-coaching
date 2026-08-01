@@ -1,8 +1,11 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion } from 'framer-motion';
+
+const FOCUSABLE_SELECTOR =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 interface Props {
   onClose: () => void;
@@ -28,11 +31,36 @@ export default function ModalShell({
   onClose, width = 620, children, variant = 'centered', fullScreen = false,
   onOverlayClick, hidden = false,
 }: Props) {
+  const boxRef = useRef<HTMLDivElement>(null);
+  const previouslyFocused = useRef<HTMLElement | null>(null);
+
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === 'Escape') onClose(); }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') { onClose(); return; }
+      if (e.key !== 'Tab' || !boxRef.current) return;
+      const focusable = Array.from(boxRef.current.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR));
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
+
+  useEffect(() => {
+    if (hidden) return;
+    previouslyFocused.current = document.activeElement as HTMLElement | null;
+    const focusable = boxRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+    focusable?.[0]?.focus();
+    return () => { previouslyFocused.current?.focus?.(); };
+  }, [hidden]);
 
   if (typeof document === 'undefined' || hidden) return null;
 
@@ -57,6 +85,9 @@ export default function ModalShell({
       }}
     >
       <motion.div
+        ref={boxRef}
+        role="dialog"
+        aria-modal="true"
         initial={isSheet ? { opacity: 0, y: '100%' } : { opacity: 0, scale: 0.96, y: 8 }}
         animate={isSheet ? { opacity: 1, y: 0 } : { opacity: 1, scale: 1, y: 0 }}
         exit={isSheet ? { opacity: 0, y: '100%' } : { opacity: 0, scale: 0.96, y: 8 }}
