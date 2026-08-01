@@ -97,6 +97,12 @@ export async function snapshotIgPosts(
     if (!mediaRes.ok) return [`ig_posts_media: HTTP ${mediaRes.status}`];
     const mediaData = await safeJson(mediaRes);
     const posts: any[] = mediaData.data || [];
+    // Debug temporaire (2026-08-01) — investigation : seuls 6/14 posts se rafraîchissent
+    // à chaque appel, tous les FEED + 1 seul Reel. Vérifie si Meta renvoie bien les 14
+    // posts dans /media (dans ce cas le souci est dans la boucle de traitement/upsert
+    // ci-dessous, probablement timeout) ou seulement un sous-ensemble (dans ce cas le
+    // souci est côté API Meta elle-même, pas notre code).
+    console.log(`[snapshotIgPosts] media reçus de Meta: ${posts.length} — ids: ${posts.map((p: any) => `${p.id}(${p.media_product_type || p.media_type})`).join(', ')}`);
 
     // Un post absent de la réponse Meta actuelle mais présent en base (parmi les 90
     // derniers jours, fenêtre couverte par /media limit=15+90j ailleurs dans ce fichier)
@@ -198,7 +204,11 @@ export async function snapshotIgPosts(
 
         const { error } = await supa.from('analytics_ig_posts_history').upsert(row, { onConflict: 'profile_id,post_id,snapshot_date', ignoreDuplicates: false });
         if (error) errors.push(`ig_post_upsert_${post.id}: ${error.message}`);
-      } catch (e: any) { errors.push(`ig_post_${post.id}: ${e?.message || 'unknown'}`); }
+        else console.log(`[snapshotIgPosts] post ${post.id} upserté avec succès`);
+      } catch (e: any) {
+        errors.push(`ig_post_${post.id}: ${e?.message || 'unknown'}`);
+        console.log(`[snapshotIgPosts] post ${post.id} a échoué: ${e?.message || 'unknown'}`);
+      }
     }));
   } catch (e: any) { errors.push(`ig_posts_snapshot: ${e?.message || 'unknown'}`); }
   return errors;
