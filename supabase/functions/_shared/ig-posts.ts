@@ -92,7 +92,7 @@ export async function snapshotIgPosts(
     }
 
     const mediaRes = await fetch(
-      `https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink,video_duration&limit=15&access_token=${token}`
+      `https://graph.instagram.com/v22.0/${igAccountId}/media?fields=id,caption,media_type,media_product_type,thumbnail_url,media_url,timestamp,like_count,comments_count,permalink&limit=15&access_token=${token}`
     );
     if (!mediaRes.ok) return [`ig_posts_media: HTTP ${mediaRes.status}`];
     const mediaData = await safeJson(mediaRes);
@@ -193,7 +193,6 @@ export async function snapshotIgPosts(
         if (isReel) {
           row.avg_watch_time_ms = m['ig_reels_avg_watch_time'] ?? null;
           row.total_watch_time_ms = m['ig_reels_video_view_total_time'] ?? null;
-          row.video_duration_sec = post.video_duration ? Math.round(post.video_duration) : null;
           row.skip_rate = m['reels_skip_rate'] ?? null;
         }
 

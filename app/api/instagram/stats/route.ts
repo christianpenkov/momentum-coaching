@@ -255,7 +255,6 @@ export async function GET(request: Request) {
       totalInteractions: row.total_interactions ?? null,
       follows: row.follows ?? null,
       profileVisits: row.profile_visits ?? null,
-      videoDuration: row.video_duration_sec ?? null,
       avgWatchTimeMs: row.avg_watch_time_ms ?? null,
       totalWatchTimeMs: row.total_watch_time_ms ?? null,
       skipRate: row.skip_rate ?? null,

@@ -62,7 +62,7 @@ interface IGPost {
   likes: number | null; comments: number | null; reach: number | null;
   saved: number | null; shares: number | null; views: number | null;
   totalInteractions: number | null; follows: number | null; profileVisits: number | null;
-  videoDuration: number | null; avgWatchTimeMs: number | null;
+  avgWatchTimeMs: number | null;
   totalWatchTimeMs: number | null; skipRate: number | null;
 }
 interface YTStats {
@@ -998,9 +998,6 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           {ig.posts.map(post => {
             const er = post.totalInteractions && post.reach ? fmtPct(pct(post.totalInteractions, post.reach)) : '—';
             const isReel = post.type === 'VIDEO' || post.type === 'REEL' || post.type === 'REELS';
-            const completion = isReel && post.avgWatchTimeMs && post.videoDuration
-              ? `${Math.round((post.avgWatchTimeMs / 1000) / post.videoDuration * 100)}%`
-              : null;
             return (
               <div key={post.id} onClick={() => setSelectedPost(post)} style={{ cursor: 'pointer', border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', transition: 'box-shadow .15s' }}
                 onMouseEnter={e => (e.currentTarget.style.boxShadow = '0 4px 12px rgba(0,0,0,.08)')}
@@ -1012,7 +1009,6 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                   <div style={{ position: 'absolute', top: 6, right: 6, background: 'rgba(0,0,0,.6)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>
                     {isReel ? 'REEL' : post.type === 'CAROUSEL_ALBUM' ? 'CAROUSEL' : 'IMAGE'}
                   </div>
-                  {completion && <div style={{ position: 'absolute', bottom: 6, right: 6, background: 'rgba(63,138,82,.85)', color: '#fff', fontSize: 9, padding: '2px 5px', borderRadius: 4, fontWeight: 600 }}>{completion}</div>}
                 </div>
                 <div style={{ padding: '8px 10px' }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 4 }}>{new Date(post.timestamp).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', timeZone: 'Europe/Paris' })}</div>
@@ -1183,9 +1179,6 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 {[
                   ['⏱ Watch time moyen', selectedPost.avgWatchTimeMs !== null ? fmtMs(selectedPost.avgWatchTimeMs!) : null],
                   ['⏩ Skip rate', selectedPost.skipRate !== null ? fmtPct(selectedPost.skipRate!) : null],
-                  ['⏳ Durée', selectedPost.videoDuration !== null ? `${selectedPost.videoDuration}s` : null],
-                  ['✅ Complétion', selectedPost.avgWatchTimeMs && selectedPost.videoDuration
-                    ? fmtPct(Math.round((selectedPost.avgWatchTimeMs / 1000) / selectedPost.videoDuration * 100)) : null],
                 ].map(([label, value], i) => (
                   <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
@@ -5231,7 +5224,6 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     totalInteractions: row.total_interactions ?? null,
     follows: row.follows ?? null,
     profileVisits: row.profile_visits ?? null,
-    videoDuration: row.video_duration_sec ?? null,
     avgWatchTimeMs: row.avg_watch_time_ms ?? null,
     totalWatchTimeMs: row.total_watch_time_ms ?? null,
     skipRate: row.skip_rate ?? null,
