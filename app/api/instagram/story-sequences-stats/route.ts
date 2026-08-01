@@ -103,7 +103,8 @@ export async function GET(request: Request) {
     .select('id')
     .eq('profile_id', targetProfileId)
     .eq('story_sequence_id', sequenceId)
-    .is('archived_at', null);
+    .is('archived_at', null)
+    .eq('not_a_lead', false);
 
   const leadIds = (leads || []).map(l => l.id);
   const leadsCount = leadIds.length;
@@ -273,6 +274,7 @@ async function listSequenceFunnelRows(profileId: string) {
     .select('id, story_sequence_id, lead_magnet_sent, hook_replied')
     .eq('profile_id', profileId)
     .is('archived_at', null)
+    .eq('not_a_lead', false)
     .not('story_sequence_id', 'is', null);
   const leadsBySequence = new Map<string, typeof leads>();
   for (const l of leads || []) {

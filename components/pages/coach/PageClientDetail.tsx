@@ -219,6 +219,8 @@ export default function PageClientDetail({ id }: Props) {
       supabase.from('instagram_leads')
         .select('id', { count: 'exact', head: true })
         .eq('profile_id', pid)
+        .is('archived_at', null)
+        .eq('not_a_lead', false)
         .gte('detected_at', since30),
       fetch(`/api/stripe/client-data?profileId=${pid}`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([ig, yt, leadsRes, stripe]) => {

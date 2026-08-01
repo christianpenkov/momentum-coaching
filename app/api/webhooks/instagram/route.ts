@@ -97,7 +97,13 @@ async function handleColdDmCandidate(params: {
   const { pid, recipientId, resolvedMatch, igAccountId, canonicalIgAccountId } = params;
   if (!recipientId || !resolvedMatch) return;
 
-  // Filtre 1 — déjà connu du pipeline (lead ou prospect_link) → relance, pas Cold DM
+  // Filtre 1 — déjà connu du pipeline (lead ou prospect_link) → relance, pas Cold DM.
+  // Couvre aussi le cas d'un lead marqué not_a_lead (faux positif confirmé, ex: un
+  // pote) : tant que la fiche existe (statut "Ce n'est pas un lead", ligne conservée),
+  // aucune nouvelle fiche Cold DM n'est recréée pour ce ig_user_id. Un lead vraiment
+  // supprimé (DELETE, ligne effacée) redevient en revanche détectable — comportement
+  // attendu, la suppression n'a pas vocation à bloquer durablement contrairement à
+  // not_a_lead.
   const [{ data: existingLead }, { data: existingProspect }] = await Promise.all([
     serviceSupabase.from('instagram_leads').select('id').eq('profile_id', pid).eq('ig_user_id', recipientId).maybeSingle(),
     serviceSupabase.from('prospect_links').select('id').eq('profile_id', pid).eq('ig_username', recipientId).maybeSingle(),

@@ -41,6 +41,7 @@ export async function GET() {
       .select('id, ig_username, ig_user_id, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, media_id, source, avatar_url')
       .eq('profile_id', user.id)
       .is('archived_at', null)
+      .eq('not_a_lead', false)
       .order('detected_at', { ascending: false }),
     supa.from('prospect_links')
       .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached')
@@ -154,6 +155,32 @@ export async function POST(request: Request) {
     ...(reason ? { reason } : {}),
     ...(natural_at_override !== undefined ? { natural_at_override } : {}),
   }, { onConflict: 'profile_id,prospect_key,platform' });
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ ok: true });
+}
+
+// Marque un lead IG comme faux positif ("pas un prospect", ex: un pote détecté
+// en Cold DM) — contrairement à DELETE, la ligne instagram_leads reste en place
+// (not_a_lead = true) pour bloquer la recréation automatique d'une fiche Cold DM
+// par le webhook (voir handleColdDmCandidate), tout en restant exclue des stats.
+export async function PATCH(request: Request) {
+  const supabase = await createServerClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+
+  let body: any;
+  try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
+
+  const { ig_username, not_a_lead } = body;
+  if (!ig_username || typeof not_a_lead !== 'boolean') {
+    return NextResponse.json({ error: 'ig_username et not_a_lead requis' }, { status: 400 });
+  }
+
+  const { error } = await supa.from('instagram_leads')
+    .update({ not_a_lead })
+    .eq('profile_id', user.id)
+    .eq('ig_username', ig_username);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ ok: true });

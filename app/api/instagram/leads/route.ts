@@ -41,6 +41,7 @@ export async function GET(request: Request) {
     .select('*', { count: 'exact' })
     .eq('profile_id', targetProfileId)
     .is('archived_at', null)
+    .eq('not_a_lead', false)
     .order('detected_at', { ascending: false })
     .range(offset, offset + limit - 1);
 
@@ -60,6 +61,7 @@ export async function GET(request: Request) {
     .select('source')
     .eq('profile_id', targetProfileId)
     .is('archived_at', null)
+    .eq('not_a_lead', false)
     .gte('detected_at', new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString());
 
   const dmCount = (counts || []).filter(l => l.source === 'dm').length;

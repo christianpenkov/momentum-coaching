@@ -346,7 +346,7 @@ interface CardData {
 }
 
 function PipelineCard({
-  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick,
+  card, stages, isDragging, onDragStart, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
 }: {
   card: CardData;
   stages: typeof IG_STAGES | typeof YT_STAGES;
@@ -358,6 +358,7 @@ function PipelineCard({
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
   onCardClick?: (cardKey: string) => void;
+  onNotALead?: (key: string) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -554,6 +555,21 @@ function PipelineCard({
           borderRadius: 8, boxShadow: '0 4px 16px rgba(0,0,0,.12)',
           padding: '4px 0', minWidth: 160,
         }}>
+          {platform === 'ig' && card.sub === 'Cold DM' && (
+            <button
+              onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); onNotALead?.(card.key); }}
+              style={{
+                display: 'block', width: '100%', textAlign: 'left',
+                padding: '8px 14px', fontSize: 12, fontWeight: 500,
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--ink)',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.background = 'var(--surface-2)'; }}
+              onMouseLeave={e => { e.currentTarget.style.background = 'none'; }}
+            >
+              Ce n'est pas un lead
+            </button>
+          )}
           <button
             onMouseDown={e => { e.stopPropagation(); setCtxMenu(null); setConfirmDelete(true); setDeleteConfirmed(false); }}
             style={{
@@ -620,7 +636,7 @@ function PipelineCard({
 
 function KanbanColumn({
   stage, cards, stages, draggingKey, onDragStart, onDrop, onDragOver, onDragLeave,
-  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick,
+  isDropTarget, platform, onConfirmLead, onDismissLead, onDeleteLead, onRapportClick, onCardClick, onNotALead,
 }: {
   stage: typeof IG_STAGES[number] | typeof YT_STAGES[number];
   cards: CardData[];
@@ -637,6 +653,7 @@ function KanbanColumn({
   onDeleteLead?: (key: string, callId?: string | null) => void;
   onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
   onCardClick?: (cardKey: string) => void;
+  onNotALead?: (key: string) => void;
 }) {
   return (
     <div style={{ width: 220, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6, transition: 'background .1s', alignSelf: 'stretch' }}>
@@ -693,6 +710,7 @@ function KanbanColumn({
             onDeleteLead={onDeleteLead}
             onRapportClick={onRapportClick}
             onCardClick={onCardClick}
+            onNotALead={onNotALead}
           />
         ))}
       </div>
@@ -1257,7 +1275,7 @@ export default function PagePipeline() {
         stageKey,
         stageIdx: stageIdx >= 0 ? stageIdx : 0,
         badge,
-        lmNotReceived: lead ? !lead.lead_magnet_sent : false,
+        lmNotReceived: lead && lead.source !== 'cold_dm' ? !lead.lead_magnet_sent : false,
         lmClickedAt: lmClickedEvent?.occurred_at ?? null,
         callId: call?.id ?? undefined,
         callScheduledAt: call?.scheduled_at ?? undefined,
@@ -1457,6 +1475,17 @@ export default function PagePipeline() {
     });
     await refetch();
   }, [refetch, tab]);
+
+  // ── Marquage "pas un lead" (faux positif Cold DM) ───────────────────────────
+
+  const handleNotALead = useCallback(async (cardKey: string) => {
+    await fetch('/api/client/pipeline', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ig_username: cardKey, not_a_lead: true }),
+    });
+    await refetch();
+  }, [refetch]);
 
   // ── Drag & drop + modale de confirmation ────────────────────────────────────
 
@@ -1760,6 +1789,7 @@ export default function PagePipeline() {
                   onConfirmLead={key => { setConfirmedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'confirmed_lead'); }}
                   onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
                   onDeleteLead={handleDeleteLead}
+                  onNotALead={handleNotALead}
                   onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp })}
                   onCardClick={cardKey => setDetailModal({ cardKey, platform })}
                 />
