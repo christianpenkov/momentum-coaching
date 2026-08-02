@@ -99,18 +99,22 @@ export async function fetchYtDayMetrics(
     const subsLost = r[4] || 0;
     const avgDur = r[8] || 0;
 
+    // Chaque ligne de `rows` est un jour confirmé par l'API YouTube Analytics — views,
+    // watchMin etc. sont toujours de vraies valeurs numériques (potentiellement 0, ex:
+    // aucune vue ce jour-là sur une petite chaîne), jamais "absentes" pour cette ligne.
+    // `valeur || null` effacerait ces vrais 0 à tort.
     return {
       date:                    r[0],
-      yt_views:                views || null,
-      yt_watch_time_min:       watchMin || null,
+      yt_views:                views,
+      yt_watch_time_min:       watchMin,
       yt_subscribers:          subscribers,
-      yt_subs_gained:          subsGained || null,
-      yt_subs_lost:            subsLost || null,
-      yt_net_subs:             (subsGained - subsLost) || null,
-      yt_likes:                r[5] || null,
-      yt_comments:             r[6] || null,
-      yt_shares:               r[7] || null,
-      yt_avg_view_duration_sec: avgDur || null,
+      yt_subs_gained:          subsGained,
+      yt_subs_lost:            subsLost,
+      yt_net_subs:             subsGained - subsLost,
+      yt_likes:                r[5] || 0,
+      yt_comments:             r[6] || 0,
+      yt_shares:               r[7] || 0,
+      yt_avg_view_duration_sec: avgDur,
     };
   });
 }

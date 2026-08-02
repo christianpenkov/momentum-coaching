@@ -133,16 +133,18 @@ export async function fetchIgDayMetrics(
     }
   }
 
+  // `valeur || null` effacerait un vrai 0 (fréquent en tout début de journée) en null —
+  // null doit signifier "métrique absente de la réponse Meta", pas "somme égale à zéro".
   return {
-    ig_reach:              sum(insightMap['reach'] || []) || null,
+    ig_reach:              insightMap['reach'] !== undefined ? sum(insightMap['reach']) : null,
     ig_followers:          accountData.followers_count ?? null,
     ig_following:          accountData.follows_count ?? null,
-    ig_views:              sum(insightMap['views'] || []) || null,
-    ig_follows_unfollows:  sum(insightMap['follows_and_unfollows'] || []) || null,
-    ig_profile_taps:       sum(insightMap['profile_links_taps'] || []) || null,
-    ig_website_clicks:     sum(insightMap['website_clicks'] || []) || null,
-    ig_accounts_engaged:   accountsEngagedTotal || null,
-    ig_total_interactions: totalInteractionsTotal || null,
+    ig_views:              insightMap['views'] !== undefined ? sum(insightMap['views']) : null,
+    ig_follows_unfollows:  insightMap['follows_and_unfollows'] !== undefined ? sum(insightMap['follows_and_unfollows']) : null,
+    ig_profile_taps:       insightMap['profile_links_taps'] !== undefined ? sum(insightMap['profile_links_taps']) : null,
+    ig_website_clicks:     insightMap['website_clicks'] !== undefined ? sum(insightMap['website_clicks']) : null,
+    ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
+    ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
     ig_lead_count:         null,
     ig_response_rate:      null,
     ig_reach_follower:     reachFollower,

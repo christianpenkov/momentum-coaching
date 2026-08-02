@@ -154,16 +154,30 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     else if (m.name === 'total_interactions') totalInteractionsTotal += v;
   }
 
+  // BUG "|| null efface un vrai 0" (trouvé 2026-08-02) : `sum(...) || null` transformait
+  // silencieusement un reach/views/engagement à 0 (fréquent en tout début de journée,
+  // avant que Meta agrège plus d'activité) en null, alors que l'API avait bel et bien
+  // répondu avec la vraie valeur 0. Résultat observé : ig_reach restait null en base des
+  // journées entières malgré un cron qui tournait normalement toutes les 5 min (vérifié
+  // via appel direct à l'API Meta insights, qui renvoyait bien reach=0, pas d'erreur).
+  // Symptôme trompeur qui ressemblait à "le cron n'écrit qu'une fois par jour" — non, il
+  // écrivait à chaque passage, juste toujours la même valeur effacée.
+  // Fix : null doit signifier "métrique absente de la réponse Meta" (insightMap[x]
+  // undefined), jamais "somme égale à zéro" (sum() renvoie 0, une vraie valeur à garder).
+  // Même bug dupliqué et corrigé en même temps dans lib/ig-fetch.ts, lib/ig-metrics-core.ts
+  // (copies quasi identiques de cette fonction, voir commentaire ig-metrics-core.ts:6-12),
+  // lib/yt-fetch.ts (yt_views etc.), et les upserts shortio_clicks/shortio_human_clicks
+  // de ce fichier + app/api/instagram/poll-leads/route.ts + app/api/shortio/refresh-today/route.ts.
   return {
-    ig_reach:              sum(insightMap['reach'] || []) || null,
+    ig_reach:              insightMap['reach'] !== undefined ? sum(insightMap['reach']) : null,
     ig_followers:          accountData.followers_count ?? null,
     ig_following:          accountData.follows_count ?? null,
-    ig_views:              sum(insightMap['views'] || []) || null,
-    ig_follows_unfollows:  sum(insightMap['follows_and_unfollows'] || []) || null,
-    ig_profile_taps:       sum(insightMap['profile_links_taps'] || []) || null,
-    ig_website_clicks:     sum(insightMap['website_clicks'] || []) || null,
-    ig_accounts_engaged:   accountsEngagedTotal || null,
-    ig_total_interactions: totalInteractionsTotal || null,
+    ig_views:              insightMap['views'] !== undefined ? sum(insightMap['views']) : null,
+    ig_follows_unfollows:  insightMap['follows_and_unfollows'] !== undefined ? sum(insightMap['follows_and_unfollows']) : null,
+    ig_profile_taps:       insightMap['profile_links_taps'] !== undefined ? sum(insightMap['profile_links_taps']) : null,
+    ig_website_clicks:     insightMap['website_clicks'] !== undefined ? sum(insightMap['website_clicks']) : null,
+    ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
+    ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
     ig_lead_count:         null,
     ig_response_rate:      null,
   };
@@ -663,8 +677,8 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       .then(r => r.ok ? safeJson(r) : null)
       .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
         profile_id: profileId, date: dateYesterday,
-        shortio_clicks: Number(domainStats.clicks ?? 0) || null,
-        shortio_human_clicks: Number(domainStats.humanClicks ?? 0) || null,
+        shortio_clicks: Number(domainStats.clicks ?? 0),
+        shortio_human_clicks: Number(domainStats.humanClicks ?? 0),
         shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
         shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
       }, { onConflict: 'profile_id,date', ignoreDuplicates: false })),
@@ -672,8 +686,8 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       .then(r => r.ok ? safeJson(r) : null)
       .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
         profile_id: profileId, date: dateToday,
-        shortio_clicks: Number(domainStats.clicks ?? 0) || null,
-        shortio_human_clicks: Number(domainStats.humanClicks ?? 0) || null,
+        shortio_clicks: Number(domainStats.clicks ?? 0),
+        shortio_human_clicks: Number(domainStats.humanClicks ?? 0),
         shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
         shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
       }, { onConflict: 'profile_id,date', ignoreDuplicates: false })),

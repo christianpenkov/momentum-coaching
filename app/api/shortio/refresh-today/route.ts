@@ -53,8 +53,8 @@ export async function POST(request: Request) {
       .upsert({
         profile_id:           profileId,
         date:                 today,
-        shortio_clicks:       Number(domainStats.clicks      ?? 0) || null,
-        shortio_human_clicks: Number(domainStats.humanClicks ?? 0) || null,
+        shortio_clicks:       Number(domainStats.clicks      ?? 0),
+        shortio_human_clicks: Number(domainStats.humanClicks ?? 0),
         shortio_top_countries: (domainStats.country || [])
           .filter((c: any) => c.score > 0).slice(0, 8)
           .map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
