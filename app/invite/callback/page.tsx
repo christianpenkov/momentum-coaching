@@ -4,10 +4,18 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { createClient } from '@/lib/supabase/client';
 
+type Step = 'loading' | 'set-password' | 'saving' | 'error';
+
 export default function InviteCallbackPage() {
+  const [step, setStep] = useState<Step>('loading');
   const [error, setError] = useState('');
+  const [password, setPassword] = useState('');
+  const [confirm, setConfirm] = useState('');
   const router = useRouter();
 
+  // Lie le profile_id + accorde les ressources par défaut — fait une seule fois,
+  // avant même que le mot de passe soit choisi, pour que l'accès aux ressources ne
+  // dépende pas d'une étape ultérieure qui pourrait échouer.
   useEffect(() => {
     async function run() {
       const supabase = createClient();
@@ -15,7 +23,7 @@ export default function InviteCallbackPage() {
       if (!user) { router.push('/login'); return; }
 
       const clientId = user.user_metadata?.client_id as string | undefined;
-      if (!clientId) { router.push('/client'); return; }
+      if (!clientId) { setStep('set-password'); return; }
 
       await supabase.from('profiles').upsert({
         id: user.id,
@@ -39,15 +47,100 @@ export default function InviteCallbackPage() {
         });
       }
 
-      router.push('/client');
+      setStep('set-password');
     }
     run().catch(() => setError('Une erreur est survenue.'));
   }, [router]);
 
+  async function handleSetPassword(e: React.FormEvent) {
+    e.preventDefault();
+    setError('');
+
+    if (password.length < 8) {
+      setError('Le mot de passe doit faire au moins 8 caractères.');
+      return;
+    }
+    if (password !== confirm) {
+      setError('Les mots de passe ne correspondent pas.');
+      return;
+    }
+
+    setStep('saving');
+    const supabase = createClient();
+    const { error: updateErr } = await supabase.auth.updateUser({ password });
+    if (updateErr) {
+      setError(updateErr.message);
+      setStep('set-password');
+      return;
+    }
+
+    router.push('/client');
+  }
+
+  if (step === 'loading') {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
+        <div style={{ fontSize: 14, color: 'var(--muted)' }}>Configuration de ton espace…</div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg)' }}>
-      <div style={{ fontSize: 14, color: error ? 'var(--red)' : 'var(--muted)' }}>
-        {error || 'Configuration de ton espace…'}
+      <div style={{
+        width: 420, background: 'var(--surface)', borderRadius: 16, border: '1px solid var(--border)',
+        padding: '48px 40px', boxShadow: 'var(--shadow-elev)',
+      }}>
+        <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', margin: '0 0 6px' }}>Choisis ton mot de passe</h1>
+        <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 28px' }}>
+          Dernière étape avant d'accéder à ton espace.
+        </p>
+
+        <form onSubmit={handleSetPassword} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginBottom: 6 }}>
+              Mot de passe
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              placeholder="8 caractères minimum"
+              required
+              autoFocus
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 14, background: 'var(--surface-2)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginBottom: 6 }}>
+              Confirme le mot de passe
+            </label>
+            <input
+              type="password"
+              value={confirm}
+              onChange={e => setConfirm(e.target.value)}
+              placeholder="••••••••"
+              required
+              style={{ width: '100%', padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 14, background: 'var(--surface-2)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }}
+            />
+          </div>
+
+          {error && (
+            <div style={{ fontSize: 13, color: 'var(--red)', padding: '8px 12px', background: 'var(--red-soft)', borderRadius: 8 }}>
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={step === 'saving'}
+            className="btn-primary-brand"
+            style={{ width: '100%', justifyContent: 'center', marginTop: 8, padding: '12px', fontSize: 14, opacity: step === 'saving' ? 0.7 : 1 }}
+          >
+            {step === 'saving' ? 'Enregistrement…' : 'Créer mon accès →'}
+          </button>
+        </form>
       </div>
     </div>
   );

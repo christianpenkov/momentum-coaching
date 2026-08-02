@@ -112,6 +112,13 @@ export default function ModalShell({
   const isSheet = variant === 'sheet';
   const handleOverlayClick = onOverlayClick ?? onClose;
 
+  // Une sélection de texte à la souris (drag qui déborde de la boîte) déclenche un
+  // mousedown dans la boîte mais peut relâcher (mouseup/click) sur l'overlay — sans ce
+  // garde, ce simple drag de sélection était interprété comme un clic sur l'overlay et
+  // fermait le modal. On ne ferme que si le clic a démarré ET s'est terminé sur
+  // l'overlay lui-même (pas de sélection en cours ni de drag depuis le contenu).
+  const overlayMouseDownOnSelf = useRef(false);
+
   return createPortal(
     <motion.div
       ref={overlayRef}
@@ -119,7 +126,11 @@ export default function ModalShell({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
-      onClick={handleOverlayClick}
+      onMouseDown={e => { overlayMouseDownOnSelf.current = e.target === e.currentTarget; }}
+      onClick={e => {
+        if (e.target === e.currentTarget && overlayMouseDownOnSelf.current) handleOverlayClick();
+        overlayMouseDownOnSelf.current = false;
+      }}
       style={{
         position: 'fixed', top: 0, left: 0, right: 0, height: '100dvh', zIndex: 2500,
         background: isSheet ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.5)',
