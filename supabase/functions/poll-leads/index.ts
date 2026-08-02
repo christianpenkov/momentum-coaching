@@ -1087,6 +1087,55 @@ Deno.serve(async (req: Request) => {
     if (profileErrors.length) allErrors[profile.profile_id] = profileErrors;
   }));
 
+  // Rappels invitation call Google Meet non répondue (24h puis 2h avant le call) —
+  // seulement si toujours pending_acceptance à ce moment-là (pas annulé/refusé/accepté).
+  try {
+    const now = new Date();
+    const in24h = new Date(now.getTime() + 24 * 3600_000);
+    const in2h = new Date(now.getTime() + 2 * 3600_000);
+
+    const { data: pendingInvites } = await supa.from('calls')
+      .select('id, client_id, scheduled_at, invite_reminder_24h_sent, invite_reminder_2h_sent')
+      .eq('status', 'pending_acceptance')
+      .eq('call_type', 'google')
+      .not('scheduled_at', 'is', null)
+      .gt('scheduled_at', now.toISOString());
+
+    await Promise.all((pendingInvites || []).map(async (call: any) => {
+      if (!call.client_id) return;
+      const scheduledAt = new Date(call.scheduled_at);
+
+      const due24h = !call.invite_reminder_24h_sent && scheduledAt.getTime() <= in24h.getTime();
+      const due2h = !call.invite_reminder_2h_sent && scheduledAt.getTime() <= in2h.getTime();
+      if (!due24h && !due2h) return;
+
+      const { data: clientRow } = await supa.from('clients').select('profile_id').eq('id', call.client_id).single();
+      if (!clientRow?.profile_id) return;
+
+      const timeStr = scheduledAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 8000);
+        const res = await fetch(`${PLATFORM_URL}/api/push/send`, {
+          method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${CRON_SECRET}` },
+          body: JSON.stringify({
+            profileId: clientRow.profile_id,
+            title: 'Invitation de call en attente',
+            body: `Ton coach t'a proposé un call à ${timeStr} — n'oublie pas d'accepter ou refuser l'invitation.`,
+            url: '/client/calls',
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (res.ok) {
+          await supa.from('calls').update(
+            due2h ? { invite_reminder_2h_sent: true, invite_reminder_24h_sent: true } : { invite_reminder_24h_sent: true }
+          ).eq('id', call.id);
+        }
+      } catch { /* non bloquant — retry au prochain cron */ }
+    }));
+  } catch { /* non bloquant */ }
+
   // Notifications rapport post-call
   let rapportNotified = 0;
   try {

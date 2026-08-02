@@ -138,6 +138,8 @@ export interface Call {
   session_no_show?: boolean | null;
   session_rapport_reminder_sent?: boolean;
   lead_rapport_comment?: string | null;
+  invite_reminder_24h_sent?: boolean;
+  invite_reminder_2h_sent?: boolean;
 }
 
 export interface SessionReport {

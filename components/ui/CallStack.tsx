@@ -56,7 +56,12 @@ export default function CallStack({ calls, getClient }: Props) {
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>
             </div>
-            <div style={{ textAlign: 'right', flexShrink: 0 }}>
+            <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
+              {call.status === 'pending_acceptance' && (
+                <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
+                  Réponse en attente
+                </span>
+              )}
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{time}</div>
             </div>
           </div>

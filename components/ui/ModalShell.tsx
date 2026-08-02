@@ -32,6 +32,29 @@ export default function ModalShell({
   onOverlayClick, hidden = false,
 }: Props) {
   const boxRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+
+  // Mobile, variant centered uniquement : l'overlay est centré sur toute la hauteur
+  // d'écran (position: fixed, inset: 0), qui ne rétrécit PAS quand le clavier s'ouvre
+  // sur iOS/Android (100vh CSS reste fixe) — contrairement à window.visualViewport, qui
+  // lui reflète la vraie zone visible. Sans ce recalage, un champ en bas de la boîte
+  // centrée (ex. textarea de notes) se retrouve caché sous le clavier, et aucun
+  // scrollIntoView() interne ne peut compenser puisque l'overlay lui-même déborde de la
+  // zone réellement visible. Le variant 'sheet' n'a pas ce problème : ancré en bas
+  // (alignItems: 'flex-end'), il reste naturellement au-dessus du clavier.
+  useEffect(() => {
+    if (variant !== 'centered' || hidden) return;
+    if (typeof window === 'undefined' || window.innerWidth > 767) return;
+    const vv = window.visualViewport;
+    if (!vv || !overlayRef.current) return;
+
+    function update() {
+      if (overlayRef.current) overlayRef.current.style.height = `${vv!.height}px`;
+    }
+    update();
+    vv.addEventListener('resize', update);
+    return () => vv.removeEventListener('resize', update);
+  }, [variant, hidden]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -60,13 +83,14 @@ export default function ModalShell({
 
   return createPortal(
     <motion.div
+      ref={overlayRef}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.15 }}
       onClick={handleOverlayClick}
       style={{
-        position: 'fixed', inset: 0, zIndex: 2500,
+        position: 'fixed', top: 0, left: 0, right: 0, height: '100dvh', zIndex: 2500,
         background: isSheet ? 'rgba(0,0,0,0.5)' : 'rgba(0,0,0,0.5)',
         backdropFilter: isSheet ? undefined : 'blur(4px)',
         display: 'flex',

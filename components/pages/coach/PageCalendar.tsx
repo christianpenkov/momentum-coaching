@@ -21,6 +21,7 @@ interface CalEvent {
   time?: string;
   meta?: string;
   ready?: string;
+  status?: string | null;
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -54,6 +55,7 @@ export default function PageCalendar() {
         clientId: call.client_id || '',
         time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         ready: call.ready,
+        status: call.status,
       });
     });
 
@@ -311,7 +313,12 @@ export default function PageCalendar() {
                           {ev.time && <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{ev.time}</span>}
                         </div>
                         <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{ev.label}</div>
-                        {ev.type === 'call' && ev.ready && (
+                        {ev.type === 'call' && ev.status === 'pending_acceptance' && (
+                          <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', marginTop: 4, display: 'inline-block' }}>
+                            Réponse en attente
+                          </span>
+                        )}
+                        {ev.type === 'call' && ev.status !== 'pending_acceptance' && ev.ready && (
                           <span className={`pill pill-${ev.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10, marginTop: 4, display: 'inline-block' }}>
                             {ev.ready === 'ready' ? 'Prêt' : ev.ready === 'partial' ? 'Partiel' : 'En attente'}
                           </span>
@@ -357,9 +364,15 @@ export default function PageCalendar() {
                           {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                         </div>
                       </div>
-                      <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10 }}>
-                        {call.ready === 'ready' ? 'Prêt' : 'Partiel'}
-                      </span>
+                      {call.status === 'pending_acceptance' ? (
+                        <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
+                          Réponse en attente
+                        </span>
+                      ) : (
+                        <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10 }}>
+                          {call.ready === 'ready' ? 'Prêt' : 'Partiel'}
+                        </span>
+                      )}
                     </div>
                   );
                 })}
