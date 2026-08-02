@@ -1166,6 +1166,14 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               <button onClick={() => setStatModal(null)} style={{ background: 'none', border: 'none', fontSize: 22, cursor: 'pointer', color: 'var(--muted)', lineHeight: 1 }}>×</button>
             </div>
             <div style={{ fontSize: 36, fontWeight: 800, color: statModal.color, marginBottom: 20 }}>{statModal.value}</div>
+            {/* Intervalle calculé explicitement (pas 'preserveStartEnd'/interval=0, qui
+                laissent Recharts choisir selon la largeur de texte — espacement visuel
+                irrégulier) — même formule que le composant partagé AreaChart
+                (components/charts/AreaChart.tsx) : ~9 labels max en vue mois, tous les
+                jours affichés en vue semaine. */}
+            {(() => {
+              const statModalTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(statModal.data.length / 9) - 1);
+              return (
             <ResponsiveContainer width="100%" height={220}>
               {statModal.label === 'Abonnés nets' ? (
                 <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
@@ -1175,7 +1183,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -1195,7 +1203,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
                   {/* Marge relative (pas domain auto strict) : sur "Abonnés", qui varie de
                       seulement 1-2 sur un petit compte, coller pile min/max fait remplir
                       toute la hauteur du graphique pour une variation de quelques unités —
@@ -1218,6 +1226,8 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 </ReAreaChart>
               )}
             </ResponsiveContainer>
+              );
+            })()}
           </div>
         </ModalOverlay>
       )}
@@ -1758,11 +1768,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             }));
             const allPending = viewsForChart.every(d => d.views === null);
             if (allPending) return <Empty msg="Pas encore de données" />;
+            // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
+            // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
+            const viewsTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(viewsForChart.length / 9) - 1);
             return (
               <ResponsiveContainer width="100%" height={220}>
                 <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={viewsTickInterval} />
                   <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
@@ -1941,6 +1954,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               const formatVal = (v: number) => isWatchTime ? fmtSec(v) : fmt(v);
               const val1 = isWatchTime ? (avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—') : `${fmt(ytShortsCount)}`;
               const val2 = isWatchTime ? (avgWatchLong !== null ? fmtSec(avgWatchLong) : '—') : `${fmt(ytLongCount)}`;
+              // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
+              // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
+              const shortsLongTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(merged.length / 9) - 1);
               return (
                 <>
                   <div style={{ display: 'flex', gap: 32, marginBottom: 20 }}>
@@ -1972,7 +1988,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                           <stop offset="95%" stopColor={color2} stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                      <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={shortsLongTickInterval} />
                       <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={isWatchTime ? 50 : 36} tickFormatter={(v: number) => isWatchTime ? fmtSec(v) : fmt(v)} />
                       <Tooltip content={({ active, payload, label }) => {
                         if (!active || !payload?.length) return null;
@@ -2012,6 +2028,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 ? Array.from({ length: Math.floor(yDomain[1]) - Math.ceil(yDomain[0]) + 1 }, (_, i) => Math.ceil(yDomain[0]) + i)
                     .filter((_, i, arr) => arr.length <= 6 || i % Math.ceil(arr.length / 6) === 0)
                 : undefined;
+              // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx).
+              const generalTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(statModal.data.length / 9) - 1);
               return (
               <ResponsiveContainer width="100%" height={220}>
                 <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
@@ -2021,7 +2039,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={generalTickInterval} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={!isCounter} domain={yDomain} ticks={yTicks} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (isCounter ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
