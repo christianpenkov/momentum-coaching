@@ -34,7 +34,7 @@ export async function GET() {
     try { return await res.json(); } catch { return { error: 'parse_failed' }; }
   };
 
-  const [v1, v2, v3, v4] = await Promise.all([
+  const [v1, v2, v3, v4, v5] = await Promise.all([
     // profile_views (visites du profil)
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=profile_views&period=day&since=${since}&until=${until}&access_token=${token}`).then(safeJson),
     // website_clicks (clics sur le lien bio)
@@ -43,6 +43,8 @@ export async function GET() {
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=profile_links_taps&period=day&since=${since}&until=${until}&access_token=${token}`).then(safeJson),
     // Les 4 en une seule requête pour voir ce qui passe
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=profile_views,website_clicks,profile_links_taps&period=day&since=${since}&until=${until}&access_token=${token}`).then(safeJson),
+    // DEBUG temporaire : profile_views groupé avec reach (métrique confirmée fonctionnelle) — si reach revient vide aussi, ça confirme la perte de groupe / metric invalide plutôt qu'un simple zéro
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,profile_views&period=day&since=${since}&until=${until}&access_token=${token}`).then(safeJson),
   ]);
 
   return NextResponse.json({
@@ -51,5 +53,6 @@ export async function GET() {
     website_clicks: v2,
     profile_links_taps: v3,
     all_combined: v4,
+    debug_reach_plus_profile_views: v5,
   });
 }
