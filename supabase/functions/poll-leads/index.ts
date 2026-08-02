@@ -1150,37 +1150,12 @@ Deno.serve(async (req: Request) => {
     }));
   } catch { /* non bloquant */ }
 
-  // Notifications rapport post-call
-  let rapportNotified = 0;
-  try {
-    const now = new Date();
-    const { data: pendingCalls } = await supa.from('calls').select('id, coach_id, invitee_name, scheduled_at, duration').eq('status', 'active').is('no_show', null).eq('rapport_notif_sent', false).neq('ignored', true).eq('call_type', 'calendly').not('scheduled_at', 'is', null).not('duration', 'is', null).lt('scheduled_at', now.toISOString());
-
-    const eligibleCalls = (pendingCalls || []).filter(call => {
-      const match = (call.duration as string).match(/(\d+)/);
-      if (!match) return false;
-      const durationMs = parseInt(match[1]) * 60 * 1000;
-      return now.getTime() >= new Date(call.scheduled_at).getTime() + durationMs + 15 * 60 * 1000;
-    });
-
-    // Appel vers l'API push Vercel (webpush nécessite Node — Edge Function utilise l'API Vercel)
-    await Promise.all(eligibleCalls.map(async (call) => {
-      try {
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 8000);
-        const res = await fetch(`${PLATFORM_URL}/api/push/send`, {
-          method: 'POST', headers: { 'content-type': 'application/json', authorization: `Bearer ${CRON_SECRET}` },
-          body: JSON.stringify({ profileId: call.coach_id, title: 'Rapport de call', body: `Comment s'est passé ton appel${call.invitee_name ? ` avec ${call.invitee_name}` : ''} ? Remplis ton rapport.`, url: `/client/calls?rapport=${call.id}` }),
-          signal: controller.signal,
-        });
-        clearTimeout(timeout);
-        if (res.ok) {
-          await supa.from('calls').update({ rapport_notif_sent: true }).eq('id', call.id);
-          rapportNotified++;
-        }
-      } catch { /* non bloquant — retry au prochain cron */ }
-    }));
-  } catch { /* non bloquant */ }
+  // Notifications rapport post-call : gérées exclusivement par l'Edge Function
+  // notify-rapport (source de vérité unique, avec marge 24h + écriture
+  // client_notifications) — ne pas dupliquer cette logique ici. Un doublon présent
+  // jusqu'au 2026-08-02 posait rapport_notif_sent=true en course avec notify-rapport,
+  // ce qui empêchait silencieusement la création de l'historique client_notifications
+  // pour les calls traités en premier par ce bloc.
 
   // D3 : allErrors était calculé puis jamais relu — un run avec des échecs sur
   // plusieurs profils "réussissait" en apparence (202 déjà envoyé), sans jamais
