@@ -75,7 +75,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes, coachIgLeadsRes, coachProspectsRes] = await Promise.all([
+      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes, coachIgLeadsRes, coachProspectsRes] = await Promise.all([
         ids.length > 0
           ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
           : { data: [], error: null },
@@ -98,7 +98,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           .neq('ignored', true)
           .gte('created_at', startOfMonth),
         profileIds.length > 0
-          ? supabase.from('integrations').select('profile_id').in('profile_id', profileIds).eq('provider', 'stripe')
+          ? supabase.from('integrations').select('profile_id, provider').in('profile_id', profileIds)
           : { data: [], error: null },
         profileIds.length > 0
           ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds).gte('date', startOfMonth)
@@ -122,7 +122,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (callsRes.error) throw callsRes.error;
       if (avatarsRes.error) throw avatarsRes.error;
       if (callsThisMonthRes.error) throw callsThisMonthRes.error;
-      if (stripeIntegRes.error) throw stripeIntegRes.error;
+      if (integrationsRes.error) throw integrationsRes.error;
       if (stripePaymentsRes.error) throw stripePaymentsRes.error;
       if (stripePaymentsAllTimeRes.error) throw stripePaymentsAllTimeRes.error;
       if ('error' in leadsThisMonthRes && leadsThisMonthRes.error) throw leadsThisMonthRes.error;
@@ -150,8 +150,25 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const avatarMap: Record<string, string | null> = {};
       (avatarsRes.data || []).forEach((p: any) => { avatarMap[p.id] = p.avatar_url; });
 
+      // profile_id → ensemble des providers connectés — sert au statut d'onboarding
+      // (élève invité / compte créé / intégrations en cours / actif) et, en dessous,
+      // à la détection Stripe déjà existante.
+      const providersByProfile: Record<string, Set<string>> = {};
+      (integrationsRes.data || []).forEach((row: any) => {
+        if (!providersByProfile[row.profile_id]) providersByProfile[row.profile_id] = new Set();
+        providersByProfile[row.profile_id].add(row.provider);
+      });
+      const REQUIRED_PROVIDERS = ['instagram', 'calendly', 'youtube', 'stripe'];
+
       setClients((rawClients || []).map((c: any) => {
         const metrics = (metricsMap[c.id] || []).sort((a: any, b: any) => a.week - b.week);
+        const connectedProviders = c.profile_id ? (providersByProfile[c.profile_id] ?? new Set<string>()) : new Set<string>();
+        const waived: string[] = c.integrations_waived ?? [];
+        const onboardingStatus: 'invited' | 'account_created' | 'integrating' | 'active' =
+          !c.profile_id ? 'invited'
+          : !c.onboarding_completed_at ? 'account_created'
+          : REQUIRED_PROVIDERS.every(p => connectedProviders.has(p) || waived.includes(p)) ? 'active'
+          : 'integrating';
         return {
           ...c,
           weeklyMetrics: metrics,
@@ -162,6 +179,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           resources: [],
           lastCoachMessage: null,
           avatar_url: c.profile_id ? (avatarMap[c.profile_id] || null) : null,
+          onboardingStatus,
         };
       }));
       setCalls(callsRes.data || []);
@@ -173,7 +191,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const cashContracted = callsThisMonth.reduce((s, c) => s + (c.revenue || 0), 0);
       const closingRate = callsHonores > 0 ? Math.round((dealsCloses / callsHonores) * 100) : 0;
 
-      const stripeConnected = (stripeIntegRes.data || []).length > 0;
+      const stripeConnected = (integrationsRes.data || []).some((row: any) => row.provider === 'stripe');
       const cashCollected = stripeConnected
         ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
         : null;

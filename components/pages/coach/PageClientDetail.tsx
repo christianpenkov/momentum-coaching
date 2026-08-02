@@ -172,6 +172,7 @@ export default function PageClientDetail({ id }: Props) {
   const tasks = allTasks.filter(t => !t.resolved_by_coach);
   const resolvedTasks = allTasks.filter(t => t.resolved_by_coach);
   const [resolvedExpanded, setResolvedExpanded] = useState(false);
+  const [waivedSaving, setWaivedSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archiveConfirmed, setArchiveConfirmed] = useState(false);
@@ -386,6 +387,16 @@ export default function PageClientDetail({ id }: Props) {
     if (error) { setNoteError(true); return; }
     setNoteSaved(true);
     setTimeout(() => setNoteSaved(false), 2000);
+  }
+
+  async function toggleWaivedIntegration(provider: string) {
+    setWaivedSaving(true);
+    const current: string[] = (client as any)?.integrations_waived ?? [];
+    const next = current.includes(provider) ? current.filter(p => p !== provider) : [...current, provider];
+    const supabase = createSupabase();
+    await supabase.from('clients').update({ integrations_waived: next }).eq('id', id);
+    setWaivedSaving(false);
+    refetch();
   }
 
   async function handleArchive() {
@@ -989,6 +1000,44 @@ export default function PageClientDetail({ id }: Props) {
                     {pct >= 0 ? '+' : ''}{pct}% vs sem. préc.
                   </div>
                 </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Intégrations requises — permet d'exempter manuellement un provider que cet
+          élève n'utilise pas (ex. pas de chaîne YouTube), pour qu'il ne reste pas
+          bloqué indéfiniment sur le statut "Intégrations en cours". */}
+      {client.profile_id && (
+        <div className="card" style={{ marginTop: 24, padding: 20 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>Intégrations requises</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
+            Décoche un outil que cet élève n'a pas besoin de connecter — il ne comptera plus comme manquant.
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
+            {[
+              { provider: 'instagram', label: 'Instagram' },
+              { provider: 'calendly', label: 'Calendly' },
+              { provider: 'youtube', label: 'YouTube' },
+              { provider: 'stripe', label: 'Stripe' },
+            ].map(({ provider, label }) => {
+              const waived = ((client as any).integrations_waived ?? []).includes(provider);
+              return (
+                <label key={provider} style={{
+                  display: 'flex', alignItems: 'center', gap: 8, cursor: waivedSaving ? 'default' : 'pointer',
+                  padding: '8px 12px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)',
+                  fontSize: 13, color: 'var(--accent)', opacity: waivedSaving ? 0.6 : 1,
+                }}>
+                  <input
+                    type="checkbox"
+                    checked={!waived}
+                    disabled={waivedSaving}
+                    onChange={() => toggleWaivedIntegration(provider)}
+                    style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--accent-brand)' }}
+                  />
+                  {label}
+                </label>
               );
             })}
           </div>

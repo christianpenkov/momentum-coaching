@@ -26,6 +26,10 @@ export interface Client {
   calendly_monthly: number;
   private_notes: string | null;
   created_at: string;
+  email: string | null;
+  archived_at: string | null;
+  onboarding_completed_at: string | null;
+  integrations_waived: string[];
 }
 
 export interface WeeklyMetrics {

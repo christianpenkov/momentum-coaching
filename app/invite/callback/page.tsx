@@ -111,6 +111,14 @@ export default function InviteCallbackPage() {
       return;
     }
 
+    // Marque l'onboarding "compte créé" — seul signal fiable côté coach qu'un élève
+    // invité a réellement fini le flow (profile_id se pose dès l'ouverture du lien,
+    // bien avant que le mot de passe soit choisi, donc ne suffit pas seul).
+    const { data: { user } } = await supabase.auth.getUser();
+    if (user) {
+      await supabase.from('clients').update({ onboarding_completed_at: new Date().toISOString() }).eq('profile_id', user.id);
+    }
+
     router.push('/client');
   }
 

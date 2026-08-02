@@ -171,6 +171,7 @@ export default function PageClients() {
               <thead>
                 <tr>
                   <th>Élève</th>
+                  <th>Onboarding</th>
                   <th>Signaux</th>
                   <th>Semaine</th>
                   <th>IG</th>
@@ -195,6 +196,9 @@ export default function PageClients() {
                             <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.niche || 'Infopreneur'}</div>
                           </div>
                         </Link>
+                      </td>
+                      <td>
+                        <OnboardingBadge status={c.onboardingStatus} />
                       </td>
                       <td>
                         {(() => {
@@ -249,5 +253,24 @@ export default function PageClients() {
         </div>
       )}
     </div>
+  );
+}
+
+const ONBOARDING_LABELS: Record<string, { label: string; color: string; bg: string }> = {
+  invited:         { label: 'Invité',              color: 'var(--muted)', bg: 'var(--surface-2)' },
+  account_created: { label: 'Compte créé',         color: 'var(--amber)', bg: 'var(--amber-soft)' },
+  integrating:      { label: 'Intégrations en cours', color: 'var(--amber)', bg: 'var(--amber-soft)' },
+  active:          { label: 'Actif',               color: 'var(--green)', bg: '#22c55e20' },
+};
+
+function OnboardingBadge({ status }: { status?: string }) {
+  const cfg = ONBOARDING_LABELS[status || 'active'] ?? ONBOARDING_LABELS.active;
+  return (
+    <span style={{
+      fontSize: 11, fontWeight: 600, padding: '3px 8px', borderRadius: 6,
+      color: cfg.color, background: cfg.bg, whiteSpace: 'nowrap',
+    }}>
+      {cfg.label}
+    </span>
   );
 }
