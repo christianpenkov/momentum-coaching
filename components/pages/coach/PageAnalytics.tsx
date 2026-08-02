@@ -14,11 +14,13 @@ const Heatmap = dynamic(() => import('@/components/charts/Heatmap'), { ssr: fals
 
 type Platform = 'ig' | 'yt';
 
-const CLIENT_COLORS = [
-  '#7c6dde', '#3f8a52', '#cd5b3f', '#b58025', '#2a7fad',
-  '#a63d8f', '#4d8070', '#c24e4e', '#6b7cde', '#7a9e3f',
-  '#d4814a', '#3d7da6',
-];
+// Couleur stable par personne (hash de son id) — même palette que components/ui/Avatar.tsx.
+const CLIENT_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
+function clientColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
+  return CLIENT_COLORS[Math.abs(h) % CLIENT_COLORS.length];
+}
 
 function initials(name: string) {
   return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
@@ -63,7 +65,7 @@ export default function PageAnalytics() {
     metrics.forEach((m, i) => {
       row[`S${i + 1}`] = platform === 'ig' ? (m.followers_ig || 0) : (m.followers_yt || 0);
     });
-    return { client: c, metrics, color: CLIENT_COLORS[idx % CLIENT_COLORS.length] };
+    return { client: c, metrics, color: clientColor(c.id) };
   });
 
   // Construire les data points pour LineChart : une entrée par semaine
@@ -116,7 +118,7 @@ export default function PageAnalytics() {
       ? Math.round(metrics.reduce((s, x) => s + (x.dms_sent || 0), 0) / metrics.length)
       : 0;
     const totalCallsClient = metrics.slice(-4).reduce((s, x) => s + (x.calendly_calls || 0), 0);
-    return { c, m, igGrowthPct, avgPosts, avgDms, totalCallsClient, color: CLIENT_COLORS[idx % CLIENT_COLORS.length] };
+    return { c, m, igGrowthPct, avgPosts, avgDms, totalCallsClient, color: clientColor(c.id) };
   });
 
   return (

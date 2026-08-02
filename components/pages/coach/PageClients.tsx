@@ -190,7 +190,7 @@ export default function PageClients() {
                     <tr key={c.id}>
                       <td>
                         <Link href={`/clients/${c.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-                          <Avatar initials={c.initials || c.name.slice(0, 2).toUpperCase()} avatarUrl={c.avatar_url} size={32} />
+                          <Avatar initials={c.initials || c.name.slice(0, 2).toUpperCase()} avatarUrl={c.avatar_url} size={32} seed={c.id} />
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{c.name}</div>
                             <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.niche || 'Infopreneur'}</div>

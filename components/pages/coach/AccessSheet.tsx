@@ -126,10 +126,14 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
     return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
   }
 
-  const AVATAR_COLORS = [
-    '#2563eb', '#7c3aed', '#db2777', '#d97706', '#059669', '#0891b2',
-  ];
-  function avatarColor(idx: number): string { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
+  // Couleur stable par personne (hash de son id) — pas par position dans la liste,
+  // qui changeait de couleur à chaque tri/filtre. Même palette que components/ui/Avatar.tsx.
+  const AVATAR_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
+  function avatarColor(seed: string): string {
+    let h = 0;
+    for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
+    return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+  }
 
   const hasDraftChanges = validClients.some(c => {
     const id = c.profile_id!;
@@ -242,9 +246,9 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                     </button>
                   </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 20 }}>
-                    {validClients.map((client, idx) => {
+                    {validClients.map((client) => {
                       const hasAccess = draft[client.profile_id!] ?? false;
-                      const color = avatarColor(idx);
+                      const color = avatarColor(client.id);
                       const initials = client.initials || getInitials(client.name);
 
                       return (

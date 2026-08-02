@@ -15,11 +15,13 @@ interface Props {
   onOpen: (r: Resource) => void;
 }
 
-const AVATAR_COLORS = [
-  '#2563eb', '#7c3aed', '#db2777', '#d97706', '#059669', '#0891b2',
-];
-
-function avatarColor(idx: number) { return AVATAR_COLORS[idx % AVATAR_COLORS.length]; }
+// Couleur stable par personne (hash de son id) — même palette que components/ui/Avatar.tsx.
+const AVATAR_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
+function avatarColor(seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
+  return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
+}
 
 export default function ResourceCardCoach({ resource, accessClients, onEdit, onDelete, onManageAccess, onOpen }: Props) {
   const MAX_AVATARS = 4;
@@ -151,7 +153,7 @@ export default function ResourceCardCoach({ resource, accessClients, onEdit, onD
                     title={c.name}
                     style={{
                       width: 24, height: 24, borderRadius: '50%',
-                      background: c.avatar_url ? undefined : avatarColor(i),
+                      background: c.avatar_url ? undefined : avatarColor(c.id),
                       border: '2px solid var(--surface)',
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       fontSize: 9, fontWeight: 700, color: '#fff',
