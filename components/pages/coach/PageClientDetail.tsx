@@ -173,6 +173,8 @@ export default function PageClientDetail({ id }: Props) {
   const resolvedTasks = allTasks.filter(t => t.resolved_by_coach);
   const [resolvedExpanded, setResolvedExpanded] = useState(false);
   const [archiving, setArchiving] = useState(false);
+  const [showArchiveModal, setShowArchiveModal] = useState(false);
+  const [archiveConfirmed, setArchiveConfirmed] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -393,6 +395,11 @@ export default function PageClientDetail({ id }: Props) {
     if (ok) router.push('/clients');
   }
 
+  async function confirmArchive() {
+    setShowArchiveModal(false);
+    await handleArchive();
+  }
+
   async function handleDelete() {
     setDeleting(true);
     setDeleteError('');
@@ -432,6 +439,51 @@ export default function PageClientDetail({ id }: Props) {
           </Link>
         </div>
       </div>
+
+      {showArchiveModal && (
+        <ModalShell onClose={() => !archiving && setShowArchiveModal(false)} width={440}>
+          <div style={{ padding: '28px 28px 24px' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>
+              Archiver {client.name} ?
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>
+              Cet élève ne sera plus visible dans ta liste d'élèves à suivre. Rien n'est supprimé :
+              son historique (appels, tâches, rapports, ressources, statistiques) reste intact, et il
+              garde un accès normal à son propre espace. Tu pourras le désarchiver à tout moment
+              depuis « Voir les archivés ».
+            </p>
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
+              padding: '12px 14px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)',
+              marginBottom: 18,
+            }}>
+              <input
+                type="checkbox"
+                checked={archiveConfirmed}
+                onChange={e => setArchiveConfirmed(e.target.checked)}
+                style={{ marginTop: 1, width: 15, height: 15, cursor: 'pointer', flexShrink: 0, accentColor: 'var(--accent)' }}
+              />
+              <span style={{ fontSize: 13, color: 'var(--accent)', lineHeight: 1.4 }}>
+                Je comprends que cet élève sortira de ma liste active tant que je ne le désarchive pas.
+              </span>
+            </label>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" onClick={() => setShowArchiveModal(false)} disabled={archiving} className="btn-ghost" style={{ fontSize: 13 }}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={confirmArchive}
+                disabled={!archiveConfirmed || archiving}
+                className="btn-primary-brand"
+                style={{ fontSize: 13, opacity: archiveConfirmed ? 1 : 0.5, cursor: archiveConfirmed ? 'pointer' : 'not-allowed' }}
+              >
+                {archiving ? 'Archivage…' : 'Archiver'}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
 
       {showDeleteModal && (
         <ModalShell onClose={() => !deleting && setShowDeleteModal(false)} width={460}>
@@ -949,13 +1001,12 @@ export default function PageClientDetail({ id }: Props) {
       <div style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 24 }}>
         <button
           type="button"
-          onClick={handleArchive}
+          onClick={() => { setArchiveConfirmed(false); setShowArchiveModal(true); }}
           disabled={archiving}
           className="btn-client-archive"
           style={{
             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             fontSize: 13, fontWeight: 600, padding: '12px', borderRadius: 10,
-            background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--accent)',
             cursor: archiving ? 'default' : 'pointer', opacity: archiving ? 0.6 : 1,
             transition: 'background 150ms, border-color 150ms',
           }}
@@ -969,7 +1020,6 @@ export default function PageClientDetail({ id }: Props) {
           style={{
             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             fontSize: 13, fontWeight: 600, padding: '12px', borderRadius: 10,
-            background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,0.3)', color: 'var(--red)',
             cursor: 'pointer',
             transition: 'background 150ms, border-color 150ms',
           }}
