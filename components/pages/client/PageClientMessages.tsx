@@ -1481,10 +1481,18 @@ export default function PageClientMessages() {
     };
     setMessages(prev => [...prev, optimistic]);
     setReplyingTo(null);
-    const { data } = await supabase.from('messages').insert({
+    const { data, error } = await supabase.from('messages').insert({
       client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', reply_to_id: replyId,
     }).select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url').single();
     if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
+    else if (error) {
+      // Sans ce rollback, un échec (RLS, réseau, contrainte DB) laissait le message
+      // optimiste affiché indéfiniment sans jamais se résoudre ni prévenir l'élève —
+      // mêmes garanties que editMessage/deleteMessage juste en dessous.
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
+      setInput(text);
+      setActionError('Message non envoyé — réessaie.');
+    }
   }
 
   async function copyMessageText(text: string) {
