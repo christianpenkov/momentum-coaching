@@ -32,13 +32,14 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
   const [confirmChecked, setConfirmChecked] = useState(false);
   const notesRef = useRef<HTMLTextAreaElement>(null);
 
-  // Mobile uniquement : la modale reste centrée à l'écran (pas de variant "sheet"),
-  // donc rien ne la repositionne quand le clavier s'ouvre — le textarea peut se
-  // retrouver caché dessous. On le scrolle manuellement dans la zone encore visible
-  // au focus, et on redescend la vue normalement au blur.
+  // Mobile uniquement : la modale reste centrée à l'écran (pas de variant "sheet").
+  // ModalShell recale déjà la boîte sur visualViewport dès les premières frames de
+  // l'animation du clavier — un court délai (au lieu des 300ms d'avant, qui créaient
+  // un effet à deux temps bien visible) laisse juste ce recalage démarrer avant de
+  // scroller le contenu interne, sans revenir au décalage perceptible d'avant.
   function handleNotesFocus() {
     if (window.innerWidth > 767) return;
-    setTimeout(() => notesRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 300);
+    setTimeout(() => notesRef.current?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 80);
   }
 
   // En plein milieu du rapport (étape topic_notes) : demander confirmation avant de fermer,
