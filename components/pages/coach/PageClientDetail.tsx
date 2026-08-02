@@ -11,6 +11,7 @@ import Sparkbars from '@/components/ui/Sparkbars';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import ModalShell from '@/components/ui/ModalShell';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
@@ -165,12 +166,17 @@ const PRIORITY_CONFIG = {
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
-  const { getClient, toggleTask: ctxToggle, calls, refetch, loading: clientsLoading } = useSupabaseClients();
+  const { getClient, toggleTask: ctxToggle, calls, refetch, archiveClient, loading: clientsLoading } = useSupabaseClients();
   const client = getClient(id);
   const allTasks = client?.tasks || [];
   const tasks = allTasks.filter(t => !t.resolved_by_coach);
   const resolvedTasks = allTasks.filter(t => t.resolved_by_coach);
   const [resolvedExpanded, setResolvedExpanded] = useState(false);
+  const [archiving, setArchiving] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleteConfirmed, setDeleteConfirmed] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
   const [note, setNote] = useState(client?.private_notes || '');
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
@@ -380,6 +386,26 @@ export default function PageClientDetail({ id }: Props) {
     setTimeout(() => setNoteSaved(false), 2000);
   }
 
+  async function handleArchive() {
+    setArchiving(true);
+    const ok = await archiveClient(id);
+    setArchiving(false);
+    if (ok) router.push('/clients');
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    setDeleteError('');
+    const res = await fetch(`/api/coach/clients/${id}`, { method: 'DELETE' });
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: 'Erreur inconnue' }));
+      setDeleteError(error);
+      setDeleting(false);
+      return;
+    }
+    router.push('/clients');
+  }
+
   return (
     <div className="page-content">
       {taskActionError && (
@@ -404,8 +430,72 @@ export default function PageClientDetail({ id }: Props) {
           <Link href={`/clients/${id}/analytics`} className="btn-primary-brand">
             <Icon name="bar-chart" size={14} /> Analytics
           </Link>
+          <button type="button" onClick={handleArchive} disabled={archiving} className="btn-ghost" style={{ fontSize: 13 }}>
+            <Icon name="archive" size={14} /> {archiving ? 'Archivage…' : 'Archiver'}
+          </button>
+          <button
+            type="button"
+            onClick={() => { setDeleteError(''); setDeleteConfirmed(false); setShowDeleteModal(true); }}
+            className="btn-ghost"
+            style={{ fontSize: 13, color: 'var(--red)' }}
+          >
+            <Icon name="trash" size={14} /> Supprimer
+          </button>
         </div>
       </div>
+
+      {showDeleteModal && (
+        <ModalShell onClose={() => !deleting && setShowDeleteModal(false)} width={460}>
+          <div style={{ padding: '28px 28px 24px' }}>
+            <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)', marginBottom: 10 }}>
+              Supprimer {client.name} ?
+            </div>
+            <p style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.6, marginBottom: 16 }}>
+              Cette action est <strong>irréversible</strong>. Seront supprimés définitivement :
+              tous les appels, messages, tâches, rapports de session, fichiers déposés, statistiques
+              hebdomadaires, accès aux ressources — et le compte de connexion de l'élève s'il en a un.
+              Rien de tout cela ne pourra être récupéré.
+            </p>
+            <label style={{
+              display: 'flex', alignItems: 'flex-start', gap: 10, cursor: 'pointer',
+              padding: '12px 14px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)',
+              marginBottom: 18,
+            }}>
+              <input
+                type="checkbox"
+                checked={deleteConfirmed}
+                onChange={e => setDeleteConfirmed(e.target.checked)}
+                style={{ marginTop: 1, width: 15, height: 15, cursor: 'pointer', flexShrink: 0, accentColor: 'var(--red)' }}
+              />
+              <span style={{ fontSize: 13, color: 'var(--accent)', lineHeight: 1.4 }}>
+                Je comprends que cette suppression est définitive et que tout l'historique de cet élève sera perdu.
+              </span>
+            </label>
+            {deleteError && (
+              <div style={{ fontSize: 12, color: 'var(--red)', padding: '7px 10px', background: 'var(--red-soft)', borderRadius: 6, marginBottom: 14 }}>
+                {deleteError}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button type="button" onClick={() => setShowDeleteModal(false)} disabled={deleting} className="btn-ghost" style={{ fontSize: 13 }}>
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={!deleteConfirmed || deleting}
+                style={{
+                  fontSize: 13, fontWeight: 700, padding: '8px 16px', borderRadius: 8, border: 'none',
+                  background: 'var(--red)', color: '#fff', cursor: deleteConfirmed ? 'pointer' : 'not-allowed',
+                  opacity: deleteConfirmed ? 1 : 0.5,
+                }}
+              >
+                {deleting ? 'Suppression…' : 'Supprimer définitivement'}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
+      )}
 
       {/* KPIs rapides 30j */}
       <div className="grid-4" style={{ marginBottom: 24 }}>

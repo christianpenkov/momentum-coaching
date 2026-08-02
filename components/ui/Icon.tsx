@@ -314,6 +314,13 @@ const icons = {
       <path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6M10 11v6M14 11v6M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2" />
     </>
   ),
+  archive: (
+    <>
+      <polyline points="21,8 21,21 3,21 3,8" />
+      <rect x="1" y="3" width="22" height="5" />
+      <line x1="10" y1="12" x2="14" y2="12" />
+    </>
+  ),
   reply: (
     <>
       <polyline points="9,14 4,9 9,4" />

@@ -24,6 +24,8 @@ interface SupabaseClientsContextValue {
   getClient: (id: string) => ClientWithMetrics | undefined;
   addTask: (clientId: string, task: Omit<Task, 'id' | 'created_at'>) => Promise<boolean>;
   toggleTask: (clientId: string, taskId: string, done: boolean) => Promise<boolean>;
+  archiveClient: (clientId: string) => Promise<boolean>;
+  unarchiveClient: (clientId: string) => Promise<boolean>;
   refetch: () => void;
 }
 
@@ -64,7 +66,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       setUserId(user.id);
 
       const { data: rawClients, error: cErr } = await supabase
-        .from('clients').select('*').eq('coach_id', user.id).order('created_at', { ascending: true });
+        .from('clients').select('*').eq('coach_id', user.id).is('archived_at', null).order('created_at', { ascending: true });
       if (cErr) throw cErr;
 
       const ids = (rawClients || []).map((c: any) => c.id);
@@ -254,8 +256,25 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
     return true;
   }, []);
 
+  // Archiver retire le client de la liste courante (filtrée archived_at is null au
+  // chargement) sans rien supprimer — tout l'historique (calls, tasks, ressources,
+  // etc.) reste intact en base, et l'élève garde un accès normal à son espace.
+  const archiveClient = useCallback(async (clientId: string) => {
+    const { error } = await supabase.from('clients').update({ archived_at: new Date().toISOString() }).eq('id', clientId);
+    if (error) return false;
+    setClients(prev => prev.filter(c => c.id !== clientId));
+    return true;
+  }, []);
+
+  const unarchiveClient = useCallback(async (clientId: string) => {
+    const { error } = await supabase.from('clients').update({ archived_at: null }).eq('id', clientId);
+    if (error) return false;
+    await load();
+    return true;
+  }, [load]);
+
   return (
-    <SupabaseClientsContext.Provider value={{ clients, calls, business, loading, error, getClient, addTask, toggleTask, refetch: load }}>
+    <SupabaseClientsContext.Provider value={{ clients, calls, business, loading, error, getClient, addTask, toggleTask, archiveClient, unarchiveClient, refetch: load }}>
       {children}
     </SupabaseClientsContext.Provider>
   );

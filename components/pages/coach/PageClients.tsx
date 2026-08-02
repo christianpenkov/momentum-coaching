@@ -10,15 +10,43 @@ import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getClientSignals } from '@/lib/clientSignals';
 import AddClientModal from '@/components/ui/AddClientModal';
+import { createClient as createSupabase } from '@/lib/supabase/client';
+import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 
 type Filter = 'all' | 'overdue' | 'noshow';
 
 export default function PageClients() {
-  const { clients, loading } = useSupabaseClients();
+  const { clients, loading, unarchiveClient } = useSupabaseClients();
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'name' | 'mrr' | 'followers' | 'week'>('mrr');
   const [showModal, setShowModal] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedClients, setArchivedClients] = useState<ClientWithMetrics[]>([]);
+  const [archivedLoading, setArchivedLoading] = useState(false);
+
+  async function loadArchived() {
+    setArchivedLoading(true);
+    const supabase = createSupabase();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) { setArchivedLoading(false); return; }
+    const { data } = await supabase
+      .from('clients').select('*').eq('coach_id', user.id).not('archived_at', 'is', null)
+      .order('archived_at', { ascending: false });
+    setArchivedClients((data || []) as ClientWithMetrics[]);
+    setArchivedLoading(false);
+  }
+
+  function toggleShowArchived() {
+    const next = !showArchived;
+    setShowArchived(next);
+    if (next) loadArchived();
+  }
+
+  async function handleUnarchive(clientId: string) {
+    const ok = await unarchiveClient(clientId);
+    if (ok) setArchivedClients(prev => prev.filter(c => c.id !== clientId));
+  }
 
   const signalsByClient = useMemo(() => {
     const map = new Map<string, ReturnType<typeof getClientSignals>>();
@@ -61,10 +89,37 @@ export default function PageClients() {
           <h1 className="page-title">Clients</h1>
           <p className="page-sub">{clients.length} élève{clients.length !== 1 ? 's' : ''} · {filtered.length} affiché{filtered.length !== 1 ? 's' : ''}</p>
         </div>
-        <button className="btn-primary-brand" type="button" onClick={() => setShowModal(true)}>
-          <Icon name="plus" size={14} /> Nouveau client
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn-ghost" type="button" onClick={toggleShowArchived} style={{ fontSize: 13 }}>
+            <Icon name="archive" size={14} /> {showArchived ? 'Masquer les archivés' : 'Voir les archivés'}
+          </button>
+          <button className="btn-primary-brand" type="button" onClick={() => setShowModal(true)}>
+            <Icon name="plus" size={14} /> Nouveau client
+          </button>
+        </div>
       </div>
+
+      {showArchived && (
+        <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 20 }}>
+          <div style={{ padding: '14px 20px', borderBottom: '1px solid var(--border)', fontSize: 13, fontWeight: 700, color: 'var(--muted)' }}>
+            Élèves archivés
+          </div>
+          {archivedLoading ? (
+            <div style={{ padding: '20px', fontSize: 13, color: 'var(--muted)' }}>Chargement…</div>
+          ) : archivedClients.length === 0 ? (
+            <div style={{ padding: '20px', fontSize: 13, color: 'var(--muted)' }}>Aucun élève archivé.</div>
+          ) : (
+            archivedClients.map(c => (
+              <div key={c.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: '1px solid var(--border)' }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{c.name}</div>
+                <button type="button" onClick={() => handleUnarchive(c.id)} className="btn-ghost" style={{ fontSize: 12 }}>
+                  Désarchiver
+                </button>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       <AddClientModal open={showModal} onClose={() => setShowModal(false)} />
 
