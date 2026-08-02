@@ -2104,10 +2104,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   pct: Math.round(p.watchRatio * 100),
                 }));
                 const xTickFormatter = (v: number) => totalSec > 0 ? fmtSec(v) : `${Math.round(v)}%`;
-                // 6 repères répartis uniformément sur toute la durée (au lieu de
-                // preserveStartEnd qui n'affichait que le tout premier et dernier point).
                 const xAxisMax = totalSec > 0 ? totalSec : 100;
-                const xTicks = Array.from({ length: 6 }, (_, i) => Math.round((xAxisMax * i) / 5));
                 return (
                 <ResponsiveContainer width="100%" height={160}>
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
@@ -2117,7 +2114,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                         <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <XAxis dataKey="x" type="number" domain={[0, xAxisMax]} ticks={xTicks} tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={xTickFormatter} />
+                    <XAxis dataKey="x" type="number" domain={[0, xAxisMax]} tickCount={7} tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={xTickFormatter} />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} tickFormatter={(v: number) => `${v}%`} />
                     <Tooltip content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
