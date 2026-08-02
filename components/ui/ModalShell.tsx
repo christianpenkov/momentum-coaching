@@ -42,6 +42,11 @@ export default function ModalShell({
   // scrollIntoView() interne ne peut compenser puisque l'overlay lui-même déborde de la
   // zone réellement visible. Le variant 'sheet' n'a pas ce problème : ancré en bas
   // (alignItems: 'flex-end'), il reste naturellement au-dessus du clavier.
+  //
+  // Quand le clavier est ouvert, on passe aussi de 'center' à 'flex-start' (+ un padding
+  // haut réduit) : centrer la boîte dans le peu d'espace restant au-dessus du clavier la
+  // pousse encore trop bas, alors que la coller en haut de cet espace remonte le champ
+  // actif nettement plus haut, plus lisible au-dessus du clavier.
   useEffect(() => {
     if (variant !== 'centered' || hidden) return;
     if (typeof window === 'undefined' || window.innerWidth > 767) return;
@@ -49,7 +54,12 @@ export default function ModalShell({
     if (!vv || !overlayRef.current) return;
 
     function update() {
-      if (overlayRef.current) overlayRef.current.style.height = `${vv!.height}px`;
+      if (!overlayRef.current || !vv) return;
+      const baseH = window.screen.height;
+      const kbH = Math.max(0, baseH - vv.height);
+      const isKeyboardOpen = kbH > 100;
+      overlayRef.current.style.height = `${vv.height}px`;
+      overlayRef.current.style.alignItems = isKeyboardOpen ? 'flex-start' : 'center';
     }
     update();
     vv.addEventListener('resize', update);

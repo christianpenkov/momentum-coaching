@@ -586,9 +586,11 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       {/* ── BLOC 2 : Santé contenu — 2 sparklines côte à côte ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {[
-          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: igChartSlice.map(d => ({ date: d.date, v: d.reach, pending: d.pending })) },
-          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: ytChartSlice.map(d => ({ date: d.date, v: d.views, pending: d.pending })) },
-        ].map((item, i) => (
+          { label: 'Reach Instagram', value: fmt(igReach), unit: 'personnes', color: IG_COLOR, data: igChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.reach })) },
+          { label: 'Vues YouTube', value: fmt(ytViews), unit: 'vues', color: YT_COLOR, data: ytChartSlice.map(d => ({ date: d.date, v: d.pending ? null : d.views })) },
+        ].map((item, i) => {
+          const allPending = item.data.every(d => d.v === null);
+          return (
           <div key={i} className="stats-hover-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px 12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
               <div>
@@ -601,38 +603,36 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
               </div>
               <div style={{ width: 8, height: 8, borderRadius: '50%', background: item.color, marginTop: 4 }} />
             </div>
-            <ResponsiveContainer width="100%" height={80}>
-              <ReAreaChart data={item.data} margin={{ top: 2, right: 4, left: 0, bottom: 0 }}>
-                <defs>
-                  <linearGradient id={`grad-v2-${i}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor={item.color} stopOpacity={0.15} />
-                    <stop offset="95%" stopColor={item.color} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : 'preserveStartEnd'} />
-                <Tooltip content={({ active, payload, label }) => {
-                  if (!active || !payload?.length) return null;
-                  const isPending = (payload[0].payload as any)?.pending;
-                  return (
-                    <div className="chart-tooltip">
-                      <div className="chart-tooltip-label">{label}</div>
-                      <div className="chart-tooltip-row">
-                        {isPending
-                          ? <strong style={{ color: 'var(--faint)', fontWeight: 500 }}>Pas encore de données</strong>
-                          : <strong>{fmt(payload[0].value as number)}</strong>}
-                      </div>
-                    </div>
-                  );
-                }} />
-                <Area type="monotone" dataKey="v" stroke={item.color} strokeWidth={1.5} fill={`url(#grad-v2-${i})`} dot={(props: any) => {
-                  const { cx, cy, payload } = props;
-                  if (cx == null || cy == null || !payload?.pending) return <g key={props.key} />;
-                  return <circle key={props.key} cx={cx} cy={cy} r={2.5} fill="var(--surface)" stroke="var(--faint)" strokeWidth={1.3} strokeDasharray="2,1.5" />;
-                }} activeDot={{ r: 3, strokeWidth: 0, fill: item.color }} isAnimationActive={false} />
-              </ReAreaChart>
-            </ResponsiveContainer>
+            <div style={{ position: 'relative', height: 140 }}>
+              {allPending && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1, pointerEvents: 'none' }}>
+                  <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--faint)', background: 'var(--surface)', padding: '4px 10px', borderRadius: 6 }}>
+                    Pas encore de données
+                  </span>
+                </div>
+              )}
+              <ResponsiveContainer width="100%" height="100%">
+                <ReAreaChart data={item.data} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id={`grad-v2-${i}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={item.color} stopOpacity={0.18} />
+                      <stop offset="95%" stopColor={item.color} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : 'preserveStartEnd'} />
+                  <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} allowDecimals={false} width={30} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.15 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); return [Math.max(0, dataMin - margin), dataMax + margin]; }} />
+                  <Tooltip content={({ active, payload, label }) => {
+                    if (!active || !payload?.length) return null;
+                    return <div className="chart-tooltip"><div className="chart-tooltip-label">{label}</div><div className="chart-tooltip-row"><strong>{fmt(payload[0].value as number)}</strong></div></div>;
+                  }} />
+                  <Area type="monotone" dataKey="v" stroke={item.color} strokeWidth={2} fill={`url(#grad-v2-${i})`} dot={todayDotFactory(item.color, 'date', lastRealPointKey(item.data, 'date', 'v'))} activeDot={{ r: 4, strokeWidth: 0, fill: item.color }} isAnimationActive={false} />
+                </ReAreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* ── BLOC 3 : Top contenus ── */}
@@ -1756,18 +1756,15 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         {(() => {
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
-          // bug que sur les autres graphiques YT de cette page.
-          // pending (pas null) sur les jours sans donnée : garde le point visible (creux/
-          // gris via todayDotFactory) au lieu de couper totalement le rendu — sinon, en
-          // début de mois/semaine où aucune donnée n'est encore arrivée (délai J-3 API
-          // YouTube), le graphique reste totalement vide plutôt que d'afficher "pas
-          // encore de données" sur chaque jour manquant.
+          // bug que sur les autres graphiques YT de cette page. netSubs:null (pas 0) sur
+          // les jours sans ligne — même traitement qu'un jour futur, aucun point affiché.
           const netSubsForChart = ytDays.map(d => ({
             date: d.date,
-            netSubs: ytDaysNoDataSet.has(d.date) ? 0 : (d.netSubs ?? 0),
-            pending: ytDaysNoDataSet.has(d.date),
+            netSubs: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0),
           }));
-          const hasMovement = netSubsForChart.some(d => !ytDaysNoDataSet.has(d.date) && d.netSubs !== 0);
+          const allPending = netSubsForChart.every(d => d.netSubs === null);
+          if (allPending) return <Empty msg="Pas encore de données" />;
+          const hasMovement = netSubsForChart.some(d => d.netSubs !== null && d.netSubs !== 0);
           if (!hasMovement) return <Empty msg="Pas de mouvement d'abonnés sur cette période" />;
           return (
             <ResponsiveContainer width="100%" height={160}>
@@ -1781,8 +1778,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip pendingKey="pending" />} />
-                <Area type="monotone" dataKey="netSubs" name="Subs nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart.filter(d => !d.pending), 'date', 'netSubs'), 'pending')} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+                <Tooltip content={<ChartTooltip />} />
+                <Area type="monotone" dataKey="netSubs" name="Subs nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           );

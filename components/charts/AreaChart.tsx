@@ -24,8 +24,10 @@ interface AreaChartProps {
   showWeekday?: boolean;
   // Nom du champ booléen (dans chaque objet de `data`) marquant un jour passé/aujourd'hui
   // dont la ligne existe en base mais dont cette métrique précise n'a pas encore été
-  // collectée (distinct d'un vrai 0 ou d'un jour futur) — rend un point creux/grisé avec
-  // tooltip "Pas encore de données" au lieu du chiffre.
+  // collectée (distinct d'un vrai 0 ou d'un jour futur). Un jour pending n'affiche aucun
+  // point ni segment (même traitement qu'un jour futur) — sert seulement à détecter le
+  // cas "toute la période est pending" (aucune vraie donnée nulle part), où un message
+  // "Pas encore de données" est superposé au graphique (axes vides visibles en fond).
   pendingKey?: string;
 }
 
@@ -54,17 +56,11 @@ export function lastRealPointKey(data: Record<string, unknown>[], xKey: string, 
 // Point le plus récent avec une vraie donnée, mis en évidence par une pulsation — pour
 // le repérer immédiatement quand il n'y a par exemple qu'un seul point réel visible
 // (début de semaine/mois calendaire, ex: lundi ou le 1er du mois).
-export function todayDotFactory(color: string, xKey: string, lastKey?: string | null, pendingKey?: string) {
+export function todayDotFactory(color: string, xKey: string, lastKey?: string | null) {
   const targetStr = lastKey ?? parisDateStr(new Date());
   return (props: any) => {
     const { cx, cy, payload } = props;
     if (cx == null || cy == null) return <g key={props.key} />;
-    // Jour passé/aujourd'hui dont la ligne existe en base mais dont cette métrique
-    // précise n'a pas encore été collectée (ex: reach/views écrits seulement le
-    // lendemain par le cron) — point creux/grisé, distinct d'une vraie valeur 0.
-    if (pendingKey && payload?.[pendingKey]) {
-      return <circle key={props.key} cx={cx} cy={cy} r={3} fill="var(--surface)" stroke="var(--faint)" strokeWidth={1.5} strokeDasharray="2,1.5" />;
-    }
     const isToday = payload?.[xKey] === targetStr;
     if (!isToday) {
       return <circle key={props.key} cx={cx} cy={cy} r={3} fill={color} stroke="none" />;
@@ -78,23 +74,18 @@ export function todayDotFactory(color: string, xKey: string, lastKey?: string | 
   };
 }
 
-const CustomTooltip = ({ active, payload, label, formatter, pendingKey }: { active?: boolean; payload?: { name: string; value: number; color: string; payload?: Record<string, unknown> }[]; label?: string; formatter?: (v: number) => string; pendingKey?: string }) => {
+const CustomTooltip = ({ active, payload, label, formatter }: { active?: boolean; payload?: { name: string; value: number; color: string }[]; label?: string; formatter?: (v: number) => string }) => {
   if (!active || !payload?.length) return null;
   return (
     <div className="chart-tooltip">
       <div className="chart-tooltip-label">{label}</div>
-      {payload.map((p, i) => {
-        const isPending = pendingKey && p.payload?.[pendingKey];
-        return (
-          <div key={i} className="chart-tooltip-row">
-            <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block', marginRight: 6 }} />
-            <span>{p.name}: </span>
-            {isPending
-              ? <strong style={{ color: 'var(--faint)', fontWeight: 500 }}>Pas encore de données</strong>
-              : <strong>{formatter ? formatter(p.value) : p.value.toLocaleString('fr-FR')}</strong>}
-          </div>
-        );
-      })}
+      {payload.map((p, i) => (
+        <div key={i} className="chart-tooltip-row">
+          <span style={{ width: 8, height: 8, borderRadius: 2, background: p.color, display: 'inline-block', marginRight: 6 }} />
+          <span>{p.name}: </span>
+          <strong>{formatter ? formatter(p.value) : p.value.toLocaleString('fr-FR')}</strong>
+        </div>
+      ))}
     </div>
   );
 };
@@ -103,17 +94,24 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
   // Coupe la ligne aux jours futurs (date > aujourd'hui) — sans ça, une source de
   // données qui pose 0 plutôt que null pour les jours sans ligne (ex: igDays) trace la
   // courbe à plat jusqu'à la fin du mois/semaine calendaire au lieu de s'arrêter à
-  // aujourd'hui, comme déjà géré ailleurs via isFutureDay/v:null.
+  // aujourd'hui, comme déjà géré ailleurs via isFutureDay/v:null. Un jour pending (ligne
+  // existe mais métrique pas encore collectée) reçoit le même traitement — aucun point
+  // ni segment, pas de distinction visuelle par jour.
   const todayStr = parisDateStr(new Date());
   const safeData = data.map(d => {
     const dateVal = d[xKey];
-    if (typeof dateVal === 'string' && dateVal > todayStr) {
+    const isFuture = typeof dateVal === 'string' && dateVal > todayStr;
+    const isPending = pendingKey ? !!d[pendingKey] : false;
+    if (isFuture || isPending) {
       const cut = { ...d };
       for (const a of areas) cut[a.key] = null;
       return cut;
     }
     return d;
   });
+  // Toute la période est pending (aucune vraie donnée nulle part) — axes vides en fond,
+  // message superposé plutôt qu'un graphique qui semble juste vide/cassé sans explication.
+  const allPending = pendingKey ? data.every(d => !!d[pendingKey]) : false;
   // Intervalle de labels calculé explicitement (pas 'preserveStartEnd', qui laisse
   // Recharts choisir lui-même selon la largeur de texte disponible — produit un
   // espacement visuellement irrégulier entre les labels affichés). Vise ~9 labels
@@ -121,7 +119,17 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
   // (showWeekday), tous les jours sont déjà affichés (interval 0).
   const tickInterval = showWeekday ? 0 : Math.max(1, Math.ceil(safeData.length / 9) - 1);
   return (
-    <div className="chart-wrapper" style={{ height }}>
+    <div className="chart-wrapper" style={{ height, position: 'relative' }}>
+      {allPending && (
+        <div style={{
+          position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1, pointerEvents: 'none',
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 500, color: 'var(--faint)', background: 'var(--surface)', padding: '4px 10px', borderRadius: 6 }}>
+            Pas encore de données
+          </span>
+        </div>
+      )}
       <ResponsiveContainer width="100%" height="100%">
         <ReAreaChart data={safeData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
           <defs>
@@ -164,7 +172,7 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
               sur les valeurs déjà utilisées ailleurs dans le fichier pour des compteurs
               similaires (width=28/30). */}
           <YAxis tick={{ fontSize: 11, fill: 'var(--muted)', fontFamily: 'var(--font-inter)' }} axisLine={false} tickLine={false} width={28} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = range > 0 ? range * 0.12 : Math.max(1, Math.abs(dataMax) * 0.1 || 1); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
-          <Tooltip content={<CustomTooltip formatter={formatter} pendingKey={pendingKey} />} />
+          <Tooltip content={<CustomTooltip formatter={formatter} />} />
           {areas.length > 1 && <Legend wrapperStyle={{ fontSize: 11, color: 'var(--muted)' }} />}
           {areas.map((a, i) => {
             const color = a.color || COLORS[i % COLORS.length];
@@ -184,7 +192,7 @@ export default function AreaChart({ data, areas, xKey, height = 220, formatter, 
                 // Le dernier point réel pulse pour être repéré immédiatement (pas
                 // forcément "aujourd'hui" — certaines sources ont un délai de quelques
                 // jours avant que la donnée la plus récente soit disponible).
-                dot={todayDotFactory(color, xKey, lastKey, pendingKey)}
+                dot={todayDotFactory(color, xKey, lastKey)}
                 activeDot={{ r: 4, strokeWidth: 0 }}
                 animationDuration={400}
               />
