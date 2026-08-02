@@ -946,21 +946,29 @@ export default function PageClientDetail({ id }: Props) {
       {/* Actions client — en bas de fiche, volontairement éloignées du contenu
           courant pour éviter les clics accidentels sur des actions à conséquence
           lourde (archivage, suppression définitive). */}
-      <div className="card" style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 24, padding: 16 }}>
+      <div style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 24 }}>
         <button
           type="button"
           onClick={handleArchive}
           disabled={archiving}
-          className="btn-ghost"
-          style={{ flex: 1, justifyContent: 'center', fontSize: 13, padding: '12px' }}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            fontSize: 13, fontWeight: 600, padding: '12px', borderRadius: 10,
+            background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--accent)',
+            cursor: archiving ? 'default' : 'pointer', opacity: archiving ? 0.6 : 1,
+          }}
         >
           <Icon name="archive" size={14} /> {archiving ? 'Archivage…' : 'Archiver cet élève'}
         </button>
         <button
           type="button"
           onClick={() => { setDeleteError(''); setDeleteConfirmed(false); setShowDeleteModal(true); }}
-          className="btn-ghost"
-          style={{ flex: 1, justifyContent: 'center', fontSize: 13, padding: '12px', color: 'var(--red)' }}
+          style={{
+            flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+            fontSize: 13, fontWeight: 600, padding: '12px', borderRadius: 10,
+            background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,0.3)', color: 'var(--red)',
+            cursor: 'pointer',
+          }}
         >
           <Icon name="trash" size={14} /> Supprimer cet élève
         </button>
