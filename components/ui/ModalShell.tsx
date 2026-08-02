@@ -70,6 +70,17 @@ export default function ModalShell({
       if (boxRef.current) {
         boxRef.current.style.maxHeight = isKeyboardOpen ? `${vv.height - 32}px` : '';
       }
+      // Scroller le champ focus dans la zone désormais réduite — seulement APRÈS avoir
+      // posé la nouvelle maxHeight ci-dessus, sinon le contenu n'a encore rien à
+      // scroller (le conteneur a toujours son ancienne taille non contrainte) et
+      // scrollIntoView() n'a aucun effet visible.
+      if (isKeyboardOpen && boxRef.current) {
+        const active = document.activeElement;
+        if (active instanceof HTMLElement && boxRef.current.contains(active) &&
+            (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
+          active.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        }
+      }
     }
     update();
     vv.addEventListener('resize', update);
