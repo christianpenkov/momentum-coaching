@@ -6,7 +6,6 @@ import Icon from '@/components/ui/Icon';
 import Avatar from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
-import PushInit from '@/components/PushInit';
 import { useLongPress } from '@/lib/useLongPress';
 import { clearAppBadge } from '@/lib/pwaBadge';
 import { logAudio } from '@/lib/audioDebug';
@@ -1811,8 +1810,6 @@ export default function PageClientMessages() {
               {coachTyping ? 'En train d\'écrire…' : isCoachOnline ? 'En ligne' : 'Hors ligne'}
             </div>
           </div>
-          {/* Bouton activation notifications — géré par PushInit */}
-          {userId && <PushInit userId={userId} />}
         </div>
 
         {/* ── Zone messages ── */}
