@@ -59,6 +59,18 @@ Toutes testées en production avec de vraies données (reach=1993, views=3036, a
 
 ---
 
+## `profile_views` — déprécié, non disponible
+
+Testé le 2 août 2026 sur `graph.instagram.com/v22.0` (flow Instagram business login direct, sans Page Facebook liée) : `metric=profile_views` retourne systématiquement `{"data": []}`, sans erreur explicite.
+
+Confirmé en isolant la cause : un appel groupé `metric=reach,profile_views` retourne les données de `reach` normalement (30 jours de valeurs réelles) mais **aucune trace de `profile_views`** dans la réponse — ni erreur, ni entrée vide, la métrique est simplement absente du tableau `data`. Meta filtre silencieusement les métriques invalides d'un groupe plutôt que de faire échouer toute la requête (comportement différent de la "perte de groupe" décrite plus haut, qui elle renvoie une erreur explicite).
+
+**Cause confirmée :** `profile_views` a été déprécié dans Instagram Graph API v22.0, remplacé officiellement par `views`, `reach`, `follower_count`, `reposts` — aucun de ces remplaçants ne couvre le même concept ("nombre de visites du profil"). Il n'existe pas d'équivalent 1:1 disponible sur cet endpoint pour ce type de compte.
+
+**Conséquence :** le champ `profileViews30d` (`app/api/instagram/stats/route.ts:285`) reste hardcodé à `0` — c'est correct en l'état, pas un bug à corriger tant que Meta ne réintroduit pas une métrique équivalente. Ne pas retenter de brancher `profile_views` sans revérifier d'abord la doc Meta à jour.
+
+---
+
 ## Breakdown `follow_type` — incompatible au niveau média
 
 `breakdown=follow_type` sur l'insight `reach` fonctionne au **niveau compte** (`GET /{ig-user-id}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=days_28`) mais est rejeté au **niveau média** :
