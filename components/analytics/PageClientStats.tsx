@@ -1175,7 +1175,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={30} allowDecimals={false} domain={([dataMin, dataMax]: readonly [number, number]) => { const range = dataMax - dataMin; const margin = Math.max(1, Math.ceil(range * 0.12)); const lo = dataMin - margin; return [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin]; }} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
@@ -1195,7 +1195,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
                   {/* Marge relative (pas domain auto strict) : sur "Abonnés", qui varie de
                       seulement 1-2 sur un petit compte, coller pile min/max fait remplir
                       toute la hauteur du graphique pour une variation de quelques unités —
@@ -1748,15 +1748,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
 
       <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
         <Card title="Vues / jour" sub={`${period} jours · données J-3`}>
-          <ResponsiveContainer width="100%" height={220}>
-            <ComposedChart data={ytDays} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-              <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
-              <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
-              <Tooltip content={<ChartTooltip />} />
-              <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
-            </ComposedChart>
-          </ResponsiveContainer>
+          {(() => {
+            // null (pas 0) sur les jours sans vraie donnée — même traitement que
+            // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
+            // indiscernable d'un vrai jour sans vue.
+            const viewsForChart = ytDays.map(d => ({
+              date: d.date,
+              views: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views,
+            }));
+            const allPending = viewsForChart.every(d => d.views === null);
+            if (allPending) return <Empty msg="Pas encore de données" />;
+            return (
+              <ResponsiveContainer width="100%" height={220}>
+                <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
+                  <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            );
+          })()}
         </Card>
         <Card title="Appareils">
           <ResponsiveContainer width="100%" height={220}>
@@ -2008,7 +2021,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={0} minTickGap={period === 7 ? 8 : 20} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={!isCounter} domain={yDomain} ticks={yTicks} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (isCounter ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
