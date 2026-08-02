@@ -69,6 +69,18 @@ Confirmé en isolant la cause : un appel groupé `metric=reach,profile_views` re
 
 **Conséquence :** le champ `profileViews30d` (`app/api/instagram/stats/route.ts:285`) reste hardcodé à `0` — c'est correct en l'état, pas un bug à corriger tant que Meta ne réintroduit pas une métrique équivalente. Ne pas retenter de brancher `profile_views` sans revérifier d'abord la doc Meta à jour.
 
+**Option écartée, à reconsidérer seulement si Meta change la donne — flow "Page Facebook liée" :**
+
+Un flow OAuth alternatif existe côté Meta : lier le compte Instagram à une Page Facebook (`graph.facebook.com`, scope `pages_show_list`, champ `instagram_business_account` sur la Page) au lieu du flow direct actuel (`instagram.com/oauth/authorize`, `graph.instagram.com`). Certaines sources suggèrent que `profile_views` pourrait encore être exposé sur ce flow — **non vérifié empiriquement**, à tester en premier avant tout autre travail si repris un jour.
+
+Coût estimé si repris (évalué le 2026-08-02, avant tout test empirique du flow alternatif) :
+- **Réécriture de l'auth Instagram** : ~67 fichiers dépendent du flow actuel (`ig_account_id` direct + token `graph.instagram.com`), dont `lib/ig-fetch.ts`, `app/api/oauth/instagram/{route,callback}`, `app/api/webhooks/instagram/route.ts`, les Edge Functions `poll-leads`/`poll-stories`. Le token change de nature (token Page vs token IG direct), la clé de résolution webhook (`entry.id` ↔ `ig_account_id`) doit être réévaluée, le refresh token fonctionne différemment (`fb_exchange_token` vs `ig_exchange_token`).
+- **Reconnexion obligatoire** : tous les comptes déjà connectés en flow direct devraient tout refaire (nouveau scope, nouveau token, réabonnement webhook).
+- **Friction onboarding** : chaque coach/élève devrait en plus lier son compte Instagram à une Page Facebook (créer la Page si besoin) avant de connecter Momentum — étape supplémentaire souvent confuse pour un utilisateur non-technique.
+- **Gain incertain** : même ce flow pourrait avoir la même dépréciation (non testé) — risque de refaire tout ce travail pour rien.
+
+**Verdict au 2026-08-02 :** coût/bénéfice jugé mauvais pour un seul KPI, chantier abandonné. Si repris un jour, commencer impérativement par un test empirique isolé (une route de debug comme `test-profile-views/route.ts` mais avec un token Page Facebook) avant d'engager la réécriture.
+
 ---
 
 ## Breakdown `follow_type` — incompatible au niveau média
