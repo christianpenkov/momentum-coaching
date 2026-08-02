@@ -16,24 +16,33 @@ export default function InviteCallbackPage() {
   // Lie le profile_id + accorde les ressources par défaut — fait une seule fois,
   // avant même que le mot de passe soit choisi, pour que l'accès aux ressources ne
   // dépende pas d'une étape ultérieure qui pourrait échouer.
+  //
+  // Le lien d'invitation Supabase transporte les tokens en fragment d'URL
+  // (#access_token=...), jamais envoyé au serveur — createBrowserClient les détecte
+  // et établit la session de façon ASYNCHRONE au chargement de cette page. Un simple
+  // getUser() immédiat peut donc s'exécuter avant que la session soit posée et
+  // renvoyer à tort vers /login. On attend le premier événement onAuthStateChange
+  // (ou une session déjà présente) avant d'agir.
   useEffect(() => {
-    async function run() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { router.push('/login'); return; }
+    const supabase = createClient();
+    let ran = false;
 
-      const clientId = user.user_metadata?.client_id as string | undefined;
+    async function run(userId: string, metadata: Record<string, any>) {
+      if (ran) return;
+      ran = true;
+
+      const clientId = metadata?.client_id as string | undefined;
       if (!clientId) { setStep('set-password'); return; }
 
       await supabase.from('profiles').upsert({
-        id: user.id,
+        id: userId,
         role: 'client',
-        full_name: user.user_metadata?.full_name || null,
+        full_name: metadata?.full_name || null,
       });
 
       const { data: clientRow } = await supabase
         .from('clients')
-        .update({ profile_id: user.id })
+        .update({ profile_id: userId })
         .eq('id', clientId)
         .is('profile_id', null)
         .select('coach_id')
@@ -49,7 +58,31 @@ export default function InviteCallbackPage() {
 
       setStep('set-password');
     }
-    run().catch(() => setError('Une erreur est survenue.'));
+
+    // Cas 1 : la session est déjà établie au moment où cet effet tourne (fragment
+    // déjà traité par le SDK avant le montage React).
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) run(session.user.id, session.user.user_metadata ?? {}).catch(() => setError('Une erreur est survenue.'));
+    });
+
+    // Cas 2 (le plus fréquent sur ce lien) : le SDK traite encore le fragment —
+    // on attend l'événement qu'il émet une fois la session posée.
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
+        run(session.user.id, session.user.user_metadata ?? {}).catch(() => setError('Une erreur est survenue.'));
+      }
+    });
+
+    // Filet de sécurité : si après 4s aucune session n'a été détectée, le fragment
+    // était absent/invalide — inutile de laisser l'écran "Configuration…" indéfiniment.
+    const timeout = setTimeout(() => {
+      if (!ran) router.push('/login?error=auth');
+    }, 4000);
+
+    return () => {
+      listener.subscription.unsubscribe();
+      clearTimeout(timeout);
+    };
   }, [router]);
 
   async function handleSetPassword(e: React.FormEvent) {

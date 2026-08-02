@@ -32,8 +32,12 @@ export async function POST(request: Request) {
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 });
 
   const { origin } = new URL(request.url);
+  // Supabase envoie ce lien d'invitation avec le token en fragment d'URL
+  // (#access_token=...), jamais transmis au serveur — donc redirectTo doit pointer
+  // vers une page CLIENT (pas une route serveur comme /auth/callback), seul endroit
+  // où le SDK Supabase peut lire ce fragment et établir la session automatiquement.
   const { error: inviteErr } = await serviceSupabase.auth.admin.inviteUserByEmail(email.trim(), {
-    redirectTo: `${origin}/auth/callback?next=/invite/callback`,
+    redirectTo: `${origin}/invite/callback`,
     data: { client_id: clientRow.id },
   });
 
