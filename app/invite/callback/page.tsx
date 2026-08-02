@@ -52,31 +52,24 @@ export default function InviteCallbackPage() {
       // barre d'adresse / l'historique du navigateur une fois la session établie.
       window.history.replaceState(null, '', window.location.pathname);
 
-      const userId = data.user.id;
       const metadata = data.user.user_metadata ?? {};
       const clientId = metadata?.client_id as string | undefined;
       if (!clientId) { setStep('set-password'); return; }
 
-      await supabase.from('profiles').upsert({
-        id: userId,
-        role: 'client',
-        full_name: metadata?.full_name || null,
-      });
-
-      const { data: clientRow } = await supabase
-        .from('clients')
-        .update({ profile_id: userId })
-        .eq('id', clientId)
-        .is('profile_id', null)
-        .select('coach_id')
-        .single();
-
-      if (clientRow?.coach_id) {
-        await fetch('/api/client/grant-default-resources', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ coach_id: clientRow.coach_id }),
-        });
+      // La policy RLS sur clients (coach_id = auth.uid() OR profile_id = auth.uid())
+      // ne peut jamais autoriser cet UPDATE côté client : profile_id est justement ce
+      // qu'on cherche à poser pour la première fois. Passe par une route serveur
+      // (service-role) qui bypass la RLS.
+      const claimRes = await fetch('/api/client/claim-invite', { method: 'POST' });
+      if (claimRes.ok) {
+        const { coach_id } = await claimRes.json();
+        if (coach_id) {
+          await fetch('/api/client/grant-default-resources', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ coach_id }),
+          });
+        }
       }
 
       setStep('set-password');
