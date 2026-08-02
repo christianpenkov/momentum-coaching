@@ -946,7 +946,7 @@ export default function PageClientDetail({ id }: Props) {
       {/* Actions client — en bas de fiche, volontairement éloignées du contenu
           courant pour éviter les clics accidentels sur des actions à conséquence
           lourde (archivage, suppression définitive). */}
-      <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+      <div className="card" style={{ display: 'flex', gap: 12, marginTop: 32, marginBottom: 24, padding: 16 }}>
         <button
           type="button"
           onClick={handleArchive}
