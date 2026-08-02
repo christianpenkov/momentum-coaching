@@ -430,17 +430,6 @@ export default function PageClientDetail({ id }: Props) {
           <Link href={`/clients/${id}/analytics`} className="btn-primary-brand">
             <Icon name="bar-chart" size={14} /> Analytics
           </Link>
-          <button type="button" onClick={handleArchive} disabled={archiving} className="btn-ghost" style={{ fontSize: 13 }}>
-            <Icon name="archive" size={14} /> {archiving ? 'Archivage…' : 'Archiver'}
-          </button>
-          <button
-            type="button"
-            onClick={() => { setDeleteError(''); setDeleteConfirmed(false); setShowDeleteModal(true); }}
-            className="btn-ghost"
-            style={{ fontSize: 13, color: 'var(--red)' }}
-          >
-            <Icon name="trash" size={14} /> Supprimer
-          </button>
         </div>
       </div>
 
@@ -953,6 +942,29 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         </div>
       )}
+
+      {/* Actions client — en bas de fiche, volontairement éloignées du contenu
+          courant pour éviter les clics accidentels sur des actions à conséquence
+          lourde (archivage, suppression définitive). */}
+      <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+        <button
+          type="button"
+          onClick={handleArchive}
+          disabled={archiving}
+          className="btn-ghost"
+          style={{ flex: 1, justifyContent: 'center', fontSize: 13, padding: '12px' }}
+        >
+          <Icon name="archive" size={14} /> {archiving ? 'Archivage…' : 'Archiver cet élève'}
+        </button>
+        <button
+          type="button"
+          onClick={() => { setDeleteError(''); setDeleteConfirmed(false); setShowDeleteModal(true); }}
+          className="btn-ghost"
+          style={{ flex: 1, justifyContent: 'center', fontSize: 13, padding: '12px', color: 'var(--red)' }}
+        >
+          <Icon name="trash" size={14} /> Supprimer cet élève
+        </button>
+      </div>
     </div>
   );
 }
