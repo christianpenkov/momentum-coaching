@@ -52,16 +52,18 @@ export async function GET(request: Request) {
     : getStartDate(365);
 
   // Courbe de rétention par vidéo (audienceWatchRatio par elapsedVideoTimeRatio)
+  // sort=elapsedVideoTimeRatio demandé explicitement : l'API ne garantit pas un
+  // ordre croissant par défaut. Le .sort() ci-dessous est une deuxième garantie
+  // (défense en profondeur) indépendante de ce paramètre.
   const retentionRes = await fetch(
-    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=audienceWatchRatio&dimensions=elapsedVideoTimeRatio&filters=video==${videoId}`,
+    `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${getToday()}&metrics=audienceWatchRatio&dimensions=elapsedVideoTimeRatio&filters=video==${videoId}&sort=elapsedVideoTimeRatio`,
     { headers: authHeader }
   );
   const retentionData = await retentionRes.json();
 
-  const retentionCurve = (retentionData?.rows || []).map((r: any) => ({
-    ratio: r[0],
-    watchRatio: r[1],
-  }));
+  const retentionCurve = (retentionData?.rows || [])
+    .map((r: any) => ({ ratio: r[0], watchRatio: r[1] }))
+    .sort((a: { ratio: number }, b: { ratio: number }) => a.ratio - b.ratio);
 
   // watch time / rétention doivent être "depuis publication" (lifetime), pas un
   // mélange avec les valeurs 30j du cron poll-leads — demande explicite de Chris.

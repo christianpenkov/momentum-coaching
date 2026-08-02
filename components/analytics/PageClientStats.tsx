@@ -227,6 +227,24 @@ function Tabs({ tabs, active, onChange }: { tabs: string[]; active: number; onCh
 
 function Loading() { return <InlineLoader />; }
 
+function MiniLoadingDots() {
+  return (
+    <span style={{ display: 'inline-flex', gap: 3, alignItems: 'center', height: 18 }}>
+      {[0, 1, 2].map(i => (
+        <span
+          key={i}
+          style={{
+            width: 5, height: 5, borderRadius: '50%',
+            background: 'var(--muted)',
+            animation: `mini-dot-pulse 1s ease-in-out ${i * 0.15}s infinite`,
+          }}
+        />
+      ))}
+      <style>{`@keyframes mini-dot-pulse { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }`}</style>
+    </span>
+  );
+}
+
 function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
   return <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--faint)', fontSize: 13 }}>{msg}</div>;
 }
@@ -2019,26 +2037,30 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             {/* Toutes les stats de cette grille sont "depuis publication" (lifetime),
                 pas les 30 derniers jours — demande explicite de Chris. Vient de
                 retentionSummary (appel live YT Analytics, même fenêtre startDate=
-                publishedAt que la courbe de rétention) une fois chargé ; repli sur
-                les valeurs DB (30j, cron poll-leads) uniquement pendant le chargement
-                pour éviter un flash "—" à l'ouverture du modal. */}
+                publishedAt que la courbe de rétention) une fois chargé. Pendant le
+                chargement on affiche un indicateur visuel plutôt qu'une valeur DB
+                (30j, cron poll-leads) : c'est une métrique différente (lifetime vs
+                30j glissants) et l'afficher comme si c'était la même donnée en cours
+                d'arrivée créait un "saut" trompeur pire que l'attente courte. Likes/
+                Commentaires restent affichés immédiatement : même source des deux
+                côtés (Data API v3), donc pas de saut possible. */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, marginBottom: 20 }}>
               {[
                 ['Vues totales', fmt(selectedVideo.views)],
-                ['Watch time total', (() => {
-                  const min = retentionSummary?.watchTimeMin ?? (loadingRetention ? selectedVideo.watchTime30d : null);
+                ['Watch time total', loadingRetention ? <MiniLoadingDots /> : (() => {
+                  const min = retentionSummary?.watchTimeMin ?? null;
                   if (min === null) return '—';
                   return min >= 60 ? `${Math.round(min / 60)}h` : `${Math.round(min)}min`;
                 })()],
                 ...(!selectedVideo.isShort && !loadingRetention ? (() => {
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
                   if (isOlderThanJob) return [];
-                  if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, string]];
-                  return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, string]];
+                  if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, React.ReactNode]];
+                  return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, React.ReactNode]];
                 })() : []),
                 ['Likes', fmt(retentionSummary?.likes ?? (loadingRetention ? selectedVideo.likes : 0))],
                 ['Commentaires', fmt(retentionSummary?.comments ?? (loadingRetention ? selectedVideo.comments : 0))],
-                ['Partages', fmt(retentionSummary?.shares ?? (loadingRetention ? selectedVideo.shares30d : 0))],
+                ['Partages', loadingRetention ? <MiniLoadingDots /> : fmt(retentionSummary?.shares ?? 0)],
               ].map(([label, value], i) => (
                 <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
@@ -2078,9 +2100,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   return `${m}:${String(sec).padStart(2, '0')}`;
                 };
                 const retData = retention.map(p => ({
-                  x: totalSec > 0 ? fmtSec(p.ratio * totalSec) : `${Math.round(p.ratio * 100)}%`,
+                  x: totalSec > 0 ? p.ratio * totalSec : p.ratio * 100,
                   pct: Math.round(p.watchRatio * 100),
                 }));
+                const xTickFormatter = (v: number) => totalSec > 0 ? fmtSec(v) : `${Math.round(v)}%`;
                 return (
                 <ResponsiveContainer width="100%" height={160}>
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
@@ -2090,13 +2113,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                         <stop offset="95%" stopColor={GREEN} stopOpacity={0} />
                       </linearGradient>
                     </defs>
-                    <XAxis dataKey="x" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
+                    <XAxis dataKey="x" type="number" domain={[0, totalSec > 0 ? totalSec : 100]} tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={xTickFormatter} interval="preserveStartEnd" />
                     <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={36} tickFormatter={(v: number) => `${v}%`} />
                     <Tooltip content={({ active, payload, label }) => {
                       if (!active || !payload?.length) return null;
                       return (
                         <div className="chart-tooltip">
-                          <div className="chart-tooltip-label">{label}</div>
+                          <div className="chart-tooltip-label">{xTickFormatter(label as number)}</div>
                           {payload.map((p: any, i: number) => p.value !== null && (
                             <div key={i} className="chart-tooltip-row">{p.name}: <strong>{p.value}%</strong></div>
                           ))}
