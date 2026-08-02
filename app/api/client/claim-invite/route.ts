@@ -24,10 +24,21 @@ export async function POST(request: Request) {
   const metadataClientId = user.user_metadata?.client_id as string | undefined;
   if (!metadataClientId) return NextResponse.json({ error: 'Aucune invitation associée' }, { status: 400 });
 
+  // Pré-remplit profiles.full_name avec le nom saisi par le coach à l'invitation
+  // (clients.name) — sans ça l'élève arrive sur un profil "sans nom" alors que le
+  // coach en a déjà renseigné un. profiles.full_name devient ensuite la seule source
+  // de vérité : l'élève peut le modifier dans ses réglages, et ce changement se
+  // répercute partout côté coach (plus jamais lu depuis clients.name une fois lié).
+  const { data: inviteClient } = await serviceSupabase
+    .from('clients')
+    .select('name')
+    .eq('id', metadataClientId)
+    .single();
+
   await serviceSupabase.from('profiles').upsert({
     id: user.id,
     role: 'client',
-    full_name: user.user_metadata?.full_name || null,
+    full_name: user.user_metadata?.full_name || inviteClient?.name || null,
   });
 
   const { data: clientRow, error: updateErr } = await serviceSupabase

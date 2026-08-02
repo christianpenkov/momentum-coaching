@@ -89,7 +89,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           .neq('ignored', true)
           .order('scheduled_at', { ascending: false }).limit(100),
         profileIds.length > 0
-          ? supabase.from('profiles').select('id, avatar_url').in('id', profileIds)
+          ? supabase.from('profiles').select('id, avatar_url, full_name').in('id', profileIds)
           : { data: [], error: null },
         // Requête dédiée aux agrégats "Ton business" : bornée par date (mois en cours),
         // pas par limit(100) comme calls ci-dessus (R3-10) — évite de tronquer les KPIs
@@ -148,7 +148,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       });
 
       const avatarMap: Record<string, string | null> = {};
-      (avatarsRes.data || []).forEach((p: any) => { avatarMap[p.id] = p.avatar_url; });
+      const fullNameMap: Record<string, string | null> = {};
+      (avatarsRes.data || []).forEach((p: any) => {
+        avatarMap[p.id] = p.avatar_url;
+        fullNameMap[p.id] = p.full_name;
+      });
 
       // profile_id → ensemble des providers connectés — sert au statut d'onboarding
       // (élève invité / compte créé / intégrations en cours / actif) et, en dessous,
@@ -169,8 +173,15 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           : !c.onboarding_completed_at ? 'account_created'
           : REQUIRED_PROVIDERS.every(p => connectedProviders.has(p) || waived.includes(p)) ? 'active'
           : 'integrating';
+        // profiles.full_name devient la seule source de vérité dès que l'élève a un
+        // compte : clients.name (saisi par le coach à l'invitation) ne sert plus que
+        // de repli tant que l'élève n'a pas encore renseigné/hérité d'un nom — sans
+        // ce override, un changement de nom fait par l'élève dans ses réglages
+        // n'apparaissait jamais côté coach (deux colonnes jamais synchronisées).
+        const liveFullName = c.profile_id ? fullNameMap[c.profile_id] : null;
         return {
           ...c,
+          name: liveFullName || c.name,
           weeklyMetrics: metrics,
           tasks: tasksMap[c.id] || [],
           sessionReports: sessionReportsMap[c.id] || [],
