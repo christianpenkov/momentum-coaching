@@ -17,20 +17,43 @@ export default function InviteCallbackPage() {
   // avant même que le mot de passe soit choisi, pour que l'accès aux ressources ne
   // dépende pas d'une étape ultérieure qui pourrait échouer.
   //
-  // Le lien d'invitation Supabase transporte les tokens en fragment d'URL
-  // (#access_token=...), jamais envoyé au serveur — createBrowserClient les détecte
-  // et établit la session de façon ASYNCHRONE au chargement de cette page. Un simple
-  // getUser() immédiat peut donc s'exécuter avant que la session soit posée et
-  // renvoyer à tort vers /login. On attend le premier événement onAuthStateChange
-  // (ou une session déjà présente) avant d'agir.
+  // inviteUserByEmail génère toujours un lien en IMPLICIT flow (tokens dans le
+  // fragment #access_token=...&refresh_token=...), quel que soit le client utilisé
+  // pour l'envoyer. Mais createBrowserClient de @supabase/ssr est configuré en PKCE
+  // flow par défaut (attend un ?code= en query param) — il ne traite PAS
+  // automatiquement ce fragment implicite, contrairement au client legacy
+  // @supabase/supabase-js. onAuthStateChange n'émettait donc jamais d'événement ici,
+  // ce qui renvoyait systématiquement vers /login après le timeout. Fix : parser le
+  // fragment nous-mêmes et appeler setSession() explicitement avec les tokens extraits.
   useEffect(() => {
     const supabase = createClient();
-    let ran = false;
 
-    async function run(userId: string, metadata: Record<string, any>) {
-      if (ran) return;
-      ran = true;
+    async function run() {
+      const hash = window.location.hash.startsWith('#') ? window.location.hash.slice(1) : window.location.hash;
+      const params = new URLSearchParams(hash);
+      const accessToken = params.get('access_token');
+      const refreshToken = params.get('refresh_token');
 
+      if (!accessToken || !refreshToken) {
+        router.push('/login?error=auth');
+        return;
+      }
+
+      const { data, error: sessionErr } = await supabase.auth.setSession({
+        access_token: accessToken,
+        refresh_token: refreshToken,
+      });
+      if (sessionErr || !data.user) {
+        router.push('/login?error=auth');
+        return;
+      }
+
+      // Nettoie le fragment de l'URL — évite de laisser les tokens visibles dans la
+      // barre d'adresse / l'historique du navigateur une fois la session établie.
+      window.history.replaceState(null, '', window.location.pathname);
+
+      const userId = data.user.id;
+      const metadata = data.user.user_metadata ?? {};
       const clientId = metadata?.client_id as string | undefined;
       if (!clientId) { setStep('set-password'); return; }
 
@@ -59,30 +82,7 @@ export default function InviteCallbackPage() {
       setStep('set-password');
     }
 
-    // Cas 1 : la session est déjà établie au moment où cet effet tourne (fragment
-    // déjà traité par le SDK avant le montage React).
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) run(session.user.id, session.user.user_metadata ?? {}).catch(() => setError('Une erreur est survenue.'));
-    });
-
-    // Cas 2 (le plus fréquent sur ce lien) : le SDK traite encore le fragment —
-    // on attend l'événement qu'il émet une fois la session posée.
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'INITIAL_SESSION') && session?.user) {
-        run(session.user.id, session.user.user_metadata ?? {}).catch(() => setError('Une erreur est survenue.'));
-      }
-    });
-
-    // Filet de sécurité : si après 4s aucune session n'a été détectée, le fragment
-    // était absent/invalide — inutile de laisser l'écran "Configuration…" indéfiniment.
-    const timeout = setTimeout(() => {
-      if (!ran) router.push('/login?error=auth');
-    }, 4000);
-
-    return () => {
-      listener.subscription.unsubscribe();
-      clearTimeout(timeout);
-    };
+    run().catch(() => setError('Une erreur est survenue.'));
   }, [router]);
 
   async function handleSetPassword(e: React.FormEvent) {
