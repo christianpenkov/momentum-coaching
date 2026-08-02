@@ -93,7 +93,19 @@ Deno.serve(async (req: Request) => {
             .eq('id', call.id);
 
           if (updateError) errors.push(`update_${call.id}: ${updateError.message}`);
-          else notified++;
+          else {
+            notified++;
+            const { error: notifError } = await supabase.from('client_notifications').insert({
+              profile_id: call.coach_id,
+              type: 'rapport_ready',
+              call_id: call.id,
+              payload: {
+                invitee_name: call.invitee_name,
+                scheduled_at: call.scheduled_at,
+              },
+            });
+            if (notifError) errors.push(`notif_insert_${call.id}: ${notifError.message}`);
+          }
         } else {
           errors.push(`no_delivery_${call.id}: aucune subscription active`);
         }

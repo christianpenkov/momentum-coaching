@@ -89,6 +89,7 @@ export async function snapshotIgPosts(
   igAccountId: string,
   yesterday: string,
   skipGuard = false,
+  notifyConfig?: { platformUrl: string; cronSecret: string },
 ): Promise<string[]> {
   const errors: string[] = [];
   try {
@@ -134,6 +135,21 @@ export async function snapshotIgPosts(
         .update({ deleted_at: new Date().toISOString() })
         .eq('profile_id', profileId)
         .in('post_id', missingPostIds);
+    }
+
+    // Détection de nouveaux posts : un post_id absent de TOUTE ligne antérieure
+    // (peu importe la date de snapshot) est un post réellement nouveau. Contrairement à
+    // missingPostIds (fenêtre 90j, sert à la détection de suppression), ici pas de
+    // fenêtre temporelle : on veut savoir si ce post_id a DÉJÀ existé en base, point.
+    let newPostIds: string[] = [];
+    if (currentPostIds.size > 0) {
+      const { data: everSeenRows } = await supa.from('analytics_ig_posts_history')
+        .select('post_id')
+        .eq('profile_id', profileId)
+        .eq('ig_account_id', igAccountId)
+        .in('post_id', [...currentPostIds]);
+      const everSeenIds = new Set((everSeenRows ?? []).map((r: any) => r.post_id));
+      newPostIds = [...currentPostIds].filter((id) => !everSeenIds.has(id));
     }
 
     const snapshotAt = new Date().toISOString();
@@ -215,6 +231,30 @@ export async function snapshotIgPosts(
         console.log(`[snapshotIgPosts] ${post.id} EXCEPTION: ${e?.stack || e?.message || JSON.stringify(e) || 'unknown'}`);
       }
     }));
+
+    // Notif "nouveau post détecté" — générique, pas de lien lead magnet automatique
+    // (ça reste un geste manuel de l'élève via "Gérer mes liens"). Pas de flag
+    // supplémentaire nécessaire : dès que l'upsert ci-dessus crée la ligne du jour pour
+    // ce post_id, il n'apparaîtra plus jamais dans newPostIds au run suivant.
+    if (newPostIds.length > 0 && notifyConfig) {
+      await Promise.allSettled(newPostIds.map(async (postId) => {
+        try {
+          const res = await fetch(`${notifyConfig.platformUrl}/api/push/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${notifyConfig.cronSecret}` },
+            body: JSON.stringify({
+              profileId,
+              title: 'Nouveau post détecté',
+              body: 'Un nouveau post Instagram a été repéré sur ton compte.',
+              url: '/client/liens',
+            }),
+          });
+          if (!res.ok) errors.push(`new_post_push_${postId}: HTTP ${res.status}`);
+        } catch (e: any) {
+          errors.push(`new_post_push_${postId}: ${e?.message || 'unknown'}`);
+        }
+      }));
+    }
   } catch (e: any) { errors.push(`ig_posts_snapshot: ${e?.message || 'unknown'}`); }
   return errors;
 }

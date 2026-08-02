@@ -8,7 +8,7 @@ import type { Call } from '@/lib/supabase/types';
 
 let instanceCounter = 0;
 
-export type NotifType = 'rapport_call' | 'session_rapport' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined';
+export type NotifType = 'rapport_call' | 'session_rapport' | 'call_request' | 'call_canceled' | 'call_rescheduled' | 'call_accepted' | 'call_declined' | 'rapport_ready';
 
 export interface AppNotif {
   id: string;
@@ -229,7 +229,37 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       };
     });
 
-    const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs, ...callRescheduledNotifs];
+    // ── Historique des rapports envoyés (persistant, distinct du live-query
+    // rapportNotifs ci-dessus) — n'affiche que les rapports déjà remplis
+    // (outcome non-null), sinon on dupliquerait la carte "à remplir" avec
+    // celle générée par rapportNotifs pour le même call. ──
+    const { data: rapportReadyRows } = await supabase
+      .from('client_notifications')
+      .select('id, payload, created_at, call_id')
+      .eq('profile_id', profileId)
+      .eq('type', 'rapport_ready')
+      .is('read_at', null);
+
+    const rapportReadyCallIds = [...new Set((rapportReadyRows ?? []).map(r => r.call_id).filter((id): id is string => !!id))];
+    let filledCallIds = new Set<string>();
+    if (rapportReadyCallIds.length > 0) {
+      const { data: outcomeRows } = await supabase.from('calls').select('id, outcome').in('id', rapportReadyCallIds);
+      filledCallIds = new Set((outcomeRows ?? []).filter(c => c.outcome !== null).map(c => c.id));
+    }
+
+    const rapportReadyNotifs: AppNotif[] = (rapportReadyRows ?? [])
+      .filter(row => row.call_id && filledCallIds.has(row.call_id))
+      .map(row => ({
+        id: `rapport_ready_${row.id}`,
+        type: 'rapport_ready' as NotifType,
+        title: 'Rapport envoyé',
+        body: row.payload?.invitee_name ? `Rapport envoyé pour l'appel avec ${row.payload.invitee_name}.` : 'Ton rapport de call a bien été envoyé.',
+        callId: row.call_id ?? undefined,
+        scheduledAt: row.payload?.scheduled_at ?? null,
+        dbId: row.id,
+      }));
+
+    const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs, ...callRescheduledNotifs, ...rapportReadyNotifs];
     setNotifs(allNotifs);
     setAppBadge(allNotifs.length);
   }, [profileId, isClient]);

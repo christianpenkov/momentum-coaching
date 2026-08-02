@@ -1,7 +1,6 @@
 'use client';
 
 import { useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import ModalShell from '@/components/ui/ModalShell';
 
@@ -24,20 +23,20 @@ export default function AddClientModal({ open, onClose }: AddClientModalProps) {
     e.preventDefault();
     setSaving(true);
     setSaveError('');
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) { setSaveError('Non connecté'); setSaving(false); return; }
 
-    const { error } = await supabase.from('clients').insert({
-      coach_id: user.id,
-      name: newName.trim(),
-      email: newEmail.trim() || null,
-      niche: newNiche.trim() || null,
-      week: 1,
+    const res = await fetch('/api/coach/clients/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newName.trim(),
+        email: newEmail.trim(),
+        niche: newNiche.trim() || null,
+      }),
     });
 
-    if (error) {
-      setSaveError(error.message);
+    if (!res.ok) {
+      const { error } = await res.json().catch(() => ({ error: 'Erreur inconnue' }));
+      setSaveError(error);
       setSaving(false);
       return;
     }
@@ -64,8 +63,8 @@ export default function AddClientModal({ open, onClose }: AddClientModalProps) {
               style={{ width: '100%', padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, background: 'var(--surface-2)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
           </div>
           <div>
-            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginBottom: 5 }}>Email</label>
-            <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} placeholder="client@email.fr"
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--ink-2)', display: 'block', marginBottom: 5 }}>Email *</label>
+            <input type="email" value={newEmail} onChange={e => setNewEmail(e.target.value)} required placeholder="client@email.fr"
               style={{ width: '100%', padding: '9px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, background: 'var(--surface-2)', color: 'var(--ink)', fontFamily: 'inherit', outline: 'none', boxSizing: 'border-box' }} />
           </div>
           <div>

@@ -958,7 +958,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
           }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         } catch (e) { console.error(`[poll-leads] todayMetrics IG (${profileId}):`, (e as Error).message); }
       })(),
-      snapshotIgPosts(supa, profileId, igCreds.token, igCreds.igAccountId, yesterday),
+      snapshotIgPosts(supa, profileId, igCreds.token, igCreds.igAccountId, yesterday, false, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET }),
     ]);
     if (igMetricsResult.status === 'rejected') errors.push(`ig_fetch: ${igMetricsResult.reason?.message || 'unknown'}`);
     if (igPostsResult.status === 'fulfilled') errors.push(...igPostsResult.value);

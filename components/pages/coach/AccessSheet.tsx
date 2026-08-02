@@ -27,6 +27,7 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
 
   const [initialState, setInitialState] = useState<Record<string, boolean>>({});
   const [draft, setDraft] = useState<Record<string, boolean>>({});
+  const [seenMap, setSeenMap] = useState<Record<string, string | null>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [isDefault, setIsDefault] = useState(resource.is_default);
@@ -46,12 +47,17 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
     async function load() {
       const { data } = await supabase
         .from('resource_access')
-        .select('client_id, unlocked')
+        .select('client_id, unlocked, seen_at')
         .eq('resource_id', resource.id);
       const map: Record<string, boolean> = {};
-      for (const row of data || []) map[row.client_id] = row.unlocked;
+      const seen: Record<string, string | null> = {};
+      for (const row of data || []) {
+        map[row.client_id] = row.unlocked;
+        seen[row.client_id] = row.seen_at;
+      }
       setInitialState(map);
       setDraft(map);
+      setSeenMap(seen);
       setLoading(false);
     }
     load();
@@ -97,12 +103,17 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
     await Promise.all(changed.map(async c => {
       const id = c.profile_id!;
       const newVal = draft[id] ?? false;
+      const wasUnlocked = initialState[id] ?? false;
+      // Ne reset seen_at que lors d'une vraie nouvelle activation (false→true) —
+      // sinon un simple retrait d'accès (true→false) effacerait à tort l'historique
+      // de lecture si l'accès est redonné plus tard.
+      const isFreshActivation = newVal && !wasUnlocked;
       await supabase.from('resource_access').upsert({
         resource_id: resource.id,
         client_id: id,
         unlocked: newVal,
         unlocked_at: newVal ? new Date().toISOString() : null,
-        seen_at: null,
+        seen_at: isFreshActivation ? null : (seenMap[id] ?? null),
       }, { onConflict: 'resource_id,client_id' });
     }));
 
@@ -292,6 +303,13 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
                           }}>
                             {client.name.split(' ')[0]}
                           </span>
+                          {hasAccess && (
+                            <span style={{ fontSize: 9, color: seenMap[client.profile_id!] ? 'var(--green)' : 'var(--muted)' }}>
+                              {seenMap[client.profile_id!]
+                                ? `Vu le ${new Date(seenMap[client.profile_id!]!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}`
+                                : 'Pas encore vu'}
+                            </span>
+                          )}
                         </motion.button>
                       );
                     })}

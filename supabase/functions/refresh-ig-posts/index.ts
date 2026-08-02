@@ -14,6 +14,7 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
 const SUPABASE_ANON_KEY = Deno.env.get('SUPABASE_ANON_KEY')!;
 const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
+const PLATFORM_URL = Deno.env.get('NEXT_PUBLIC_PLATFORM_URL') || 'https://momentum-plateforme.vercel.app';
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -88,7 +89,7 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'no_token' }), { status: 404, headers: jsonHeaders });
   }
 
-  const errors = await snapshotIgPosts(supa, profileId, creds.token, creds.igAccountId, isoDate(1), true);
+  const errors = await snapshotIgPosts(supa, profileId, creds.token, creds.igAccountId, isoDate(1), true, { platformUrl: PLATFORM_URL, cronSecret: CRON_SECRET });
   console.log(`[refresh-ig-posts] profileId=${profileId} igAccountId=${creds.igAccountId} errors=${JSON.stringify(errors)}`);
 
   return new Response(JSON.stringify({ ok: errors.length === 0, errors }), { headers: jsonHeaders });
