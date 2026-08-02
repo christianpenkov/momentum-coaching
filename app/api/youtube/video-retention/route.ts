@@ -107,6 +107,11 @@ export async function GET(request: Request) {
       apiError: retentionData.error || summaryData.error || statsData.error || null,
       summaryColumnHeaders: summaryData.columnHeaders,
       summaryRawRow: summaryRow,
+      // DEBUG TEMPORAIRE — vérification "% ont continué de regarder" (à retirer après)
+      lastPoints: retentionCurve.slice(-5),
+      lastPointWatchRatioPct: retentionCurve.length > 0
+        ? Math.round(retentionCurve[retentionCurve.length - 1].watchRatio * 1000) / 10
+        : null,
     },
   });
 }
