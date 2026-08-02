@@ -951,11 +951,13 @@ export default function PageClientDetail({ id }: Props) {
           type="button"
           onClick={handleArchive}
           disabled={archiving}
+          className="btn-client-archive"
           style={{
             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             fontSize: 13, fontWeight: 600, padding: '12px', borderRadius: 10,
             background: 'var(--surface)', border: '1px solid var(--border)', color: 'var(--accent)',
             cursor: archiving ? 'default' : 'pointer', opacity: archiving ? 0.6 : 1,
+            transition: 'background 150ms, border-color 150ms',
           }}
         >
           <Icon name="archive" size={14} /> {archiving ? 'Archivage…' : 'Archiver cet élève'}
@@ -963,11 +965,13 @@ export default function PageClientDetail({ id }: Props) {
         <button
           type="button"
           onClick={() => { setDeleteError(''); setDeleteConfirmed(false); setShowDeleteModal(true); }}
+          className="btn-client-delete"
           style={{
             flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
             fontSize: 13, fontWeight: 600, padding: '12px', borderRadius: 10,
             background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,0.3)', color: 'var(--red)',
             cursor: 'pointer',
+            transition: 'background 150ms, border-color 150ms',
           }}
         >
           <Icon name="trash" size={14} /> Supprimer cet élève
