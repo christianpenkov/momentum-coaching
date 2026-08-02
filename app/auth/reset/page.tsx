@@ -41,7 +41,11 @@ export default function ResetPage() {
     const { error } = await supabase.auth.updateUser({ password });
 
     if (error) {
-      setError(error.message);
+      setError(
+        error.message.includes('different from the old')
+          ? 'Le nouveau mot de passe doit être différent de l\'ancien.'
+          : error.message
+      );
       setLoading(false);
       return;
     }

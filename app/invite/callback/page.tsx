@@ -102,7 +102,11 @@ export default function InviteCallbackPage() {
     const supabase = createClient();
     const { error: updateErr } = await supabase.auth.updateUser({ password });
     if (updateErr) {
-      setError(updateErr.message);
+      setError(
+        updateErr.message.includes('different from the old')
+          ? 'Le nouveau mot de passe doit être différent de l\'ancien.'
+          : updateErr.message
+      );
       setStep('set-password');
       return;
     }
