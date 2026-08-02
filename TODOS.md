@@ -1,5 +1,66 @@
 # TODOS
 
+## Investiguer et optimiser le fallback fragile de résolution de compte IG dans le webhook
+
+**Quoi** : `app/api/webhooks/instagram/route.ts:225-238` — quand le match direct entre
+`entry.id` (l'ID envoyé par Meta dans le payload webhook) et `metadata.ig_account_id`
+(stocké en base) échoue, le code teste **chaque** compte Instagram connecté en appelant
+l'API Meta avec son token jusqu'à trouver celui qui répond correctement. C'est un scan
+séquentiel O(n) sur tous les comptes connectés, potentiellement lent.
+
+**Pourquoi** : identifié lors de la review du chantier "isolation des données Instagram
+par compte connecté" (2026-07-29). La cause exacte de ce mismatch `entry.id` vs
+`ig_account_id` stocké n'est pas investiguée — probablement le "Page ID" Facebook lié
+plutôt que l'Instagram Business Account ID, mais non confirmé. Pas cassé par le chantier
+d'archivage (aucun lien), donc traité comme un chantier séparé.
+
+**Pour** : élimine une source de latence potentielle sur le traitement des commentaires
+entrants (chaque appel Meta séquentiel ajoute de la latence) si ce cas de fallback
+s'avère plus fréquent que prévu, ou si le nombre de comptes IG connectés grandit
+fortement au-delà de la cible actuelle (20 élèves).
+
+**Contre** : la fréquence réelle de ce fallback n'est jamais mesurée en prod — investir
+dans l'optimisation avant de savoir si le problème se produit souvent serait prématuré.
+
+**Contexte pour la reprise** : `app/api/webhooks/instagram/route.ts:216-238` (résolution
+`resolvedMatch`). Commencer par logger/mesurer la fréquence réelle du fallback avant
+d'optimiser quoi que ce soit.
+
+**Dépend de / bloqué par** : rien, pas urgent — mesurer avant d'agir.
+
+## Unifier les 5 copies dupliquées de `getIgCreds`
+
+**Quoi** : la logique de résolution du token + `ig_account_id` Instagram existe en 5
+copies quasi identiques : `lib/ig-fetch.ts` (canonique Vercel), `supabase/functions/_shared/ig-posts.ts`
+(canonique Deno), copie locale dans `supabase/functions/poll-leads/index.ts`, copie
+locale dans `supabase/functions/poll-stories/index.ts`, version simplifiée (sans refresh
+token) dans `app/api/client/stories/live-refresh/route.ts`.
+
+**Pourquoi** : identifié lors de l'investigation du bug de double DM1 (2026-07-28) et
+de la review du chantier "isolation des données Instagram par compte connecté"
+(2026-07-29) — chantier de dédup pur, volontairement gardé séparé du fix d'architecture
+pour ne pas mélanger un refactor de déploiement (Deno import maps, bundling) avec un
+changement de logique métier au moment où la prudence maximale est requise.
+
+**Pour** : élimine le risque qu'une des 5 copies diverge silencieusement des autres
+(déjà arrivé : un bug de calcul `accounts_engaged`/`total_interactions` corrigé dans
+`lib/ig-fetch.ts` le 2026-07-06 n'avait jamais été répercuté dans la copie de
+`poll-leads/index.ts`, découvert bien plus tard).
+
+**Contre** : toucher aux imports Deno (`supabase/functions/poll-leads/index.ts`,
+`poll-stories/index.ts`) touche à la mécanique de déploiement Edge Function — risque de
+casser un déploiement si mal testé, à faire seulement une fois le chantier d'isolation
+des comptes IG stabilisé en prod.
+
+**Contexte pour la reprise** : `lib/ig-fetch.ts:32-66`, `supabase/functions/_shared/ig-posts.ts:12-40`,
+`supabase/functions/poll-leads/index.ts:86-114` (copie locale), `supabase/functions/poll-stories/index.ts:37-65`
+(copie locale), `app/api/client/stories/live-refresh/route.ts:14-25` (version simplifiée).
+
+**Dépend de / bloqué par** : à faire après le chantier "isolation des données Instagram
+par compte connecté" (2026-07-29) — une fois ce chantier stabilisé en prod, la dédup
+devient un refactor purement mécanique, facile à vérifier sans risque de comportement.
+
+
 ## Documenter/vérifier l'origine exacte de `calls.ignored=true` sur les lignes historiques
 
 **Quoi** : `calls.ignored=true` fait qu'un call ne compte nulle part (exclu explicitement des requêtes Analytics/Pipeline via `.neq('ignored', true)`, ex. `app/api/client/pipeline/route.ts:31`). Les chemins de code trouvés qui posent ce flag (grep exhaustif du 2026-07-27) sont **tous** des suppressions manuelles déclenchées depuis l'UI (route `app/api/client/pipeline/route.ts`, actions `delete-call`/`delete-prospect`/suppression de leads, ainsi que `app/api/client/calls/[id]/route.ts` et `app/api/calendly/sync/route.ts` pour le cas "prospect supprimé → call fantôme au resync"). Tous ces chemins posent `lead_deleted: true` en même temps que `ignored: true`, **sauf** la suppression de leads en masse (`pipeline/route.ts:238`, ne pose que `ignored: true`).

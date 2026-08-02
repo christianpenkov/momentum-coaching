@@ -47,6 +47,13 @@ export default function ModalShell({
   // haut réduit) : centrer la boîte dans le peu d'espace restant au-dessus du clavier la
   // pousse encore trop bas, alors que la coller en haut de cet espace remonte le champ
   // actif nettement plus haut, plus lisible au-dessus du clavier.
+  //
+  // maxHeight sur la boîte (boxRef) reste sinon capé à 92vh — une unité CSS qui NE
+  // rétrécit PAS avec le clavier sur mobile (contrairement à visualViewport.height) :
+  // la boîte peut donc rester visuellement "haute" même une fois l'overlay réduit,
+  // repoussant un champ situé en bas de son contenu plus bas que nécessaire dans
+  // l'espace réellement visible. On recalcule aussi sa hauteur max en JS pour qu'elle
+  // se contracte réellement avec le clavier.
   useEffect(() => {
     if (variant !== 'centered' || hidden) return;
     if (typeof window === 'undefined' || window.innerWidth > 767) return;
@@ -60,6 +67,9 @@ export default function ModalShell({
       const isKeyboardOpen = kbH > 100;
       overlayRef.current.style.height = `${vv.height}px`;
       overlayRef.current.style.alignItems = isKeyboardOpen ? 'flex-start' : 'center';
+      if (boxRef.current) {
+        boxRef.current.style.maxHeight = isKeyboardOpen ? `${vv.height - 32}px` : '';
+      }
     }
     update();
     vv.addEventListener('resize', update);

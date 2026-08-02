@@ -9,6 +9,9 @@ const serviceSupabase = createClient(
 
 // GET /api/instagram/test-full-workflow?keyword=GUIDE&media_id=OPTIONAL
 // Workflow complet + état abonnement webhook
+// Route de test manuel gardée volontairement (confirmé avec Chris le 2026-07-29) —
+// pas une route morte, sert à déboguer le flux commentaire→lead magnet→DM sans
+// attendre un vrai commentaire Instagram.
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const KEYWORD = (searchParams.get('keyword') || 'ok').toLowerCase();
