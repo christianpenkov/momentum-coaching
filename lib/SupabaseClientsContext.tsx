@@ -12,6 +12,7 @@ export interface CoachBusinessData {
   prospectCallsBookedThisMonth: number;
   closingRate: number;
   leadsThisMonthCount: number;
+  coachLeadsThisMonthCount: number;
 }
 
 interface SupabaseClientsContextValue {
@@ -33,6 +34,7 @@ const EMPTY_BUSINESS: CoachBusinessData = {
   prospectCallsBookedThisMonth: 0,
   closingRate: 0,
   leadsThisMonthCount: 0,
+  coachLeadsThisMonthCount: 0,
 };
 
 const SupabaseClientsContext = createContext<SupabaseClientsContextValue | null>(null);
@@ -71,7 +73,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes] = await Promise.all([
+      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes, coachIgLeadsRes, coachProspectsRes] = await Promise.all([
         ids.length > 0
           ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
           : { data: [], error: null },
@@ -105,6 +107,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         profileIds.length > 0
           ? supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).in('profile_id', profileIds).gte('detected_at', startOfMonth)
           : { count: 0 },
+        // Stats personnelles du coach (distinctes de ses élèves) : "Leads générés" ce mois
+        supabase.from('instagram_leads').select('id', { count: 'exact', head: true })
+          .eq('profile_id', user.id).gte('detected_at', startOfMonth),
+        supabase.from('prospects').select('id', { count: 'exact', head: true })
+          .eq('profile_id', user.id).gte('created_at', startOfMonth),
       ]);
 
       if (metricsRes.error) throw metricsRes.error;
@@ -117,6 +124,8 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (stripePaymentsRes.error) throw stripePaymentsRes.error;
       if (stripePaymentsAllTimeRes.error) throw stripePaymentsAllTimeRes.error;
       if ('error' in leadsThisMonthRes && leadsThisMonthRes.error) throw leadsThisMonthRes.error;
+      if (coachIgLeadsRes.error) throw coachIgLeadsRes.error;
+      if (coachProspectsRes.error) throw coachProspectsRes.error;
 
       const metricsMap: Record<string, any[]> = {};
       (metricsRes.data || []).forEach((m: any) => {
@@ -177,6 +186,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         prospectCallsBookedThisMonth: prospectCallsThisMonth.length,
         closingRate,
         leadsThisMonthCount: leadsThisMonthRes.count || 0,
+        coachLeadsThisMonthCount: (coachIgLeadsRes.count || 0) + (coachProspectsRes.count || 0),
       });
     } catch (e: any) {
       setError(e.message || 'Erreur chargement');

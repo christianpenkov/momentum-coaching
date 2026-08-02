@@ -89,7 +89,6 @@ export default function PageClientView() {
   }
 
   const tasks = client.tasks.map(t => ({ ...t, done: taskOverrides[t.id] ?? t.done }));
-  const last = client.latestMetrics;
   const coachTasks = tasks.filter(t => t.added_by === 'coach');
   const doneCount = coachTasks.filter(t => t.done).length;
   const progress = coachTasks.length > 0 ? Math.round((doneCount / coachTasks.length) * 100) : 0;
@@ -264,16 +263,6 @@ export default function PageClientView() {
               <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
                 {doneCount}/{coachTasks.length} tâches
               </span>
-              {last && (
-                <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                  {last.followers_ig.toLocaleString('fr-FR')} abonnés
-                </span>
-              )}
-              {last && last.stripe_mrr > 0 && (
-                <span style={{ fontSize: 11, color: 'var(--green)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 700, whiteSpace: 'nowrap' }}>
-                  {last.stripe_mrr.toLocaleString('fr-FR')} € MRR
-                </span>
-              )}
             </div>
           </div>
         </div>

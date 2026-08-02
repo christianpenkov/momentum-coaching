@@ -12,6 +12,7 @@ import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
 import { isTaskOverdue } from '@/lib/clientSignals';
@@ -22,6 +23,25 @@ interface ResourceForClient {
   id: string;
   title: string;
   type: string | null;
+}
+
+interface DepotComment {
+  id: string;
+  text: string;
+  created_at: string;
+  author_id: string;
+  author: { full_name: string | null; role: string } | null;
+}
+
+interface DepotFile {
+  id: string;
+  file_name: string;
+  file_type: string | null;
+  created_at: string;
+  uploader_id: string;
+  uploader: { full_name: string | null; role: string } | null;
+  signed_url: string | null;
+  comments: DepotComment[];
 }
 
 function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: string; coachId: string }) {
@@ -157,10 +177,77 @@ export default function PageClientDetail({ id }: Props) {
   const [noteError, setNoteError] = useState(false);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
-  const [depotComment, setDepotComment] = useState('');
-  const [depotFiles, setDepotFiles] = useState<{ name: string; type: string; comment: string }[]>([]);
-  const [depotComments, setDepotComments] = useState<{ file: string; text: string; by: 'coach'; time: string }[]>([]);
+  const { user } = useUser();
+  const [depotFiles, setDepotFiles] = useState<DepotFile[]>([]);
+  const [depotLoading, setDepotLoading] = useState(true);
+  const [depotUploading, setDepotUploading] = useState(false);
+  const [depotError, setDepotError] = useState<string | null>(null);
+  const [depotCommentDrafts, setDepotCommentDrafts] = useState<Record<string, string>>({});
+  const [depotCommentSending, setDepotCommentSending] = useState<Record<string, boolean>>({});
+  const [depotConfirmDelete, setDepotConfirmDelete] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const loadDepotFiles = useCallback(async () => {
+    setDepotLoading(true);
+    setDepotError(null);
+    const res = await fetch(`/api/clients/${id}/depot-files`);
+    if (!res.ok) { setDepotError('Erreur de chargement des fichiers'); setDepotLoading(false); return; }
+    const data = await res.json();
+    setDepotFiles(data.files || []);
+    setDepotLoading(false);
+  }, [id]);
+
+  useEffect(() => { loadDepotFiles(); }, [loadDepotFiles]);
+
+  async function uploadDepotFiles(files: File[]) {
+    setDepotUploading(true);
+    setDepotError(null);
+    for (const file of files) {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(`/api/clients/${id}/depot-files`, { method: 'POST', body: form });
+      if (!res.ok) { setDepotError("Erreur — le fichier n'a pas pu être déposé"); continue; }
+      const data = await res.json();
+      setDepotFiles(prev => [data.file, ...prev]);
+    }
+    setDepotUploading(false);
+  }
+
+  async function sendDepotComment(fileId: string) {
+    const text = (depotCommentDrafts[fileId] || '').trim();
+    if (!text) return;
+    setDepotCommentSending(s => ({ ...s, [fileId]: true }));
+    const res = await fetch(`/api/depot-files/${fileId}/comments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      setDepotFiles(prev => prev.map(f => f.id === fileId ? { ...f, comments: [...f.comments, data.comment] } : f));
+      setDepotCommentDrafts(d => ({ ...d, [fileId]: '' }));
+    } else {
+      setDepotError("Erreur — le commentaire n'a pas pu être envoyé");
+    }
+    setDepotCommentSending(s => ({ ...s, [fileId]: false }));
+  }
+
+  async function deleteDepotFile(fileId: string, force: boolean) {
+    const res = await fetch(`/api/depot-files/${fileId}${force ? '?force=true' : ''}`, { method: 'DELETE' });
+    if (res.status === 409) {
+      setDepotConfirmDelete(fileId);
+      return;
+    }
+    if (!res.ok) { setDepotError("Erreur — le fichier n'a pas pu être supprimé"); return; }
+    setDepotFiles(prev => prev.filter(f => f.id !== fileId));
+    setDepotConfirmDelete(null);
+  }
+
+  async function deleteDepotComment(fileId: string, commentId: string) {
+    const res = await fetch(`/api/depot-files/${fileId}/comments/${commentId}`, { method: 'DELETE' });
+    if (!res.ok) { setDepotError("Erreur — le commentaire n'a pas pu être supprimé"); return; }
+    setDepotFiles(prev => prev.map(f => f.id === fileId ? { ...f, comments: f.comments.filter(c => c.id !== commentId) } : f));
+  }
 
   // Rapport de fin d'appel coach-élève (Google Meet)
   const router = useRouter();
@@ -641,58 +728,87 @@ export default function PageClientDetail({ id }: Props) {
             <div className="card-title">Dépôt de contenus</div>
             <div className="card-sub">Scripts, vidéos, posts — déposez et commentez directement</div>
           </div>
-          <button className="btn-primary-brand" type="button" style={{ fontSize: 12, padding: '6px 12px', gap: 5 }} onClick={() => fileInputRef.current?.click()}>
-            <Icon name="upload" size={12} /> Déposer un fichier
+          <button className="btn-primary-brand" type="button" disabled={depotUploading} style={{ fontSize: 12, padding: '6px 12px', gap: 5, opacity: depotUploading ? 0.6 : 1 }} onClick={() => fileInputRef.current?.click()}>
+            <Icon name="upload" size={12} /> {depotUploading ? 'Envoi…' : 'Déposer un fichier'}
           </button>
           <input
             ref={fileInputRef} type="file" accept="video/*,image/*,.pdf,.doc,.docx,.txt" multiple
             style={{ display: 'none' }}
             onChange={e => {
               const files = Array.from(e.target.files || []);
-              setDepotFiles(prev => [...prev, ...files.map(f => ({ name: f.name, type: f.type.startsWith('video') ? 'Vidéo' : f.type.startsWith('image') ? 'Image' : 'Document', comment: '' }))]);
+              if (files.length > 0) uploadDepotFiles(files);
               e.target.value = '';
             }}
           />
         </div>
-        {depotFiles.length === 0 ? (
+        {depotError && (
+          <div style={{ fontSize: 12, color: 'var(--red)', marginTop: 12 }}>{depotError}</div>
+        )}
+        {depotLoading ? (
+          <div style={{ marginTop: 16, fontSize: 13, color: 'var(--muted)' }}>Chargement des fichiers…</div>
+        ) : depotFiles.length === 0 ? (
           <div style={{ marginTop: 16, padding: '32px 20px', border: '2px dashed var(--border)', borderRadius: 10, textAlign: 'center', cursor: 'pointer', color: 'var(--muted)', fontSize: 13 }} onClick={() => fileInputRef.current?.click()}>
             <div style={{ marginBottom: 6 }}><Icon name="upload" size={20} color="var(--faint)" /></div>
             Glisse tes scripts, vidéos ou posts ici, ou clique pour parcourir
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
-            {depotFiles.map((file, i) => {
-              const fileComments = depotComments.filter(c => c.file === file.name);
+            {depotFiles.map(file => {
+              const isUploader = file.uploader_id === user?.id;
+              const uploaderLabel = file.uploader?.role === 'coach' ? 'Coach' : (file.uploader?.full_name || 'Élève');
+              const draft = depotCommentDrafts[file.id] || '';
+              const sending = depotCommentSending[file.id];
+              const confirming = depotConfirmDelete === file.id;
               return (
-                <div key={i} style={{ padding: '14px 16px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
+                <div key={file.id} style={{ padding: '14px 16px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--accent-soft)', color: 'var(--accent)' }}>{file.type}</span>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>{file.name}</span>
-                    <button type="button" onClick={() => setDepotFiles(prev => prev.filter((_, idx) => idx !== i))} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex' }}>
-                      <Icon name="x" size={14} />
-                    </button>
+                    <span style={{ fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--accent-soft)', color: 'var(--accent)' }}>{uploaderLabel}</span>
+                    {file.signed_url ? (
+                      <a href={file.signed_url} target="_blank" rel="noreferrer" style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent-brand)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {file.file_name}
+                      </a>
+                    ) : (
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', flex: 1 }}>{file.file_name}</span>
+                    )}
+                    {isUploader && (
+                      confirming ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>Supprimer aussi les commentaires ?</span>
+                          <button type="button" onClick={() => deleteDepotFile(file.id, true)} className="btn-ghost" style={{ fontSize: 11, color: 'var(--red)' }}>Oui</button>
+                          <button type="button" onClick={() => setDepotConfirmDelete(null)} className="btn-ghost" style={{ fontSize: 11 }}>Annuler</button>
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => deleteDepotFile(file.id, false)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 4, display: 'flex' }}>
+                          <Icon name="x" size={14} />
+                        </button>
+                      )
+                    )}
                   </div>
-                  {fileComments.length > 0 && (
+                  {file.comments.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-                      {fileComments.map((c, ci) => (
-                        <div key={ci} style={{ padding: '8px 10px', background: '#EEF2FF', borderRadius: 8, borderLeft: '3px solid var(--accent)' }}>
-                          <div style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700, marginBottom: 3 }}>Coach · {c.time}</div>
-                          <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{c.text}</div>
+                      {file.comments.map(c => (
+                        <div key={c.id} style={{ padding: '8px 10px', background: '#EEF2FF', borderRadius: 8, borderLeft: '3px solid var(--accent)', display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+                          <div style={{ flex: 1 }}>
+                            <div style={{ fontSize: 10, color: 'var(--accent)', fontWeight: 700, marginBottom: 3 }}>
+                              {c.author?.role === 'coach' ? 'Coach' : (c.author?.full_name || 'Élève')} · {new Date(c.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                            </div>
+                            <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{c.text}</div>
+                          </div>
+                          {c.author_id === user?.id && (
+                            <button type="button" onClick={() => deleteDepotComment(file.id, c.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted)', padding: 2, display: 'flex', flexShrink: 0 }}>
+                              <Icon name="x" size={11} />
+                            </button>
+                          )}
                         </div>
                       ))}
                     </div>
                   )}
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <textarea placeholder="Laisser un commentaire sur ce contenu…" value={file.comment} onChange={e => setDepotFiles(prev => prev.map((f, idx) => idx === i ? { ...f, comment: e.target.value } : f))} rows={2}
+                    <textarea placeholder="Laisser un commentaire sur ce contenu…" value={draft} onChange={e => setDepotCommentDrafts(d => ({ ...d, [file.id]: e.target.value }))} rows={2}
                       style={{ flex: 1, padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, background: 'var(--surface)', fontSize: 12, color: 'var(--ink)', resize: 'none', fontFamily: 'inherit', outline: 'none', lineHeight: 1.5 }} />
-                    <button type="button" className="btn-primary-brand" disabled={!file.comment.trim()} style={{ fontSize: 12, padding: '6px 12px', alignSelf: 'flex-end', opacity: file.comment.trim() ? 1 : 0.4 }}
-                      onClick={() => {
-                        if (!file.comment.trim()) return;
-                        const now = new Date().toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
-                        setDepotComments(prev => [...prev, { file: file.name, text: file.comment.trim(), by: 'coach', time: now }]);
-                        setDepotFiles(prev => prev.map((f, idx) => idx === i ? { ...f, comment: '' } : f));
-                      }}>
-                      <Icon name="send" size={12} /> Envoyer
+                    <button type="button" className="btn-primary-brand" disabled={!draft.trim() || sending} style={{ fontSize: 12, padding: '6px 12px', alignSelf: 'flex-end', opacity: draft.trim() && !sending ? 1 : 0.4 }}
+                      onClick={() => sendDepotComment(file.id)}>
+                      <Icon name="send" size={12} /> {sending ? 'Envoi…' : 'Envoyer'}
                     </button>
                   </div>
                 </div>

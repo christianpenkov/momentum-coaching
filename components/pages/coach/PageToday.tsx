@@ -76,7 +76,7 @@ export default function PageToday() {
 
   const kpisBottom = [
     {
-      label: 'Leads générés', sub: 'tracking à venir', value: 0,
+      label: 'Leads générés', sub: 'ce mois', value: business.coachLeadsThisMonthCount,
     },
     {
       label: 'Calls bookés', sub: 'ce mois', value: business.prospectCallsBookedThisMonth,
