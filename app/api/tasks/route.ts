@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   if (profile?.role === 'coach') {
     let query = serviceSupabase
       .from('tasks')
-      .select('*, clients!inner(id, name, coach_id, initials, profiles(avatar_url))')
+      .select('*, clients!inner(id, name, coach_id, initials, profiles!clients_profile_id_fkey(avatar_url))')
       .eq('clients.coach_id', user.id)
       .eq('added_by', 'coach')
       .eq('resolved_by_coach', false)
@@ -40,7 +40,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await query;
     if (error) {
       console.error('[GET /api/tasks] coach query failed:', error);
-      return NextResponse.json({ error: error.message, code: (error as any).code, details: (error as any).details, hint: (error as any).hint }, { status: 500 });
+      return NextResponse.json({ error: error.message }, { status: 500 });
     }
     return NextResponse.json({ tasks: data });
   }

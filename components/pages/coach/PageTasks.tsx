@@ -181,9 +181,7 @@ function PageTasksInner() {
 
   const load = useCallback(async () => {
     const res = await fetch('/api/tasks');
-    const json = res.ok ? await res.json() : null;
-    console.log('[PageTasks] /api/tasks status', res.status, 'tasks count', json?.tasks?.length, json?.tasks?.slice(0, 3));
-    if (res.ok) setTasks(json.tasks || []);
+    if (res.ok) setTasks((await res.json()).tasks || []);
     setLoading(false);
   }, []);
 
@@ -247,9 +245,7 @@ function PageTasksInner() {
       if (aOver !== bOver) return bOver - aOver;
       return a.client.name.localeCompare(b.client.name);
     });
-    const finalList = overdueOnly ? list.filter(g => g.tasks.some(t => isTaskOverdue(t))) : list;
-    console.log('[PageTasks] groups recompute — allClients:', allClients.length, 'tasks:', tasks.length, 'groups:', finalList.length, finalList.map(g => ({ name: g.client.name, taskCount: g.tasks.length })));
-    return finalList;
+    return overdueOnly ? list.filter(g => g.tasks.some(t => isTaskOverdue(t))) : list;
   }, [tasks, overdueOnly, allClients]);
 
   // Déplié par défaut : au premier chargement de chaque élève rencontré.
