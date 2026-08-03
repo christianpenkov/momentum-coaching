@@ -2749,7 +2749,7 @@ export default function PageLiens() {
         onLmUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
       />
 
-      <div className="liens-shell">
+      <div className="liens-shell" data-tour="page-client-liens">
 
         {/* Header */}
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>

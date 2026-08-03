@@ -59,9 +59,7 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     oauthPath: '/api/oauth/instagram',
     wizardCopy: 'Suis tes followers et ton engagement directement depuis Momentum.',
     instructions: [
-      { text: 'Nécessite un compte Instagram Business (pas personnel).' },
-      { text: 'Pendant la phase actuelle de validation par Meta, seuls certains comptes ont un accès anticipé — si la connexion échoue, contacte ton coach pour être ajouté en accès testeur.' },
-      { text: 'Tu peux ignorer cette étape et y revenir plus tard depuis Réglages.' },
+      { text: 'Connecte ton compte Instagram Business.' },
     ],
   },
   {

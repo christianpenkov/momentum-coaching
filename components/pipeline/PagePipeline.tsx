@@ -1723,6 +1723,7 @@ export default function PagePipeline() {
   return (
     <div
       className="page-content"
+      data-tour="page-client-pipeline"
       style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', overflow: 'hidden' }}
       onDragEnd={handleDragEnd}
     >

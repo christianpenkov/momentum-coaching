@@ -156,7 +156,7 @@ export default function PageClientCalendar() {
   const nextCall = calls.find(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) >= new Date());
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-client-calendar">
       <div className="page-header">
         <div>
           <h1 className="page-title">Mon calendrier</h1>

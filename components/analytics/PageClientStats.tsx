@@ -6340,7 +6340,7 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
 
 
   return (
-    <div className="page-content page-client-stats">
+    <div className="page-content page-client-stats" data-tour="page-client-stats">
 
       {/* Banner backfill en cours */}
       {backfillInProgress && (

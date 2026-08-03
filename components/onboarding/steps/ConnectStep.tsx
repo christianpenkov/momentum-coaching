@@ -10,7 +10,7 @@ import type { WizardConfig } from '@/lib/onboarding/coachWizardConfig';
 
 interface ConnectStepProps {
   config: WizardConfig;
-  onSkipInstagram: () => void;
+  onSkip: (provider: string) => void;
 }
 
 const staggerChild = {
@@ -18,7 +18,7 @@ const staggerChild = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
 };
 
-export default function ConnectStep({ config, onSkipInstagram }: ConnectStepProps) {
+export default function ConnectStep({ config, onSkip }: ConnectStepProps) {
   const [integrations, setIntegrations] = useState<Record<string, Integration | null>>({});
   const [loading, setLoading] = useState(true);
 
@@ -68,7 +68,7 @@ export default function ConnectStep({ config, onSkipInstagram }: ConnectStepProp
             showWizardCopy
             onSaved={(updated) => setIntegrations(prev => ({ ...prev, [cfg.provider]: updated }))}
             onDisconnected={() => setIntegrations(prev => ({ ...prev, [cfg.provider]: null }))}
-            onSkip={cfg.provider === 'instagram' ? onSkipInstagram : undefined}
+            onSkip={() => onSkip(cfg.provider)}
           />
         ))}
       </m.div>

@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { useRouter } from 'next/navigation';
 import Image from 'next/image';
 import { LazyMotion, domAnimation, m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
 import ConnectStep from './steps/ConnectStep';
-import WalkthroughStep from './steps/WalkthroughStep';
+import { useTour } from './TourContext';
+import { useOnboardingWizard } from './OnboardingWizardContext';
 import type { WizardConfig } from '@/lib/onboarding/coachWizardConfig';
 
 interface WizardShellProps {
@@ -49,17 +49,17 @@ const staggerChild = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
 };
 
-// Étapes fixes : welcome -> connect -> walkthrough[0..n] -> final
-type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'walkthrough' | 'final'; walkthroughIndex?: number };
+// Étapes fixes : welcome -> connect -> final. Après 'connect', le vrai tour guidé
+// (TourRunner, piloté par TourContext) prend le relais sur la plateforme réelle —
+// ce n'est plus une étape de cette carte modale.
+type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'final' };
 
-function buildSteps(config: WizardConfig): PhaseStep[] {
-  const steps: PhaseStep[] = [
+function buildSteps(): PhaseStep[] {
+  return [
     { key: 'welcome', kind: 'welcome' },
     { key: 'connect', kind: 'connect' },
+    { key: 'final', kind: 'final' },
   ];
-  config.walkthroughSteps.forEach((_, i) => steps.push({ key: `walkthrough-${i}`, kind: 'walkthrough', walkthroughIndex: i }));
-  steps.push({ key: 'final', kind: 'final' });
-  return steps;
 }
 
 async function persistProgress(step: string, data?: Record<string, unknown>) {
@@ -76,9 +76,10 @@ async function persistProgress(step: string, data?: Record<string, unknown>) {
 }
 
 export default function WizardShell({ open, onClose, config, initialStep }: WizardShellProps) {
-  const router = useRouter();
   const reduced = useReducedMotion();
-  const steps = useMemo(() => buildSteps(config), [config]);
+  const { startTour } = useTour();
+  const { openWizard } = useOnboardingWizard();
+  const steps = useMemo(() => buildSteps(), []);
 
   const findIndex = useCallback((key?: string) => {
     const idx = steps.findIndex(s => s.key === key);
@@ -86,8 +87,8 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   }, [steps]);
 
   const [index, setIndex] = useState(() => findIndex(initialStep));
-  const [minimized, setMinimized] = useState(false);
   const [nextHovered, setNextHovered] = useState(false);
+  const forcedIndexRef = useRef<number | null>(null);
 
   // Ne resynchronise l'étape que sur une vraie transition fermé -> ouvert (ex: réouverture
   // manuelle via le bouton sidebar), jamais à chaque render — sinon ce useEffect écrase
@@ -95,16 +96,25 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   // (et donc `findIndex`) est recréé à chaque render sans cette protection.
   const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open && !wasOpenRef.current) setIndex(findIndex(initialStep));
+    if (open && !wasOpenRef.current) {
+      // Un forceIndex explicite (ex: retour du tour vers 'final') prime sur
+      // initialStep — sinon la resynchro sur initialStep écraserait l'étape voulue.
+      if (forcedIndexRef.current !== null) {
+        setIndex(forcedIndexRef.current);
+        forcedIndexRef.current = null;
+      } else {
+        setIndex(findIndex(initialStep));
+      }
+    }
     wasOpenRef.current = open;
   }, [open, initialStep, findIndex]);
 
   useEffect(() => {
     if (!open) return;
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && !minimized) onClose(); };
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [open, minimized, onClose]);
+  }, [open, onClose]);
 
   const current = steps[index];
   const isLast = index === steps.length - 1;
@@ -120,6 +130,18 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   }
 
   function handleNext() {
+    if (current.kind === 'connect') {
+      // Fin de la carte modale — le vrai tour guidé prend le relais sur la
+      // plateforme réelle (TourRunner). La carte se rouvre sur 'final' quand le
+      // tour est allé au bout (onComplete ci-dessous).
+      persistProgress('in_progress');
+      onClose();
+      startTour(config.tourSteps, () => {
+        forcedIndexRef.current = findIndex('final');
+        openWizard();
+      });
+      return;
+    }
     if (isLast) {
       persistProgress('completed');
       onClose();
@@ -128,36 +150,11 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
     goToIndex(index + 1);
   }
 
-  function handleSkipInstagram() {
-    persistProgress('in_progress', { instagram_skipped_at: new Date().toISOString() });
-  }
-
-  function handleVisitPage(link: string) {
-    setMinimized(true);
-    router.push(link);
+  function handleSkip(provider: string) {
+    persistProgress('in_progress', { [`${provider}_skipped_at`]: new Date().toISOString() });
   }
 
   if (!open) return null;
-
-  if (minimized) {
-    return (
-      <button
-        type="button"
-        onClick={() => setMinimized(false)}
-        aria-label="Reprendre le guide de démarrage"
-        style={{
-          position: 'fixed', bottom: 24, right: 24, zIndex: 9998,
-          width: 52, height: 52, borderRadius: '50%',
-          background: 'var(--accent-brand)', color: '#fff', border: 'none',
-          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          cursor: 'pointer',
-        }}
-      >
-        <Icon name="help" size={22} color="#fff" />
-      </button>
-    );
-  }
 
   if (reduced) {
     return (
@@ -166,7 +163,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
           <button onClick={onClose} className="icon-btn" style={{ position: 'absolute', top: 20, right: 20 }} type="button">
             <Icon name="x" size={18} />
           </button>
-          <StepBody current={current} config={config} onSkipInstagram={handleSkipInstagram} onVisit={handleVisitPage} />
+          <StepBody current={current} config={config} onSkip={handleSkip} />
           <button onClick={handleNext} className="btn-primary-brand" type="button" style={{ marginTop: 16 }}>
             {isLast ? 'Terminer' : 'Suivant'}
           </button>
@@ -213,7 +210,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                     {index + 1} / {steps.length}
                   </m.div>
 
-                  <StepBody current={current} config={config} onSkipInstagram={handleSkipInstagram} onVisit={handleVisitPage} />
+                  <StepBody current={current} config={config} onSkip={handleSkip} />
 
                   <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 24 }}>
                     <button
@@ -274,11 +271,10 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   );
 }
 
-function StepBody({ current, config, onSkipInstagram, onVisit }: {
+function StepBody({ current, config, onSkip }: {
   current: PhaseStep;
   config: WizardConfig;
-  onSkipInstagram: () => void;
-  onVisit: (link: string) => void;
+  onSkip: (provider: string) => void;
 }) {
   if (current.kind === 'welcome') {
     return (
@@ -286,7 +282,7 @@ function StepBody({ current, config, onSkipInstagram, onVisit }: {
         <m.div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
           <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
             <span style={{ position: 'absolute', inset: -18, borderRadius: '50%', background: 'radial-gradient(circle, rgba(58,106,134,0.18) 0%, transparent 70%)', pointerEvents: 'none' }} />
-            <div style={{ width: 80, height: 80, borderRadius: 20, background: 'rgba(58,106,134,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+            <div style={{ width: 80, height: 80, borderRadius: 20, background: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
               <Image src="/logo-momentum.png" alt="Momentum" width={48} height={48} style={{ objectFit: 'contain' }} />
             </div>
           </span>
@@ -303,21 +299,7 @@ function StepBody({ current, config, onSkipInstagram, onVisit }: {
         <IconHeader icon="link" iconColor="#4a7fa5" iconBg="rgba(74,127,165,0.1)" />
         <Title small>Active tes connexions</Title>
         <Subtitle>Connecte tes outils pour activer le suivi. Rien n&apos;est obligatoire — tu peux passer une étape et y revenir plus tard.</Subtitle>
-        <ConnectStep config={config} onSkipInstagram={onSkipInstagram} />
-      </>
-    );
-  }
-
-  if (current.kind === 'walkthrough' && current.walkthroughIndex !== undefined) {
-    const step = config.walkthroughSteps[current.walkthroughIndex];
-    return (
-      <>
-        <IconHeader icon="folder" iconColor="var(--accent)" iconBg="rgba(42,42,40,0.07)" />
-        <Title small>Découvre la plateforme</Title>
-        <Subtitle>Un tour rapide de tes principaux outils.</Subtitle>
-        <m.div style={{ marginTop: 4 }}>
-          <WalkthroughStep step={step} onVisit={onVisit} />
-        </m.div>
+        <ConnectStep config={config} onSkip={onSkip} />
       </>
     );
   }

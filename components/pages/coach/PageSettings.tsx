@@ -232,7 +232,7 @@ export default function PageSettings() {
   }
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-settings">
       {/* Toast */}
       {toast && (
         <div style={{

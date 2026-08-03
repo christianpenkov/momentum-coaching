@@ -396,7 +396,7 @@ export default function PageClientResources() {
   );
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-client-ressources">
       {/* Barre de navigation dossiers — ☰ + fil d'ariane, en haut à gauche */}
       {sections.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>

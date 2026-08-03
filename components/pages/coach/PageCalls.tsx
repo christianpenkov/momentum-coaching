@@ -140,7 +140,7 @@ export default function PageCalls() {
   );
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-calls">
       <div className="page-header">
         <div>
           <h1 className="page-title">Calls</h1>

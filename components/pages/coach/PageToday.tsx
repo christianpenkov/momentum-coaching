@@ -104,7 +104,7 @@ export default function PageToday() {
   if (loading) return <InlineLoader fullPage />;
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-dashboard">
       <CreateCallModal
         open={showCreateCallModal}
         onClose={() => setShowCreateCallModal(false)}

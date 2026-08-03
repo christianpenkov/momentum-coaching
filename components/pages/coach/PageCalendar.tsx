@@ -134,7 +134,7 @@ export default function PageCalendar() {
     : `${weekDays[0].getDate()} – ${weekDays[6].getDate()} ${MONTHS_FR[weekDays[6].getMonth()]} ${weekDays[6].getFullYear()}`;
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-calendar">
       <div className="page-header">
         <div>
           <h1 className="page-title">Calendrier</h1>

@@ -83,7 +83,7 @@ export default function PageClients() {
   if (loading) return <InlineLoader fullPage />;
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-clients">
       <div className="page-header">
         <div>
           <h1 className="page-title">Clients</h1>

@@ -1,10 +1,11 @@
-import type { IconName } from '@/components/ui/Icon';
 import { COACH_WIZARD_INTEGRATIONS } from './integrationConfig';
 
-export interface WalkthroughStepDef {
-  icon: IconName;
-  text: string;
-  link?: string;
+export interface TourStepDef {
+  route: string;
+  selector: string;
+  title: string;
+  content: string;
+  placement?: 'top' | 'bottom' | 'left' | 'right' | 'auto';
 }
 
 export interface WizardConfig {
@@ -12,7 +13,7 @@ export interface WizardConfig {
   welcomeTitle: string;
   welcomeSubtitle: string;
   integrations: typeof COACH_WIZARD_INTEGRATIONS;
-  walkthroughSteps: WalkthroughStepDef[];
+  tourSteps: TourStepDef[];
 }
 
 export const COACH_WIZARD_CONFIG: WizardConfig = {
@@ -20,14 +21,15 @@ export const COACH_WIZARD_CONFIG: WizardConfig = {
   welcomeTitle: 'Bienvenue sur Momentum',
   welcomeSubtitle: 'Connecte tes outils pour activer le suivi de tes élèves, puis découvre la plateforme en quelques minutes.',
   integrations: COACH_WIZARD_INTEGRATIONS,
-  walkthroughSteps: [
-    { icon: 'activity', text: 'Aujourd\'hui — ta vue d\'ensemble quotidienne', link: '/dashboard' },
-    { icon: 'users', text: 'Clients — liste et fiches de tes élèves, avec un badge qui montre leur avancement dans leur propre wizard', link: '/clients' },
-    { icon: 'bar-chart', text: 'Analytics — les métriques agrégées de tous tes élèves', link: '/analytics' },
-    { icon: 'message-circle', text: 'Messages — échange directement avec chaque élève', link: '/messages' },
-    { icon: 'phone-call', text: 'Calls & Calendrier — tes sessions passées et à venir', link: '/calls' },
-    { icon: 'task-check', text: 'Tâches — organise ton suivi coaching', link: '/tasks' },
-    { icon: 'folder', text: 'Ressources — dépose guides, templates et replays pour tes élèves', link: '/ressources' },
-    { icon: 'settings', text: 'Réglages — reconnecte ou déconnecte un outil à tout moment', link: '/settings' },
+  tourSteps: [
+    { route: '/dashboard', selector: '[data-tour="page-dashboard"]', title: 'Aujourd\'hui', content: 'Ta vue d\'ensemble quotidienne : calls du jour, alertes, clients à surveiller.' },
+    { route: '/analytics', selector: '[data-tour="page-analytics"]', title: 'Analytics', content: 'Les métriques agrégées de tous tes élèves : audience, posts, DM, calls, MRR.' },
+    { route: '/clients', selector: '[data-tour="page-clients"]', title: 'Clients', content: 'Suis l\'avancement de chaque élève individuellement — son statut, ses stats, ses relances — tout au même endroit.' },
+    { route: '/messages', selector: '[data-tour="page-messages"]', title: 'Messages', content: 'Échange directement avec chaque élève.' },
+    { route: '/calls', selector: '[data-tour="page-calls"]', title: 'Calls', content: 'Tous tes calls, coaching et prospects confondus — passés et à venir.' },
+    { route: '/calendar', selector: '[data-tour="page-calendar"]', title: 'Calendrier', content: 'Ta vue calendrier de toutes tes sessions.' },
+    { route: '/tasks', selector: '[data-tour="page-tasks"]', title: 'Tâches', content: 'Vois toutes tes tâches à réaliser et ton avancement.' },
+    { route: '/ressources', selector: '[data-tour="page-ressources"]', title: 'Ressources', content: 'Dépose guides, templates et fichiers pour tes élèves, avec un accès personnalisable par élève.' },
+    { route: '/settings', selector: '[data-tour="page-settings"]', title: 'Réglages', content: 'Gère toutes tes connexions facilement au même endroit.' },
   ],
 };

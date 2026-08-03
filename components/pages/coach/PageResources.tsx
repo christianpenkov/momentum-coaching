@@ -230,7 +230,7 @@ export default function PageResources() {
   );
 
   return (
-    <div className="page-content" style={{ position: 'relative' }}>
+    <div className="page-content" data-tour="page-ressources" style={{ position: 'relative' }}>
       {/* Barre de navigation dossiers — ☰ + fil d'ariane, en haut à gauche */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <button

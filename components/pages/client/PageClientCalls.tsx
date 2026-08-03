@@ -334,7 +334,7 @@ export default function PageClientCalls() {
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-client-calls">
       <div className="page-header">
         <h1 className="page-title">Mes calls</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

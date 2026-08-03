@@ -99,7 +99,7 @@ export default function PageClientView() {
   const collectRate = cashContracted > 0 && cashCollected !== null ? Math.round((cashCollected / cashContracted) * 100) : null;
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-client-home">
 
       {/* Prochain call */}
       {nextCall?.scheduled_at && (

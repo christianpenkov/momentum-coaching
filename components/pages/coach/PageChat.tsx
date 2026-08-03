@@ -2005,7 +2005,7 @@ export default function PageChat() {
   if (loading) return <InlineLoader fullPage />;
 
   if (clients.length === 0) return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-messages">
       <div className="page-header"><h1 className="page-title">Messages</h1></div>
       <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', fontSize: 13 }}>
         Aucun client. Les conversations apparaîtront ici dès qu'un client rejoindra.

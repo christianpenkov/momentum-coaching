@@ -122,7 +122,7 @@ export default function PageAnalytics() {
   });
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-analytics">
       <div className="page-header">
         <h1 className="page-title">Analytics</h1>
       </div>

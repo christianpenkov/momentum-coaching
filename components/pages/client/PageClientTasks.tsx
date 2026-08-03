@@ -392,7 +392,7 @@ export default function PageClientTasks() {
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
-    <div className="page-content">
+    <div className="page-content" data-tour="page-client-taches">
       <div className="page-header">
         <h1 className="page-title">Tâches</h1>
       </div>
