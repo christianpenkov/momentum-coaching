@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useLongPress } from '@/lib/useLongPress';
@@ -1210,10 +1210,7 @@ export default function PageClientMessages() {
         .from('profiles').select('full_name, avatar_url').eq('id', clientRow.coach_id).maybeSingle();
       if (coachProfile?.full_name) {
         setCoachName(coachProfile.full_name);
-        const parts = coachProfile.full_name.trim().split(' ');
-        setCoachInitials(parts.length >= 2
-          ? (parts[0][0] + parts[1][0]).toUpperCase()
-          : coachProfile.full_name.slice(0, 2).toUpperCase());
+        setCoachInitials(getInitials(coachProfile.full_name));
       }
       setCoachAvatarUrl(coachProfile?.avatar_url || null);
 

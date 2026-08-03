@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
+import { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Resource } from './ResourceModal';
@@ -120,10 +121,6 @@ export default function AccessSheet({ resource, onClose, onChanged, onDefaultCha
     setSaving(false);
     onChanged?.();
     onClose();
-  }
-
-  function getInitials(name: string): string {
-    return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
   }
 
   // Couleur stable par personne (hash de son id) — pas par position dans la liste,

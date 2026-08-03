@@ -4,7 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Chip from '@/components/ui/Chip';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
@@ -192,7 +192,7 @@ export default function PageClients() {
                     <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/clients/${c.id}`)}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <Avatar initials={c.initials || c.name.slice(0, 2).toUpperCase()} avatarUrl={c.avatar_url} size={32} seed={c.id} />
+                          <Avatar initials={c.initials || getInitials(c.name)} avatarUrl={c.avatar_url} size={32} seed={c.id} />
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{c.name}</div>
                             <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.niche || 'Infopreneur'}</div>

@@ -4,7 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useLongPress } from '@/lib/useLongPress';
@@ -2036,7 +2036,7 @@ export default function PageChat() {
             {clients.map(cl => {
               const isActive = cl.id === activeId;
               const isOnline = isClientOnline(cl.id);
-              const initials = cl.initials || cl.name.slice(0, 2).toUpperCase();
+              const initials = cl.initials || getInitials(cl.name);
               const unread = unreadCounts[cl.id] || 0;
               return (
                 <div key={cl.id} onClick={() => setActiveId(cl.id)} style={{
@@ -2081,7 +2081,7 @@ export default function PageChat() {
               clientId={activeId}
               userId={userId}
               clientName={activeClient.name}
-              clientInitials={activeClient.initials || activeClient.name.slice(0, 2).toUpperCase()}
+              clientInitials={activeClient.initials || getInitials(activeClient.name)}
               clientAvatarUrl={activeClient.avatar_url}
               isOnline={isClientOnline(activeId)}
               supabase={supabase}

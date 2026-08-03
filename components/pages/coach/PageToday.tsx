@@ -4,7 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState } from 'react';
 import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import CallStack from '@/components/ui/CallStack';
@@ -239,7 +239,7 @@ export default function PageToday() {
                 // filtré archived_at is null) alors que ses calls ne le sont pas. Repli
                 // sur invitee_name (vente) ou un libellé neutre (coaching), jamais "??".
                 const name = call.invitee_name || (call.call_type === 'google' ? 'Élève archivé' : 'Prospect');
-                return { id: call.id, name, initials: name.slice(0, 2).toUpperCase(), avatar_url: null };
+                return { id: call.id, name, initials: getInitials(name), avatar_url: null };
               }} />
             </div>
           </div>
@@ -263,7 +263,7 @@ export default function PageToday() {
               )}
               {watchList.map(({ client, signals }) => (
                 <div key={client.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={36} seed={client.id} />
+                  <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={36} seed={client.id} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</span>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
@@ -308,7 +308,7 @@ export default function PageToday() {
                   <tr key={client.id}>
                     <td>
                       <Link href={`/clients/${client.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-                        <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={30} seed={client.id} />
+                        <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={30} seed={client.id} />
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--accent)' }}>{client.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--muted)' }}>{client.niche || 'Infopreneur'}</div>
@@ -340,7 +340,7 @@ export default function PageToday() {
               const s = getClientSignals(client.tasks, client.sessionReports);
               return (
                 <Link key={client.id} href={`/clients/${client.id}`} className="today-client-card">
-                  <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={40} seed={client.id} />
+                  <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={40} seed={client.id} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>

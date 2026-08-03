@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/Icon';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
@@ -238,7 +238,7 @@ export default function PageClientSettings() {
               className="tap-scale"
               style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', cursor: uploadingAvatar ? 'default' : 'pointer', flexShrink: 0 }}
             >
-              <Avatar initials={name.slice(0, 2).toUpperCase() || '?'} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
+              <Avatar initials={getInitials(name)} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
               <div style={{
                 position: 'absolute', inset: 0, borderRadius: '50%',
                 background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',

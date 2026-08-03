@@ -14,6 +14,16 @@ function colorFromSeed(seed: string): string {
   return AVATAR_COLORS[Math.abs(h) % AVATAR_COLORS.length];
 }
 
+// Repli canonique des initiales quand la colonne DB dédiée (clients.initials) est
+// vide — 5 implémentations divergentes trouvées dans le repo avant centralisation
+// (certaines sans repli du tout, '?' vs '??' selon le fichier). Gère les @handles
+// (leads Instagram) en plus des noms classiques "Prénom Nom".
+export function getInitials(name: string | null | undefined): string {
+  if (!name) return '?';
+  const initials = name.replace(/^@/, '').split(/[\s._-]/).map(w => w[0] || '').join('').toUpperCase().slice(0, 2);
+  return initials || '?';
+}
+
 interface AvatarProps {
   initials: string;
   avatarUrl?: string | null;

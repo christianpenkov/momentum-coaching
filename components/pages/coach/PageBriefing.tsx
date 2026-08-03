@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Pill from '@/components/ui/Pill';
 import Icon from '@/components/ui/Icon';
 import { getClient } from '@/lib/data';
@@ -45,7 +45,7 @@ export default function PageBriefing({ id }: Props) {
     <div className="page-content">
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Avatar initials={client.initials} avatarUrl={realAvatarUrl} size={42} seed={client.id} />
+          <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={realAvatarUrl} size={42} seed={client.id} />
           <div>
             <h1 className="page-title">Briefing IA — {client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

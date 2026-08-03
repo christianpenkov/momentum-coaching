@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { getClientSignals } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
@@ -54,7 +54,7 @@ export default function ChatContextPanel({ client, calls, open, onClose }: ChatC
       </button>
       <div style={{ textAlign: 'center' }}>
         <div style={{ margin: '0 auto 10px' }}>
-          <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={60} seed={client.id} />
+          <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={60} seed={client.id} />
         </div>
         <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--ink)' }}>{client.name}</div>
         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>

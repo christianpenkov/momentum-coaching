@@ -3,7 +3,7 @@
 import { usePathname } from 'next/navigation';
 import Image from 'next/image';
 import Icon from '../ui/Icon';
-import Avatar from '../ui/Avatar';
+import Avatar, { getInitials } from '../ui/Avatar';
 import { useUser } from '@/lib/UserContext';
 import { useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
@@ -13,8 +13,8 @@ export default function TopBar() {
   const pathname = usePathname();
   const isCoach = !pathname.startsWith('/client/') && pathname !== '/client';
   const { user } = useUser();
-  const initials = user?.initials || '';
   const name = user?.full_name || user?.email || '';
+  const initials = user?.initials || getInitials(name);
 
   const [notifOpen, setNotifOpen] = useState(false);
   const { notifs, refresh } = useNotifications(user?.id ?? null, !isCoach);
@@ -51,7 +51,7 @@ export default function TopBar() {
         </button>
 
         <div title={name} className="topbar-avatar" style={{ cursor: 'pointer' }}>
-          <Avatar initials={initials || '?'} avatarUrl={user?.avatar_url} size={30} seed={user?.id} />
+          <Avatar initials={initials} avatarUrl={user?.avatar_url} size={30} seed={user?.id} />
         </div>
       </div>
 

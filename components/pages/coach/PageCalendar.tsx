@@ -3,7 +3,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Call } from '@/lib/supabase/types';
@@ -50,7 +50,7 @@ export default function PageCalendar() {
         type: 'call',
         label: call.topic || 'Call coaching',
         clientName: client?.name || call.invitee_name || '—',
-        clientInitials: client?.initials || (call.invitee_name ? call.invitee_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?'),
+        clientInitials: client?.initials || getInitials(call.invitee_name),
         clientAvatarUrl: client?.avatar_url,
         clientId: call.client_id || '',
         time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
@@ -68,7 +68,7 @@ export default function PageCalendar() {
           type: 'deadline',
           label: task.label,
           clientName: client.name,
-          clientInitials: client.initials || client.name.slice(0, 2).toUpperCase(),
+          clientInitials: client.initials || getInitials(client.name),
           clientAvatarUrl: client.avatar_url,
           clientId: client.id,
           meta: task.priority || undefined,
@@ -357,7 +357,7 @@ export default function PageCalendar() {
                   const d = new Date(call.scheduled_at!);
                   return (
                     <div key={call.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={28} seed={client?.id} />
+                      <Avatar initials={client?.initials || getInitials(client?.name || call.invitee_name)} avatarUrl={client?.avatar_url} size={28} seed={client?.id} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{client?.name || '—'}</div>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>

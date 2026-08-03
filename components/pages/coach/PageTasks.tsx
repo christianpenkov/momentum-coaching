@@ -5,7 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import InlineLoader from '@/components/ui/InlineLoader';
 import TaskModal from '@/components/ui/TaskModal';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
@@ -319,7 +319,7 @@ function PageTasksInner() {
                 onClick={() => setExpanded(prev => ({ ...prev, [g.client.id]: !prev[g.client.id] }))}
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, cursor: 'pointer' }}
               >
-                <Avatar initials={g.client.initials || g.client.name.slice(0, 2).toUpperCase()} avatarUrl={g.client.avatar_url} size={36} seed={g.client.id} />
+                <Avatar initials={g.client.initials || getInitials(g.client.name)} avatarUrl={g.client.avatar_url} size={36} seed={g.client.id} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Link href={`/clients/${g.client.id}`} onClick={e => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>

@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
-import Avatar from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -229,7 +229,7 @@ export default function PageCalls() {
             {pending.map(call => {
               const cl = getClient(call.client_id || '');
               const displayName = cl?.name || call.invitee_name || '—';
-              const initials = cl?.initials || (displayName !== '—' ? displayName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?');
+              const initials = cl?.initials || getInitials(displayName !== '—' ? displayName : null);
               const d = new Date(call.scheduled_at!);
               return (
                 <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderLeft: '3px solid #f59e0b' }}>
@@ -295,7 +295,7 @@ export default function PageCalls() {
             {upcoming.map(call => {
               const cl = getClient(call.client_id || '');
               const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
-              const initials = cl?.initials || (call.invitee_name ? call.invitee_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?');
+              const initials = cl?.initials || getInitials(call.invitee_name);
               const d = new Date(call.scheduled_at!);
               const isGoogle = (call as { call_type?: string }).call_type === 'google';
               return (
@@ -391,7 +391,7 @@ export default function PageCalls() {
                 {history.map(call => {
                   const cl = getClient(call.client_id || '');
                   const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
-                  const initials = cl?.initials || (call.invitee_name ? call.invitee_name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?');
+                  const initials = cl?.initials || getInitials(call.invitee_name);
                   const d = new Date(call.scheduled_at!);
                   return (
                     <tr key={call.id}>

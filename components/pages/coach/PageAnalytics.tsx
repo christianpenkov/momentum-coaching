@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getClientSignals } from '@/lib/clientSignals';
 import Icon from '@/components/ui/Icon';
+import { getInitials } from '@/components/ui/Avatar';
 
 const LineChart = dynamic(() => import('@/components/charts/LineChart'), { ssr: false });
 const BarChart = dynamic(() => import('@/components/charts/BarChart'), { ssr: false });
@@ -20,10 +21,6 @@ function clientColor(seed: string): string {
   let h = 0;
   for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) & 0xffffffff;
   return CLIENT_COLORS[Math.abs(h) % CLIENT_COLORS.length];
-}
-
-function initials(name: string) {
-  return name.split(' ').map(p => p[0]).join('').slice(0, 2).toUpperCase();
 }
 
 export default function PageAnalytics() {
@@ -230,7 +227,7 @@ export default function PageAnalytics() {
                           }}>
                             {c.avatar_url
                               ? <img src={c.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                              : initials(c.name)}
+                              : getInitials(c.name)}
                           </div>
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</div>

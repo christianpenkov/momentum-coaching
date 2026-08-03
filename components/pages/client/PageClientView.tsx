@@ -14,6 +14,7 @@ import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import { getClientWeek } from '@/lib/clientWeek';
 import CallStack from '@/components/ui/CallStack';
+import { getInitials } from '@/components/ui/Avatar';
 import type { Call } from '@/lib/supabase/types';
 
 const PRIORITY_CONFIG = {
@@ -110,7 +111,7 @@ export default function PageClientView() {
       return { id: 'coach', name: client!.coachFullName || client!.coachName || 'Coach', initials: null, avatar_url: client!.coachAvatarUrl };
     }
     const name = call.invitee_name || 'Prospect';
-    return { id: call.id, name, initials: name.slice(0, 2).toUpperCase(), avatar_url: null };
+    return { id: call.id, name, initials: getInitials(name), avatar_url: null };
   }
 
   return (
