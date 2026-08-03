@@ -3,6 +3,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
 import type { Call } from '@/lib/supabase/types';
@@ -156,7 +157,8 @@ export default function PageClientCalendar() {
   const nextCall = calls.find(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) >= new Date());
 
   return (
-    <div className="page-content" data-tour="page-client-calendar">
+    <div className="page-content">
+      <TourAnchor id="page-client-calendar" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Mon calendrier</h1>

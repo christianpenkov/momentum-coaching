@@ -28,7 +28,7 @@ export const COACH_WIZARD_CONFIG: WizardConfig = {
     { route: '/messages', selector: '[data-tour="page-messages"]', title: 'Messages', content: 'Échange directement avec chaque élève.' },
     { route: '/calls', selector: '[data-tour="page-calls"]', title: 'Calls', content: 'Tous tes calls, coaching et prospects confondus — passés et à venir.' },
     { route: '/calendar', selector: '[data-tour="page-calendar"]', title: 'Calendrier', content: 'Ta vue calendrier de toutes tes sessions.' },
-    { route: '/tasks', selector: '[data-tour="page-tasks"]', title: 'Tâches', content: 'Vois toutes tes tâches à réaliser et ton avancement.' },
+    { route: '/tasks', selector: '[data-tour="page-tasks"]', title: 'Tâches', content: 'Assigne des tâches à chacun de tes élèves et suis leur avancement.' },
     { route: '/ressources', selector: '[data-tour="page-ressources"]', title: 'Ressources', content: 'Dépose guides, templates et fichiers pour tes élèves, avec un accès personnalisable par élève.' },
     { route: '/settings', selector: '[data-tour="page-settings"]', title: 'Réglages', content: 'Gère toutes tes connexions facilement au même endroit.' },
   ],

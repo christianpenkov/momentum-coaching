@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import InlineLoader from '@/components/ui/InlineLoader';
 import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
@@ -230,7 +231,8 @@ export default function PageResources() {
   );
 
   return (
-    <div className="page-content" data-tour="page-ressources" style={{ position: 'relative' }}>
+    <div className="page-content" style={{ position: 'relative' }}>
+      <TourAnchor id="page-ressources" />
       {/* Barre de navigation dossiers — ☰ + fil d'ariane, en haut à gauche */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
         <button

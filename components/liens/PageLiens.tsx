@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback, useMemo, createContext, useCo
 import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import { createClient } from '@/lib/supabase/client';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
@@ -2749,7 +2750,8 @@ export default function PageLiens() {
         onLmUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
       />
 
-      <div className="liens-shell" data-tour="page-client-liens">
+      <div className="liens-shell">
+        <TourAnchor id="page-client-liens" />
 
         {/* Header */}
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>

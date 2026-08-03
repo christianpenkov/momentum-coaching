@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import Avatar from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
@@ -232,7 +233,8 @@ export default function PageSettings() {
   }
 
   return (
-    <div className="page-content" data-tour="page-settings">
+    <div className="page-content">
+      <TourAnchor id="page-settings" />
       {/* Toast */}
       {toast && (
         <div style={{

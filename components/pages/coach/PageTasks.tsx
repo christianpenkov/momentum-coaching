@@ -5,6 +5,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import Avatar from '@/components/ui/Avatar';
 import InlineLoader from '@/components/ui/InlineLoader';
 import TaskModal from '@/components/ui/TaskModal';
@@ -254,7 +255,8 @@ function PageTasksInner() {
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
-    <div className="page-content" data-tour="page-tasks">
+    <div className="page-content">
+      <TourAnchor id="page-tasks" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Tâches</h1>

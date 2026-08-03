@@ -69,14 +69,15 @@ export default function TourRunner() {
       }}
       steps={[
         {
-          // Le sélecteur cible le conteneur racine de la page (immense, toute la
-          // hauteur) plutôt qu'un petit élément précis — avec une cible aussi grande,
-          // 'auto' positionne mal le tooltip (peut sortir du viewport). 'top' fixe
-          // l'ancre en haut de la page, prévisible et toujours visible.
+          // Le sélecteur cible un petit marqueur dédié (TourAnchor, ~1px) posé en
+          // haut de chaque page plutôt que le conteneur racine — une cible aussi
+          // grande empêchait Joyride de bien positionner le tooltip et cassait le
+          // découpage de l'overlay. Avec une petite cible fixe, 'auto' fonctionne
+          // correctement et choisit le meilleur côté selon l'espace disponible.
           target: currentStep.selector,
           title: currentStep.title,
           content: currentStep.content,
-          placement: currentStep.placement ?? 'top',
+          placement: currentStep.placement ?? 'auto',
           skipBeacon: true,
         },
       ]}

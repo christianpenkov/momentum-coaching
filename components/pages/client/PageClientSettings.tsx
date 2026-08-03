@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import Avatar from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
@@ -217,7 +218,8 @@ export default function PageClientSettings() {
   const inputStyle = { width: '100%', padding: '8px 12px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 13, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' as const };
 
   return (
-    <div className="page-content" data-tour="page-client-settings">
+    <div className="page-content">
+      <TourAnchor id="page-client-settings" />
       {toast && (
         <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 18px', fontSize: 13, color: 'var(--accent)', boxShadow: 'var(--shadow-elev)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="check" size={14} /> {toast}

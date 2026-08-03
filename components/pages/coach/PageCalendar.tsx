@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import Avatar from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Call } from '@/lib/supabase/types';
 
@@ -134,7 +135,8 @@ export default function PageCalendar() {
     : `${weekDays[0].getDate()} – ${weekDays[6].getDate()} ${MONTHS_FR[weekDays[6].getMonth()]} ${weekDays[6].getFullYear()}`;
 
   return (
-    <div className="page-content" data-tour="page-calendar">
+    <div className="page-content">
+      <TourAnchor id="page-calendar" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Calendrier</h1>

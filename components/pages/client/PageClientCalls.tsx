@@ -4,6 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import RapportModal from '@/components/ui/RapportModal';
 import { createClient } from '@/lib/supabase/client';
 
@@ -334,7 +335,8 @@ export default function PageClientCalls() {
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
-    <div className="page-content" data-tour="page-client-calls">
+    <div className="page-content">
+      <TourAnchor id="page-client-calls" />
       <div className="page-header">
         <h1 className="page-title">Mes calls</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>

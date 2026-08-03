@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getClientSignals } from '@/lib/clientSignals';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 
 const LineChart = dynamic(() => import('@/components/charts/LineChart'), { ssr: false });
 const BarChart = dynamic(() => import('@/components/charts/BarChart'), { ssr: false });
@@ -122,7 +123,8 @@ export default function PageAnalytics() {
   });
 
   return (
-    <div className="page-content" data-tour="page-analytics">
+    <div className="page-content">
+      <TourAnchor id="page-analytics" />
       <div className="page-header">
         <h1 className="page-title">Analytics</h1>
       </div>

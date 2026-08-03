@@ -4,6 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
 import { useCallback, useRef, useState } from 'react';
@@ -99,7 +100,8 @@ export default function PageClientView() {
   const collectRate = cashContracted > 0 && cashCollected !== null ? Math.round((cashCollected / cashContracted) * 100) : null;
 
   return (
-    <div className="page-content" data-tour="page-client-home">
+    <div className="page-content">
+      <TourAnchor id="page-client-home" />
 
       {/* Prochain call */}
       {nextCall?.scheduled_at && (

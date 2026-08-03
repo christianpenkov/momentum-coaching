@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import PageLoader from '@/components/ui/PageLoader';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -6340,7 +6341,8 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
 
 
   return (
-    <div className="page-content page-client-stats" data-tour="page-client-stats">
+    <div className="page-content page-client-stats">
+      <TourAnchor id="page-client-stats" />
 
       {/* Banner backfill en cours */}
       {backfillInProgress && (

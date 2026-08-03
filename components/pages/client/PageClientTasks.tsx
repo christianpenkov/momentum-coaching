@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
+import TourAnchor from '@/components/onboarding/TourAnchor';
 import InlineLoader from '@/components/ui/InlineLoader';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
@@ -392,7 +393,8 @@ export default function PageClientTasks() {
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
-    <div className="page-content" data-tour="page-client-taches">
+    <div className="page-content">
+      <TourAnchor id="page-client-taches" />
       <div className="page-header">
         <h1 className="page-title">Tâches</h1>
       </div>
