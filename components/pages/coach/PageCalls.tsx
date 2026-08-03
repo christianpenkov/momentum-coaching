@@ -229,7 +229,7 @@ export default function PageCalls() {
             {pending.map(call => {
               const cl = getClient(call.client_id || '');
               const displayName = cl?.name || call.invitee_name || '—';
-              const initials = cl?.initials || '?';
+              const initials = cl?.initials || (displayName !== '—' ? displayName.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase() : '?');
               const d = new Date(call.scheduled_at!);
               return (
                 <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderLeft: '3px solid #f59e0b' }}>
