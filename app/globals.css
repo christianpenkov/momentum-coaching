@@ -1492,6 +1492,20 @@ a { color: inherit; text-decoration: none; }
 .kpi-delta-up { color: var(--green); }
 .kpi-delta-down { color: var(--red); }
 
+/* Groupement de KPI par catégorie (fiche client — Audience / Funnel de vente /
+   Revenu) plutôt qu'une grille plate de cards identiques sans hiérarchie. */
+.kpi-group { margin-bottom: 20px; }
+.kpi-group-title {
+  font-size: 10px; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--muted); margin-bottom: 8px;
+}
+.kpi-card--highlight {
+  border-color: var(--accent-brand, var(--accent));
+  background: linear-gradient(180deg, var(--accent-brand-soft, var(--surface-2)) 0%, var(--surface) 100%);
+}
+.kpi-card--highlight .kpi-value { color: var(--accent-brand, var(--accent)); }
+
 /* PageToday — "Tous tes clients" : cards mobile, masquées par défaut (desktop garde
    le tableau .today-clients-table) ; basculées à 767px, voir bloc Mobile PWA plus bas. */
 .today-clients-cards { display: none; }

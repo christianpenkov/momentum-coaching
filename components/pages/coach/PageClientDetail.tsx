@@ -748,47 +748,66 @@ export default function PageClientDetail({ id }: Props) {
       {/* 8 KPI all-time — funnel de vente de l'élève, résumé global (le détail par
           plateforme/contenu reste dans la page Analytics complète, cf. bouton
           "Analytics" ci-dessus). Zéro divergence de calcul visée avec cette page :
-          mêmes filtres call_type, même isCallHonored, même dénominateur revenu/call. */}
-      <div className="grid-4" style={{ marginBottom: 24 }}>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Abonnés</div>
-          <div className="kpi-value">{followersTotal.toLocaleString('fr-FR')}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {(igRaw?.followers ?? 0).toLocaleString('fr-FR')} · YT {(ytRaw?.subscribers ?? 0).toLocaleString('fr-FR')}</div>
+          mêmes filtres call_type, même isCallHonored, même dénominateur revenu/call.
+          Regroupés en 3 sections (Audience / Funnel de vente / Revenu) plutôt qu'une
+          grille plate de 8 cards identiques — même ordre qu'avant, juste segmenté. */}
+      <div style={{ marginBottom: 24 }}>
+        <div className="kpi-group">
+          <div className="kpi-group-title">Audience</div>
+          <div className="grid-2">
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Abonnés</div>
+              <div className="kpi-value">{followersTotal.toLocaleString('fr-FR')}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {(igRaw?.followers ?? 0).toLocaleString('fr-FR')} · YT {(ytRaw?.subscribers ?? 0).toLocaleString('fr-FR')}</div>
+            </div>
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Publications</div>
+              <div className="kpi-value">{publicationsTotal}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {postsIg ?? 0} · YT {postsYt ?? 0} · Stories {storiesCount ?? 0}</div>
+            </div>
+          </div>
         </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Publications</div>
-          <div className="kpi-value">{publicationsTotal}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {postsIg ?? 0} · YT {postsYt ?? 0} · Stories {storiesCount ?? 0}</div>
+
+        <div className="kpi-group">
+          <div className="kpi-group-title">Funnel de vente</div>
+          <div className="grid-4">
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Leads totaux</div>
+              <div className="kpi-value">{leadsTotal}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+            </div>
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Calls bookés</div>
+              <div className="kpi-value">{callsBookedCount}</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+            </div>
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Taux de show-up</div>
+              <div className="kpi-value">{showUpRate}%</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{callsHonoredCount}/{callsBookedCount} calls</div>
+            </div>
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Taux de closing</div>
+              <div className="kpi-value">{closingRate}%</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{dealsClosedCount}/{callsHonoredCount} calls honorés</div>
+            </div>
+          </div>
         </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Leads totaux</div>
-          <div className="kpi-value">{leadsTotal}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
-        </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Calls bookés</div>
-          <div className="kpi-value">{callsBookedCount}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
-        </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Taux de show-up</div>
-          <div className="kpi-value">{showUpRate}%</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{callsHonoredCount}/{callsBookedCount} calls</div>
-        </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Taux de closing</div>
-          <div className="kpi-value">{closingRate}%</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{dealsClosedCount}/{callsHonoredCount} calls honorés</div>
-        </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Cash contracté</div>
-          <div className="kpi-value">{cashContracted.toLocaleString('fr-FR')} €</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cashCollected != null ? `${cashCollected.toLocaleString('fr-FR')} € collecté` : 'collecté : —'}</div>
-        </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Revenu par call</div>
-          <div className="kpi-value">{revenuePerCall.toLocaleString('fr-FR')} €</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>par call booké</div>
+
+        <div className="kpi-group" style={{ marginBottom: 0 }}>
+          <div className="kpi-group-title">Revenu</div>
+          <div className="grid-2">
+            <div className="card kpi-card kpi-card--highlight" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Cash contracté</div>
+              <div className="kpi-value">{cashContracted.toLocaleString('fr-FR')} €</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cashCollected != null ? `${cashCollected.toLocaleString('fr-FR')} € collecté` : 'collecté : —'}</div>
+            </div>
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+              <div className="kpi-label">Revenu par call</div>
+              <div className="kpi-value">{revenuePerCall.toLocaleString('fr-FR')} €</div>
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>par call booké</div>
+            </div>
+          </div>
         </div>
       </div>
 
