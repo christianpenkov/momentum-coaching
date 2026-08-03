@@ -4,6 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/supabase/types';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
+import { computeSalesCallStats } from '@/lib/salesCallStats';
 
 export interface CoachBusinessData {
   cashContracted: number;
@@ -75,9 +76,16 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now = new Date();
       const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
 
-      const [metricsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes, coachIgLeadsRes, coachProspectsRes] = await Promise.all([
-        ids.length > 0
-          ? supabase.from('weekly_metrics').select('*').in('client_id', ids).order('week', { ascending: true })
+      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes, coachIgLeadsRes, coachProspectsRes, clientPaymentsRes, salesCallsRes] = await Promise.all([
+        // Dernier snapshot par élève pour followers IG/YT + MRR actuels — remplace
+        // weekly_metrics (jamais écrite par aucun cron, table morte). Fenêtre de 3
+        // jours glissants pour tolérer un jour de cron manqué ; on garde ensuite le
+        // plus récent par profile_id côté client, même pattern que PageClientStats.tsx.
+        profileIds.length > 0
+          ? supabase.from('analytics_daily_snapshots').select('profile_id, date, ig_followers, yt_subscribers, mrr')
+              .in('profile_id', profileIds)
+              .gte('date', new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10))
+              .order('date', { ascending: false })
           : { data: [], error: null },
         ids.length > 0
           ? supabase.from('tasks').select('*').in('client_id', ids).eq('added_by', 'coach').order('created_at', { ascending: true })
@@ -114,9 +122,19 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           .eq('profile_id', user.id).gte('detected_at', startOfMonth),
         supabase.from('prospects').select('id', { count: 'exact', head: true })
           .eq('profile_id', user.id).gte('created_at', startOfMonth),
+        // Cash collecté all-time par élève (agrégat + tendance sparkbar, PageClients.tsx)
+        profileIds.length > 0
+          ? supabase.from('stripe_payments').select('profile_id, amount, date').in('profile_id', profileIds).order('date', { ascending: true })
+          : { data: [], error: null },
+        // Calls de vente par élève pour le closing rate — coach_id de la table calls
+        // = profile_id de l'élève, pas le coach humain (piège documenté dans
+        // docs/calls-coach-id-piege.md).
+        profileIds.length > 0
+          ? supabase.from('calls').select('*').in('coach_id', profileIds).eq('call_type', 'calendly').neq('ignored', true)
+          : { data: [], error: null },
       ]);
 
-      if (metricsRes.error) throw metricsRes.error;
+      if (snapshotsRes.error) throw snapshotsRes.error;
       if (tasksRes.error) throw tasksRes.error;
       if (sessionReportsRes.error) throw sessionReportsRes.error;
       if (callsRes.error) throw callsRes.error;
@@ -128,11 +146,34 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if ('error' in leadsThisMonthRes && leadsThisMonthRes.error) throw leadsThisMonthRes.error;
       if (coachIgLeadsRes.error) throw coachIgLeadsRes.error;
       if (coachProspectsRes.error) throw coachProspectsRes.error;
+      if (clientPaymentsRes.error) throw clientPaymentsRes.error;
+      if (salesCallsRes.error) throw salesCallsRes.error;
 
-      const metricsMap: Record<string, any[]> = {};
-      (metricsRes.data || []).forEach((m: any) => {
-        if (!metricsMap[m.client_id]) metricsMap[m.client_id] = [];
-        metricsMap[m.client_id].push(m);
+      // Snapshots triés desc par date → pour chaque métrique, on garde la première
+      // valeur non-null rencontrée par profil (pas juste le tout premier snapshot :
+      // yt_subscribers/mrr peuvent être null les derniers jours avant backfill du
+      // cron, même pattern que PageClientStats.tsx).
+      const latestSnapByProfile: Record<string, { ig_followers: number | null; yt_subscribers: number | null; mrr: number | null }> = {};
+      (snapshotsRes.data || []).forEach((s: any) => {
+        const cur = latestSnapByProfile[s.profile_id] ?? (latestSnapByProfile[s.profile_id] = { ig_followers: null, yt_subscribers: null, mrr: null });
+        if (cur.ig_followers == null && s.ig_followers != null) cur.ig_followers = s.ig_followers;
+        if (cur.yt_subscribers == null && s.yt_subscribers != null) cur.yt_subscribers = s.yt_subscribers;
+        if (cur.mrr == null && s.mrr != null) cur.mrr = s.mrr;
+      });
+
+      // Paiements triés asc par élève — sert au total all-time et à la sparkbar cumulative.
+      const paymentsByProfile: Record<string, { amount: number; date: string }[]> = {};
+      (clientPaymentsRes.data || []).forEach((p: any) => {
+        if (!paymentsByProfile[p.profile_id]) paymentsByProfile[p.profile_id] = [];
+        paymentsByProfile[p.profile_id].push(p);
+      });
+
+      // Calls de vente groupés par profile_id élève (coach_id de `calls` = profile_id
+      // élève, voir docs/calls-coach-id-piege.md) — utilisés pour le closing rate.
+      const salesCallsByProfile: Record<string, any[]> = {};
+      (salesCallsRes.data || []).forEach((c: any) => {
+        if (!salesCallsByProfile[c.coach_id]) salesCallsByProfile[c.coach_id] = [];
+        salesCallsByProfile[c.coach_id].push(c);
       });
 
       const tasksMap: Record<string, any[]> = {};
@@ -164,8 +205,20 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       });
       const REQUIRED_PROVIDERS = ['instagram', 'calendly', 'youtube', 'stripe', 'shortio'];
 
+      const now2 = new Date();
       setClients((rawClients || []).map((c: any) => {
-        const metrics = (metricsMap[c.id] || []).sort((a: any, b: any) => a.week - b.week);
+        const snap = c.profile_id ? latestSnapByProfile[c.profile_id] : null;
+        const salesCalls = c.profile_id ? (salesCallsByProfile[c.profile_id] || []) : [];
+        const currentStats = c.profile_id ? {
+          followersIg: snap?.ig_followers ?? 0,
+          followersYt: snap?.yt_subscribers ?? 0,
+          mrr: snap?.mrr ?? 0,
+          closingRate: computeSalesCallStats(salesCalls, now2).closingRate,
+        } : null;
+        const payments = c.profile_id ? (paymentsByProfile[c.profile_id] || []) : [];
+        const cashCollectedAllTimeForClient = payments.reduce((s, p) => s + (p.amount || 0), 0);
+        let running = 0;
+        const cashCollectedTrend = payments.map(p => (running += p.amount || 0));
         const connectedProviders = c.profile_id ? (providersByProfile[c.profile_id] ?? new Set<string>()) : new Set<string>();
         const waived: string[] = c.integrations_waived ?? [];
         const onboardingStatus: 'invited' | 'account_created' | 'integrating' | 'active' =
@@ -182,11 +235,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         return {
           ...c,
           name: liveFullName || c.name,
-          weeklyMetrics: metrics,
           tasks: tasksMap[c.id] || [],
           sessionReports: sessionReportsMap[c.id] || [],
-          latestMetrics: metrics[metrics.length - 1] || null,
-          prevMetrics: metrics[metrics.length - 2] || null,
+          currentStats,
+          cashCollectedAllTime: cashCollectedAllTimeForClient,
+          cashCollectedTrend,
           resources: [],
           lastCoachMessage: null,
           avatar_url: c.profile_id ? (avatarMap[c.profile_id] || null) : null,

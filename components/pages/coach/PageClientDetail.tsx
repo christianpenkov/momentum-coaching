@@ -17,13 +17,12 @@ import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
 import { isTaskOverdue } from '@/lib/clientSignals';
-import { isCallHonored } from '@/lib/callHonored';
+import { computeSalesCallStats, isNotCanceled } from '@/lib/salesCallStats';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
-import type { Task, SessionReport, Call, Client, WeeklyMetrics } from '@/lib/supabase/types';
+import type { Task, SessionReport, Call, Client } from '@/lib/supabase/types';
 
 interface ClientDetailData extends Client {
   tasks: Task[];
-  weeklyMetrics: WeeklyMetrics[];
   avatar_url: string | null;
 }
 
@@ -34,10 +33,9 @@ interface ClientDetailData extends Client {
 // avec staleTime généreux, cache par clé, pas de Promise.all bloquant global.
 async function fetchClientDetail(clientId: string): Promise<ClientDetailData | null> {
   const supabase = createSupabase();
-  const [clientRes, tasksRes, metricsRes] = await Promise.all([
+  const [clientRes, tasksRes] = await Promise.all([
     supabase.from('clients').select('*').eq('id', clientId).single(),
     supabase.from('tasks').select('*').eq('client_id', clientId).order('created_at', { ascending: true }),
-    supabase.from('weekly_metrics').select('*').eq('client_id', clientId).order('week', { ascending: true }),
   ]);
   if (clientRes.error || !clientRes.data) return null;
   let avatarUrl: string | null = null;
@@ -45,13 +43,12 @@ async function fetchClientDetail(clientId: string): Promise<ClientDetailData | n
     const { data: profile } = await supabase.from('profiles').select('avatar_url').eq('id', clientRes.data.profile_id).single();
     avatarUrl = profile?.avatar_url ?? null;
   }
-  return { ...clientRes.data, tasks: tasksRes.data || [], weeklyMetrics: metricsRes.data || [], avatar_url: avatarUrl };
+  return { ...clientRes.data, tasks: tasksRes.data || [], avatar_url: avatarUrl };
 }
 
-// Calls de vente (call_type='calendly') d'un élève déjà converti — calls.client_id
-// n'étant pas fiable pour ce cas (voir route API), la résolution passe par
-// l'email Auth du client, faite côté serveur (service-role, pas accessible au
-// client Supabase browser).
+// Calls de vente (call_type='calendly') d'un élève — calls.client_id n'étant pas
+// fiable pour ce cas, la route filtre par calls.coach_id = client.profile_id
+// (piège documenté dans docs/calls-coach-id-piege.md), en service-role côté serveur.
 async function fetchSalesCalls(clientId: string): Promise<Call[]> {
   const res = await fetch(`/api/coach/clients/${clientId}/sales-calls`);
   if (!res.ok) return [];
@@ -482,33 +479,23 @@ export default function PageClientDetail({ id }: Props) {
     </div>
   );
 
-  const metrics = client.weeklyMetrics || [];
-  const last = metrics[metrics.length - 1] || null;
-  const prev = metrics[metrics.length - 2] || null;
-
   // ── 8 KPI all-time (funnel de vente de l'élève, résumé global) ──────────────
   // Calls de vente = call_type='calendly' uniquement (jamais 'google', réservé au
   // coaching) — bug identifié sur l'ancien calls30 qui ne filtrait pas du tout par
   // call_type. Statuts annulés exclus des deux côtés (vente et coaching). Source :
-  // fetchSalesCalls (route API, résolution par email — calls.client_id n'est pas
-  // fiable pour ce cas, cf. commentaire de la route).
-  const NOT_CANCELED = (c: Call) => !['cancelled', 'canceled', 'declined'].includes(c.status ?? '');
-  const salesCalls = salesCallsData.filter(NOT_CANCELED);
+  // fetchSalesCalls (route API, filtrée par coach_id = profile_id de l'élève,
+  // cf. docs/calls-coach-id-piege.md). Calcul partagé avec la liste clients via
+  // lib/salesCallStats.ts pour éviter toute divergence entre les deux vues.
   const now = new Date();
-
-  const callsBookedCount = salesCalls.filter(c => c.status === 'active').length;
-  const callsHonoredCount = salesCalls.filter(c => c.status && c.scheduled_at && isCallHonored({ ...c, status: c.status, scheduled_at: c.scheduled_at }, now)).length;
-  const dealsClosedCount = salesCalls.filter(c => c.deal_closed).length;
+  const { callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate, cashContracted } = computeSalesCallStats(salesCallsData, now);
   const showUpRate = callsBookedCount > 0 ? Math.round((callsHonoredCount / callsBookedCount) * 100) : 0;
-  const closingRate = callsHonoredCount > 0 ? Math.round((dealsClosedCount / callsHonoredCount) * 100) : 0;
-  const cashContracted = salesCalls.reduce((s, c) => s + (c.revenue || 0), 0);
   const revenuePerCall = callsBookedCount > 0 ? Math.round(cashContracted / callsBookedCount) : 0;
 
   // Leads totaux = leads IG (pré-call, toutes sources) + calls YT bookés (source
   // UTM commence par 'yt', même pattern que PagePipeline.tsx:1427-1428 — YT n'a
   // pas de notion de lead pré-call, un chevauchement partiel avec
   // callsBookedCount est assumé, pas un double comptage à corriger).
-  const ytBookedCalls = salesCalls.filter(c => (c.source ?? '').toLowerCase().startsWith('yt')).length;
+  const ytBookedCalls = salesCallsData.filter(c => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
   const leadsTotal = (igLeadsCount ?? 0) + ytBookedCalls;
 
   const postsIg = igRaw?.posts?.length ?? null;
@@ -520,7 +507,7 @@ export default function PageClientDetail({ id }: Props) {
   const cashCollected = null as number | null;
 
   // ── Suivi de l'accompagnement (coaching, distinct du funnel de vente ci-dessus) ──
-  const coachingCalls = calls.filter(c => c.call_type === 'google' && NOT_CANCELED(c));
+  const coachingCalls = calls.filter(c => c.call_type === 'google' && isNotCanceled(c));
   const coachingCallsCount = coachingCalls.length;
   // session_no_show (pas no_show, réservé au flux vente) — rempli par SessionRapportModal.
   const coachingNoShowCount = coachingCalls.filter(c => c.session_no_show).length;
@@ -1236,52 +1223,6 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         )}
       </div>
-
-      {/* Stats & tendances */}
-      {metrics.length > 1 && (
-        <div className="card" style={{ marginTop: 24 }}>
-          <div className="card-head">
-            <div>
-              <div className="card-title">Statistiques — {metrics.length} semaines</div>
-              <div className="card-sub">Évolution semaine par semaine</div>
-            </div>
-            <Link href={`/clients/${id}/analytics`} className="btn-primary-brand" style={{ fontSize: 12 }}>
-              <Icon name="bar-chart" size={13} /> Analytics complet
-            </Link>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16, marginTop: 20 }}>
-            {[
-              { label: 'Followers Instagram', data: metrics.map(w => w.followers_ig), color: '#E1306C', format: (n: number) => n.toLocaleString('fr-FR') },
-              { label: 'Posts / semaine',     data: metrics.map(w => w.posts_count),  color: 'var(--accent)', format: (n: number) => `${n} posts` },
-              { label: 'Taux de closing',     data: metrics.map(w => w.closing_rate * 10), color: 'var(--green)', format: (_n: number, i: number) => `${metrics[i]?.closing_rate ?? 0}%` },
-              { label: 'Taux no-show',        data: metrics.map(w => w.no_show_rate * 10), color: 'var(--amber)', format: (_n: number, i: number) => `${metrics[i]?.no_show_rate ?? 0}%` },
-              { label: 'Rétention vidéo',     data: metrics.map(w => w.video_retention * 10), color: 'var(--accent)', format: (_n: number, i: number) => `${metrics[i]?.video_retention ?? 0}%` },
-              { label: 'CTR lien en bio',     data: metrics.map(w => w.ctr_bio_link * 10), color: '#8B5CF6', format: (_n: number, i: number) => `${metrics[i]?.ctr_bio_link ?? 0}%` },
-              { label: 'MRR Stripe',          data: metrics.map(w => w.stripe_mrr), color: 'var(--green)', format: (n: number) => `${n.toLocaleString('fr-FR')} €` },
-              { label: 'DM envoyés',          data: metrics.map(w => w.dms_sent), color: 'var(--muted)', format: (n: number) => `${n} DM` },
-            ].map(({ label, data, color, format }) => {
-              const lastVal = data[data.length - 1] ?? 0;
-              const prevVal = data[data.length - 2] ?? 0;
-              const delta = lastVal - prevVal;
-              const pct = prevVal > 0 ? Math.round((delta / prevVal) * 100) : 0;
-              return (
-                <div key={label} style={{ padding: '14px 16px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
-                  <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 8, fontWeight: 500 }}>{label}</div>
-                  <div style={{ marginBottom: 10 }}>
-                    <Sparkbars data={data} height={30} width={100} color={color} />
-                  </div>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
-                    {format(lastVal, data.length - 1)}
-                  </div>
-                  <div style={{ fontSize: 11, color: pct >= 0 ? 'var(--green)' : 'var(--red)', marginTop: 3, fontWeight: 600 }}>
-                    {pct >= 0 ? '+' : ''}{pct}% vs sem. préc.
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* Intégrations requises — permet d'exempter manuellement un provider que cet
           élève n'utilise pas (ex. pas de chaîne YouTube), pour qu'il ne reste pas

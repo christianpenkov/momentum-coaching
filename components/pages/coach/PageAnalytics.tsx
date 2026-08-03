@@ -33,91 +33,39 @@ export default function PageAnalytics() {
   if (loading) return <InlineLoader fullPage />;
 
   // ── KPIs agrégés ──────────────────────────────────────────────────────────
-  const totalMRR = clients.reduce((s, c) => s + (c.latestMetrics?.stripe_mrr || 0), 0);
-  const totalCalls = clients.reduce((s, c) => {
-    const metrics = c.weeklyMetrics || [];
-    // somme calls du mois (4 dernières semaines)
-    return s + metrics.slice(-4).reduce((a, m) => a + (m.calendly_calls || 0), 0);
-  }, 0);
+  // NOTE (2026-08-03) : cette page dépendait entièrement de weekly_metrics, table
+  // jamais alimentée par aucun cron (voir docs/... chantier weekly_metrics). Stub
+  // minimal pour rester compilable en attendant la refonte complète prévue
+  // (renommage "Stats Clients", chantier séparé) — comportement inchangé pour
+  // l'utilisateur : les sections restent vides comme avant.
+  const totalMRR = clients.reduce((s, c) => s + (c.currentStats?.mrr || 0), 0);
+  const totalCalls = 0;
   const avgClosing = clients.length > 0
-    ? Math.round(clients.reduce((s, c) => s + (c.latestMetrics?.closing_rate || 0), 0) / clients.length)
+    ? Math.round(clients.reduce((s, c) => s + (c.currentStats?.closingRate || 0), 0) / clients.length)
     : 0;
 
-  // croissance IG moyenne sur 12 semaines
-  const clientsWithEnoughMetrics = clients.filter(c => (c.weeklyMetrics?.length || 0) >= 2);
-  const avgGrowth = clientsWithEnoughMetrics.length > 0
-    ? Math.round(clientsWithEnoughMetrics.reduce((s, c) => {
-        const m = c.weeklyMetrics!;
-        const first = m[0].followers_ig || 1;
-        const last = m[m.length - 1].followers_ig || 0;
-        return s + ((last - first) / first) * 100;
-      }, 0) / clientsWithEnoughMetrics.length)
-    : 0;
+  const avgGrowth = 0;
 
   // ── Courbe croissance audience ─────────────────────────────────────────────
-  // Aligner sur "semaine relative" S1…S12 pour comparer les élèves entre eux
-  const maxWeeks = Math.max(...clients.map(c => c.weeklyMetrics?.length || 0), 0);
-  const weekLabels = Array.from({ length: Math.min(maxWeeks, 12) }, (_, i) => `S${i + 1}`);
-
-  const growthLines = clients.map((c, idx) => {
-    const metrics = (c.weeklyMetrics || []).slice(0, 12);
-    const row: Record<string, unknown> = { week: '' };
-    metrics.forEach((m, i) => {
-      row[`S${i + 1}`] = platform === 'ig' ? (m.followers_ig || 0) : (m.followers_yt || 0);
-    });
-    return { client: c, metrics, color: clientColor(c.id) };
-  });
-
-  // Construire les data points pour LineChart : une entrée par semaine
-  const growthData = weekLabels.map((wk, i) => {
-    const row: Record<string, unknown> = { week: wk };
-    growthLines.forEach(({ client, metrics }) => {
-      row[client.id] = metrics[i] ? (platform === 'ig' ? metrics[i].followers_ig : metrics[i].followers_yt) : null;
-    });
-    return row;
-  });
-
-  const growthLinesDef = growthLines.map(({ client, color }) => ({
-    key: client.id,
-    label: client.name,
-    color,
-  }));
+  const maxWeeks = 0;
+  const weekLabels: string[] = [];
+  const growthData: Record<string, unknown>[] = [];
+  const growthLinesDef: { key: string; label: string; color: string }[] = [];
 
   // ── Heatmap posts ──────────────────────────────────────────────────────────
-  const heatmapRows = clients.map(c => ({
-    name: initials(c.name),
-    cells: (c.weeklyMetrics || []).slice(0, 12).map((m, i) => ({
-      label: `S${i + 1}`,
-      value: m.posts_count || 0,
-    })),
-  }));
-  const heatmapCols = clients.length > 0
-    ? (clients[0].weeklyMetrics || []).slice(0, 12).map((_, i) => `S${i + 1}`)
-    : [];
+  const heatmapRows: { name: string; cells: { label: string; value: number }[] }[] = [];
+  const heatmapCols: string[] = [];
 
   // ── BarChart DM vs taux réponse ────────────────────────────────────────────
-  const dmBarData = clients.map(c => ({
-    name: initials(c.name),
-    'DM/sem moy.': c.weeklyMetrics?.length
-      ? Math.round(c.weeklyMetrics.reduce((s, m) => s + (m.dms_sent || 0), 0) / c.weeklyMetrics.length)
-      : 0,
-    'Réponses %': c.latestMetrics?.dms_reply_rate || 0,
-  }));
+  const dmBarData: { name: string; 'DM/sem moy.': number; 'Réponses %': number }[] = [];
 
   // ── Tableau comparatif ─────────────────────────────────────────────────────
-  const tableRows = clients.map((c, idx) => {
-    const m = c.latestMetrics;
-    const metrics = c.weeklyMetrics || [];
-    const igFirst = metrics[0]?.followers_ig || 0;
-    const igLast = m?.followers_ig || 0;
-    const igGrowthPct = igFirst > 0 ? Math.round(((igLast - igFirst) / igFirst) * 100) : 0;
-    const avgPosts = metrics.length > 0
-      ? Math.round(metrics.reduce((s, x) => s + (x.posts_count || 0), 0) / metrics.length * 10) / 10
-      : 0;
-    const avgDms = metrics.length > 0
-      ? Math.round(metrics.reduce((s, x) => s + (x.dms_sent || 0), 0) / metrics.length)
-      : 0;
-    const totalCallsClient = metrics.slice(-4).reduce((s, x) => s + (x.calendly_calls || 0), 0);
+  const tableRows = clients.map(c => {
+    const m = c.currentStats;
+    const igGrowthPct = 0;
+    const avgPosts = 0;
+    const avgDms = 0;
+    const totalCallsClient = 0;
     return { c, m, igGrowthPct, avgPosts, avgDms, totalCallsClient, color: clientColor(c.id) };
   });
 
@@ -238,12 +186,12 @@ export default function PageAnalytics() {
                   const rows = tableRows.map(({ c, m, igGrowthPct, avgPosts, avgDms, totalCallsClient }) => [
                     c.name,
                     String(getClientSignals(c.tasks, c.sessionReports).total),
-                    (m?.followers_ig || 0).toLocaleString('fr-FR'),
+                    (m?.followersIg || 0).toLocaleString('fr-FR'),
                     `${igGrowthPct >= 0 ? '+' : ''}${igGrowthPct}%`,
                     avgPosts,
                     avgDms,
                     totalCallsClient,
-                    `${(m?.stripe_mrr || 0).toLocaleString('fr-FR')} €`,
+                    `${(m?.mrr || 0).toLocaleString('fr-FR')} €`,
                   ]);
                   const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
                   const a = document.createElement('a');
@@ -299,7 +247,7 @@ export default function PageAnalytics() {
                         })()}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700 }}>
-                        {((m?.followers_ig || 0) + (m?.followers_yt || 0)).toLocaleString('fr-FR')}
+                        {((m?.followersIg || 0) + (m?.followersYt || 0)).toLocaleString('fr-FR')}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: igGrowthPct > 0 ? 'var(--green)' : igGrowthPct < 0 ? 'var(--red)' : 'var(--muted)' }}>
                         {igGrowthPct !== 0 ? `${igGrowthPct >= 0 ? '+' : ''}${igGrowthPct}%` : '—'}
@@ -307,8 +255,8 @@ export default function PageAnalytics() {
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{avgPosts}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{avgDms}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{totalCallsClient}</td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: (m?.stripe_mrr || 0) > 0 ? 'var(--green)' : 'var(--muted)' }}>
-                        {(m?.stripe_mrr || 0).toLocaleString('fr-FR')} €
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: (m?.mrr || 0) > 0 ? 'var(--green)' : 'var(--muted)' }}>
+                        {(m?.mrr || 0).toLocaleString('fr-FR')} €
                       </td>
                     </tr>
                   ))}

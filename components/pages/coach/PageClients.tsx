@@ -66,8 +66,8 @@ export default function PageClients() {
       );
     }
     list.sort((a, b) => {
-      if (sort === 'mrr') return (b.latestMetrics?.stripe_mrr || 0) - (a.latestMetrics?.stripe_mrr || 0);
-      if (sort === 'followers') return (b.latestMetrics?.followers_ig || 0) - (a.latestMetrics?.followers_ig || 0);
+      if (sort === 'mrr') return (b.currentStats?.mrr || 0) - (a.currentStats?.mrr || 0);
+      if (sort === 'followers') return (b.currentStats?.followersIg || 0) - (a.currentStats?.followersIg || 0);
       if (sort === 'week') return (b.week || 0) - (a.week || 0);
       return a.name.localeCompare(b.name);
     });
@@ -184,8 +184,7 @@ export default function PageClients() {
               </thead>
               <tbody>
                 {filtered.map((c) => {
-                  const m = c.latestMetrics;
-                  const igDelta = m && c.prevMetrics ? m.followers_ig - c.prevMetrics.followers_ig : 0;
+                  const m = c.currentStats;
                   return (
                     <tr key={c.id}>
                       <td>
@@ -212,28 +211,21 @@ export default function PageClients() {
                         })()}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{c.week}</td>
-                      <td>
-                        <div style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600 }}>
-                          {(m?.followers_ig || 0).toLocaleString('fr-FR')}
-                        </div>
-                        {igDelta !== 0 && (
-                          <div style={{ fontSize: 11, color: igDelta > 0 ? 'var(--green)' : 'var(--red)' }}>
-                            {igDelta > 0 ? '+' : ''}{igDelta}
-                          </div>
-                        )}
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600 }}>
+                        {(m?.followersIg || 0).toLocaleString('fr-FR')}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                        {(m?.followers_yt || 0).toLocaleString('fr-FR')}
+                        {(m?.followersYt || 0).toLocaleString('fr-FR')}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
-                        {(m?.stripe_mrr || 0).toLocaleString('fr-FR')} €
+                        {(m?.mrr || 0).toLocaleString('fr-FR')} €
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                        {m?.closing_rate ? `${m.closing_rate}%` : '—'}
+                        {m ? `${m.closingRate}%` : '—'}
                       </td>
                       <td>
                         <Sparkbars
-                          data={c.weeklyMetrics.slice(-8).map(w => w.followers_ig)}
+                          data={c.cashCollectedTrend}
                           height={22} width={52}
                         />
                       </td>

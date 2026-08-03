@@ -2,15 +2,22 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Client, WeeklyMetrics, Task, Call, SessionReport } from '@/lib/supabase/types';
+import type { Client, Task, Call, SessionReport } from '@/lib/supabase/types';
 import { isCallReallyOver } from '@/lib/sessionRapport';
 
+export interface CurrentStats {
+  followersIg: number;
+  followersYt: number;
+  mrr: number;
+  closingRate: number;
+}
+
 export interface ClientWithMetrics extends Client {
-  weeklyMetrics: WeeklyMetrics[];
   tasks: Task[];
   sessionReports: SessionReport[];
-  latestMetrics: WeeklyMetrics | null;
-  prevMetrics: WeeklyMetrics | null;
+  currentStats: CurrentStats | null;
+  cashCollectedAllTime: number;
+  cashCollectedTrend: number[];
   resources: { id: string; title: string; description: string | null; url: string | null; week: number | null; created_at: string }[];
   lastCoachMessage: string | null;
   coachName: string | null;
@@ -30,162 +37,6 @@ export interface ClientSelfBusinessData {
 
 export interface ClientSelfData extends ClientWithMetrics {
   business: ClientSelfBusinessData;
-}
-
-export interface CoachData {
-  clients: ClientWithMetrics[];
-  calls: Call[];
-  loading: boolean;
-  error: string | null;
-  refetch: () => void;
-}
-
-export function useCoachData(): CoachData {
-  const [clients, setClients] = useState<ClientWithMetrics[]>([]);
-  const [calls, setCalls] = useState<Call[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
-
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setError('Non authentifié'); setLoading(false); return; }
-
-      // Clients du coach
-      const { data: rawClients, error: clientsErr } = await supabase
-        .from('clients')
-        .select('*')
-        .eq('coach_id', user.id)
-        .order('created_at', { ascending: true });
-
-      if (clientsErr) throw clientsErr;
-
-      const clientIds = (rawClients || []).map(c => c.id);
-      const profileIds = (rawClients || []).map(c => c.profile_id).filter((id): id is string => !!id);
-
-      // Métriques hebdo + tasks en parallèle
-      const [metricsRes, tasksRes, callsRes, avatarsRes] = await Promise.all([
-        clientIds.length > 0
-          ? supabase.from('weekly_metrics').select('*').in('client_id', clientIds).order('week', { ascending: true })
-          : Promise.resolve({ data: [], error: null }),
-        clientIds.length > 0
-          ? supabase.from('tasks').select('*').in('client_id', clientIds).order('created_at', { ascending: true })
-          : Promise.resolve({ data: [], error: null }),
-        clientIds.length > 0
-          ? supabase.from('calls').select('*').in('client_id', clientIds)
-              .neq('ignored', true)
-              .gte('scheduled_at', new Date().toISOString().split('T')[0])
-              .order('scheduled_at', { ascending: true })
-              .limit(20)
-          : Promise.resolve({ data: [], error: null }),
-        profileIds.length > 0
-          ? supabase.from('profiles').select('id, avatar_url').in('id', profileIds)
-          : Promise.resolve({ data: [], error: null }),
-      ]);
-
-      if (metricsRes.error) throw metricsRes.error;
-      if (tasksRes.error) throw tasksRes.error;
-
-      const avatarMap: Record<string, string | null> = {};
-      (avatarsRes.data || []).forEach((p: { id: string; avatar_url: string | null }) => { avatarMap[p.id] = p.avatar_url; });
-
-      const metricsMap: Record<string, WeeklyMetrics[]> = {};
-      (metricsRes.data || []).forEach((m: WeeklyMetrics) => {
-        if (!metricsMap[m.client_id]) metricsMap[m.client_id] = [];
-        metricsMap[m.client_id].push(m);
-      });
-
-      const tasksMap: Record<string, Task[]> = {};
-      (tasksRes.data || []).forEach((t: Task) => {
-        if (!tasksMap[t.client_id]) tasksMap[t.client_id] = [];
-        tasksMap[t.client_id].push(t);
-      });
-
-      const enriched: ClientWithMetrics[] = (rawClients || []).map(c => {
-        const metrics = metricsMap[c.id] || [];
-        const sorted = [...metrics].sort((a, b) => a.week - b.week);
-        return {
-          ...c,
-          weeklyMetrics: sorted,
-          tasks: tasksMap[c.id] || [],
-          latestMetrics: sorted[sorted.length - 1] || null,
-          prevMetrics: sorted[sorted.length - 2] || null,
-          avatar_url: c.profile_id ? (avatarMap[c.profile_id] ?? null) : null,
-        };
-      });
-
-      setClients(enriched);
-      setCalls(callsRes.data || []);
-    } catch (e: any) {
-      setError(e.message || 'Erreur chargement données');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => { fetch(); }, [fetch]);
-
-  return { clients, calls, loading, error, refetch: fetch };
-}
-
-export function useClientData(clientId: string) {
-  const [client, setClient] = useState<ClientWithMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const supabase = createClient();
-
-  const fetch = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [clientRes, metricsRes, tasksRes] = await Promise.all([
-        supabase.from('clients').select('*').eq('id', clientId).single(),
-        supabase.from('weekly_metrics').select('*').eq('client_id', clientId).order('week', { ascending: true }),
-        supabase.from('tasks').select('*').eq('client_id', clientId).order('created_at', { ascending: true }),
-      ]);
-
-      if (clientRes.error) throw clientRes.error;
-
-      const profileId = clientRes.data?.profile_id;
-      const avatarRes = profileId
-        ? await supabase.from('profiles').select('avatar_url').eq('id', profileId).maybeSingle()
-        : { data: null };
-
-      const metrics = metricsRes.data || [];
-      setClient({
-        ...clientRes.data,
-        weeklyMetrics: metrics,
-        tasks: tasksRes.data || [],
-        latestMetrics: metrics[metrics.length - 1] || null,
-        prevMetrics: metrics[metrics.length - 2] || null,
-        avatar_url: avatarRes.data?.avatar_url ?? null,
-      });
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, [clientId]);
-
-  useEffect(() => { fetch(); }, [fetch]);
-
-  const updateTask = useCallback(async (taskId: string, done: boolean) => {
-    await supabase.from('tasks').update({ done }).eq('id', taskId);
-    setClient(prev => {
-      if (!prev) return prev;
-      return { ...prev, tasks: prev.tasks.map(t => t.id === taskId ? { ...t, done } : t) };
-    });
-  }, []);
-
-  const addTask = useCallback(async (task: Omit<Task, 'id' | 'created_at'>) => {
-    const { data } = await supabase.from('tasks').insert(task).select().single();
-    if (data) setClient(prev => prev ? { ...prev, tasks: [...prev.tasks, data] } : prev);
-  }, []);
-
-  return { client, loading, error, refetch: fetch, updateTask, addTask };
 }
 
 // Hook léger pour l'espace client (vue client connecté)
@@ -213,11 +64,10 @@ export function useClientSelfData() {
       const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
 
       const [
-        metricsRes, tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
+        tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
         nextCallRes, callsTodayRes, callsThisMonthRes, leadsThisMonthRes,
         stripeIntegRes, stripePaymentsRes, ownProfileRes,
       ] = await Promise.all([
-        supabase.from('weekly_metrics').select('*').eq('client_id', clientRow.id).order('week', { ascending: true }),
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
         supabase.from('messages').select('text, created_at').eq('client_id', clientRow.id).eq('sender_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(1),
@@ -253,7 +103,6 @@ export function useClientSelfData() {
           : Promise.resolve({ data: null }),
       ]);
 
-      const metrics = metricsRes.data || [];
       const coachFullName: string | null = coachProfileRes.data?.full_name ?? null;
       const coachName = coachFullName ? coachFullName.split(' ')[0] : null;
 
@@ -274,10 +123,10 @@ export function useClientSelfData() {
 
       setData({
         ...clientRow,
-        weeklyMetrics: metrics,
         tasks: tasksRes.data || [],
-        latestMetrics: metrics[metrics.length - 1] || null,
-        prevMetrics: metrics[metrics.length - 2] || null,
+        currentStats: null,
+        cashCollectedAllTime: 0,
+        cashCollectedTrend: [],
         resources: resourcesRes.data || [],
         lastCoachMessage: lastMsgRes.data?.[0]?.text || null,
         coachName,
