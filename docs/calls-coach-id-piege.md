@@ -34,3 +34,7 @@ if (onboardingFloor) callsQuery.gte('scheduled_at', onboardingFloor);
 ```
 
 **Note sur le coaching (`call_type='google'`)** : cette confusion ne s'applique qu'aux calls de vente (`call_type='calendly'`). Pour un call de coaching, `client_id` est déjà fiable (l'élève a nécessairement un compte au moment du booking, donc `client_id` est correctement posé dès la création) — pas besoin de ce détour par `coach_id`/`profile_id` dans ce cas.
+
+## Faut-il renommer la colonne ?
+
+Discuté avec Chris le 2026-08-03. Décision : **non, pas maintenant**. Un renommage (`coach_id` → ex. `owner_profile_id`) éliminerait le piège à la racine, mais c'est un chantier à part entière : migration DB + audit et mise à jour de tous les usages (`PageClientStats.tsx`, `PagePipeline.tsx`, `app/api/client/pipeline/route.ts`, webhooks/sync Calendly, cette route `sales-calls/route.ts`, et probablement d'autres non recensés) — risqué car un oubli est silencieux (string SQL, pas d'erreur de compilation). Cette doc suffit pour l'instant à éviter la récidive. À reprendre uniquement comme chantier dédié, avec audit complet des usages avant de toucher au schéma.
