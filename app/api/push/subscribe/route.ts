@@ -27,6 +27,15 @@ export async function POST(req: NextRequest) {
     .neq('endpoint', subscription.endpoint)
     .lt('created_at', cutoff);
 
+  // Un endpoint (= un appareil/navigateur donné) ne doit être associé qu'à un seul
+  // profil actif à la fois — sans ça, se connecter avec un autre compte sur le même
+  // téléphone laisse l'ancien profil recevoir les pushs adressés au nouveau (et
+  // vice-versa), l'endpoint FCM/APNs restant identique d'une session à l'autre.
+  await supabase.from('push_subscriptions')
+    .delete()
+    .eq('endpoint', subscription.endpoint)
+    .neq('profile_id', userId);
+
   const { error } = await supabase.from('push_subscriptions').upsert({
     profile_id: userId,
     endpoint: subscription.endpoint,
