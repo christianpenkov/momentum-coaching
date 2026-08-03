@@ -38,7 +38,10 @@ export async function GET(request: NextRequest) {
     if (clientIdParam) query = query.eq('client_id', clientIdParam);
 
     const { data, error } = await query;
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    if (error) {
+      console.error('[GET /api/tasks] coach query failed:', error);
+      return NextResponse.json({ error: error.message, code: (error as any).code, details: (error as any).details, hint: (error as any).hint }, { status: 500 });
+    }
     return NextResponse.json({ tasks: data });
   }
 
