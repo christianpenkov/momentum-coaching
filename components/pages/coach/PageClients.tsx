@@ -1,7 +1,7 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import Avatar from '@/components/ui/Avatar';
@@ -9,7 +9,7 @@ import Chip from '@/components/ui/Chip';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import { getClientSignals } from '@/lib/clientSignals';
+import { getClientSignals, isTaskOverdue } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
 import AddClientModal from '@/components/ui/AddClientModal';
 import { createClient as createSupabase } from '@/lib/supabase/client';
@@ -19,7 +19,7 @@ type Filter = 'all' | 'overdue' | 'noshow';
 
 export default function PageClients() {
   const router = useRouter();
-  const { clients, loading, unarchiveClient } = useSupabaseClients();
+  const { clients, loading, unarchiveClient, refetch } = useSupabaseClients();
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'name' | 'cash' | 'followers' | 'week'>('cash');
@@ -202,16 +202,8 @@ export default function PageClients() {
                       <td>
                         <OnboardingBadge status={c.onboardingStatus} />
                       </td>
-                      <td>
-                        {(() => {
-                          const s = signalsByClient.get(c.id);
-                          if (!s || s.total === 0) return <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
-                          const parts = [
-                            s.overdueTasksCount > 0 ? `${s.overdueTasksCount} tâche${s.overdueTasksCount > 1 ? 's' : ''} en retard` : null,
-                            s.activeNoShowsCount > 0 ? `${s.activeNoShowsCount} no-show${s.activeNoShowsCount > 1 ? 's' : ''}` : null,
-                          ].filter(Boolean).join(' · ');
-                          return <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600 }}>{parts}</span>;
-                        })()}
+                      <td onClick={e => e.stopPropagation()}>
+                        <SignalsCell client={c} signals={signalsByClient.get(c.id)} onResolved={refetch} />
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{getClientWeek(c.onboarding_completed_at)}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600 }}>
@@ -267,5 +259,103 @@ function OnboardingBadge({ status }: { status?: string }) {
     }}>
       {cfg.label}
     </span>
+  );
+}
+
+// Badge Signaux cliquable — ouvre un menu listant chaque tâche en retard / no-show
+// individuellement avec un bouton pour le résoudre, sans quitter la liste clients.
+// Réutilise les mêmes routes API que PageClientDetail.tsx (resolveTask/acknowledgeNoShow).
+function SignalsCell({ client, signals, onResolved }: {
+  client: ClientWithMetrics;
+  signals: ReturnType<typeof getClientSignals> | undefined;
+  onResolved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function onClickOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener('mousedown', onClickOutside);
+    return () => document.removeEventListener('mousedown', onClickOutside);
+  }, [open]);
+
+  if (!signals || signals.total === 0) return <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
+
+  const overdueTasks = client.tasks.filter(t => t.added_by === 'coach' && isTaskOverdue(t));
+  const activeNoShows = client.sessionReports.filter(r => r.attended === false && !r.acknowledged_at);
+
+  async function resolveTask(taskId: string) {
+    setBusyId(taskId);
+    const res = await fetch(`/api/tasks/${taskId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ resolved_by_coach: true }),
+    });
+    setBusyId(null);
+    if (res.ok) onResolved();
+  }
+
+  async function acknowledgeNoShow(reportId: string) {
+    setBusyId(reportId);
+    const res = await fetch(`/api/session-reports/${reportId}/acknowledge`, { method: 'PATCH' });
+    setBusyId(null);
+    if (res.ok) onResolved();
+  }
+
+  const parts = [
+    signals.overdueTasksCount > 0 ? `${signals.overdueTasksCount} tâche${signals.overdueTasksCount > 1 ? 's' : ''} en retard` : null,
+    signals.activeNoShowsCount > 0 ? `${signals.activeNoShowsCount} no-show${signals.activeNoShowsCount > 1 ? 's' : ''}` : null,
+  ].filter(Boolean).join(' · ');
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, background: 'none', border: 'none', cursor: 'pointer', padding: 0, textDecoration: 'underline', textDecorationStyle: 'dotted', textUnderlineOffset: 3 }}
+      >
+        {parts}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, marginTop: 6, zIndex: 20,
+          background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+          boxShadow: '0 8px 24px rgba(0,0,0,0.12)', minWidth: 260, padding: 6,
+        }}>
+          {overdueTasks.map(t => (
+            <div key={t.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 6 }}>
+              <span style={{ fontSize: 12, color: 'var(--ink)' }}>{t.label}</span>
+              <button
+                type="button"
+                onClick={() => resolveTask(t.id)}
+                disabled={busyId === t.id}
+                className="btn-ghost"
+                style={{ fontSize: 11, flexShrink: 0, opacity: busyId === t.id ? 0.5 : 1 }}
+              >
+                Résoudre
+              </button>
+            </div>
+          ))}
+          {activeNoShows.map(r => (
+            <div key={r.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '8px 10px', borderRadius: 6 }}>
+              <span style={{ fontSize: 12, color: 'var(--ink)' }}>No-show</span>
+              <button
+                type="button"
+                onClick={() => acknowledgeNoShow(r.id)}
+                disabled={busyId === r.id}
+                className="btn-ghost"
+                style={{ fontSize: 11, flexShrink: 0, opacity: busyId === r.id ? 0.5 : 1 }}
+              >
+                Compris
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
