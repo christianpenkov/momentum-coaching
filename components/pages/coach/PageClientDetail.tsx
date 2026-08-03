@@ -48,10 +48,15 @@ async function fetchClientDetail(clientId: string): Promise<ClientDetailData | n
   return { ...clientRes.data, tasks: tasksRes.data || [], weeklyMetrics: metricsRes.data || [], avatar_url: avatarUrl };
 }
 
-async function fetchClientCalls(clientId: string): Promise<Call[]> {
-  const supabase = createSupabase();
-  const { data } = await supabase.from('calls').select('*').eq('client_id', clientId).order('scheduled_at', { ascending: false });
-  return data || [];
+// Calls de vente (call_type='calendly') d'un élève déjà converti — calls.client_id
+// n'étant pas fiable pour ce cas (voir route API), la résolution passe par
+// l'email Auth du client, faite côté serveur (service-role, pas accessible au
+// client Supabase browser).
+async function fetchSalesCalls(clientId: string): Promise<Call[]> {
+  const res = await fetch(`/api/coach/clients/${clientId}/sales-calls`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  return data.calls || [];
 }
 
 async function fetchStoriesCount(profileId: string, since: string | null): Promise<number> {
@@ -62,27 +67,42 @@ async function fetchStoriesCount(profileId: string, since: string | null): Promi
   return count ?? 0;
 }
 
+// Leads IG totaux — voir docs/pipeline-leads-ig-sources.md pour l'explication
+// complète. 3 sources cumulées, pas juste instagram_leads : (1) leads détectés
+// automatiquement, (2) prospect_links dédupliqués par ig_username avec (1), (3)
+// calls IG directs sans lead (clic bio/description sans jamais avoir commenté).
 async function fetchIgLeadsCount(profileId: string, since: string | null): Promise<number> {
   const supabase = createSupabase();
-  let query = supabase.from('instagram_leads').select('id', { count: 'exact', head: true })
-    .eq('profile_id', profileId).is('archived_at', null).eq('not_a_lead', false);
-  if (since) query = query.gte('detected_at', since);
-  const { count } = await query;
-  return count ?? 0;
-}
 
-// connectedAt = la plus ancienne date de connexion entre IG et YT — même pattern
-// que PageClientStats.tsx:6207-6209 (fetchIntegrationStatus), point de départ de
-// la fenêtre all-time des 8 KPI de la fiche client.
-async function fetchConnectedAt(profileId: string): Promise<string | null> {
-  const supabase = createSupabase();
-  const { data } = await supabase
-    .from('integrations')
-    .select('provider, connected_at')
-    .eq('profile_id', profileId)
-    .in('provider', ['instagram', 'youtube']);
-  const dates = (data || []).map(r => r.connected_at).filter(Boolean).sort();
-  return dates[0] ?? null;
+  let leadsQuery = supabase.from('instagram_leads').select('ig_username')
+    .eq('profile_id', profileId).is('archived_at', null).eq('not_a_lead', false);
+  if (since) leadsQuery = leadsQuery.gte('detected_at', since);
+
+  let linksQuery = supabase.from('prospect_links').select('ig_username').eq('profile_id', profileId);
+  if (since) linksQuery = linksQuery.gte('created_at', since);
+
+  // .neq('ignored', true) est indispensable ici — sans lui, ce compteur inclut
+  // aussi les calls que le coach a "supprimés" depuis le pipeline (PagePipeline.tsx
+  // les marque ignored=true plutôt que de les effacer physiquement). Vérifié en
+  // base sur le compte Christian : 26 calls ig_description/ig_bio sans lead,
+  // dont 23 ignored=true (tests nettoyés) — seuls 3 sont réellement actifs et
+  // visibles dans le pipeline. Même filtre que app/api/client/pipeline/route.ts:31.
+  let directCallsQuery = supabase.from('calls').select('id')
+    .eq('coach_id', profileId)
+    .eq('call_type', 'calendly')
+    .neq('ignored', true)
+    .is('ig_lead_id', null)
+    .neq('lead_deleted', true)
+    .in('source', ['ig_description', 'ig_bio']);
+  if (since) directCallsQuery = directCallsQuery.gte('scheduled_at', since);
+
+  const [leadsRes, linksRes, directCallsRes] = await Promise.all([leadsQuery, linksQuery, directCallsQuery]);
+
+  const usernames = new Set<string>();
+  for (const r of leadsRes.data || []) if (r.ig_username) usernames.add(r.ig_username.toLowerCase());
+  for (const r of linksRes.data || []) if (r.ig_username) usernames.add(r.ig_username.toLowerCase());
+
+  return usernames.size + (directCallsRes.data?.length ?? 0);
 }
 
 interface ResourceForClient {
@@ -238,9 +258,22 @@ export default function PageClientDetail({ id }: Props) {
     queryFn: () => fetchClientDetail(id),
     staleTime: 60 * 1000,
   });
+  // Calls de coaching (call_type='google') et rapports de session sont filtrés par
+  // client_id, fiable pour ce cas : un call de coaching est toujours booké après
+  // que l'élève ait déjà un compte (contrairement aux calls de vente, cf.
+  // fetchSalesCalls plus bas et docs sur calls.client_id).
   const { data: calls = [] } = useQuery({
     queryKey: ['client-detail-calls', id],
-    queryFn: () => fetchClientCalls(id),
+    queryFn: async () => {
+      const supabase = createSupabase();
+      const { data } = await supabase.from('calls').select('*').eq('client_id', id).order('scheduled_at', { ascending: false });
+      return data || [];
+    },
+    staleTime: 60 * 1000,
+  });
+  const { data: salesCallsData = [] } = useQuery({
+    queryKey: ['client-sales-calls', id],
+    queryFn: () => fetchSalesCalls(id),
     staleTime: 60 * 1000,
   });
   function refetchClient() {
@@ -248,6 +281,7 @@ export default function PageClientDetail({ id }: Props) {
   }
   function refetchCalls() {
     queryClient.invalidateQueries({ queryKey: ['client-detail-calls', id] });
+    queryClient.invalidateQueries({ queryKey: ['client-sales-calls', id] });
   }
 
   const allTasks = client?.tasks || [];
@@ -401,12 +435,11 @@ export default function PageClientDetail({ id }: Props) {
   // Analytics du même élève.
   const profileId = client?.profile_id ?? undefined;
 
-  const { data: connectedAt } = useQuery({
-    queryKey: ['client-connected-at', profileId],
-    queryFn: () => fetchConnectedAt(profileId!),
-    enabled: !!profileId,
-    staleTime: 5 * 60 * 1000,
-  });
+  // Point de départ "all-time" = création réelle du compte Momentum de l'élève
+  // (moment où il choisit son mot de passe, cf. app/invite/callback/page.tsx),
+  // pas la connexion d'un provider externe (IG/YT) — remplace l'ancien
+  // connectedAt/fetchConnectedAt sur demande explicite de Chris.
+  const sinceAccountCreated = client?.onboarding_completed_at ?? null;
 
   const { data: igRaw } = useQuery({
     queryKey: ['stats-ig', profileId],
@@ -427,14 +460,14 @@ export default function PageClientDetail({ id }: Props) {
     staleTime: 5 * 60 * 1000,
   });
   const { data: storiesCount } = useQuery({
-    queryKey: ['client-stories-count', profileId, connectedAt],
-    queryFn: () => fetchStoriesCount(profileId!, connectedAt ?? null),
+    queryKey: ['client-stories-count', profileId, sinceAccountCreated],
+    queryFn: () => fetchStoriesCount(profileId!, sinceAccountCreated),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
   const { data: igLeadsCount } = useQuery({
-    queryKey: ['client-ig-leads-count', profileId, connectedAt],
-    queryFn: () => fetchIgLeadsCount(profileId!, connectedAt ?? null),
+    queryKey: ['client-ig-leads-count', profileId, sinceAccountCreated],
+    queryFn: () => fetchIgLeadsCount(profileId!, sinceAccountCreated),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
@@ -456,9 +489,11 @@ export default function PageClientDetail({ id }: Props) {
   // ── 8 KPI all-time (funnel de vente de l'élève, résumé global) ──────────────
   // Calls de vente = call_type='calendly' uniquement (jamais 'google', réservé au
   // coaching) — bug identifié sur l'ancien calls30 qui ne filtrait pas du tout par
-  // call_type. Statuts annulés exclus des deux côtés (vente et coaching).
+  // call_type. Statuts annulés exclus des deux côtés (vente et coaching). Source :
+  // fetchSalesCalls (route API, résolution par email — calls.client_id n'est pas
+  // fiable pour ce cas, cf. commentaire de la route).
   const NOT_CANCELED = (c: Call) => !['cancelled', 'canceled', 'declined'].includes(c.status ?? '');
-  const salesCalls = calls.filter(c => c.call_type === 'calendly' && NOT_CANCELED(c));
+  const salesCalls = salesCallsData.filter(NOT_CANCELED);
   const now = new Date();
 
   const callsBookedCount = salesCalls.filter(c => c.status === 'active').length;
@@ -740,12 +775,12 @@ export default function PageClientDetail({ id }: Props) {
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Leads totaux</div>
           <div className="kpi-value">{leadsTotal}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis connexion</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Calls de vente</div>
+          <div className="kpi-label">Calls bookés</div>
           <div className="kpi-value">{callsBookedCount}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis connexion</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Taux de show-up</div>
@@ -967,7 +1002,7 @@ export default function PageClientDetail({ id }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
               <Icon name="calendar" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Client depuis</span>
-              <strong>{connectedAt ? `${Math.floor((now.getTime() - new Date(connectedAt).getTime()) / 86400000)}j` : '—'}</strong>
+              <strong>{sinceAccountCreated ? `${Math.floor((now.getTime() - new Date(sinceAccountCreated).getTime()) / 86400000)}j` : '—'}</strong>
             </div>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
               <Icon name="phone-call" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Prochain call</span>

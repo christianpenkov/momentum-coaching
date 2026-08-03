@@ -162,7 +162,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         if (!providersByProfile[row.profile_id]) providersByProfile[row.profile_id] = new Set();
         providersByProfile[row.profile_id].add(row.provider);
       });
-      const REQUIRED_PROVIDERS = ['instagram', 'calendly', 'youtube', 'stripe'];
+      const REQUIRED_PROVIDERS = ['instagram', 'calendly', 'youtube', 'stripe', 'shortio'];
 
       setClients((rawClients || []).map((c: any) => {
         const metrics = (metricsMap[c.id] || []).sort((a: any, b: any) => a.week - b.week);
