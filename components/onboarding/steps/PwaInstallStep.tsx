@@ -10,6 +10,17 @@ const staggerChild = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
 };
 
+// Icône "..." iOS — trois points, bouton menu en bas à droite de Safari.
+function MoreIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--accent-brand)" style={{ flexShrink: 0 }}>
+      <circle cx="5" cy="12" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="19" cy="12" r="2" />
+    </svg>
+  );
+}
+
 // Icône "Partager" iOS — carré avec flèche vers le haut, telle qu'affichée dans la barre Safari.
 function ShareIcon() {
   return (
@@ -49,8 +60,12 @@ export default function PwaInstallStep() {
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Sur iPhone (Safari)</div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
+              <MoreIcon />
+              <span>Appuie sur les <strong style={{ color: 'var(--ink)' }}>···</strong> en bas à droite de l&apos;écran.</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
               <ShareIcon />
-              <span>Appuie sur l&apos;icône <strong style={{ color: 'var(--ink)' }}>Partager</strong> en bas de l&apos;écran.</span>
+              <span>Appuie sur l&apos;icône <strong style={{ color: 'var(--ink)' }}>Partager</strong>.</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
               <AddToHomeIcon />
