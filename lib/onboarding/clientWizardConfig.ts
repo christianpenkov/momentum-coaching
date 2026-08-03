@@ -21,7 +21,7 @@ export function buildClientWizardConfig(coachName?: string | null): WizardConfig
         icon: 'bar-chart',
         title: 'Mes stats',
         points: [
-          { strike: 'Vues', highlight: 'Cash !', rest: '— vois tes contenus qui rapportent vraiment.' },
+          { before: 'Vois tes contenus qui font le plus de', strike: 'vues', highlight: 'Cash !' },
           'Navigue période par période (semaine ou mois) pour comparer ta progression.',
           'Vois le détail de chaque étape de ton funnel, du premier contact jusqu\'au closing.',
         ],

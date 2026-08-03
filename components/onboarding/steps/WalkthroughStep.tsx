@@ -17,6 +17,7 @@ function PointContent({ point }: { point: WalkthroughPoint }) {
   if (typeof point === 'string') return <>{point}</>;
   return (
     <>
+      {point.before ? `${point.before} ` : null}
       <span style={{ textDecoration: 'line-through', color: 'var(--muted)' }}>{point.strike}</span>{' '}
       <strong style={{ color: 'var(--accent-brand)' }}>{point.highlight}</strong>
       {point.rest ? ` ${point.rest}` : null}

@@ -3,7 +3,7 @@ import { COACH_WIZARD_INTEGRATIONS } from './integrationConfig';
 
 // Un point simple (string) ou un point "punchline" qui barre un mot terne pour
 // mettre en avant l'argument qui vend vraiment (ex: "~~Vues~~ Cash !").
-export type WalkthroughPoint = string | { strike: string; highlight: string; rest?: string };
+export type WalkthroughPoint = string | { before?: string; strike: string; highlight: string; rest?: string };
 
 export interface WalkthroughStepDef {
   icon: IconName;
