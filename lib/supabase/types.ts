@@ -73,6 +73,7 @@ export interface Task {
   resolved_at: string | null;
   created_at: string;
   updated_at?: string;
+  completed_at?: string | null;
 }
 
 export interface TaskAttachment {
@@ -148,6 +149,10 @@ export interface Call {
   lead_rapport_comment?: string | null;
   invite_reminder_24h_sent?: boolean;
   invite_reminder_2h_sent?: boolean;
+  source?: string | null;
+  utm_medium?: string | null;
+  utm_content?: string | null;
+  utm_campaign?: string | null;
 }
 
 export interface SessionReport {

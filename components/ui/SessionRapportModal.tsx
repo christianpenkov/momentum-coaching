@@ -14,20 +14,25 @@ interface Props {
   scheduledAt: string | null;
   topic?: string | null;
   onClose: () => void;
+  // Mode édition d'un rapport déjà soumis — pré-remplit et saute directement à
+  // l'étape topic_notes (le "présent/no-show" initial n'est pas remis en cause ici,
+  // seuls sujet/notes sont modifiables après coup).
+  editInitial?: { topic: SessionTopic | null; topicCustom: string; notes: string };
 }
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-export default function SessionRapportModal({ callId, studentName, scheduledAt, topic: callTopic, onClose }: Props) {
-  const [step, setStep] = useState<SessionRapportStep>('attended');
+export default function SessionRapportModal({ callId, studentName, scheduledAt, topic: callTopic, onClose, editInitial }: Props) {
+  const isEdit = !!editInitial;
+  const [step, setStep] = useState<SessionRapportStep>(isEdit ? 'topic_notes' : 'attended');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [attended, setAttended] = useState<boolean | null>(null);
-  const [topic, setTopic] = useState<SessionTopic | null>(null);
-  const [topicCustom, setTopicCustom] = useState('');
-  const [notes, setNotes] = useState('');
+  const [attended, setAttended] = useState<boolean | null>(isEdit ? true : null);
+  const [topic, setTopic] = useState<SessionTopic | null>(editInitial?.topic ?? null);
+  const [topicCustom, setTopicCustom] = useState(editInitial?.topicCustom ?? '');
+  const [notes, setNotes] = useState(editInitial?.notes ?? '');
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmChecked, setConfirmChecked] = useState(false);
 
@@ -44,7 +49,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
     return () => window.removeEventListener('keydown', handler);
   }, [step]);
 
-  async function submitRapport(body: { attended: boolean; topic?: string; topic_custom?: string; notes?: string }) {
+  async function submitRapport(body: { attended: boolean; topic?: string; topic_custom?: string; notes?: string; edit?: boolean }) {
     setSaving(true);
     setError('');
     try {
@@ -84,6 +89,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
       topic,
       topic_custom: topic === 'autre' ? topicCustom.trim() : undefined,
       notes: notes.trim() || undefined,
+      ...(isEdit ? { edit: true } : {}),
     });
   }
 
@@ -95,7 +101,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
             <Icon name="phone-call" size={20} />
             <div style={{ minWidth: 0 }}>
               <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
-                Rapport de session{studentName ? ` — ${studentName}` : ''}
+                {isEdit ? 'Modifier le rapport' : 'Rapport de session'}{studentName ? ` — ${studentName}` : ''}
               </div>
               {callTopic && (
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{callTopic}</div>
@@ -223,7 +229,9 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
         {step === 'topic_notes' && (
           <div style={{ padding: '0 30px 26px', display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-            <button onClick={() => setStep('attended')} className="btn-ghost" type="button" disabled={saving} style={{ fontSize: 14 }}>Retour</button>
+            {!isEdit && (
+              <button onClick={() => setStep('attended')} className="btn-ghost" type="button" disabled={saving} style={{ fontSize: 14 }}>Retour</button>
+            )}
             <button
               onClick={handleSubmitTopicNotes}
               className="btn-primary-brand"
@@ -231,7 +239,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
               disabled={saving}
               style={{ fontSize: 14 }}
             >
-              {saving ? 'Enregistrement…' : 'Enregistrer le rapport'}
+              {saving ? 'Enregistrement…' : isEdit ? 'Enregistrer les modifications' : 'Enregistrer le rapport'}
             </button>
           </div>
         )}

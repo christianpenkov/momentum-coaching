@@ -36,11 +36,15 @@ export async function PATCH(
   if (call.call_type !== 'google') {
     return NextResponse.json({ error: 'Ce call ne fait pas partie du flux coach-élève Google Meet' }, { status: 400 });
   }
-  if (call.session_completed || call.session_no_show) {
+  const body = await request.json().catch(() => ({}));
+
+  // Un rapport déjà rempli ne peut être modifié qu'avec edit=true explicite (bouton
+  // "Éditer" sur la fiche client) — sans ce flag, la création initiale reste bloquée
+  // en double-soumission comme avant.
+  if ((call.session_completed || call.session_no_show) && body.edit !== true) {
     return NextResponse.json({ error: 'Un rapport a déjà été rempli pour ce call' }, { status: 409 });
   }
 
-  const body = await request.json().catch(() => ({}));
   if (typeof body.attended !== 'boolean') {
     return NextResponse.json({ error: 'Le champ attended est obligatoire' }, { status: 400 });
   }

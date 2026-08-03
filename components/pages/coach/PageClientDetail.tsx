@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect, useCallback } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -12,13 +13,77 @@ import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import ModalShell from '@/components/ui/ModalShell';
-import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
 import { isTaskOverdue } from '@/lib/clientSignals';
+import { isCallHonored } from '@/lib/callHonored';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
-import type { Task, SessionReport } from '@/lib/supabase/types';
+import type { Task, SessionReport, Call, Client, WeeklyMetrics } from '@/lib/supabase/types';
+
+interface ClientDetailData extends Client {
+  tasks: Task[];
+  weeklyMetrics: WeeklyMetrics[];
+  avatar_url: string | null;
+}
+
+// Toutes les données de CETTE fiche client, indépendantes du portefeuille complet
+// du coach (contrairement à useSupabaseClients qui charge 12 requêtes portant sur
+// TOUS les élèves avant de pouvoir afficher un seul client — c'est la cause
+// identifiée de la lenteur 2-3s). Même pattern que PageClientStats.tsx : useQuery
+// avec staleTime généreux, cache par clé, pas de Promise.all bloquant global.
+async function fetchClientDetail(clientId: string): Promise<ClientDetailData | null> {
+  const supabase = createSupabase();
+  const [clientRes, tasksRes, metricsRes] = await Promise.all([
+    supabase.from('clients').select('*').eq('id', clientId).single(),
+    supabase.from('tasks').select('*').eq('client_id', clientId).order('created_at', { ascending: true }),
+    supabase.from('weekly_metrics').select('*').eq('client_id', clientId).order('week', { ascending: true }),
+  ]);
+  if (clientRes.error || !clientRes.data) return null;
+  let avatarUrl: string | null = null;
+  if (clientRes.data.profile_id) {
+    const { data: profile } = await supabase.from('profiles').select('avatar_url').eq('id', clientRes.data.profile_id).single();
+    avatarUrl = profile?.avatar_url ?? null;
+  }
+  return { ...clientRes.data, tasks: tasksRes.data || [], weeklyMetrics: metricsRes.data || [], avatar_url: avatarUrl };
+}
+
+async function fetchClientCalls(clientId: string): Promise<Call[]> {
+  const supabase = createSupabase();
+  const { data } = await supabase.from('calls').select('*').eq('client_id', clientId).order('scheduled_at', { ascending: false });
+  return data || [];
+}
+
+async function fetchStoriesCount(profileId: string, since: string | null): Promise<number> {
+  const supabase = createSupabase();
+  let query = supabase.from('ig_stories').select('id', { count: 'exact', head: true }).eq('profile_id', profileId);
+  if (since) query = query.gte('posted_at', since);
+  const { count } = await query;
+  return count ?? 0;
+}
+
+async function fetchIgLeadsCount(profileId: string, since: string | null): Promise<number> {
+  const supabase = createSupabase();
+  let query = supabase.from('instagram_leads').select('id', { count: 'exact', head: true })
+    .eq('profile_id', profileId).is('archived_at', null).eq('not_a_lead', false);
+  if (since) query = query.gte('detected_at', since);
+  const { count } = await query;
+  return count ?? 0;
+}
+
+// connectedAt = la plus ancienne date de connexion entre IG et YT — même pattern
+// que PageClientStats.tsx:6207-6209 (fetchIntegrationStatus), point de départ de
+// la fenêtre all-time des 8 KPI de la fiche client.
+async function fetchConnectedAt(profileId: string): Promise<string | null> {
+  const supabase = createSupabase();
+  const { data } = await supabase
+    .from('integrations')
+    .select('provider, connected_at')
+    .eq('profile_id', profileId)
+    .in('provider', ['instagram', 'youtube']);
+  const dates = (data || []).map(r => r.connected_at).filter(Boolean).sort();
+  return dates[0] ?? null;
+}
 
 interface ResourceForClient {
   id: string;
@@ -166,8 +231,25 @@ const PRIORITY_CONFIG = {
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
-  const { getClient, toggleTask: ctxToggle, calls, refetch, archiveClient, loading: clientsLoading } = useSupabaseClients();
-  const client = getClient(id);
+  const queryClient = useQueryClient();
+
+  const { data: client, isLoading: clientLoading } = useQuery({
+    queryKey: ['client-detail', id],
+    queryFn: () => fetchClientDetail(id),
+    staleTime: 60 * 1000,
+  });
+  const { data: calls = [] } = useQuery({
+    queryKey: ['client-detail-calls', id],
+    queryFn: () => fetchClientCalls(id),
+    staleTime: 60 * 1000,
+  });
+  function refetchClient() {
+    queryClient.invalidateQueries({ queryKey: ['client-detail', id] });
+  }
+  function refetchCalls() {
+    queryClient.invalidateQueries({ queryKey: ['client-detail-calls', id] });
+  }
+
   const allTasks = client?.tasks || [];
   const tasks = allTasks.filter(t => !t.resolved_by_coach);
   const resolvedTasks = allTasks.filter(t => t.resolved_by_coach);
@@ -180,13 +262,24 @@ export default function PageClientDetail({ id }: Props) {
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
-  const [note, setNote] = useState(client?.private_notes || '');
+  const [note, setNote] = useState('');
   const [noteSaving, setNoteSaving] = useState(false);
   const [noteSaved, setNoteSaved] = useState(false);
   const [noteError, setNoteError] = useState(false);
+
+  // client arrive après le premier render (useQuery async) — synchronise l'état
+  // local une fois la donnée chargée, sans écraser une saisie déjà en cours.
+  const noteInitialized = useRef(false);
+  useEffect(() => {
+    if (client && !noteInitialized.current) {
+      setNote(client.private_notes || '');
+      noteInitialized.current = true;
+    }
+  }, [client]);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [taskHistoryOpen, setTaskHistoryOpen] = useState(false);
+  const [activeTasksExpanded, setActiveTasksExpanded] = useState(false);
   const { user } = useUser();
   const [depotFiles, setDepotFiles] = useState<DepotFile[]>([]);
   const [depotLoading, setDepotLoading] = useState(true);
@@ -263,6 +356,7 @@ export default function PageClientDetail({ id }: Props) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [sessionRapportCallId, setSessionRapportCallId] = useState<string | null>(null);
+  const [editingReport, setEditingReport] = useState<SessionReport | null>(null);
   const [sessionReports, setSessionReports] = useState<SessionReport[]>([]);
   const deepLinkHandled = useRef(false);
 
@@ -291,6 +385,7 @@ export default function PageClientDetail({ id }: Props) {
 
   function closeSessionRapportModal() {
     setSessionRapportCallId(null);
+    setEditingReport(null);
     const url = new URL(window.location.href);
     url.searchParams.delete('session-rapport');
     router.replace(url.pathname + url.search, { scroll: false });
@@ -301,37 +396,50 @@ export default function PageClientDetail({ id }: Props) {
     || clientCalls.find(c => c.id === sessionRapportCallId)
     || null;
 
-  // KPIs live depuis les vraies sources (IG/YT API + Supabase instagram_leads + Stripe)
-  const [liveKpis, setLiveKpis] = useState<{ posts30: number | null; leads30: number | null; mrr: number | null } | null>(null);
+  // 8 KPI all-time — mêmes queryKey que PageClientStats.tsx (stats-ig/stats-yt)
+  // pour bénéficier du cache déjà chaud si le coach vient de visiter la page
+  // Analytics du même élève.
+  const profileId = client?.profile_id ?? undefined;
 
-  useEffect(() => {
-    if (!client?.profile_id) return;
-    const pid = client.profile_id;
-    const supabase = createSupabase();
-    const since30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const { data: connectedAt } = useQuery({
+    queryKey: ['client-connected-at', profileId],
+    queryFn: () => fetchConnectedAt(profileId!),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
 
-    Promise.all([
-      fetch(`/api/instagram/stats?profileId=${pid}`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`/api/youtube/stats?profileId=${pid}`).then(r => r.ok ? r.json() : null).catch(() => null),
-      supabase.from('instagram_leads')
-        .select('id', { count: 'exact', head: true })
-        .eq('profile_id', pid)
-        .is('archived_at', null)
-        .eq('not_a_lead', false)
-        .gte('detected_at', since30),
-      fetch(`/api/stripe/client-data?profileId=${pid}`).then(r => r.ok ? r.json() : null).catch(() => null),
-    ]).then(([ig, yt, leadsRes, stripe]) => {
-      const igPosts = (ig?.posts?.length ?? 0);
-      const ytPosts = (yt?.videos?.length ?? 0);
-      setLiveKpis({
-        posts30: igPosts + ytPosts,
-        leads30: leadsRes?.count ?? null,
-        mrr: stripe?.monthlyRevenue ?? null,
-      });
-    });
-  }, [client?.profile_id]);
+  const { data: igRaw } = useQuery({
+    queryKey: ['stats-ig', profileId],
+    queryFn: () => fetch(`/api/instagram/stats?profileId=${profileId}`).then(r => r.ok ? r.json() : null),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: ytRaw } = useQuery({
+    queryKey: ['stats-yt', profileId],
+    queryFn: () => fetch(`/api/youtube/stats?profileId=${profileId}`).then(r => r.ok ? r.json() : null),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: stripeRaw } = useQuery({
+    queryKey: ['stats-stripe', profileId],
+    queryFn: () => fetch(`/api/stripe/client-data?profileId=${profileId}`).then(r => r.ok ? r.json() : null),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: storiesCount } = useQuery({
+    queryKey: ['client-stories-count', profileId, connectedAt],
+    queryFn: () => fetchStoriesCount(profileId!, connectedAt ?? null),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const { data: igLeadsCount } = useQuery({
+    queryKey: ['client-ig-leads-count', profileId, connectedAt],
+    queryFn: () => fetchIgLeadsCount(profileId!, connectedAt ?? null),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
 
-  if (!client && clientsLoading) return (
+  if (!client && clientLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>
   );
 
@@ -345,20 +453,83 @@ export default function PageClientDetail({ id }: Props) {
   const last = metrics[metrics.length - 1] || null;
   const prev = metrics[metrics.length - 2] || null;
 
-  // Calls 30j depuis le contexte global (source de vérité)
-  const cutoff30 = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-  const calls30 = calls.filter(c =>
-    c.client_id === id &&
-    !['cancelled', 'canceled', 'declined'].includes(c.status ?? '') &&
-    c.scheduled_at != null &&
-    new Date(c.scheduled_at) >= cutoff30
-  ).length;
+  // ── 8 KPI all-time (funnel de vente de l'élève, résumé global) ──────────────
+  // Calls de vente = call_type='calendly' uniquement (jamais 'google', réservé au
+  // coaching) — bug identifié sur l'ancien calls30 qui ne filtrait pas du tout par
+  // call_type. Statuts annulés exclus des deux côtés (vente et coaching).
+  const NOT_CANCELED = (c: Call) => !['cancelled', 'canceled', 'declined'].includes(c.status ?? '');
+  const salesCalls = calls.filter(c => c.call_type === 'calendly' && NOT_CANCELED(c));
+  const now = new Date();
+
+  const callsBookedCount = salesCalls.filter(c => c.status === 'active').length;
+  const callsHonoredCount = salesCalls.filter(c => c.status && c.scheduled_at && isCallHonored({ ...c, status: c.status, scheduled_at: c.scheduled_at }, now)).length;
+  const dealsClosedCount = salesCalls.filter(c => c.deal_closed).length;
+  const showUpRate = callsBookedCount > 0 ? Math.round((callsHonoredCount / callsBookedCount) * 100) : 0;
+  const closingRate = callsHonoredCount > 0 ? Math.round((dealsClosedCount / callsHonoredCount) * 100) : 0;
+  const cashContracted = salesCalls.reduce((s, c) => s + (c.revenue || 0), 0);
+  const revenuePerCall = callsBookedCount > 0 ? Math.round(cashContracted / callsBookedCount) : 0;
+
+  // Leads totaux = leads IG (pré-call, toutes sources) + calls YT bookés (source
+  // UTM commence par 'yt', même pattern que PagePipeline.tsx:1427-1428 — YT n'a
+  // pas de notion de lead pré-call, un chevauchement partiel avec
+  // callsBookedCount est assumé, pas un double comptage à corriger).
+  const ytBookedCalls = salesCalls.filter(c => (c.source ?? '').toLowerCase().startsWith('yt')).length;
+  const leadsTotal = (igLeadsCount ?? 0) + ytBookedCalls;
+
+  const postsIg = igRaw?.posts?.length ?? null;
+  const postsYt = ytRaw?.videos?.length ?? null;
+  const publicationsTotal = (postsIg ?? 0) + (postsYt ?? 0) + (storiesCount ?? 0);
+  const followersTotal = (igRaw?.followers ?? 0) + (ytRaw?.subscribers ?? 0);
+
+  // chantier Stripe↔lead non résolu (voir todo générale) — toujours null pour l'instant
+  const cashCollected = null as number | null;
+
+  // ── Suivi de l'accompagnement (coaching, distinct du funnel de vente ci-dessus) ──
+  const coachingCalls = calls.filter(c => c.call_type === 'google' && NOT_CANCELED(c));
+  const coachingCallsCount = coachingCalls.length;
+  // session_no_show (pas no_show, réservé au flux vente) — rempli par SessionRapportModal.
+  const coachingNoShowCount = coachingCalls.filter(c => c.session_no_show).length;
+  const nextCoachingCall = coachingCalls
+    .filter(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) > now)
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null;
+
+  const completedTasksAll = allTasks.filter(t => t.done);
+  const tasksOnTimeCount = completedTasksAll.filter(t => t.completed_at && t.deadline && new Date(t.completed_at) <= new Date(t.deadline)).length;
+  const tasksLateCount = completedTasksAll.filter(t => t.completed_at && t.deadline && new Date(t.completed_at) > new Date(t.deadline)).length;
 
   const doneCount = tasks.filter(t => t.done).length;
   const progress = tasks.length > 0 ? Math.round((doneCount / tasks.length) * 100) : 0;
 
-  function toggleTask(taskId: string, done: boolean) {
-    ctxToggle(id, taskId, done);
+  // Tâches en cours triées par urgence : en retard toujours en premier, puis
+  // deadline croissante (deadline nulle en dernier) — même pattern que
+  // PageTasks.tsx:222-226, réutilisé plutôt que réinventé. 3 affichées par défaut,
+  // "voir plus" étend à la liste complète.
+  const activeTasksSorted = [...tasks.filter(t => !t.done)].sort((a, b) => {
+    const aOverdue = isTaskOverdue(a);
+    const bOverdue = isTaskOverdue(b);
+    if (aOverdue !== bOverdue) return aOverdue ? -1 : 1;
+    if (!a.deadline && !b.deadline) return 0;
+    if (!a.deadline) return 1;
+    if (!b.deadline) return -1;
+    return new Date(a.deadline).getTime() - new Date(b.deadline).getTime();
+  });
+  const activeTasksVisible = activeTasksExpanded ? activeTasksSorted : activeTasksSorted.slice(0, 3);
+  const doneTasksAll = tasks.filter(t => t.done);
+  const doneTasksVisible = doneTasksAll.slice(0, 2);
+
+  // Update optimiste sur le cache React Query local (pas le state global du
+  // portefeuille) — même principe que l'ancien toggleTask du contexte (annulé si
+  // l'écriture échoue), mais scopé à ce seul client. completed_at posé/retiré ici
+  // (pas dans la route API tasks/[id], utilisée par l'élève) car c'est l'action
+  // coach qui déclenche ce toggle direct sur Supabase.
+  async function toggleTask(taskId: string, done: boolean) {
+    const completedAt = done ? new Date().toISOString() : null;
+    queryClient.setQueryData(['client-detail', id], (prev: ClientDetailData | null | undefined) =>
+      prev ? { ...prev, tasks: prev.tasks.map(t => t.id === taskId ? { ...t, done, completed_at: completedAt } : t) } : prev
+    );
+    const supabase = createSupabase();
+    const { error } = await supabase.from('tasks').update({ done, completed_at: completedAt }).eq('id', taskId);
+    if (error) refetchClient();
   }
 
   async function resolveTask(taskId: string) {
@@ -369,7 +540,7 @@ export default function PageClientDetail({ id }: Props) {
       body: JSON.stringify({ resolved_by_coach: true }),
     });
     if (!res.ok) { setTaskActionError('Erreur — la tâche n\'a pas pu être résolue'); return; }
-    refetch();
+    refetchClient();
   }
 
   async function acknowledgeNoShow(reportId: string) {
@@ -392,19 +563,20 @@ export default function PageClientDetail({ id }: Props) {
 
   async function toggleWaivedIntegration(provider: string) {
     setWaivedSaving(true);
-    const current: string[] = (client as any)?.integrations_waived ?? [];
+    const current: string[] = client?.integrations_waived ?? [];
     const next = current.includes(provider) ? current.filter(p => p !== provider) : [...current, provider];
     const supabase = createSupabase();
     await supabase.from('clients').update({ integrations_waived: next }).eq('id', id);
     setWaivedSaving(false);
-    refetch();
+    refetchClient();
   }
 
   async function handleArchive() {
     setArchiving(true);
-    const ok = await archiveClient(id);
+    const supabase = createSupabase();
+    const { error } = await supabase.from('clients').update({ archived_at: new Date().toISOString() }).eq('id', id);
     setArchiving(false);
-    if (ok) router.push('/clients');
+    if (!error) router.push('/clients');
   }
 
   async function confirmArchive() {
@@ -550,33 +722,56 @@ export default function PageClientDetail({ id }: Props) {
         </ModalShell>
       )}
 
-      {/* KPIs rapides 30j */}
+      {/* 8 KPI all-time — funnel de vente de l'élève, résumé global (le détail par
+          plateforme/contenu reste dans la page Analytics complète, cf. bouton
+          "Analytics" ci-dessus). Zéro divergence de calcul visée avec cette page :
+          mêmes filtres call_type, même isCallHonored, même dénominateur revenu/call. */}
       <div className="grid-4" style={{ marginBottom: 24 }}>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Posts (30j)</div>
-          <div className="kpi-value">{liveKpis ? (liveKpis.posts30 ?? '—') : '—'}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG + YouTube</div>
+          <div className="kpi-label">Abonnés</div>
+          <div className="kpi-value">{followersTotal.toLocaleString('fr-FR')}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {(igRaw?.followers ?? 0).toLocaleString('fr-FR')} · YT {(ytRaw?.subscribers ?? 0).toLocaleString('fr-FR')}</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Leads générés (30j)</div>
-          <div className="kpi-value">{liveKpis ? (liveKpis.leads30 ?? '—') : '—'}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>commentaires détectés</div>
+          <div className="kpi-label">Publications</div>
+          <div className="kpi-value">{publicationsTotal}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {postsIg ?? 0} · YT {postsYt ?? 0} · Stories {storiesCount ?? 0}</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Calls (30j)</div>
-          <div className="kpi-value">{calls30}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>sur la plateforme</div>
+          <div className="kpi-label">Leads totaux</div>
+          <div className="kpi-value">{leadsTotal}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis connexion</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Calls de vente</div>
+          <div className="kpi-value">{callsBookedCount}</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis connexion</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Taux de show-up</div>
+          <div className="kpi-value">{showUpRate}%</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{callsHonoredCount}/{callsBookedCount} calls</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Taux de closing</div>
+          <div className="kpi-value">{closingRate}%</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{dealsClosedCount}/{callsHonoredCount} calls honorés</div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash contracté</div>
-          <div className="kpi-value">{liveKpis?.mrr != null ? `${liveKpis.mrr.toLocaleString('fr-FR')} €` : '—'}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>MRR Stripe</div>
+          <div className="kpi-value">{cashContracted.toLocaleString('fr-FR')} €</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cashCollected != null ? `${cashCollected.toLocaleString('fr-FR')} € collecté` : 'collecté : —'}</div>
+        </div>
+        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+          <div className="kpi-label">Revenu par call</div>
+          <div className="kpi-value">{revenuePerCall.toLocaleString('fr-FR')} €</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>par call booké</div>
         </div>
       </div>
 
       <AnimatePresence>
         {modalOpen && (
-          <TaskModal clientId={id} onClose={() => setModalOpen(false)} onCreated={refetch} />
+          <TaskModal clientId={id} onClose={() => setModalOpen(false)} onCreated={refetchClient} />
         )}
       </AnimatePresence>
       {sessionRapportCallId && (
@@ -585,6 +780,11 @@ export default function PageClientDetail({ id }: Props) {
           studentName={client.name}
           scheduledAt={sessionRapportCall?.scheduled_at ?? null}
           onClose={closeSessionRapportModal}
+          editInitial={editingReport ? {
+            topic: editingReport.topic as any,
+            topicCustom: editingReport.topic_custom ?? '',
+            notes: editingReport.notes ?? '',
+          } : undefined}
         />
       )}
 
@@ -651,7 +851,7 @@ export default function PageClientDetail({ id }: Props) {
           </div>
 
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 16 }}>
-            {tasks.filter(t => !t.done).map(task => {
+            {activeTasksVisible.map(task => {
               const prio = task.priority ? PRIORITY_CONFIG[task.priority] : null;
               const overdue = isTaskOverdue(task);
               return (
@@ -679,17 +879,26 @@ export default function PageClientDetail({ id }: Props) {
                 </div>
               );
             })}
-            {tasks.filter(t => !t.done).length === 0 && tasks.length > 0 && (
+            {activeTasksSorted.length > 3 && (
+              <button
+                type="button"
+                onClick={() => setActiveTasksExpanded(v => !v)}
+                style={{ fontSize: 11, color: 'var(--accent-brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 0', textAlign: 'left' }}
+              >
+                {activeTasksExpanded ? 'Voir moins' : `Voir plus (${activeTasksSorted.length - 3})`}
+              </button>
+            )}
+            {activeTasksSorted.length === 0 && tasks.length > 0 && (
               <div style={{ fontSize: 13, color: 'var(--green)', padding: '8px 0' }}>✓ Toutes les tâches sont terminées !</div>
             )}
             {tasks.length === 0 && (
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune tâche · cliquez sur "Ajouter"</div>
             )}
-            {tasks.filter(t => t.done).length > 0 && (
+            {doneTasksAll.length > 0 && (
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>TERMINÉES ({tasks.filter(t => t.done).length})</span>
-                  {tasks.filter(t => t.done).length > 5 && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>TERMINÉES ({doneTasksAll.length})</span>
+                  {doneTasksAll.length > 2 && (
                     <button
                       type="button"
                       onClick={() => setTaskHistoryOpen(true)}
@@ -699,7 +908,7 @@ export default function PageClientDetail({ id }: Props) {
                     </button>
                   )}
                 </div>
-                {tasks.filter(t => t.done).slice(0, 5).map(task => (
+                {doneTasksVisible.map(task => (
                   <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', opacity: 0.55 }}>
                     <div
                       className="task-check checked"
@@ -746,48 +955,35 @@ export default function PageClientDetail({ id }: Props) {
           </div>
         </div>
 
-        {/* Profil détaillé */}
+        {/* Suivi de l'accompagnement — coaching (distinct du funnel de vente des
+            8 KPI ci-dessus). client_since/next_call/iclosed_rate/calendly_monthly/
+            momentum_score retirés : colonnes DB jamais recalculées par aucun code
+            (données mortes), iclosed_rate faisait doublon non synchronisé avec le
+            Taux de closing, momentum_score n'a aucune formule de calcul définie. */}
         <div className="card">
           <div className="card-head">
-            <div className="card-title">Profil & Funnel</div>
+            <div className="card-title">Suivi de l'accompagnement</div>
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
               <Icon name="calendar" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Client depuis</span>
-              <strong>{client.client_since ? `${client.client_since}j` : '—'}</strong>
+              <strong>{connectedAt ? `${Math.floor((now.getTime() - new Date(connectedAt).getTime()) / 86400000)}j` : '—'}</strong>
             </div>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
               <Icon name="phone-call" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Prochain call</span>
-              <strong>{client.next_call || 'Non planifié'}</strong>
+              <strong>{nextCoachingCall?.scheduled_at ? new Date(nextCoachingCall.scheduled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : 'Non planifié'}</strong>
             </div>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-              <Icon name="target" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Taux iClosed</span>
-              <strong style={{ color: 'var(--green)' }}>{client.iclosed_rate || 0}%</strong>
+              <Icon name="phone-call" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Calls coaching</span>
+              <strong>{coachingCallsCount}</strong>
             </div>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-              <Icon name="calendar" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Calls Calendly/mois</span>
-              <strong>{client.calendly_monthly || 0}</strong>
+              <Icon name="target" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>No-show coaching</span>
+              <strong style={{ color: coachingNoShowCount > 0 ? 'var(--amber)' : 'var(--green)' }}>{coachingNoShowCount}</strong>
             </div>
-            {liveKpis?.mrr != null && (
-              <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
-                <Icon name="dollar-sign" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>MRR actuel</span>
-                <strong>{liveKpis.mrr.toLocaleString('fr-FR')} €</strong>
-              </div>
-            )}
-            <div style={{ marginTop: 8 }}>
-              <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 6 }}>Score momentum</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <div style={{ flex: 1, height: 8, background: 'var(--border)', borderRadius: 4, overflow: 'hidden' }}>
-                  <div style={{
-                    height: '100%',
-                    width: `${client.momentum_score || 0}%`,
-                    background: (client.momentum_score || 0) >= 70 ? 'var(--green)' : (client.momentum_score || 0) >= 40 ? 'var(--amber)' : 'var(--red)',
-                    borderRadius: 4,
-                    transition: 'width 0.6s cubic-bezier(0.16,1,0.3,1)',
-                  }} />
-                </div>
-                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', minWidth: 32 }}>{client.momentum_score || 0}</span>
-              </div>
+            <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <Icon name="calendar" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Tâches à temps / en retard</span>
+              <strong><span style={{ color: 'var(--green)' }}>{tasksOnTimeCount}</span> / <span style={{ color: 'var(--red)' }}>{tasksLateCount}</span></strong>
             </div>
           </div>
         </div>
@@ -835,11 +1031,10 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      {/* Historique des sessions de coaching (calls Google Meet coach-élève) */}
+      {/* Rapports de fin d'appel de Coaching (calls Google Meet coach-élève) */}
       <div className="card" style={{ marginTop: 24 }}>
         <div className="card-head">
-          <div className="card-title">Historique des sessions</div>
-          <div className="card-sub">Rapports de fin d'appel — calls coach-élève</div>
+          <div className="card-title">Rapports de fin d'appel de Coaching</div>
         </div>
         <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {sessionReports.length === 0 && pendingSessionRapports.length === 0 && (
@@ -867,6 +1062,16 @@ export default function PageClientDetail({ id }: Props) {
                       {isNoShow ? 'No-show' : 'Présent'}
                     </span>
                     {topicLabel && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{topicLabel}</span>}
+                    {!isNoShow && (
+                      <button
+                        type="button"
+                        onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
+                        className="btn-ghost"
+                        style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
+                      >
+                        Éditer
+                      </button>
+                    )}
                   </div>
                   {report.notes && (
                     <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, whiteSpace: 'pre-wrap' }}>{report.notes}</div>
