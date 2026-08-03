@@ -66,6 +66,12 @@ self.addEventListener('push', e => {
             ...(payload.image ? { image: payload.image } : {}),
             tag: 'momentum-msg',
             renotify: true,
+            // requireInteraction + vibrate — pousse Android à traiter la notif comme
+            // prioritaire (heads-up) plutôt que la déposer silencieusement dans le tiroir.
+            // Limitation connue Android/WebAPK, pas garanti sur tous les constructeurs
+            // (Samsung notamment), mais gratuit à tenter.
+            requireInteraction: true,
+            vibrate: [200, 100, 200],
             data: { url: payload.url || '/' },
           }
         ).then(async () => {
