@@ -251,7 +251,7 @@ export default function PageToday() {
               )}
               {watchList.map(({ client, signals }) => (
                 <div key={client.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={36} seed={client.id} />
+                  <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={36} seed={client.id} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</span>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
@@ -295,7 +295,7 @@ export default function PageToday() {
                   <tr key={client.id}>
                     <td>
                       <Link href={`/clients/${client.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-                        <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={30} seed={client.id} />
+                        <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={30} seed={client.id} />
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--accent)' }}>{client.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--muted)' }}>{client.niche || 'Infopreneur'}</div>
