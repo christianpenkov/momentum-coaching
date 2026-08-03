@@ -8,6 +8,7 @@ import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import InlineLoader from '@/components/ui/InlineLoader';
 import TaskModal from '@/components/ui/TaskModal';
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 import { isTaskOverdue, getTaskBucket } from '@/lib/clientSignals';
@@ -165,6 +166,9 @@ function PageTasksInner() {
   const searchParams = useSearchParams();
   const initialOverdueOnly = searchParams.get('filter') === 'overdue';
   const reducedMotion = useReducedMotion();
+  // Liste complète des élèves (même à 0 tâche) — /api/tasks ne renvoie que des lignes
+  // de tasks, un élève sans aucune tâche n'y apparaîtrait jamais.
+  const { clients: allClients } = useSupabaseClients();
   const [tasks, setTasks] = useState<TaskWithClient[]>([]);
   const [loading, setLoading] = useState(true);
   const [overdueOnly, setOverdueOnly] = useState(initialOverdueOnly);
@@ -208,7 +212,15 @@ function PageTasksInner() {
   }
 
   const groups: StudentGroup[] = useMemo(() => {
+    // Toujours partir de la liste complète des élèves — même ceux à 0 tâche restent
+    // affichés, pas seulement ceux ayant au moins une ligne dans `tasks`.
     const byClient = new Map<string, StudentGroup>();
+    for (const c of allClients) {
+      byClient.set(c.id, {
+        client: { id: c.id, name: c.name, coach_id: c.coach_id, avatar_url: c.avatar_url, initials: c.initials },
+        tasks: [],
+      });
+    }
     for (const t of tasks) {
       const c = getClient(t);
       if (!c) continue;
@@ -292,7 +304,7 @@ function PageTasksInner() {
 
       {groups.length === 0 && (
         <div style={{ fontSize: 13, color: 'var(--muted)', padding: '32px 0', textAlign: 'center' }}>
-          Aucune tâche assignée.
+          {overdueOnly ? 'Aucun élève en retard.' : 'Aucun élève actif.'}
         </div>
       )}
 
@@ -472,6 +484,11 @@ function PageTasksInner() {
 
                     return (
                       <>
+                        {pending.length === 0 && done.length === 0 && (
+                          <div style={{ padding: '20px 14px', textAlign: 'center', fontSize: 12, color: 'var(--muted)' }}>
+                            Aucune tâche assignée à cet élève.
+                          </div>
+                        )}
                         {pending.length > 0 && (
                           <div>
                             <SectionHeader sectionKey={pendingKey} label="EN COURS" count={pending.length} collapsed={pendingCollapsed} />
