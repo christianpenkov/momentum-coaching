@@ -227,7 +227,7 @@ export default function PageClients() {
                       </td>
                       <td>
                         <Sparkbars
-                          data={c.cashCollectedTrend}
+                          data={c.cashContractedTrend}
                           height={22} width={52}
                         />
                       </td>

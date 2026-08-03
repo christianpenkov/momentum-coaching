@@ -223,8 +223,14 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         } : null;
         const payments = c.profile_id ? (paymentsByProfile[c.profile_id] || []) : [];
         const cashCollectedAllTimeForClient = payments.reduce((s, p) => s + (p.amount || 0), 0);
-        let running = 0;
-        const cashCollectedTrend = payments.map(p => (running += p.amount || 0));
+        // Tendance = cash CONTRACTÉ cumulé (même source que la colonne Cash), pas le
+        // cash collecté Stripe — stripe_payments est vide pour la plupart des élèves
+        // tant que le chantier cash collecté (lien fiable deal↔paiement) n'est pas résolu.
+        const dealsClosedSorted = [...salesCalls]
+          .filter((call: any) => call.deal_closed && call.revenue)
+          .sort((a: any, b: any) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''));
+        let runningContracted = 0;
+        const cashContractedTrend = dealsClosedSorted.map((call: any) => (runningContracted += call.revenue || 0));
         const connectedProviders = c.profile_id ? (providersByProfile[c.profile_id] ?? new Set<string>()) : new Set<string>();
         const waived: string[] = c.integrations_waived ?? [];
         const onboardingStatus: 'invited' | 'account_created' | 'integrating' | 'active' =
@@ -245,7 +251,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           sessionReports: sessionReportsMap[c.id] || [],
           currentStats,
           cashCollectedAllTime: cashCollectedAllTimeForClient,
-          cashCollectedTrend,
+          cashContractedTrend,
           resources: [],
           lastCoachMessage: null,
           avatar_url: c.profile_id ? (avatarMap[c.profile_id] || null) : null,

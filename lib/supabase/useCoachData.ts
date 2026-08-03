@@ -17,7 +17,7 @@ export interface ClientWithMetrics extends Client {
   sessionReports: SessionReport[];
   currentStats: CurrentStats | null;
   cashCollectedAllTime: number;
-  cashCollectedTrend: number[];
+  cashContractedTrend: number[];
   resources: { id: string; title: string; description: string | null; url: string | null; week: number | null; created_at: string }[];
   lastCoachMessage: string | null;
   coachName: string | null;
@@ -126,7 +126,7 @@ export function useClientSelfData() {
         tasks: tasksRes.data || [],
         currentStats: null,
         cashCollectedAllTime: 0,
-        cashCollectedTrend: [],
+        cashContractedTrend: [],
         resources: resourcesRes.data || [],
         lastCoachMessage: lastMsgRes.data?.[0]?.text || null,
         coachName,
