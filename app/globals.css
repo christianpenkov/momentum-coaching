@@ -1500,11 +1500,6 @@ a { color: inherit; text-decoration: none; }
   text-transform: uppercase; letter-spacing: 0.06em;
   color: var(--muted); margin-bottom: 8px;
 }
-.kpi-card--highlight {
-  border-color: var(--accent-brand, var(--accent));
-  background: linear-gradient(180deg, var(--accent-brand-soft, var(--surface-2)) 0%, var(--surface) 100%);
-}
-.kpi-card--highlight .kpi-value { color: var(--accent-brand, var(--accent)); }
 
 /* PageToday — "Tous tes clients" : cards mobile, masquées par défaut (desktop garde
    le tableau .today-clients-table) ; basculées à 767px, voir bloc Mobile PWA plus bas. */

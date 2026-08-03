@@ -797,7 +797,7 @@ export default function PageClientDetail({ id }: Props) {
         <div className="kpi-group" style={{ marginBottom: 0 }}>
           <div className="kpi-group-title">Revenu</div>
           <div className="grid-2">
-            <div className="card kpi-card kpi-card--highlight" style={{ padding: '16px 20px' }}>
+            <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Cash contracté</div>
               <div className="kpi-value">{cashContracted.toLocaleString('fr-FR')} €</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cashCollected != null ? `${cashCollected.toLocaleString('fr-FR')} € collecté` : 'collecté : —'}</div>
