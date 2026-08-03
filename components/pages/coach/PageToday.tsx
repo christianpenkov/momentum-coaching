@@ -232,10 +232,13 @@ export default function PageToday() {
               <CallStack calls={callsToday} getClient={(call) => {
                 const matched = clients.find(c => c.id === call.client_id);
                 if (matched) return matched;
-                // Call de vente (call_type='calendly') dont le prospect n'a pas encore
-                // de compte élève — client_id est alors null (voir docs/calls-coach-id-piege.md),
-                // repli sur invitee_name plutôt que de laisser "??" en avatar.
-                const name = call.invitee_name || 'Prospect';
+                // Match manquant : soit un call de vente (call_type='calendly') dont le
+                // prospect n'a pas encore de compte élève — client_id est alors null
+                // (voir docs/calls-coach-id-piege.md) — soit un call coaching pointant
+                // vers un élève archivé, exclu de `clients` (SupabaseClientsContext.tsx,
+                // filtré archived_at is null) alors que ses calls ne le sont pas. Repli
+                // sur invitee_name (vente) ou un libellé neutre (coaching), jamais "??".
+                const name = call.invitee_name || (call.call_type === 'google' ? 'Élève archivé' : 'Prospect');
                 return { id: call.id, name, initials: name.slice(0, 2).toUpperCase(), avatar_url: null };
               }} />
             </div>
