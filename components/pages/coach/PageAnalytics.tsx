@@ -38,7 +38,7 @@ export default function PageAnalytics() {
   // minimal pour rester compilable en attendant la refonte complète prévue
   // (renommage "Stats Clients", chantier séparé) — comportement inchangé pour
   // l'utilisateur : les sections restent vides comme avant.
-  const totalMRR = clients.reduce((s, c) => s + (c.currentStats?.mrr || 0), 0);
+  const totalCash = clients.reduce((s, c) => s + (c.currentStats?.cashContracted || 0), 0);
   const totalCalls = 0;
   const avgClosing = clients.length > 0
     ? Math.round(clients.reduce((s, c) => s + (c.currentStats?.closingRate || 0), 0) / clients.length)
@@ -88,9 +88,9 @@ export default function PageAnalytics() {
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>taux closing moy.</div>
         </div>
         <div className="card" style={{ padding: '16px 20px' }}>
-          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>MRR Stripe</div>
-          <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>{totalMRR.toLocaleString('fr-FR')} €</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>mensuel récurrent</div>
+          <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>Cash contracté</div>
+          <div style={{ fontSize: 28, fontWeight: 800, fontFamily: 'var(--font-mono)', color: 'var(--green)' }}>{totalCash.toLocaleString('fr-FR')} €</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>total</div>
         </div>
         <div className="card" style={{ padding: '16px 20px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>Croissance moy.</div>
@@ -182,7 +182,7 @@ export default function PageAnalytics() {
                 className="btn-ghost"
                 style={{ fontSize: 12 }}
                 onClick={() => {
-                  const headers = ['Élève', 'Signaux', 'Audience IG', 'Croissance IG', 'Posts/sem', 'DM/sem', 'Calls', 'MRR'];
+                  const headers = ['Élève', 'Signaux', 'Audience IG', 'Croissance IG', 'Posts/sem', 'DM/sem', 'Calls', 'Cash'];
                   const rows = tableRows.map(({ c, m, igGrowthPct, avgPosts, avgDms, totalCallsClient }) => [
                     c.name,
                     String(getClientSignals(c.tasks, c.sessionReports).total),
@@ -191,7 +191,7 @@ export default function PageAnalytics() {
                     avgPosts,
                     avgDms,
                     totalCallsClient,
-                    `${(m?.mrr || 0).toLocaleString('fr-FR')} €`,
+                    `${(m?.cashContracted || 0).toLocaleString('fr-FR')} €`,
                   ]);
                   const csv = [headers, ...rows].map(r => r.join(',')).join('\n');
                   const a = document.createElement('a');
@@ -214,7 +214,7 @@ export default function PageAnalytics() {
                     <th>Posts/sem</th>
                     <th>DM/sem</th>
                     <th>Calls</th>
-                    <th>MRR</th>
+                    <th>Cash</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -255,8 +255,8 @@ export default function PageAnalytics() {
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{avgPosts}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{avgDms}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{totalCallsClient}</td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: (m?.mrr || 0) > 0 ? 'var(--green)' : 'var(--muted)' }}>
-                        {(m?.mrr || 0).toLocaleString('fr-FR')} €
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: (m?.cashContracted || 0) > 0 ? 'var(--green)' : 'var(--muted)' }}>
+                        {(m?.cashContracted || 0).toLocaleString('fr-FR')} €
                       </td>
                     </tr>
                   ))}

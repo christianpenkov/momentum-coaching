@@ -8,7 +8,7 @@ import { isCallReallyOver } from '@/lib/sessionRapport';
 export interface CurrentStats {
   followersIg: number;
   followersYt: number;
-  mrr: number;
+  cashContracted: number;
   closingRate: number;
 }
 

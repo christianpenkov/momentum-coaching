@@ -208,11 +208,17 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now2 = new Date();
       setClients((rawClients || []).map((c: any) => {
         const snap = c.profile_id ? latestSnapByProfile[c.profile_id] : null;
-        const salesCalls = c.profile_id ? (salesCallsByProfile[c.profile_id] || []) : [];
+        // Cash contracté depuis la création réelle du compte Momentum de l'élève
+        // (onboarding_completed_at), même référence temporelle que les 8 KPI de
+        // PageClientDetail.tsx — pas de connectedAt (connexion d'un provider externe).
+        const allSalesCalls = c.profile_id ? (salesCallsByProfile[c.profile_id] || []) : [];
+        const salesCalls = c.onboarding_completed_at
+          ? allSalesCalls.filter((call: any) => call.scheduled_at >= c.onboarding_completed_at)
+          : allSalesCalls;
         const currentStats = c.profile_id ? {
           followersIg: snap?.ig_followers ?? 0,
           followersYt: snap?.yt_subscribers ?? 0,
-          mrr: snap?.mrr ?? 0,
+          cashContracted: computeSalesCallStats(salesCalls, now2).cashContracted,
           closingRate: computeSalesCallStats(salesCalls, now2).closingRate,
         } : null;
         const payments = c.profile_id ? (paymentsByProfile[c.profile_id] || []) : [];

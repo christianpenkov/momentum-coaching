@@ -3,6 +3,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import Avatar from '@/components/ui/Avatar';
 import Chip from '@/components/ui/Chip';
 import Sparkbars from '@/components/ui/Sparkbars';
@@ -16,10 +17,11 @@ import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 type Filter = 'all' | 'overdue' | 'noshow';
 
 export default function PageClients() {
+  const router = useRouter();
   const { clients, loading, unarchiveClient } = useSupabaseClients();
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
-  const [sort, setSort] = useState<'name' | 'mrr' | 'followers' | 'week'>('mrr');
+  const [sort, setSort] = useState<'name' | 'cash' | 'followers' | 'week'>('cash');
   const [showModal, setShowModal] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [archivedClients, setArchivedClients] = useState<ClientWithMetrics[]>([]);
@@ -66,7 +68,7 @@ export default function PageClients() {
       );
     }
     list.sort((a, b) => {
-      if (sort === 'mrr') return (b.currentStats?.mrr || 0) - (a.currentStats?.mrr || 0);
+      if (sort === 'cash') return (b.currentStats?.cashContracted || 0) - (a.currentStats?.cashContracted || 0);
       if (sort === 'followers') return (b.currentStats?.followersIg || 0) - (a.currentStats?.followersIg || 0);
       if (sort === 'week') return (b.week || 0) - (a.week || 0);
       return a.name.localeCompare(b.name);
@@ -149,7 +151,7 @@ export default function PageClients() {
           onChange={e => setSort(e.target.value as typeof sort)}
           style={{ fontSize: 12, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)', color: 'var(--accent)', cursor: 'pointer' }}
         >
-          <option value="mrr">Trier par MRR</option>
+          <option value="cash">Trier par cash</option>
           <option value="followers">Trier par audience</option>
           <option value="week">Trier par semaine</option>
           <option value="name">Trier par nom</option>
@@ -176,7 +178,7 @@ export default function PageClients() {
                   <th>Semaine</th>
                   <th>IG</th>
                   <th>YT</th>
-                  <th>MRR</th>
+                  <th>Cash</th>
                   <th>Closing</th>
                   <th>Tendance</th>
                   <th></th>
@@ -186,15 +188,15 @@ export default function PageClients() {
                 {filtered.map((c) => {
                   const m = c.currentStats;
                   return (
-                    <tr key={c.id}>
+                    <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/clients/${c.id}`)}>
                       <td>
-                        <Link href={`/clients/${c.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <Avatar initials={c.initials || c.name.slice(0, 2).toUpperCase()} avatarUrl={c.avatar_url} size={32} seed={c.id} />
                           <div>
                             <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{c.name}</div>
                             <div style={{ fontSize: 11, color: 'var(--muted)' }}>{c.niche || 'Infopreneur'}</div>
                           </div>
-                        </Link>
+                        </div>
                       </td>
                       <td>
                         <OnboardingBadge status={c.onboardingStatus} />
@@ -218,7 +220,7 @@ export default function PageClients() {
                         {(m?.followersYt || 0).toLocaleString('fr-FR')}
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>
-                        {(m?.mrr || 0).toLocaleString('fr-FR')} €
+                        {(m?.cashContracted || 0).toLocaleString('fr-FR')} €
                       </td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
                         {m ? `${m.closingRate}%` : '—'}
@@ -231,7 +233,7 @@ export default function PageClients() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <Link href={`/clients/${c.id}`} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
+                          <Link href={`/clients/${c.id}`} onClick={e => e.stopPropagation()} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
                             Fiche
                           </Link>
                         </div>

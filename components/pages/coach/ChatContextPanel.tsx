@@ -63,9 +63,9 @@ export default function ChatContextPanel({ client, calls, open, onClose }: ChatC
 
       <div className="card tight">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-          <span style={{ fontSize: 12, color: 'var(--muted)' }}>MRR</span>
+          <span style={{ fontSize: 12, color: 'var(--muted)' }}>Cash</span>
           <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--ink)', fontVariantNumeric: 'tabular-nums' }}>
-            {(client.currentStats?.mrr || 0).toLocaleString('fr-FR')} €
+            {(client.currentStats?.cashContracted || 0).toLocaleString('fr-FR')} €
           </span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingTop: 12, borderTop: '1px solid var(--border-soft)' }}>
