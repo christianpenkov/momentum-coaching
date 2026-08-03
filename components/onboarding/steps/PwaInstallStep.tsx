@@ -63,9 +63,9 @@ export default function PwaInstallStep() {
           </div>
         </div>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>Sur Android (Chrome)</div>
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>Sur Android</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            Appuie sur les <MoreIcon /> en haut à droite, puis sur <strong style={{ color: 'var(--ink)' }}>&quot;Ajouter à l&apos;écran d&apos;accueil&quot;</strong> (ou accepte directement la bannière d&apos;installation qui apparaît automatiquement en bas de l&apos;écran).
+            Appuie sur les <MoreIcon /> en haut à droite, puis sur <strong style={{ color: 'var(--ink)' }}>&quot;Ajouter à l&apos;écran d&apos;accueil&quot;</strong> (ou accepte directement la bannière d&apos;installation qui apparaît automatiquement en bas de l&apos;écran). Le principe est le même sur Chrome, Samsung Internet ou tout autre navigateur Android.
           </div>
         </div>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
