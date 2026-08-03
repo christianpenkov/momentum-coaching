@@ -15,6 +15,7 @@ import { useUser } from '@/lib/UserContext';
 import { useNotifications, type AppNotif } from '@/lib/useNotifications';
 import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
+import { isNotCanceled } from '@/lib/salesCallStats';
 
 export default function PageToday() {
   const { clients, calls, business, loading, refetch } = useSupabaseClients();
@@ -34,7 +35,7 @@ export default function PageToday() {
     .slice(0, 4);
 
   const callsToday = calls.filter(call => {
-    if (!call.scheduled_at) return false;
+    if (!call.scheduled_at || !isNotCanceled(call)) return false;
     const d = new Date(call.scheduled_at);
     const today = new Date();
     return d.toDateString() === today.toDateString();
@@ -228,7 +229,15 @@ export default function PageToday() {
               </Link>
             </div>
             <div style={{ marginTop: 16 }}>
-              <CallStack calls={callsToday} getClient={(call) => clients.find(c => c.id === call.client_id)} />
+              <CallStack calls={callsToday} getClient={(call) => {
+                const matched = clients.find(c => c.id === call.client_id);
+                if (matched) return matched;
+                // Call de vente (call_type='calendly') dont le prospect n'a pas encore
+                // de compte élève — client_id est alors null (voir docs/calls-coach-id-piege.md),
+                // repli sur invitee_name plutôt que de laisser "??" en avatar.
+                const name = call.invitee_name || 'Prospect';
+                return { id: call.id, name, initials: name.slice(0, 2).toUpperCase(), avatar_url: null };
+              }} />
             </div>
           </div>
         </StaggerItem>
