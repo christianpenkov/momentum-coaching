@@ -6,7 +6,6 @@ import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import CallStack from '@/components/ui/CallStack';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
@@ -106,7 +105,6 @@ export default function PageToday() {
 
   return (
     <div className="page-content">
-      <TourAnchor id="page-dashboard" />
       <CreateCallModal
         open={showCreateCallModal}
         onClose={() => setShowCreateCallModal(false)}

@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import RapportModal from '@/components/ui/RapportModal';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
@@ -1727,7 +1726,6 @@ export default function PagePipeline() {
       style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', overflow: 'hidden' }}
       onDragEnd={handleDragEnd}
     >
-      <TourAnchor id="page-client-pipeline" />
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
         <div>

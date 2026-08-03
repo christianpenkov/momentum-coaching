@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import Avatar from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import CreateCallModal from '@/components/ui/CreateCallModal';
@@ -142,7 +141,6 @@ export default function PageCalls() {
 
   return (
     <div className="page-content">
-      <TourAnchor id="page-calls" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Calls</h1>

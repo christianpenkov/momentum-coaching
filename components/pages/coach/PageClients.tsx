@@ -7,7 +7,6 @@ import Avatar from '@/components/ui/Avatar';
 import Chip from '@/components/ui/Chip';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getClientSignals } from '@/lib/clientSignals';
 import AddClientModal from '@/components/ui/AddClientModal';
@@ -85,7 +84,6 @@ export default function PageClients() {
 
   return (
     <div className="page-content">
-      <TourAnchor id="page-clients" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Clients</h1>

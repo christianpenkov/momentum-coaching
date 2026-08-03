@@ -5,8 +5,7 @@ import Image from 'next/image';
 import { LazyMotion, domAnimation, m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
 import ConnectStep from './steps/ConnectStep';
-import { useTour } from './TourContext';
-import { useOnboardingWizard } from './OnboardingWizardContext';
+import WalkthroughStep from './steps/WalkthroughStep';
 import type { WizardConfig } from '@/lib/onboarding/coachWizardConfig';
 
 interface WizardShellProps {
@@ -49,17 +48,19 @@ const staggerChild = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
 };
 
-// Étapes fixes : welcome -> connect -> final. Après 'connect', le vrai tour guidé
-// (TourRunner, piloté par TourContext) prend le relais sur la plateforme réelle —
-// ce n'est plus une étape de cette carte modale.
-type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'final' };
+// Étapes fixes : welcome -> connect -> walkthrough[0..n] -> final. Le walkthrough
+// reste une carte informative dans cette même modale (pas de navigation réelle) —
+// l'utilisateur lit et clique Suivant sans jamais quitter le wizard.
+type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'walkthrough' | 'final'; walkthroughIndex?: number };
 
-function buildSteps(): PhaseStep[] {
-  return [
+function buildSteps(config: WizardConfig): PhaseStep[] {
+  const steps: PhaseStep[] = [
     { key: 'welcome', kind: 'welcome' },
     { key: 'connect', kind: 'connect' },
-    { key: 'final', kind: 'final' },
   ];
+  config.walkthroughSteps.forEach((_, i) => steps.push({ key: `walkthrough-${i}`, kind: 'walkthrough', walkthroughIndex: i }));
+  steps.push({ key: 'final', kind: 'final' });
+  return steps;
 }
 
 async function persistProgress(step: string, data?: Record<string, unknown>) {
@@ -77,9 +78,7 @@ async function persistProgress(step: string, data?: Record<string, unknown>) {
 
 export default function WizardShell({ open, onClose, config, initialStep }: WizardShellProps) {
   const reduced = useReducedMotion();
-  const { startTour } = useTour();
-  const { openWizard } = useOnboardingWizard();
-  const steps = useMemo(() => buildSteps(), []);
+  const steps = useMemo(() => buildSteps(config), [config]);
 
   const findIndex = useCallback((key?: string) => {
     const idx = steps.findIndex(s => s.key === key);
@@ -88,7 +87,6 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
 
   const [index, setIndex] = useState(() => findIndex(initialStep));
   const [nextHovered, setNextHovered] = useState(false);
-  const forcedIndexRef = useRef<number | null>(null);
 
   // Ne resynchronise l'étape que sur une vraie transition fermé -> ouvert (ex: réouverture
   // manuelle via le bouton sidebar), jamais à chaque render — sinon ce useEffect écrase
@@ -96,16 +94,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   // (et donc `findIndex`) est recréé à chaque render sans cette protection.
   const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open && !wasOpenRef.current) {
-      // Un forceIndex explicite (ex: retour du tour vers 'final') prime sur
-      // initialStep — sinon la resynchro sur initialStep écraserait l'étape voulue.
-      if (forcedIndexRef.current !== null) {
-        setIndex(forcedIndexRef.current);
-        forcedIndexRef.current = null;
-      } else {
-        setIndex(findIndex(initialStep));
-      }
-    }
+    if (open && !wasOpenRef.current) setIndex(findIndex(initialStep));
     wasOpenRef.current = open;
   }, [open, initialStep, findIndex]);
 
@@ -130,18 +119,6 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   }
 
   function handleNext() {
-    if (current.kind === 'connect') {
-      // Fin de la carte modale — le vrai tour guidé prend le relais sur la
-      // plateforme réelle (TourRunner). La carte se rouvre sur 'final' quand le
-      // tour est allé au bout (onComplete ci-dessous).
-      persistProgress('in_progress');
-      onClose();
-      startTour(config.tourSteps, () => {
-        forcedIndexRef.current = findIndex('final');
-        openWizard();
-      });
-      return;
-    }
     if (isLast) {
       persistProgress('completed');
       onClose();
@@ -300,6 +277,17 @@ function StepBody({ current, config, onSkip }: {
         <Title small>Active tes connexions</Title>
         <Subtitle>Connecte tes outils pour activer le suivi. Rien n&apos;est obligatoire — tu peux passer une étape et y revenir plus tard.</Subtitle>
         <ConnectStep config={config} onSkip={onSkip} />
+      </>
+    );
+  }
+
+  if (current.kind === 'walkthrough' && current.walkthroughIndex !== undefined) {
+    const step = config.walkthroughSteps[current.walkthroughIndex];
+    return (
+      <>
+        <IconHeader icon={step.icon} iconColor="var(--accent-brand)" iconBg="rgba(58,106,134,0.1)" />
+        <Title small>{step.title}</Title>
+        <WalkthroughStep step={step} />
       </>
     );
   }

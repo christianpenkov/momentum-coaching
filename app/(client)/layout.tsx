@@ -14,8 +14,6 @@ import PushPermissionGate from '@/components/PushPermissionGate';
 import OrientationLockOverlay from '@/components/OrientationLockOverlay';
 import { OnboardingWizardProvider } from '@/components/onboarding/OnboardingWizardContext';
 import ClientOnboardingWizard from '@/components/onboarding/ClientOnboardingWizard';
-import { TourProvider } from '@/components/onboarding/TourContext';
-import TourRunner from '@/components/onboarding/TourRunner';
 
 function ClientLayoutInner({ children, shellRef, navRef }: {
   children: React.ReactNode;
@@ -26,27 +24,24 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
-    <TourProvider>
-      <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
-        <div ref={shellRef} className="app-shell-pwa">
-          <OrientationLockOverlay />
-          <PushPermissionGate userId={user?.id ?? null} />
-          <TopBar />
-          <div className="app-body-pwa">
-            <SidebarClient />
-            <main className="main-content">
-              <PageTransition>{children}</PageTransition>
-            </main>
-          </div>
-          <div ref={navRef} className="bottom-nav-wrapper">
-            <BottomNav onMoreClick={() => setMoreOpen(true)} />
-          </div>
-          {moreOpen && <ClientMoreSheet onClose={() => setMoreOpen(false)} />}
+    <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
+      <div ref={shellRef} className="app-shell-pwa">
+        <OrientationLockOverlay />
+        <PushPermissionGate userId={user?.id ?? null} />
+        <TopBar />
+        <div className="app-body-pwa">
+          <SidebarClient />
+          <main className="main-content">
+            <PageTransition>{children}</PageTransition>
+          </main>
         </div>
-        <ClientOnboardingWizard />
-        <TourRunner />
-      </OnboardingWizardProvider>
-    </TourProvider>
+        <div ref={navRef} className="bottom-nav-wrapper">
+          <BottomNav onMoreClick={() => setMoreOpen(true)} />
+        </div>
+        {moreOpen && <ClientMoreSheet onClose={() => setMoreOpen(false)} />}
+      </div>
+      <ClientOnboardingWizard />
+    </OnboardingWizardProvider>
   );
 }
 

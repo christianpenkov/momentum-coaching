@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReducedMotion } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import InlineLoader from '@/components/ui/InlineLoader';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
@@ -394,7 +393,6 @@ export default function PageClientTasks() {
 
   return (
     <div className="page-content">
-      <TourAnchor id="page-client-taches" />
       <div className="page-header">
         <h1 className="page-title">Tâches</h1>
       </div>

@@ -3,7 +3,6 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import InlineLoader from '@/components/ui/InlineLoader';
 import ModalShell from '@/components/ui/ModalShell';
 import DrawerShell from '@/components/ui/DrawerShell';
@@ -398,7 +397,6 @@ export default function PageClientResources() {
 
   return (
     <div className="page-content">
-      <TourAnchor id="page-client-ressources" />
       {/* Barre de navigation dossiers — ☰ + fil d'ariane, en haut à gauche */}
       {sections.length > 0 && (
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>

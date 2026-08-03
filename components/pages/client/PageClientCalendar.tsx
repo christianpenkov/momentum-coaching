@@ -3,7 +3,6 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
 import type { Call } from '@/lib/supabase/types';
@@ -158,7 +157,6 @@ export default function PageClientCalendar() {
 
   return (
     <div className="page-content">
-      <TourAnchor id="page-client-calendar" />
       <div className="page-header">
         <div>
           <h1 className="page-title">Mon calendrier</h1>

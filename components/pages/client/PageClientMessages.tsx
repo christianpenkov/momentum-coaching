@@ -3,7 +3,6 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
-import TourAnchor from '@/components/onboarding/TourAnchor';
 import Avatar from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -1784,7 +1783,6 @@ export default function PageClientMessages() {
   return (
     <AudioContext.Provider value={{ activeId: activeAudioId, setActive: setActiveAudioId }}>
       <div className="chat-shell" style={{ display: 'flex', flexDirection: 'column', background: 'var(--bg)', position: 'relative' }}>
-        <TourAnchor id="page-client-messages" />
 
         {/* ── Header ── */}
         <div style={{
