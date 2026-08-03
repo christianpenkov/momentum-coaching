@@ -13,7 +13,7 @@ const staggerChild = {
 // Icône "..." iOS — trois points, bouton menu en bas à droite de Safari.
 function MoreIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--accent-brand)" style={{ flexShrink: 0 }}>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="var(--accent-brand)" style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}>
       <circle cx="5" cy="12" r="2" />
       <circle cx="12" cy="12" r="2" />
       <circle cx="19" cy="12" r="2" />
@@ -24,7 +24,7 @@ function MoreIcon() {
 // Icône "Partager" iOS — carré avec flèche vers le haut, telle qu'affichée dans la barre Safari.
 function ShareIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}>
       <path d="M12 3v13" />
       <polyline points="8 7 12 3 16 7" />
       <path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7" />
@@ -35,7 +35,7 @@ function ShareIcon() {
 // Icône "Sur l'écran d'accueil" iOS — cadre carré avec un +, telle qu'affichée dans le menu de partage.
 function AddToHomeIcon() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}>
       <rect x="3" y="3" width="18" height="18" rx="4" />
       <line x1="12" y1="8" x2="12" y2="16" />
       <line x1="8" y1="12" x2="16" y2="12" />
@@ -58,22 +58,8 @@ export default function PwaInstallStep() {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Sur iPhone (Safari)</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
-              <MoreIcon />
-              <span>Appuie sur les <strong style={{ color: 'var(--ink)' }}>···</strong> en bas à droite de l&apos;écran.</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
-              <ShareIcon />
-              <span>Appuie sur l&apos;icône <strong style={{ color: 'var(--ink)' }}>Partager</strong>.</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--muted)', lineHeight: 1.4 }}>
-              <AddToHomeIcon />
-              <span>Descends dans la liste jusqu&apos;à <strong style={{ color: 'var(--ink)' }}>&quot;Sur l&apos;écran d&apos;accueil&quot;</strong>.</span>
-            </div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.4, paddingLeft: 26 }}>
-              Appuie ensuite sur <strong style={{ color: 'var(--accent-brand)' }}>Ajouter</strong> en haut à droite.
-            </div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+            Appuie sur les <MoreIcon /> en bas à droite de l&apos;écran, puis sur l&apos;icône <ShareIcon /> <strong style={{ color: 'var(--ink)' }}>Partager</strong>, descends jusqu&apos;à <AddToHomeIcon /> <strong style={{ color: 'var(--ink)' }}>&quot;Sur l&apos;écran d&apos;accueil&quot;</strong>, puis appuie sur <strong style={{ color: 'var(--accent-brand)' }}>Ajouter</strong> en haut à droite.
           </div>
         </div>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>

@@ -23,7 +23,7 @@ export function buildClientWizardConfig(coachName?: string | null): WizardConfig
         points: [
           { strike: 'Vues', highlight: 'Cash !', rest: '— vois tes contenus qui rapportent vraiment.' },
           'Navigue période par période (semaine ou mois) pour comparer ta progression.',
-          'Vois tes calls conclus et ton taux de closing.',
+          'Vois le détail de chaque étape de ton funnel, du premier contact jusqu\'au closing.',
         ],
       },
       {
@@ -55,14 +55,13 @@ export function buildClientWizardConfig(coachName?: string | null): WizardConfig
         title: 'Prochain call',
         points: [
           'Tous tes calls, coaching et prospects confondus — passés et à venir.',
-          'Accepte ou propose un autre horaire directement depuis cette page.',
         ],
       },
       {
         icon: 'calendar',
         title: 'Calendrier',
         points: [
-          'Ne rate plus jamais un call ou une deadline — tout ton planning coaching en un seul endroit.',
+          'Une vue d\'ensemble jour par jour de tous tes prochains rendez-vous et échéances importantes.',
         ],
       },
       {
