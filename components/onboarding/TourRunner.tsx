@@ -69,10 +69,14 @@ export default function TourRunner() {
       }}
       steps={[
         {
+          // Le sélecteur cible le conteneur racine de la page (immense, toute la
+          // hauteur) plutôt qu'un petit élément précis — avec une cible aussi grande,
+          // 'auto' positionne mal le tooltip (peut sortir du viewport). 'top' fixe
+          // l'ancre en haut de la page, prévisible et toujours visible.
           target: currentStep.selector,
           title: currentStep.title,
           content: currentStep.content,
-          placement: currentStep.placement ?? 'auto',
+          placement: currentStep.placement ?? 'top',
           skipBeacon: true,
         },
       ]}
