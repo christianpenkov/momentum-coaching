@@ -99,6 +99,18 @@ self.addEventListener('push', e => {
   );
 });
 
+// Permet à l'app (onglet ouvert) de dire au SW de fermer les notifs actives dans
+// le tiroir Android quand les messages sont lus depuis l'intérieur de l'app —
+// sans ça, seul un tap direct sur la notif la ferme (notificationclick), et le
+// badge géré automatiquement par Android reste bloqué tant que la notif traîne.
+self.addEventListener('message', e => {
+  if (e.data?.type === 'CLEAR_NOTIFICATIONS') {
+    swLog('clear_notifications_requested', e.data.tag || 'momentum-msg');
+    self.registration.getNotifications({ tag: e.data.tag || 'momentum-msg' })
+      .then(notifs => notifs.forEach(n => n.close()));
+  }
+});
+
 self.addEventListener('notificationclick', e => {
   swLog('notification_clicked', e.notification.title);
   e.notification.close();

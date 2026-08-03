@@ -1,9 +1,14 @@
 // Pastille sur l'icône de l'app PWA (iOS 16.4+, PWA installée + permission notif
-// acceptée). Android ignore setAppBadge et gère déjà un badge automatique via
-// showNotification côté service worker — rien à faire ici pour Android.
+// acceptée). Android ignore setAppBadge et déduit son badge des notifs actives
+// dans le tiroir — d'où le postMessage au SW ci-dessous pour les fermer.
 export function clearAppBadge() {
   if (typeof navigator !== 'undefined' && 'clearAppBadge' in navigator) {
     (navigator as any).clearAppBadge().catch(() => {});
+  }
+  // Android : ferme les notifs actives dans le tiroir (sinon le badge, déduit par
+  // le système du nombre de notifs présentes, reste bloqué même message lu dans l'app).
+  if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+    navigator.serviceWorker.controller.postMessage({ type: 'CLEAR_NOTIFICATIONS' });
   }
 }
 
