@@ -12,6 +12,7 @@ import { useUser } from '@/lib/UserContext';
 import RapportModal from '@/components/ui/RapportModal';
 import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
+import { getClientWeek } from '@/lib/clientWeek';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -257,7 +258,7 @@ export default function PageClientView() {
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 1 }}>Bonjour,</div>
             <h1 style={{ fontSize: 'clamp(22px, 6vw, 32px)', fontWeight: 800, color: 'var(--accent)', marginBottom: 4, lineHeight: 1.05 }}>{client.name}</h1>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
-              {client.niche || 'Infopreneur'} · Sem. <strong style={{ color: 'var(--accent)' }}>{client.week}</strong>
+              {client.niche || 'Infopreneur'} · Sem. <strong style={{ color: 'var(--accent)' }}>{getClientWeek(client.onboarding_completed_at)}</strong>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 11, color: 'var(--accent)', background: 'var(--surface)', border: '1px solid var(--border)', padding: '4px 10px', borderRadius: 20, fontWeight: 600, whiteSpace: 'nowrap' }}>

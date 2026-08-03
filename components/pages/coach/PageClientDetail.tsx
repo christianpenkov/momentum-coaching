@@ -18,6 +18,7 @@ import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
 import { isTaskOverdue } from '@/lib/clientSignals';
 import { computeSalesCallStats, isNotCanceled } from '@/lib/salesCallStats';
+import { getClientWeek } from '@/lib/clientWeek';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import type { Task, SessionReport, Call, Client } from '@/lib/supabase/types';
 
@@ -635,13 +636,13 @@ export default function PageClientDetail({ id }: Props) {
             <h1 className="page-title" style={{ marginBottom: 4 }}>{client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
               <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.niche || 'Niche non définie'}</span>
-              <span style={{ fontSize: 12, color: 'var(--muted)' }}>· Semaine {client.week}</span>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>· Semaine {getClientWeek(client.onboarding_completed_at)}</span>
             </div>
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Link href={`/clients/${id}/analytics`} className="btn-primary-brand">
-            <Icon name="bar-chart" size={14} /> Analytics
+            <Icon name="bar-chart" size={14} /> Stats Clients
           </Link>
         </div>
       </div>

@@ -10,6 +10,7 @@ import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getClientSignals } from '@/lib/clientSignals';
+import { getClientWeek } from '@/lib/clientWeek';
 import AddClientModal from '@/components/ui/AddClientModal';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
@@ -70,7 +71,7 @@ export default function PageClients() {
     list.sort((a, b) => {
       if (sort === 'cash') return (b.currentStats?.cashContracted || 0) - (a.currentStats?.cashContracted || 0);
       if (sort === 'followers') return (b.currentStats?.followersIg || 0) - (a.currentStats?.followersIg || 0);
-      if (sort === 'week') return (b.week || 0) - (a.week || 0);
+      if (sort === 'week') return getClientWeek(b.onboarding_completed_at) - getClientWeek(a.onboarding_completed_at);
       return a.name.localeCompare(b.name);
     });
     return list;
@@ -212,7 +213,7 @@ export default function PageClients() {
                           return <span style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600 }}>{parts}</span>;
                         })()}
                       </td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{c.week}</td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{getClientWeek(c.onboarding_completed_at)}</td>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600 }}>
                         {(m?.followersIg || 0).toLocaleString('fr-FR')}
                       </td>
