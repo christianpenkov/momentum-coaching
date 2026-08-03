@@ -246,7 +246,7 @@ function PageTasksInner() {
       return a.client.name.localeCompare(b.client.name);
     });
     return overdueOnly ? list.filter(g => g.tasks.some(t => isTaskOverdue(t))) : list;
-  }, [tasks, overdueOnly]);
+  }, [tasks, overdueOnly, allClients]);
 
   // Déplié par défaut : au premier chargement de chaque élève rencontré.
   useEffect(() => {
