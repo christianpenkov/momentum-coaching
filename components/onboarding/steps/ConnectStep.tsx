@@ -59,7 +59,7 @@ export default function ConnectStep({ config }: ConnectStepProps) {
   return (
     <>
       <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-        {config.integrations.map(cfg => (
+        {config.integrations.filter(cfg => !integrations[cfg.provider]).map(cfg => (
           <IntegrationConnectCard
             key={cfg.provider}
             config={cfg}
@@ -69,6 +69,11 @@ export default function ConnectStep({ config }: ConnectStepProps) {
             onDisconnected={() => setIntegrations(prev => ({ ...prev, [cfg.provider]: null }))}
           />
         ))}
+        {config.integrations.every(cfg => integrations[cfg.provider]) && (
+          <div style={{ textAlign: 'center', padding: '24px 0', color: 'var(--muted)', fontSize: 13 }}>
+            Toutes tes intégrations sont déjà connectées.
+          </div>
+        )}
       </m.div>
 
       <m.div variants={staggerChild} className="onboarding-badge-secure" style={{ marginTop: 16 }}>
