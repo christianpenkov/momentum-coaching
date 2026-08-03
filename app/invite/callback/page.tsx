@@ -11,6 +11,12 @@ export default function InviteCallbackPage() {
   const [error, setError] = useState('');
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
+  // Id capturé une seule fois à l'établissement initial de la session (juste après
+  // setSession() plus bas) — revérifié juste avant updateUser dans handleSetPassword.
+  // Le cookie de session est partagé par tout le navigateur : si un autre onglet
+  // (ex. un compte coach resté connecté) le réécrit entre-temps, la session active
+  // à l'instant de l'update peut avoir changé sans qu'aucune erreur ne le signale.
+  const [expectedUserId, setExpectedUserId] = useState<string | null>(null);
   const router = useRouter();
 
   // Lie le profile_id + accorde les ressources par défaut — fait une seule fois,
@@ -51,6 +57,8 @@ export default function InviteCallbackPage() {
       // Nettoie le fragment de l'URL — évite de laisser les tokens visibles dans la
       // barre d'adresse / l'historique du navigateur une fois la session établie.
       window.history.replaceState(null, '', window.location.pathname);
+
+      setExpectedUserId(data.user.id);
 
       const metadata = data.user.user_metadata ?? {};
       const clientId = metadata?.client_id as string | undefined;
@@ -93,6 +101,19 @@ export default function InviteCallbackPage() {
 
     setStep('saving');
     const supabase = createClient();
+
+    // Garde-fou : le cookie de session est partagé par tout le navigateur (pas
+    // isolé à cet onglet) — si un autre onglet l'a réécrit entre-temps (ex. un
+    // compte coach resté connecté qui a rafraîchi ses tokens), la session active
+    // ici ne serait plus celle de l'élève invité. Sans cette vérification,
+    // updateUser appliquerait le mot de passe au mauvais compte, silencieusement.
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    if (!currentUser || currentUser.id !== expectedUserId) {
+      setError('Ta session a changé entre-temps — recharge le lien d\'invitation depuis ton email pour réessayer.');
+      setStep('set-password');
+      return;
+    }
+
     const { error: updateErr } = await supabase.auth.updateUser({ password });
     if (updateErr) {
       setError(
