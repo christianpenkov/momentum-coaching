@@ -6,6 +6,7 @@ import { LazyMotion, domAnimation, m, AnimatePresence, useReducedMotion } from '
 import Icon from '@/components/ui/Icon';
 import ConnectStep from './steps/ConnectStep';
 import WalkthroughStep from './steps/WalkthroughStep';
+import PwaInstallStep from './steps/PwaInstallStep';
 import type { WizardConfig } from '@/lib/onboarding/coachWizardConfig';
 
 interface WizardShellProps {
@@ -48,10 +49,12 @@ const staggerChild = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
 };
 
-// Étapes fixes : welcome -> connect -> walkthrough[0..n] -> final. Le walkthrough
-// reste une carte informative dans cette même modale (pas de navigation réelle) —
-// l'utilisateur lit et clique Suivant sans jamais quitter le wizard.
-type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'walkthrough' | 'final'; walkthroughIndex?: number };
+// Étapes fixes : welcome -> connect -> walkthrough[0..n] -> pwa -> final. Le
+// walkthrough reste une carte informative dans cette même modale (pas de
+// navigation réelle) — l'utilisateur lit et clique Suivant sans jamais quitter
+// le wizard. L'étape 'pwa' (installation sur l'écran d'accueil) est identique
+// pour les deux rôles, juste avant l'écran de fin.
+type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'walkthrough' | 'pwa' | 'final'; walkthroughIndex?: number };
 
 function buildSteps(config: WizardConfig): PhaseStep[] {
   const steps: PhaseStep[] = [
@@ -59,6 +62,7 @@ function buildSteps(config: WizardConfig): PhaseStep[] {
     { key: 'connect', kind: 'connect' },
   ];
   config.walkthroughSteps.forEach((_, i) => steps.push({ key: `walkthrough-${i}`, kind: 'walkthrough', walkthroughIndex: i }));
+  steps.push({ key: 'pwa', kind: 'pwa' });
   steps.push({ key: 'final', kind: 'final' });
   return steps;
 }
@@ -127,10 +131,6 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
     goToIndex(index + 1);
   }
 
-  function handleSkip(provider: string) {
-    persistProgress('in_progress', { [`${provider}_skipped_at`]: new Date().toISOString() });
-  }
-
   if (!open) return null;
 
   if (reduced) {
@@ -140,7 +140,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
           <button onClick={onClose} className="icon-btn" style={{ position: 'absolute', top: 20, right: 20 }} type="button">
             <Icon name="x" size={18} />
           </button>
-          <StepBody current={current} config={config} onSkip={handleSkip} />
+          <StepBody current={current} config={config} />
           <button onClick={handleNext} className="btn-primary-brand" type="button" style={{ marginTop: 16 }}>
             {isLast ? 'Terminer' : 'Suivant'}
           </button>
@@ -187,7 +187,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                     {index + 1} / {steps.length}
                   </m.div>
 
-                  <StepBody current={current} config={config} onSkip={handleSkip} />
+                  <StepBody current={current} config={config} />
 
                   <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 24 }}>
                     <button
@@ -248,10 +248,9 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   );
 }
 
-function StepBody({ current, config, onSkip }: {
+function StepBody({ current, config }: {
   current: PhaseStep;
   config: WizardConfig;
-  onSkip: (provider: string) => void;
 }) {
   if (current.kind === 'welcome') {
     return (
@@ -275,8 +274,8 @@ function StepBody({ current, config, onSkip }: {
       <>
         <IconHeader icon="link" iconColor="#4a7fa5" iconBg="rgba(74,127,165,0.1)" />
         <Title small>Active tes connexions</Title>
-        <Subtitle>Connecte tes outils pour activer le suivi. Rien n&apos;est obligatoire — tu peux passer une étape et y revenir plus tard.</Subtitle>
-        <ConnectStep config={config} onSkip={onSkip} />
+        <Subtitle>Connecte tes outils pour activer le suivi.</Subtitle>
+        <ConnectStep config={config} />
       </>
     );
   }
@@ -288,6 +287,17 @@ function StepBody({ current, config, onSkip }: {
         <IconHeader icon={step.icon} iconColor="var(--accent-brand)" iconBg="rgba(58,106,134,0.1)" />
         <Title small>{step.title}</Title>
         <WalkthroughStep step={step} />
+      </>
+    );
+  }
+
+  if (current.kind === 'pwa') {
+    return (
+      <>
+        <IconHeader icon="download" iconColor="var(--accent-brand)" iconBg="rgba(58,106,134,0.1)" />
+        <Title small>Installe l&apos;app sur ton téléphone</Title>
+        <Subtitle>Accède à Momentum en un tap, comme une vraie application.</Subtitle>
+        <PwaInstallStep />
       </>
     );
   }

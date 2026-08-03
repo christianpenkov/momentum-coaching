@@ -241,7 +241,7 @@ export default function PageCalls() {
                       {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
                     </div>
                   </div>
-                  <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={34} />
+                  <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={34} seed={cl?.id} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
                       {displayName}
@@ -310,7 +310,7 @@ export default function PageCalls() {
                   </div>
                   <div style={{ width: 1, height: 40, background: 'var(--border)', opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }} />
                   <div style={{ flexShrink: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
-                    <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={40} />
+                    <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={40} seed={cl?.id} />
                   </div>
                   <div style={{ flex: 1, minWidth: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>
@@ -400,7 +400,7 @@ export default function PageCalls() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={28} />
+                          <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={28} seed={cl?.id} />
                           <span style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</span>
                         </div>
                       </td>

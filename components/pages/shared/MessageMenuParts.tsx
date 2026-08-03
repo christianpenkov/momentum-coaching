@@ -78,8 +78,8 @@ export function ReactionBar({ top, left, isMe, onReact }: { top: number; left: n
 // (avatar + nom) au clic sur un badge, plutôt que de rouvrir la barre d'emojis.
 // "Cliquez pour supprimer" et le retrait au clic n'apparaissent que si c'est SA
 // PROPRE réaction (onRemove absent = simple aperçu en lecture seule sinon).
-export function ReactionDetail({ top, left, avatarUrl, initials, name, emoji, onRemove }: {
-  top: number; left: number; avatarUrl?: string | null; initials: string; name: string;
+export function ReactionDetail({ top, left, avatarUrl, initials, name, seed, emoji, onRemove }: {
+  top: number; left: number; avatarUrl?: string | null; initials: string; name: string; seed?: string;
   emoji: string; onRemove?: () => void;
 }) {
   return (
@@ -94,7 +94,7 @@ export function ReactionDetail({ top, left, avatarUrl, initials, name, emoji, on
         cursor: onRemove ? 'pointer' : 'default', minWidth: 200,
       }}
     >
-      <Avatar initials={initials} avatarUrl={avatarUrl} size={32} />
+      <Avatar initials={initials} avatarUrl={avatarUrl} size={32} seed={seed} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)' }}>{name}</div>
         {onRemove && <div style={{ fontSize: 11, color: 'var(--muted)' }}>Cliquez pour supprimer</div>}

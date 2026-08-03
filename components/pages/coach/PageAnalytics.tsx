@@ -72,7 +72,7 @@ export default function PageAnalytics() {
   return (
     <div className="page-content">
       <div className="page-header">
-        <h1 className="page-title">Analytics</h1>
+        <h1 className="page-title">Stats Clients</h1>
       </div>
 
       {/* KPIs */}

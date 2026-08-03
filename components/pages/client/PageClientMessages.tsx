@@ -95,10 +95,10 @@ const WAVEFORM = [4,9,15,20,12,18,8,22,14,6,17,10,19,13,5,8,16,11,21,7,14,9,18,1
 
 // ─── AudioBubble — player custom coordonné ───────────────────────────────────
 
-function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl, initials }: {
+function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl, initials, seed }: {
   id: string; url: string; duration?: number; isMe: boolean;
   listened?: boolean; onListened?: (id: string) => void;
-  avatarUrl?: string | null; initials: string;
+  avatarUrl?: string | null; initials: string; seed?: string;
 }) {
   const { activeId, setActive } = useContext(AudioContext);
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -320,7 +320,7 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
 
       {/* Avatar (rappel écouté/non écouté) + bouton play/pause séparé, comme WhatsApp */}
       <div className="audio-avatar-col" style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={42} />
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={42} seed={seed} />
         {/* Icône micro — overlay discret sur l'avatar, signale "ceci est un vocal" (WhatsApp). */}
         <span style={{
           position: 'absolute', bottom: -1, right: -1,
@@ -594,9 +594,9 @@ function RecordingOverlay({ onCancel, onSend, elapsed, stream }: {
 // composant appelant si pas assez de place en dessous). Position toujours EN
 // DESSOUS du message, jamais au-dessus — voir docs/architecture-messagerie.md.
 
-function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, canDelete, menuOnly, reactionDetail, reactorAvatarUrl, reactorInitials, reactorName, reactionEmoji, onReactionRemove, onReply, onCopy, onEdit, onDelete, onReact, onClose }: {
+function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, canDelete, menuOnly, reactionDetail, reactorAvatarUrl, reactorInitials, reactorName, reactorId, reactionEmoji, onReactionRemove, onReply, onCopy, onEdit, onDelete, onReact, onClose }: {
   rect: DOMRect; bubbleHtml: string; isMe: boolean; isTextMessage: boolean; canEdit: boolean; canDelete: boolean; menuOnly: boolean;
-  reactionDetail?: boolean; reactorAvatarUrl?: string | null; reactorInitials?: string; reactorName?: string;
+  reactionDetail?: boolean; reactorAvatarUrl?: string | null; reactorInitials?: string; reactorName?: string; reactorId?: string;
   reactionEmoji?: string | null; onReactionRemove?: () => void;
   onReply: () => void; onCopy: () => void; onEdit: () => void; onDelete: () => void; onReact: (emoji: string) => void; onClose: () => void;
 }) {
@@ -643,7 +643,7 @@ function MessageContextMenu({ rect, bubbleHtml, isMe, isTextMessage, canEdit, ca
       {reactionDetail && reactionEmoji ? (
         <ReactionDetail
           top={top} left={detailLeft}
-          avatarUrl={reactorAvatarUrl} initials={reactorInitials || '?'} name={reactorName || ''}
+          avatarUrl={reactorAvatarUrl} initials={reactorInitials || '?'} name={reactorName || ''} seed={reactorId}
           emoji={reactionEmoji}
           onRemove={onReactionRemove ? () => { onReactionRemove(); onClose(); } : undefined}
         />
@@ -1006,6 +1006,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
             listened={!!msg.listened_at} onListened={isMe ? undefined : onListened}
             avatarUrl={isMe ? myAvatarUrl : coachAvatarUrl}
             initials={(isMe ? myInitials : coachInitials) || '?'}
+            seed={msg.sender_id}
           />
         ) : isImage && msg.audio_url ? (
           <div style={{ maxWidth: 260 }}>
@@ -1791,7 +1792,7 @@ export default function PageClientMessages() {
           background: 'var(--surface)',
         }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
-            <Avatar initials={coachInitials} avatarUrl={coachAvatarUrl} size={40} />
+            <Avatar initials={coachInitials} avatarUrl={coachAvatarUrl} size={40} seed={coachIdRef.current || undefined} />
             {/* Point de présence */}
             <div style={{
               position: 'absolute', bottom: 1, right: 1,
@@ -2185,6 +2186,7 @@ export default function PageClientMessages() {
             reactorAvatarUrl={reactorIsMe ? myAvatarUrl : coachAvatarUrl}
             reactorInitials={(reactorIsMe ? myInitials : coachInitials) || '?'}
             reactorName={reactorIsMe ? 'Vous' : coachName}
+            reactorId={msg.reaction_by || undefined}
             reactionEmoji={msg.reaction_emoji}
             onReactionRemove={reactorIsMe ? () => clearReaction(msg.id) : undefined}
             onReply={() => setReplyingTo(msg)}

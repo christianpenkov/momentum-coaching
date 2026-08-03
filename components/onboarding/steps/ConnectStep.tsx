@@ -10,7 +10,6 @@ import type { WizardConfig } from '@/lib/onboarding/coachWizardConfig';
 
 interface ConnectStepProps {
   config: WizardConfig;
-  onSkip: (provider: string) => void;
 }
 
 const staggerChild = {
@@ -18,7 +17,7 @@ const staggerChild = {
   visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
 };
 
-export default function ConnectStep({ config, onSkip }: ConnectStepProps) {
+export default function ConnectStep({ config }: ConnectStepProps) {
   const [integrations, setIntegrations] = useState<Record<string, Integration | null>>({});
   const [loading, setLoading] = useState(true);
 
@@ -68,14 +67,13 @@ export default function ConnectStep({ config, onSkip }: ConnectStepProps) {
             showWizardCopy
             onSaved={(updated) => setIntegrations(prev => ({ ...prev, [cfg.provider]: updated }))}
             onDisconnected={() => setIntegrations(prev => ({ ...prev, [cfg.provider]: null }))}
-            onSkip={() => onSkip(cfg.provider)}
           />
         ))}
       </m.div>
 
       <m.div variants={staggerChild} className="onboarding-badge-secure" style={{ marginTop: 16 }}>
         <Icon name="shield" size={15} color="var(--green)" style={{ flexShrink: 0 }} />
-        <span>Tes clés sont vérifiées puis stockées chiffrées. Tu peux passer une étape et y revenir plus tard depuis Réglages.</span>
+        <span>Tes clés sont vérifiées puis stockées chiffrées.</span>
       </m.div>
     </>
   );

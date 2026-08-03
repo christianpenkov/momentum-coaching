@@ -9,6 +9,7 @@ import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
 import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 import { useOnboardingWizard } from '@/components/onboarding/OnboardingWizardContext';
+import { getClientWeek } from '@/lib/clientWeek';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/client', icon: 'activity', label: 'Mon espace' },
@@ -37,10 +38,10 @@ export default function SidebarClient() {
   useEffect(() => {
     if (!user?.id) return;
     const supabase = createClient();
-    supabase.from('clients').select('week, coach_id').eq('profile_id', user.id).maybeSingle()
+    supabase.from('clients').select('onboarding_completed_at, coach_id').eq('profile_id', user.id).maybeSingle()
       .then(({ data }) => {
         if (data) {
-          setWeek(data.week);
+          setWeek(getClientWeek(data.onboarding_completed_at));
           if (data.coach_id) {
             supabase.from('profiles').select('full_name').eq('id', data.coach_id).maybeSingle()
               .then(({ data: p }) => { if (p?.full_name) setCoachName(p.full_name.split(' ')[0]); });
@@ -89,7 +90,7 @@ export default function SidebarClient() {
           );
         })}
         <div className="sidebar-coach-info">
-          <Avatar initials={user?.initials || '??'} avatarUrl={user?.avatar_url} size={30} className={user?.avatar_url ? undefined : 'avatar-fallback-green'} />
+          <Avatar initials={user?.initials || '??'} avatarUrl={user?.avatar_url} size={30} seed={user?.id} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{user?.full_name || '—'}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>Élève{week ? ` · Semaine ${week}` : ''}</div>

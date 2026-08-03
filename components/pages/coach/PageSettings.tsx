@@ -264,7 +264,7 @@ export default function PageSettings() {
               className="tap-scale"
               style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', cursor: uploadingAvatar ? 'default' : 'pointer', flexShrink: 0 }}
             >
-              <Avatar initials={coachName.slice(0, 2).toUpperCase() || '?'} avatarUrl={avatarUrl} size={72} />
+              <Avatar initials={coachName.slice(0, 2).toUpperCase() || '?'} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
               <div style={{
                 position: 'absolute', inset: 0, borderRadius: '50%',
                 background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',

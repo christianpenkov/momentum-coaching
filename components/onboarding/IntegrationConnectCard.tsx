@@ -10,11 +10,10 @@ interface IntegrationConnectCardProps {
   integration: Integration | null;
   onSaved: (updated: Integration) => void;
   onDisconnected: () => void;
-  onSkip?: () => void;
   showWizardCopy?: boolean;
 }
 
-export default function IntegrationConnectCard({ config, integration, onSaved, onDisconnected, onSkip, showWizardCopy }: IntegrationConnectCardProps) {
+export default function IntegrationConnectCard({ config, integration, onSaved, onDisconnected, showWizardCopy }: IntegrationConnectCardProps) {
   const [editing, setEditing] = useState(false);
   const [keyInput, setKeyInput] = useState('');
   const [validating, setValidating] = useState(false);
@@ -110,11 +109,6 @@ export default function IntegrationConnectCard({ config, integration, onSaved, o
             ) : (
               <button className="btn-primary-brand" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(true); setKeyInput(''); }}>
                 <Icon name="link" size={13} /> Connecter
-              </button>
-            )}
-            {onSkip && (
-              <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '6px 4px', whiteSpace: 'nowrap' }} type="button" onClick={onSkip}>
-                Passer
               </button>
             )}
           </div>

@@ -308,7 +308,7 @@ export default function PageCalendar() {
                       </div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                          <Avatar initials={ev.clientInitials} avatarUrl={ev.clientAvatarUrl} size={20} />
+                          <Avatar initials={ev.clientInitials} avatarUrl={ev.clientAvatarUrl} size={20} seed={ev.clientId} />
                           <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>{ev.clientName}</span>
                           {ev.time && <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{ev.time}</span>}
                         </div>
@@ -357,7 +357,7 @@ export default function PageCalendar() {
                   const d = new Date(call.scheduled_at!);
                   return (
                     <div key={call.id} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={28} />
+                      <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={28} seed={client?.id} />
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{client?.name || '—'}</div>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>

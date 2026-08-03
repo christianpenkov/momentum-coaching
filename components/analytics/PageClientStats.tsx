@@ -6367,7 +6367,7 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
       <div className="page-header" style={{ marginBottom: 20, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
         {/* Titre à gauche */}
         <div>
-          <h1 className="page-title">{clientName ? `Analytics de ${clientName}` : 'Analytics'}</h1>
+          <h1 className="page-title">{clientName ? `Stats de ${clientName}` : 'Stats Clients'}</h1>
           <p className="page-sub">
             Tableau de bord complet — toutes les plateformes
             {latestSnapshotDate && !backfillInProgress && (

@@ -11,7 +11,7 @@ import { useOnboardingWizard } from '@/components/onboarding/OnboardingWizardCon
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/dashboard', icon: 'activity', label: 'Aujourd\'hui' },
-  { href: '/analytics', icon: 'bar-chart', label: 'Analytics' },
+  { href: '/analytics', icon: 'bar-chart', label: 'Stats Clients' },
   { href: '/clients', icon: 'users', label: 'Clients' },
   { href: '/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/calls', icon: 'phone-call', label: 'Calls' },
@@ -73,7 +73,7 @@ export default function Sidebar() {
           );
         })}
         <div className="sidebar-coach-info">
-          <Avatar initials={user?.initials || '?'} avatarUrl={user?.avatar_url} size={30} />
+          <Avatar initials={user?.initials || '?'} avatarUrl={user?.avatar_url} size={30} seed={user?.id} />
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{user?.full_name || user?.email || '—'}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)' }}>Coach · {clients.length} élève{clients.length !== 1 ? 's' : ''}</div>

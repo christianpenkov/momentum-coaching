@@ -51,7 +51,7 @@ export default function CallStack({ calls, getClient }: Props) {
             background: isActive ? 'var(--accent-brand-soft)' : 'transparent',
             border: isActive ? '1px solid var(--accent-brand)' : '1px solid transparent',
           }}>
-            <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={36} />
+            <Avatar initials={client?.initials || '??'} avatarUrl={client?.avatar_url} size={36} seed={client?.id} />
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>

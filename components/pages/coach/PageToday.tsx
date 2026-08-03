@@ -14,6 +14,7 @@ import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
 import { useNotifications, type AppNotif } from '@/lib/useNotifications';
 import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
+import { getClientWeek } from '@/lib/clientWeek';
 
 export default function PageToday() {
   const { clients, calls, business, loading, refetch } = useSupabaseClients();
@@ -250,7 +251,7 @@ export default function PageToday() {
               )}
               {watchList.map(({ client, signals }) => (
                 <div key={client.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={36} />
+                  <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={36} seed={client.id} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <span style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</span>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
@@ -294,7 +295,7 @@ export default function PageToday() {
                   <tr key={client.id}>
                     <td>
                       <Link href={`/clients/${client.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
-                        <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={30} />
+                        <Avatar initials={client.initials || '??'} avatarUrl={client.avatar_url} size={30} seed={client.id} />
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--accent)' }}>{client.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--muted)' }}>{client.niche || 'Infopreneur'}</div>
@@ -309,7 +310,7 @@ export default function PageToday() {
                           : <span style={{ fontSize: 12, color: 'var(--muted)' }}>—</span>;
                       })()}
                     </td>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{client.week}</td>
+                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{getClientWeek(client.onboarding_completed_at)}</td>
                     <td>
                       <Link href={`/clients/${client.id}`} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
                         <Icon name="chevR" size={12} />

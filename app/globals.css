@@ -1513,6 +1513,11 @@ a { color: inherit; text-decoration: none; }
   display: flex; align-items: center; gap: 8px;
   background: var(--bg); border: 1px solid var(--border);
   border-radius: var(--r-md); padding: 7px 12px; color: var(--muted);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+.search-wrap:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 .search-input {
   background: transparent; border: none; outline: none;

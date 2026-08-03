@@ -21,9 +21,9 @@ export function buildClientWizardConfig(coachName?: string | null): WizardConfig
         icon: 'bar-chart',
         title: 'Mes stats',
         points: [
-          'Toutes tes métriques business, semaine ou mois : MRR, revenus, abonnements, calls conclus, stats Instagram et YouTube.',
-          'Navigue période par période pour comparer ta progression.',
-          'Vois tes contenus qui performent le mieux.',
+          { strike: 'Vues', highlight: 'Cash !', rest: '— vois tes contenus qui rapportent vraiment.' },
+          'Navigue période par période (semaine ou mois) pour comparer ta progression.',
+          'Vois tes calls conclus et ton taux de closing.',
         ],
       },
       {
@@ -31,7 +31,7 @@ export function buildClientWizardConfig(coachName?: string | null): WizardConfig
         title: 'Pipeline Leads',
         points: [
           'Suis tes prospects du premier contact jusqu\'au closing.',
-          'Fais glisser un prospect d\'une étape à l\'autre au fur et à mesure de la conversation.',
+          'Tout est tracké automatiquement, sans rien faire — tu vois l\'état de tous tes leads en direct.',
           'Marque un deal comme closé avec son montant dès qu\'il est signé.',
         ],
       },
@@ -62,7 +62,7 @@ export function buildClientWizardConfig(coachName?: string | null): WizardConfig
         icon: 'calendar',
         title: 'Calendrier',
         points: [
-          'Ta vue calendrier de toutes tes sessions, jour par jour.',
+          'Ne rate plus jamais un call ou une deadline — tout ton planning coaching en un seul endroit.',
         ],
       },
       {
@@ -79,15 +79,14 @@ export function buildClientWizardConfig(coachName?: string | null): WizardConfig
         points: [
           'Génère tes liens courts trackés pour ta bio et tes messages.',
           'Associe un lead magnet à chacun de tes contenus.',
-          'Suis les clics de chaque lien en temps réel.',
         ],
       },
       {
         icon: 'settings',
-        title: 'Mes connexions',
+        title: 'Réglages',
         points: [
           'Gère toutes tes connexions facilement au même endroit.',
-          'Modifie ton profil et ta photo, visible par ton coach dans la messagerie.',
+          'Modifie ton profil, ton nom et ta photo, visible par ton coach dans la messagerie.',
         ],
       },
     ],

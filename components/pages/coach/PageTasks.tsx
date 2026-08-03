@@ -319,7 +319,7 @@ function PageTasksInner() {
                 onClick={() => setExpanded(prev => ({ ...prev, [g.client.id]: !prev[g.client.id] }))}
                 style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, cursor: 'pointer' }}
               >
-                <Avatar initials={g.client.initials || g.client.name.slice(0, 2).toUpperCase()} avatarUrl={g.client.avatar_url} size={36} />
+                <Avatar initials={g.client.initials || g.client.name.slice(0, 2).toUpperCase()} avatarUrl={g.client.avatar_url} size={36} seed={g.client.id} />
                 <div style={{ minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                     <Link href={`/clients/${g.client.id}`} onClick={e => e.stopPropagation()} style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>

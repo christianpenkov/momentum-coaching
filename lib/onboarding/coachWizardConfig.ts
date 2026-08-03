@@ -1,10 +1,14 @@
 import type { IconName } from '@/components/ui/Icon';
 import { COACH_WIZARD_INTEGRATIONS } from './integrationConfig';
 
+// Un point simple (string) ou un point "punchline" qui barre un mot terne pour
+// mettre en avant l'argument qui vend vraiment (ex: "~~Vues~~ Cash !").
+export type WalkthroughPoint = string | { strike: string; highlight: string; rest?: string };
+
 export interface WalkthroughStepDef {
   icon: IconName;
   title: string;
-  points: string[];
+  points: WalkthroughPoint[];
 }
 
 export interface WizardConfig {
@@ -32,11 +36,11 @@ export const COACH_WIZARD_CONFIG: WizardConfig = {
     },
     {
       icon: 'bar-chart',
-      title: 'Analytics',
+      title: 'Stats Clients',
       points: [
-        'Les métriques agrégées de tous tes élèves : audience, posts, DM, calls, MRR.',
+        'Les métriques agrégées de tous tes élèves : audience, posts, DM, calls, revenus.',
         'Compare la croissance Instagram et YouTube élève par élève.',
-        'Exporte un tableau comparatif de tous tes élèves en CSV.',
+        'Repère en un coup d\'œil quel élève stagne ou a besoin d\'attention.',
       ],
     },
     {
@@ -44,8 +48,7 @@ export const COACH_WIZARD_CONFIG: WizardConfig = {
       title: 'Clients',
       points: [
         'Suis l\'avancement de chaque élève individuellement — son statut, ses stats, ses relances.',
-        'Un badge indique où en est chaque élève dans la connexion de ses outils (invité, compte créé, intégrations en cours, actif).',
-        'Ouvre la fiche complète d\'un élève pour voir son historique de calls, tâches et paiements.',
+        'Ouvre la fiche complète d\'un élève pour voir son historique de calls et tâches.',
       ],
     },
     {
@@ -60,9 +63,8 @@ export const COACH_WIZARD_CONFIG: WizardConfig = {
       icon: 'phone-call',
       title: 'Calls',
       points: [
+        'Crée et gère tes sessions de coaching avec chacun de tes élèves.',
         'Tous tes calls, coaching et prospects confondus — passés et à venir.',
-        'Accepte ou décline une proposition de call directement depuis cette page.',
-        'Remplis ton rapport de session juste après chaque call.',
       ],
     },
     {
@@ -88,7 +90,6 @@ export const COACH_WIZARD_CONFIG: WizardConfig = {
       points: [
         'Dépose guides, templates et fichiers pour tes élèves, organisés en dossiers.',
         'Choisis précisément quel élève a accès à quelle ressource.',
-        'Ajoute vidéos, images, liens ou documents téléchargeables.',
       ],
     },
     {
