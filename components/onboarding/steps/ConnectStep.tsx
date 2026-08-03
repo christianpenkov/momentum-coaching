@@ -59,7 +59,7 @@ export default function ConnectStep({ config, onSkipInstagram }: ConnectStepProp
 
   return (
     <>
-      <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', gap: 10, maxHeight: 360, overflowY: 'auto', paddingRight: 2 }}>
+      <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
         {config.integrations.map(cfg => (
           <IntegrationConnectCard
             key={cfg.provider}

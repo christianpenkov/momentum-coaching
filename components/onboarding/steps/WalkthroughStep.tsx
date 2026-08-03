@@ -34,7 +34,7 @@ export default function WalkthroughStep({ step, onVisit }: WalkthroughStepProps)
         <button
           type="button"
           onClick={() => onVisit(step.link!)}
-          style={{ fontSize: 12, color: 'var(--accent)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', padding: '4px 6px', flexShrink: 0 }}
+          style={{ fontSize: 12, color: 'var(--accent-brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', padding: '4px 6px', flexShrink: 0 }}
         >
           Voir cette page →
         </button>

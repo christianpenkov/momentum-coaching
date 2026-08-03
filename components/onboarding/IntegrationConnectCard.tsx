@@ -136,7 +136,7 @@ export default function IntegrationConnectCard({ config, integration, onSaved, o
               <div key={i}>
                 {step.text}{' '}
                 {step.href && (
-                  <a href={step.href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>{step.hrefLabel}</a>
+                  <a href={step.href} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent-brand)', textDecoration: 'underline' }}>{step.hrefLabel}</a>
                 )}
               </div>
             ))}

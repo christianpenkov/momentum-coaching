@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useRouter } from 'next/navigation';
+import Image from 'next/image';
 import { LazyMotion, domAnimation, m, AnimatePresence, useReducedMotion } from 'framer-motion';
 import Icon from '@/components/ui/Icon';
 import ConnectStep from './steps/ConnectStep';
@@ -77,10 +78,9 @@ async function persistProgress(step: string, data?: Record<string, unknown>) {
 export default function WizardShell({ open, onClose, config, initialStep }: WizardShellProps) {
   const router = useRouter();
   const reduced = useReducedMotion();
-  const steps = buildSteps(config);
+  const steps = useMemo(() => buildSteps(config), [config]);
 
   const findIndex = useCallback((key?: string) => {
-    if (!key) return 0;
     const idx = steps.findIndex(s => s.key === key);
     return idx >= 0 ? idx : 0;
   }, [steps]);
@@ -89,8 +89,14 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
   const [minimized, setMinimized] = useState(false);
   const [nextHovered, setNextHovered] = useState(false);
 
+  // Ne resynchronise l'étape que sur une vraie transition fermé -> ouvert (ex: réouverture
+  // manuelle via le bouton sidebar), jamais à chaque render — sinon ce useEffect écrase
+  // silencieusement la progression de handleNext() au render suivant, puisque `steps`
+  // (et donc `findIndex`) est recréé à chaque render sans cette protection.
+  const wasOpenRef = useRef(false);
   useEffect(() => {
-    if (open) setIndex(findIndex(initialStep));
+    if (open && !wasOpenRef.current) setIndex(findIndex(initialStep));
+    wasOpenRef.current = open;
   }, [open, initialStep, findIndex]);
 
   useEffect(() => {
@@ -142,7 +148,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
         style={{
           position: 'fixed', bottom: 24, right: 24, zIndex: 9998,
           width: 52, height: 52, borderRadius: '50%',
-          background: 'var(--accent)', color: '#fff', border: 'none',
+          background: 'var(--accent-brand)', color: '#fff', border: 'none',
           boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           cursor: 'pointer',
@@ -191,6 +197,8 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                 exit="exit"
                 style={{
                   width: 520,
+                  maxHeight: '88vh',
+                  overflowY: 'auto',
                   background: 'var(--surface)',
                   borderRadius: 20,
                   border: '1px solid var(--border)',
@@ -214,7 +222,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                       onMouseEnter={() => setNextHovered(true)}
                       onMouseLeave={() => setNextHovered(false)}
                       style={{
-                        background: 'var(--accent)', color: '#fff',
+                        background: 'var(--accent-brand)', color: '#fff',
                         border: 'none', borderRadius: 10,
                         padding: '13px 32px', fontSize: 14, fontWeight: 600,
                         cursor: 'pointer',
@@ -246,7 +254,7 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                         transition={{ duration: 0.2, ease: 'easeOut' } as object}
                         style={{
                           borderRadius: '50%',
-                          background: i === index ? 'var(--accent)' : i < index ? 'var(--green)' : 'var(--border)',
+                          background: i === index ? 'var(--accent-brand)' : i < index ? 'var(--green)' : 'var(--border)',
                           width: i === index ? 10 : 7,
                           height: i === index ? 10 : 7,
                           flexShrink: 0,
@@ -275,7 +283,14 @@ function StepBody({ current, config, onSkipInstagram, onVisit }: {
   if (current.kind === 'welcome') {
     return (
       <>
-        <IconHeader icon="target" iconColor="var(--accent)" iconBg="rgba(42,42,40,0.07)" />
+        <m.div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+          <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+            <span style={{ position: 'absolute', inset: -18, borderRadius: '50%', background: 'radial-gradient(circle, rgba(58,106,134,0.18) 0%, transparent 70%)', pointerEvents: 'none' }} />
+            <div style={{ width: 80, height: 80, borderRadius: 20, background: 'rgba(58,106,134,0.08)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+              <Image src="/logo-momentum.png" alt="Momentum" width={48} height={48} style={{ objectFit: 'contain' }} />
+            </div>
+          </span>
+        </m.div>
         <Title>{config.welcomeTitle}</Title>
         <Subtitle>{config.welcomeSubtitle}</Subtitle>
       </>
