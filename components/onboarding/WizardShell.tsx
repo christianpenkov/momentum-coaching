@@ -1,0 +1,363 @@
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
+import { LazyMotion, domAnimation, m, AnimatePresence, useReducedMotion } from 'framer-motion';
+import Icon from '@/components/ui/Icon';
+import ConnectStep from './steps/ConnectStep';
+import WalkthroughStep from './steps/WalkthroughStep';
+import type { WizardConfig } from '@/lib/onboarding/coachWizardConfig';
+
+interface WizardShellProps {
+  open: boolean;
+  onClose: () => void;
+  config: WizardConfig;
+  initialStep?: string;
+}
+
+const CONFETTI_PIECES = [
+  { top: '10%', left: '20%', color: 'var(--green)', delay: '0s' },
+  { top: '15%', left: '75%', color: 'var(--amber)', delay: '0.1s' },
+  { top: '5%', left: '50%', color: 'var(--accent)', delay: '0.2s' },
+  { top: '20%', left: '35%', color: 'var(--green)', delay: '0.05s' },
+  { top: '8%', left: '60%', color: 'var(--amber)', delay: '0.15s' },
+  { top: '12%', left: '85%', color: 'var(--accent)', delay: '0.25s' },
+  { top: '18%', left: '10%', color: 'var(--green)', delay: '0.08s' },
+  { top: '6%', left: '90%', color: 'var(--amber)', delay: '0.18s' },
+];
+
+const backdropVariants = {
+  hidden: { opacity: 0 },
+  visible: { opacity: 1, transition: { duration: 0.22, ease: 'easeOut' as const } },
+  exit: { opacity: 0, transition: { duration: 0.18, ease: 'easeIn' as const } },
+};
+
+const cardVariants = {
+  hidden: { opacity: 0, scale: 0.96, y: 20 },
+  visible: { opacity: 1, scale: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
+  exit: { opacity: 0, scale: 0.98, y: -20, transition: { duration: 0.16, ease: 'easeIn' as const } },
+};
+
+const staggerContainer = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.06, delayChildren: 0.05 } },
+};
+
+const staggerChild = {
+  hidden: { opacity: 0, y: 10 },
+  visible: { opacity: 1, y: 0, transition: { duration: 0.22, ease: 'easeOut' as const } },
+};
+
+// Étapes fixes : welcome -> connect -> walkthrough[0..n] -> final
+type PhaseStep = { key: string; kind: 'welcome' | 'connect' | 'walkthrough' | 'final'; walkthroughIndex?: number };
+
+function buildSteps(config: WizardConfig): PhaseStep[] {
+  const steps: PhaseStep[] = [
+    { key: 'welcome', kind: 'welcome' },
+    { key: 'connect', kind: 'connect' },
+  ];
+  config.walkthroughSteps.forEach((_, i) => steps.push({ key: `walkthrough-${i}`, kind: 'walkthrough', walkthroughIndex: i }));
+  steps.push({ key: 'final', kind: 'final' });
+  return steps;
+}
+
+async function persistProgress(step: string, data?: Record<string, unknown>) {
+  try {
+    await fetch('/api/onboarding/progress', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ step, data }),
+    });
+  } catch {
+    // Best-effort — la progression se recalcule de toute façon depuis onboarding_step
+    // au prochain chargement ; un échec réseau ponctuel ne doit pas bloquer le wizard.
+  }
+}
+
+export default function WizardShell({ open, onClose, config, initialStep }: WizardShellProps) {
+  const router = useRouter();
+  const reduced = useReducedMotion();
+  const steps = buildSteps(config);
+
+  const findIndex = useCallback((key?: string) => {
+    if (!key) return 0;
+    const idx = steps.findIndex(s => s.key === key);
+    return idx >= 0 ? idx : 0;
+  }, [steps]);
+
+  const [index, setIndex] = useState(() => findIndex(initialStep));
+  const [minimized, setMinimized] = useState(false);
+  const [nextHovered, setNextHovered] = useState(false);
+
+  useEffect(() => {
+    if (open) setIndex(findIndex(initialStep));
+  }, [open, initialStep, findIndex]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape' && !minimized) onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open, minimized, onClose]);
+
+  const current = steps[index];
+  const isLast = index === steps.length - 1;
+
+  function goToIndex(i: number, opts?: { markInProgress?: boolean }) {
+    setIndex(i);
+    const target = steps[i];
+    if (target.kind === 'final') {
+      persistProgress('completed');
+    } else if (opts?.markInProgress !== false) {
+      persistProgress('in_progress');
+    }
+  }
+
+  function handleNext() {
+    if (isLast) {
+      persistProgress('completed');
+      onClose();
+      return;
+    }
+    goToIndex(index + 1);
+  }
+
+  function handleSkipInstagram() {
+    persistProgress('in_progress', { instagram_skipped_at: new Date().toISOString() });
+  }
+
+  function handleVisitPage(link: string) {
+    setMinimized(true);
+    router.push(link);
+  }
+
+  if (!open) return null;
+
+  if (minimized) {
+    return (
+      <button
+        type="button"
+        onClick={() => setMinimized(false)}
+        aria-label="Reprendre le guide de démarrage"
+        style={{
+          position: 'fixed', bottom: 24, right: 24, zIndex: 9998,
+          width: 52, height: 52, borderRadius: '50%',
+          background: 'var(--accent)', color: '#fff', border: 'none',
+          boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          cursor: 'pointer',
+        }}
+      >
+        <Icon name="help" size={22} color="#fff" />
+      </button>
+    );
+  }
+
+  if (reduced) {
+    return (
+      <div className="onboarding-backdrop" onClick={onClose}>
+        <div onClick={e => e.stopPropagation()} style={{ width: 520, background: 'var(--surface)', borderRadius: 20, border: '1px solid var(--border)', padding: 48, position: 'relative' }}>
+          <button onClick={onClose} className="icon-btn" style={{ position: 'absolute', top: 20, right: 20 }} type="button">
+            <Icon name="x" size={18} />
+          </button>
+          <StepBody current={current} config={config} onSkipInstagram={handleSkipInstagram} onVisit={handleVisitPage} />
+          <button onClick={handleNext} className="btn-primary-brand" type="button" style={{ marginTop: 16 }}>
+            {isLast ? 'Terminer' : 'Suivant'}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <LazyMotion features={domAnimation}>
+      <AnimatePresence mode="wait">
+        {open && (
+          <m.div key="onboarding-backdrop" className="onboarding-backdrop" variants={backdropVariants} initial="hidden" animate="visible" exit="exit">
+            <div className="onboarding-orb-1" />
+            <div className="onboarding-orb-2" />
+            <div className="onboarding-orb-3" />
+
+            <button onClick={onClose} type="button" className="icon-btn" style={{ position: 'absolute', top: 20, right: 20, zIndex: 10 }} aria-label="Fermer le guide de démarrage">
+              <Icon name="x" size={18} />
+            </button>
+
+            <AnimatePresence mode="wait">
+              <m.div
+                key={`step-${index}`}
+                variants={cardVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                style={{
+                  width: 520,
+                  background: 'var(--surface)',
+                  borderRadius: 20,
+                  border: '1px solid var(--border)',
+                  boxShadow: '0 32px 80px rgba(0,0,0,0.10), 0 4px 16px rgba(0,0,0,0.06)',
+                  padding: current.kind === 'connect' ? '40px 40px 32px' : '48px 48px 40px',
+                  position: 'relative',
+                  zIndex: 1,
+                }}
+              >
+                <m.div variants={staggerContainer} initial="hidden" animate="visible">
+                  <m.div variants={staggerChild} className="eyebrow-sm" style={{ fontFamily: 'var(--font-mono)', color: 'var(--muted)', marginBottom: 24 }}>
+                    {index + 1} / {steps.length}
+                  </m.div>
+
+                  <StepBody current={current} config={config} onSkipInstagram={handleSkipInstagram} onVisit={handleVisitPage} />
+
+                  <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10, marginTop: 24 }}>
+                    <button
+                      type="button"
+                      onClick={handleNext}
+                      onMouseEnter={() => setNextHovered(true)}
+                      onMouseLeave={() => setNextHovered(false)}
+                      style={{
+                        background: 'var(--accent)', color: '#fff',
+                        border: 'none', borderRadius: 10,
+                        padding: '13px 32px', fontSize: 14, fontWeight: 600,
+                        cursor: 'pointer',
+                        display: 'inline-flex', alignItems: 'center', gap: 8,
+                        fontFamily: 'inherit',
+                        transition: 'background 120ms, transform 80ms, color 120ms',
+                        transform: nextHovered ? 'translateY(-1px)' : 'translateY(0)',
+                        boxShadow: nextHovered ? '0 6px 20px rgba(42,42,40,0.18)' : '0 2px 8px rgba(42,42,40,0.10)',
+                      }}
+                    >
+                      {isLast ? 'Terminer' : current.kind === 'connect' ? 'Continuer vers la visite →' : 'Suivant'}
+                      <span style={{ display: 'inline-flex', transition: 'transform 120ms', transform: nextHovered ? 'translateX(3px)' : 'translateX(0)' }}>
+                        <Icon name="arrowR" size={15} color="#fff" />
+                      </span>
+                    </button>
+
+                    {!isLast && current.kind === 'welcome' && (
+                      <button type="button" onClick={onClose} style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 8px' }}>
+                        Passer l&apos;introduction
+                      </button>
+                    )}
+                  </m.div>
+
+                  <m.div variants={staggerChild} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, marginTop: 20, flexWrap: 'wrap', maxWidth: 400, margin: '20px auto 0' }}>
+                    {steps.map((_, i) => (
+                      <m.div
+                        key={i}
+                        layout
+                        transition={{ duration: 0.2, ease: 'easeOut' } as object}
+                        style={{
+                          borderRadius: '50%',
+                          background: i === index ? 'var(--accent)' : i < index ? 'var(--green)' : 'var(--border)',
+                          width: i === index ? 10 : 7,
+                          height: i === index ? 10 : 7,
+                          flexShrink: 0,
+                          cursor: 'pointer',
+                        }}
+                        onClick={() => goToIndex(i)}
+                      />
+                    ))}
+                  </m.div>
+                </m.div>
+              </m.div>
+            </AnimatePresence>
+          </m.div>
+        )}
+      </AnimatePresence>
+    </LazyMotion>
+  );
+}
+
+function StepBody({ current, config, onSkipInstagram, onVisit }: {
+  current: PhaseStep;
+  config: WizardConfig;
+  onSkipInstagram: () => void;
+  onVisit: (link: string) => void;
+}) {
+  if (current.kind === 'welcome') {
+    return (
+      <>
+        <IconHeader icon="target" iconColor="var(--accent)" iconBg="rgba(42,42,40,0.07)" />
+        <Title>{config.welcomeTitle}</Title>
+        <Subtitle>{config.welcomeSubtitle}</Subtitle>
+      </>
+    );
+  }
+
+  if (current.kind === 'connect') {
+    return (
+      <>
+        <IconHeader icon="link" iconColor="#4a7fa5" iconBg="rgba(74,127,165,0.1)" />
+        <Title small>Active tes connexions</Title>
+        <Subtitle>Connecte tes outils pour activer le suivi. Rien n&apos;est obligatoire — tu peux passer une étape et y revenir plus tard.</Subtitle>
+        <ConnectStep config={config} onSkipInstagram={onSkipInstagram} />
+      </>
+    );
+  }
+
+  if (current.kind === 'walkthrough' && current.walkthroughIndex !== undefined) {
+    const step = config.walkthroughSteps[current.walkthroughIndex];
+    return (
+      <>
+        <IconHeader icon="folder" iconColor="var(--accent)" iconBg="rgba(42,42,40,0.07)" />
+        <Title small>Découvre la plateforme</Title>
+        <Subtitle>Un tour rapide de tes principaux outils.</Subtitle>
+        <m.div style={{ marginTop: 4 }}>
+          <WalkthroughStep step={step} onVisit={onVisit} />
+        </m.div>
+      </>
+    );
+  }
+
+  // final
+  return (
+    <>
+      <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '100%' }}>
+        <span style={{ position: 'absolute', inset: -18, borderRadius: '50%', background: 'radial-gradient(circle, rgba(63,138,82,0.22) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <m.div
+          style={{ width: 80, height: 80, borderRadius: 20, background: 'rgba(63,138,82,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative', margin: '0 auto 24px' }}
+          animate={{ scale: [1, 1.08, 1] }}
+          transition={{ repeat: Infinity, duration: 2.4, ease: 'easeInOut' } as object}
+        >
+          <Icon name="award" size={36} color="var(--green)" />
+          {CONFETTI_PIECES.map((p, i) => (
+            <span key={i} className="onboarding-confetti-piece" style={{ top: p.top, left: p.left, background: p.color, animationDelay: p.delay }} />
+          ))}
+        </m.div>
+      </span>
+      <Title>Tu es prêt(e) !</Title>
+      <Subtitle>Tout est en place. Lance-toi dès maintenant.</Subtitle>
+    </>
+  );
+}
+
+function IconHeader({ icon, iconColor, iconBg }: { icon: Parameters<typeof Icon>[0]['name']; iconColor: string; iconBg: string }) {
+  return (
+    <m.div style={{ display: 'flex', justifyContent: 'center', marginBottom: 24 }}>
+      <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+        <span style={{ position: 'absolute', inset: -18, borderRadius: '50%', background: `radial-gradient(circle, ${iconColor.startsWith('var') ? 'rgba(160,160,150,0.22)' : iconColor + '22'} 0%, transparent 70%)`, pointerEvents: 'none' }} />
+        <div style={{ width: 80, height: 80, borderRadius: 20, background: iconBg, display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+          <Icon name={icon} size={36} color={iconColor} />
+        </div>
+      </span>
+    </m.div>
+  );
+}
+
+function Title({ children, small }: { children: React.ReactNode; small?: boolean }) {
+  return (
+    <m.div>
+      <h2 style={{ fontSize: small ? 24 : 30, fontWeight: 800, color: 'var(--accent)', letterSpacing: '-0.5px', textAlign: 'center', margin: '0 0 8px' }}>
+        {children}
+      </h2>
+    </m.div>
+  );
+}
+
+function Subtitle({ children }: { children: React.ReactNode }) {
+  return (
+    <m.div>
+      <p style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', maxWidth: 400, margin: '0 auto 20px', lineHeight: 1.65 }}>
+        {children}
+      </p>
+    </m.div>
+  );
+}

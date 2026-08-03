@@ -9,6 +9,8 @@ export interface Profile {
   avatar_url: string | null;
   niche: string | null;
   created_at: string;
+  onboarding_step: string;
+  onboarding_data: Record<string, unknown>;
 }
 
 export interface Client {
@@ -30,6 +32,8 @@ export interface Client {
   archived_at: string | null;
   onboarding_completed_at: string | null;
   integrations_waived: string[];
+  onboarding_step: string;
+  onboarding_data: Record<string, unknown>;
 }
 
 export interface WeeklyMetrics {

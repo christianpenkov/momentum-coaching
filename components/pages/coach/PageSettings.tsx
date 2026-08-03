@@ -39,14 +39,6 @@ const INTEGRATION_CONFIG: {
     placeholder: 'sk_live_... ou sk_test_...',
   },
   {
-    provider: 'stripe_webhook',
-    name: 'Stripe — Webhook secret',
-    icon: 'shield',
-    desc: 'Secret webhook pour déclencher l\'onboarding automatique après chaque paiement',
-    mode: 'apikey',
-    placeholder: 'whsec_...',
-  },
-  {
     provider: 'calendly',
     name: 'Calendly',
     icon: 'calendar',
@@ -97,8 +89,8 @@ export default function PageSettings() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [integrations, setIntegrations] = useState<Record<Provider, Integration | null>>({
-    anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null,
-  });
+    anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null,
+  } as Record<Provider, Integration | null>);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -137,7 +129,7 @@ export default function PageSettings() {
 
       const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, connected_at').eq('profile_id', user.id);
       if (integs) {
-        const map = { anthropic: null, stripe: null, stripe_webhook: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null } as Record<Provider, Integration | null>;
+        const map = { anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null } as Record<Provider, Integration | null>;
         integs.forEach((i) => {
           map[i.provider as Provider] = { ...i, access_token: null, refresh_token: null, api_key: null, expires_at: null } as Integration;
         });
@@ -396,17 +388,6 @@ export default function PageSettings() {
                         </div>
                         <div>2. Clique <strong>Create Key</strong> → copie la clé (<code>sk-ant-...</code>)</div>
                         <div>3. Colle-la ci-dessous</div>
-                      </div>
-                    )}
-                    {cfg.provider === 'stripe_webhook' && (
-                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment récupérer ton webhook secret :</div>
-                        <div>1. Ouvre →{' '}
-                          <a href="https://dashboard.stripe.com/webhooks" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>dashboard.stripe.com/webhooks</a>
-                        </div>
-                        <div>2. Clique sur ton endpoint <code>momentum-plateforme.vercel.app/api/webhooks/stripe</code></div>
-                        <div>3. Clique <strong>"Révéler"</strong> à côté de "Secret de signature"</div>
-                        <div>4. Copie le secret (<code>whsec_...</code>) et colle-le ci-dessous</div>
                       </div>
                     )}
                     {cfg.provider === 'calendly' && (

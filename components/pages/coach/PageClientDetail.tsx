@@ -186,6 +186,7 @@ export default function PageClientDetail({ id }: Props) {
   const [noteError, setNoteError] = useState(false);
   const [taskActionError, setTaskActionError] = useState<string | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
+  const [taskHistoryOpen, setTaskHistoryOpen] = useState(false);
   const { user } = useUser();
   const [depotFiles, setDepotFiles] = useState<DepotFile[]>([]);
   const [depotLoading, setDepotLoading] = useState(true);
@@ -587,6 +588,31 @@ export default function PageClientDetail({ id }: Props) {
         />
       )}
 
+      {taskHistoryOpen && (
+        <ModalShell onClose={() => setTaskHistoryOpen(false)} width={480}>
+          <div style={{ padding: 24 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+              <h2 style={{ fontSize: 18, fontWeight: 700, color: 'var(--accent)', margin: 0 }}>Historique des tâches terminées</h2>
+              <button type="button" onClick={() => setTaskHistoryOpen(false)} className="icon-btn">
+                <Icon name="x" size={18} />
+              </button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: '60vh', overflowY: 'auto' }}>
+              {tasks.filter(t => t.done).map(task => (
+                <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 12px', borderRadius: 10, background: 'var(--surface-2)' }}>
+                  <div className="task-check checked" style={{ flexShrink: 0 }}>
+                    <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                      <path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </div>
+                  <span style={{ flex: 1, fontSize: 13, color: 'var(--muted)', textDecoration: 'line-through' }}>{task.label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </ModalShell>
+      )}
+
       {pendingSessionRapports.length > 0 && (
         <div className="card" style={{ marginBottom: 24, borderColor: 'var(--amber)', background: 'var(--amber-soft)' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
@@ -608,11 +634,11 @@ export default function PageClientDetail({ id }: Props) {
       )}
 
       <div className="grid-2">
-        {/* Plan de la semaine */}
+        {/* Tâches à effectuer */}
         <div className="card">
           <div className="card-head">
             <div>
-              <div className="card-title">Plan de la semaine</div>
+              <div className="card-title">Tâches à effectuer</div>
               <div className="card-sub">{doneCount}/{tasks.length} tâches complétées</div>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
@@ -661,8 +687,19 @@ export default function PageClientDetail({ id }: Props) {
             )}
             {tasks.filter(t => t.done).length > 0 && (
               <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600, marginBottom: 6 }}>TERMINÉES ({tasks.filter(t => t.done).length})</div>
-                {tasks.filter(t => t.done).map(task => (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>TERMINÉES ({tasks.filter(t => t.done).length})</span>
+                  {tasks.filter(t => t.done).length > 5 && (
+                    <button
+                      type="button"
+                      onClick={() => setTaskHistoryOpen(true)}
+                      style={{ fontSize: 11, color: 'var(--accent-brand)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: 0 }}
+                    >
+                      Voir tout l&apos;historique
+                    </button>
+                  )}
+                </div>
+                {tasks.filter(t => t.done).slice(0, 5).map(task => (
                   <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 12px', opacity: 0.55 }}>
                     <div
                       className="task-check checked"

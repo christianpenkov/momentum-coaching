@@ -5,10 +5,10 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
 import Avatar from '../ui/Avatar';
-import Onboarding from '../ui/Onboarding';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
 import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
+import { useOnboardingWizard } from '@/components/onboarding/OnboardingWizardContext';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/client', icon: 'activity', label: 'Mon espace' },
@@ -28,11 +28,11 @@ const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
 
 export default function SidebarClient() {
   const pathname = usePathname();
-  const [onboardingOpen, setOnboardingOpen] = useState(false);
   const { user } = useUser();
   const [week, setWeek] = useState<number | null>(null);
   const [coachName, setCoachName] = useState<string | null>(null);
   const unreadCount = useUnreadMessagesCount();
+  const { openWizard } = useOnboardingWizard();
 
   useEffect(() => {
     if (!user?.id) return;
@@ -50,7 +50,6 @@ export default function SidebarClient() {
   }, [user?.id]);
 
   return (
-    <>
     <aside className="sidebar">
       <nav className="sidebar-nav">
         {NAV.map(({ href, icon, label, highlight }) => {
@@ -74,7 +73,7 @@ export default function SidebarClient() {
         <button
           type="button"
           className="nav-item"
-          onClick={() => setOnboardingOpen(true)}
+          onClick={openWizard}
           style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
         >
           <Icon name="help" size={16} />
@@ -98,7 +97,5 @@ export default function SidebarClient() {
         </div>
       </nav>
     </aside>
-    <Onboarding open={onboardingOpen} onClose={() => setOnboardingOpen(false)} coachName={coachName} />
-    </>
   );
 }

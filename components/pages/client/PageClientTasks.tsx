@@ -472,6 +472,7 @@ export default function PageClientTasks() {
                   minHeight: 44,
                 }}
               >
+                <Icon name={collapsed ? 'chevron-down' : 'chevron-up'} size={13} style={{ color: 'var(--muted)', transition: 'transform .2s', flexShrink: 0 }} />
                 <span style={{
                   width: 6, height: 6, borderRadius: '50%', background: meta.color, flexShrink: 0,
                   animation: bucket === 'over' && !reducedMotion ? 'pulse 1.6s ease-in-out infinite' : 'none',
@@ -480,8 +481,6 @@ export default function PageClientTasks() {
                   {meta.label}
                 </span>
                 <span style={{ fontSize: 11, color: 'var(--muted)', fontVariantNumeric: 'tabular-nums' }}>{list.length}</span>
-                <div style={{ flex: 1 }} />
-                <Icon name={collapsed ? 'chevron-down' : 'chevron-up'} size={13} style={{ color: 'var(--muted)', transition: 'transform .2s' }} />
               </button>
 
               {!collapsed && (

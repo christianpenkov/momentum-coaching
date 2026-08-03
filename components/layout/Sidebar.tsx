@@ -7,6 +7,7 @@ import Avatar from '../ui/Avatar';
 import { useUser } from '@/lib/UserContext';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
+import { useOnboardingWizard } from '@/components/onboarding/OnboardingWizardContext';
 
 const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[] = [
   { href: '/dashboard', icon: 'activity', label: 'Aujourd\'hui' },
@@ -30,6 +31,7 @@ export default function Sidebar() {
   const { user } = useUser();
   const { clients } = useSupabaseClients();
   const unreadCount = useUnreadMessagesCount();
+  const { openWizard } = useOnboardingWizard();
 
   return (
     <aside className="sidebar">
@@ -52,6 +54,15 @@ export default function Sidebar() {
       </nav>
 
       <nav className="sidebar-nav sidebar-nav-bottom">
+        <button
+          type="button"
+          className="nav-item"
+          onClick={openWizard}
+          style={{ width: '100%', background: 'none', border: 'none', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}
+        >
+          <Icon name="help" size={16} />
+          <span>Guide de démarrage</span>
+        </button>
         {NAV_BOTTOM.map(({ href, icon, label }) => {
           const active = pathname === href;
           return (

@@ -72,8 +72,18 @@ function TaskAttachmentsReadOnly({ taskId, onCountChange }: { taskId: string; on
   return <div style={{ width: '100%' }}><AttachmentList attachments={attachments} /></div>;
 }
 
+type ClientProfileRef = { avatar_url?: string | null } | { avatar_url?: string | null }[] | null;
+type TaskClientRow = { id: string; name: string; coach_id: string; initials?: string | null; profiles?: ClientProfileRef };
+
 interface TaskWithClient extends Task {
-  clients: { id: string; name: string; coach_id: string; avatar_url?: string | null; initials?: string | null } | { id: string; name: string; coach_id: string; avatar_url?: string | null; initials?: string | null }[];
+  clients: TaskClientRow | TaskClientRow[];
+}
+
+function getClientAvatarUrl(c: TaskClientRow): string | null {
+  const p = c.profiles;
+  if (!p) return null;
+  const profile = Array.isArray(p) ? p[0] : p;
+  return profile?.avatar_url ?? null;
 }
 
 const PRIORITY_CONFIG = {
@@ -139,7 +149,7 @@ function DocumentsPill({ task, attachmentCount }: { task: Task; attachmentCount:
 }
 
 interface StudentGroup {
-  client: { id: string; name: string; coach_id: string; avatar_url?: string | null; initials?: string | null };
+  client: { id: string; name: string; coach_id: string; avatar_url: string | null; initials?: string | null };
   tasks: TaskWithClient[];
 }
 
@@ -159,6 +169,7 @@ function PageTasksInner() {
   const [loading, setLoading] = useState(true);
   const [overdueOnly, setOverdueOnly] = useState(initialOverdueOnly);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [expandedTaskId, setExpandedTaskId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
@@ -201,7 +212,7 @@ function PageTasksInner() {
     for (const t of tasks) {
       const c = getClient(t);
       if (!c) continue;
-      if (!byClient.has(c.id)) byClient.set(c.id, { client: c, tasks: [] });
+      if (!byClient.has(c.id)) byClient.set(c.id, { client: { ...c, avatar_url: getClientAvatarUrl(c) }, tasks: [] });
       byClient.get(c.id)!.tasks.push(t);
     }
     const list = Array.from(byClient.values());
@@ -352,90 +363,130 @@ function PageTasksInner() {
 
               {isOpen && (
                 <div style={{ borderTop: '1px solid var(--border)' }}>
-                  {g.tasks.map(task => {
-                    const expandedRow = expandedTaskId === task.id;
-                    const priority = task.priority ? PRIORITY_CONFIG[task.priority] : null;
-                    return (
-                      <div key={task.id} style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', background: '#fbfbf7' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                          <button
-                            type="button"
-                            onClick={() => toggle(task.id, !task.done)}
-                            className={`task-check${task.done ? ' checked' : ''}`}
-                            style={{ transition: reducedMotion ? 'none' : 'transform .18s cubic-bezier(.34,1.56,.64,1), border-color 120ms, background 120ms' }}
-                          >
-                            {task.done && <Icon name="check" size={11} style={{ color: '#fff' }} />}
-                          </button>
+                  {(() => {
+                    const pending = g.tasks.filter(t => !t.done);
+                    const done = g.tasks.filter(t => t.done);
+                    const pendingKey = `${g.client.id}-pending`;
+                    const doneKey = `${g.client.id}-done`;
+                    const pendingCollapsed = !!collapsedSections[pendingKey];
+                    const doneCollapsed = collapsedSections[doneKey] !== false; // repliée par défaut
 
-                          <span
-                            onClick={() => setExpandedTaskId(id => id === task.id ? null : task.id)}
-                            style={{ flex: 1, fontSize: 13, cursor: 'pointer', color: task.done ? 'var(--muted)' : 'var(--accent)', textDecoration: task.done ? 'line-through' : 'none' }}
-                          >
-                            {task.label}
-                          </span>
+                    function renderTask(task: TaskWithClient) {
+                      const expandedRow = expandedTaskId === task.id;
+                      const priority = task.priority ? PRIORITY_CONFIG[task.priority] : null;
+                      return (
+                        <div key={task.id} style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', background: '#fbfbf7' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                            <button
+                              type="button"
+                              onClick={() => toggle(task.id, !task.done)}
+                              className={`task-check${task.done ? ' checked' : ''}`}
+                              style={{ transition: reducedMotion ? 'none' : 'transform .18s cubic-bezier(.34,1.56,.64,1), border-color 120ms, background 120ms' }}
+                            >
+                              {task.done && <Icon name="check" size={11} style={{ color: '#fff' }} />}
+                            </button>
 
-                          <DocumentsPill task={task} attachmentCount={attachmentCounts[task.id] ?? null} />
-                          <DeadlinePill task={task} />
-                          {priority && !task.done && (
-                            <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: `${priority.color}20`, color: priority.color, flexShrink: 0 }}>
-                              {priority.label}
+                            <span
+                              onClick={() => setExpandedTaskId(id => id === task.id ? null : task.id)}
+                              style={{ flex: 1, fontSize: 13, cursor: 'pointer', color: task.done ? 'var(--muted)' : 'var(--accent)', textDecoration: task.done ? 'line-through' : 'none' }}
+                            >
+                              {task.label}
                             </span>
-                          )}
-                          {task.added_by === 'client' && (
-                            <span title="Ajoutée par l'élève" style={{ fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>
-                              <Icon name="users" size={11} />
-                            </span>
-                          )}
-                          <button type="button" onClick={() => setModalState({ mode: 'edit', task })} className="icon-btn" title="Modifier">
-                            <Icon name="edit" size={12} />
-                          </button>
-                          <button type="button" onClick={() => setExpandedTaskId(id => id === task.id ? null : task.id)} className="icon-btn">
-                            <Icon name={expandedRow ? 'chevron-up' : 'chevron-down'} size={12} style={{ transition: 'transform .2s' }} />
-                          </button>
-                        </div>
 
-                        {expandedRow && (
-                          <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
-                            <div>
-                              <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Deadline</label>
-                              <div style={{ display: 'flex', gap: 6 }}>
-                                <input
-                                  type="date"
-                                  value={task.deadline ? toDateInput(task.deadline) : ''}
-                                  onChange={e => updateDeadline(task.id, combineDeadline(e.target.value, task.deadline ? toTimeInput(task.deadline) : '23:59'))}
-                                  style={{ padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
-                                />
-                                <input
-                                  type="time"
-                                  value={task.deadline ? toTimeInput(task.deadline) : '23:59'}
-                                  onChange={e => task.deadline && updateDeadline(task.id, combineDeadline(toDateInput(task.deadline), e.target.value))}
-                                  disabled={!task.deadline}
-                                  style={{ width: 90, padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
-                                />
-                              </div>
-                            </div>
-                            <div style={{ flex: 1 }} />
-                            {confirmDeleteId === task.id ? (
-                              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                                <span style={{ fontSize: 11, color: 'var(--muted)' }}>Supprimer ?</span>
-                                <button type="button" onClick={() => deleteTask(task.id)} style={{ fontSize: 11, color: 'var(--red)', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 700 }}>Oui</button>
-                                <button type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11, color: 'var(--muted)', border: 'none', background: 'none', cursor: 'pointer' }}>Non</button>
-                              </div>
-                            ) : (
-                              <button type="button" onClick={() => setConfirmDeleteId(task.id)} className="icon-btn" title="Supprimer la tâche">
-                                <Icon name="trash" size={13} style={{ color: 'var(--red)' }} />
-                              </button>
+                            <DocumentsPill task={task} attachmentCount={attachmentCounts[task.id] ?? null} />
+                            <DeadlinePill task={task} />
+                            {priority && !task.done && (
+                              <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 999, background: `${priority.color}20`, color: priority.color, flexShrink: 0 }}>
+                                {priority.label}
+                              </span>
                             )}
+                            {task.added_by === 'client' && (
+                              <span title="Ajoutée par l'élève" style={{ fontSize: 10, color: 'var(--muted)', flexShrink: 0 }}>
+                                <Icon name="users" size={11} />
+                              </span>
+                            )}
+                            <button type="button" onClick={() => setModalState({ mode: 'edit', task })} className="icon-btn" title="Modifier">
+                              <Icon name="edit" size={12} />
+                            </button>
+                            <button type="button" onClick={() => setExpandedTaskId(id => id === task.id ? null : task.id)} className="icon-btn">
+                              <Icon name={expandedRow ? 'chevron-up' : 'chevron-down'} size={12} style={{ transition: 'transform .2s' }} />
+                            </button>
+                          </div>
+
+                          {expandedRow && (
+                            <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid var(--border)', display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+                              <div>
+                                <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 4 }}>Deadline</label>
+                                <div style={{ display: 'flex', gap: 6 }}>
+                                  <input
+                                    type="date"
+                                    value={task.deadline ? toDateInput(task.deadline) : ''}
+                                    onChange={e => updateDeadline(task.id, combineDeadline(e.target.value, task.deadline ? toTimeInput(task.deadline) : '23:59'))}
+                                    style={{ padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
+                                  />
+                                  <input
+                                    type="time"
+                                    value={task.deadline ? toTimeInput(task.deadline) : '23:59'}
+                                    onChange={e => task.deadline && updateDeadline(task.id, combineDeadline(toDateInput(task.deadline), e.target.value))}
+                                    disabled={!task.deadline}
+                                    style={{ width: 90, padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, background: 'var(--surface)', color: 'var(--accent)', outline: 'none', fontFamily: 'inherit' }}
+                                  />
+                                </div>
+                              </div>
+                              <div style={{ flex: 1 }} />
+                              {confirmDeleteId === task.id ? (
+                                <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>Supprimer ?</span>
+                                  <button type="button" onClick={() => deleteTask(task.id)} style={{ fontSize: 11, color: 'var(--red)', border: 'none', background: 'none', cursor: 'pointer', fontWeight: 700 }}>Oui</button>
+                                  <button type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11, color: 'var(--muted)', border: 'none', background: 'none', cursor: 'pointer' }}>Non</button>
+                                </div>
+                              ) : (
+                                <button type="button" onClick={() => setConfirmDeleteId(task.id)} className="icon-btn" title="Supprimer la tâche">
+                                  <Icon name="trash" size={13} style={{ color: 'var(--red)' }} />
+                                </button>
+                              )}
+                            </div>
+                          )}
+                          {expandedRow && task.requires_attachment && (
+                            <div style={{ marginTop: 10 }}>
+                              <TaskAttachmentsReadOnly taskId={task.id} onCountChange={n => setAttachmentCounts(prev => ({ ...prev, [task.id]: n }))} />
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    function SectionHeader({ sectionKey, label, count, collapsed }: { sectionKey: string; label: string; count: number; collapsed: boolean }) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setCollapsedSections(prev => ({ ...prev, [sectionKey]: !collapsed }))}
+                          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--surface-2)', border: 'none', borderBottom: '1px solid var(--border)', cursor: 'pointer', fontFamily: 'inherit' }}
+                        >
+                          <Icon name={collapsed ? 'chevron-down' : 'chevron-up'} size={12} style={{ color: 'var(--muted)', transition: 'transform .2s', flexShrink: 0 }} />
+                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--muted)' }}>{label}</span>
+                          <span style={{ fontSize: 11, color: 'var(--muted)' }}>({count})</span>
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <>
+                        {pending.length > 0 && (
+                          <div>
+                            <SectionHeader sectionKey={pendingKey} label="EN COURS" count={pending.length} collapsed={pendingCollapsed} />
+                            {!pendingCollapsed && pending.map(renderTask)}
                           </div>
                         )}
-                        {expandedRow && task.requires_attachment && (
-                          <div style={{ marginTop: 10 }}>
-                            <TaskAttachmentsReadOnly taskId={task.id} onCountChange={n => setAttachmentCounts(prev => ({ ...prev, [task.id]: n }))} />
+                        {done.length > 0 && (
+                          <div>
+                            <SectionHeader sectionKey={doneKey} label="TERMINÉES" count={done.length} collapsed={doneCollapsed} />
+                            {!doneCollapsed && done.map(renderTask)}
                           </div>
                         )}
-                      </div>
+                      </>
                     );
-                  })}
+                  })()}
                 </div>
               )}
             </motion.div>

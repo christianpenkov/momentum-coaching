@@ -29,7 +29,7 @@ export async function GET(request: NextRequest) {
   if (profile?.role === 'coach') {
     let query = serviceSupabase
       .from('tasks')
-      .select('*, clients!inner(id, name, coach_id)')
+      .select('*, clients!inner(id, name, coach_id, initials, profiles(avatar_url))')
       .eq('clients.coach_id', user.id)
       .eq('added_by', 'coach')
       .eq('resolved_by_coach', false)

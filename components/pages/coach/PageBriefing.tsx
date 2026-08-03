@@ -5,6 +5,7 @@ import Avatar from '@/components/ui/Avatar';
 import Pill from '@/components/ui/Pill';
 import Icon from '@/components/ui/Icon';
 import { getClient } from '@/lib/data';
+import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 
 interface Props { id: string }
 
@@ -18,6 +19,11 @@ const QUESTIONS_TEMPLATE = [
 
 export default function PageBriefing({ id }: Props) {
   const client = getClient(id);
+  // Le reste de cette page reste sur les données mock de lib/data.ts (weeklyHistory,
+  // stripeMRR, etc.) — seul l'avatar est branché sur les vraies données Supabase, pour
+  // ne pas afficher le fallback initiales+couleur quand l'élève a une vraie photo.
+  const { getClient: getSupabaseClient } = useSupabaseClients();
+  const realAvatarUrl = getSupabaseClient(id)?.avatar_url ?? null;
   if (!client) return null;
 
   const last = client.weeklyHistory[11];
@@ -39,7 +45,7 @@ export default function PageBriefing({ id }: Props) {
     <div className="page-content">
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <Avatar initials={client.initials} size={42} />
+          <Avatar initials={client.initials} avatarUrl={realAvatarUrl} size={42} />
           <div>
             <h1 className="page-title">Briefing IA — {client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>

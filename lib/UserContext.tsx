@@ -10,6 +10,8 @@ interface UserProfile {
   full_name: string | null;
   avatar_url: string | null;
   initials: string;
+  onboardingStep: string | null;
+  onboardingData: Record<string, unknown>;
 }
 
 interface UserContextValue {
@@ -31,7 +33,7 @@ export function UserProvider({ children }: { children: ReactNode }) {
 
     const { data: profile } = await supabase
       .from('profiles')
-      .select('role, full_name, avatar_url')
+      .select('role, full_name, avatar_url, onboarding_step, onboarding_data')
       .eq('id', authUser.id)
       .single();
 
@@ -41,13 +43,31 @@ export function UserProvider({ children }: { children: ReactNode }) {
       ? (parts[0][0] + parts[1][0]).toUpperCase()
       : fullName.slice(0, 2).toUpperCase();
 
+    const role = profile?.role || 'client';
+    let onboardingStep = profile?.onboarding_step ?? null;
+    let onboardingData = profile?.onboarding_data ?? {};
+
+    // Pour un élève, la progression du wizard vit sur clients (pas profiles) —
+    // requête conditionnelle, une fois qu'on connaît le rôle.
+    if (role === 'client') {
+      const { data: clientRow } = await supabase
+        .from('clients')
+        .select('onboarding_step, onboarding_data')
+        .eq('profile_id', authUser.id)
+        .maybeSingle();
+      onboardingStep = clientRow?.onboarding_step ?? null;
+      onboardingData = clientRow?.onboarding_data ?? {};
+    }
+
     setUser({
       id: authUser.id,
       email: authUser.email || '',
-      role: profile?.role || 'client',
+      role,
       full_name: profile?.full_name || null,
       avatar_url: profile?.avatar_url || null,
       initials,
+      onboardingStep,
+      onboardingData,
     });
     setLoading(false);
   }, []);

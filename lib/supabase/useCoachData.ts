@@ -65,9 +65,10 @@ export function useCoachData(): CoachData {
       if (clientsErr) throw clientsErr;
 
       const clientIds = (rawClients || []).map(c => c.id);
+      const profileIds = (rawClients || []).map(c => c.profile_id).filter((id): id is string => !!id);
 
       // Métriques hebdo + tasks en parallèle
-      const [metricsRes, tasksRes, callsRes] = await Promise.all([
+      const [metricsRes, tasksRes, callsRes, avatarsRes] = await Promise.all([
         clientIds.length > 0
           ? supabase.from('weekly_metrics').select('*').in('client_id', clientIds).order('week', { ascending: true })
           : Promise.resolve({ data: [], error: null }),
@@ -81,10 +82,16 @@ export function useCoachData(): CoachData {
               .order('scheduled_at', { ascending: true })
               .limit(20)
           : Promise.resolve({ data: [], error: null }),
+        profileIds.length > 0
+          ? supabase.from('profiles').select('id, avatar_url').in('id', profileIds)
+          : Promise.resolve({ data: [], error: null }),
       ]);
 
       if (metricsRes.error) throw metricsRes.error;
       if (tasksRes.error) throw tasksRes.error;
+
+      const avatarMap: Record<string, string | null> = {};
+      (avatarsRes.data || []).forEach((p: { id: string; avatar_url: string | null }) => { avatarMap[p.id] = p.avatar_url; });
 
       const metricsMap: Record<string, WeeklyMetrics[]> = {};
       (metricsRes.data || []).forEach((m: WeeklyMetrics) => {
@@ -107,6 +114,7 @@ export function useCoachData(): CoachData {
           tasks: tasksMap[c.id] || [],
           latestMetrics: sorted[sorted.length - 1] || null,
           prevMetrics: sorted[sorted.length - 2] || null,
+          avatar_url: c.profile_id ? (avatarMap[c.profile_id] ?? null) : null,
         };
       });
 
@@ -141,6 +149,11 @@ export function useClientData(clientId: string) {
 
       if (clientRes.error) throw clientRes.error;
 
+      const profileId = clientRes.data?.profile_id;
+      const avatarRes = profileId
+        ? await supabase.from('profiles').select('avatar_url').eq('id', profileId).maybeSingle()
+        : { data: null };
+
       const metrics = metricsRes.data || [];
       setClient({
         ...clientRes.data,
@@ -148,6 +161,7 @@ export function useClientData(clientId: string) {
         tasks: tasksRes.data || [],
         latestMetrics: metrics[metrics.length - 1] || null,
         prevMetrics: metrics[metrics.length - 2] || null,
+        avatar_url: avatarRes.data?.avatar_url ?? null,
       });
     } catch (e: any) {
       setError(e.message);
@@ -201,7 +215,7 @@ export function useClientSelfData() {
       const [
         metricsRes, tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
         nextCallRes, callsTodayRes, callsThisMonthRes, leadsThisMonthRes,
-        stripeIntegRes, stripePaymentsRes,
+        stripeIntegRes, stripePaymentsRes, ownProfileRes,
       ] = await Promise.all([
         supabase.from('weekly_metrics').select('*').eq('client_id', clientRow.id).order('week', { ascending: true }),
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
@@ -234,6 +248,9 @@ export function useClientSelfData() {
         clientRow.profile_id
           ? supabase.from('stripe_payments').select('amount').eq('profile_id', clientRow.profile_id).gte('date', startOfMonth)
           : Promise.resolve({ data: [] }),
+        clientRow.profile_id
+          ? supabase.from('profiles').select('avatar_url').eq('id', clientRow.profile_id).maybeSingle()
+          : Promise.resolve({ data: null }),
       ]);
 
       const metrics = metricsRes.data || [];
@@ -264,6 +281,7 @@ export function useClientSelfData() {
         resources: resourcesRes.data || [],
         lastCoachMessage: lastMsgRes.data?.[0]?.text || null,
         coachName,
+        avatar_url: (ownProfileRes as { data: { avatar_url: string | null } | null }).data?.avatar_url ?? null,
         business: {
           nextCall: (nextCallRes.data || []).find(c => !isCallReallyOver(c)) || null,
           callsToday: callsTodayRes.data || [],

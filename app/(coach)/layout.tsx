@@ -12,6 +12,8 @@ import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
 import PushPermissionGate from '@/components/PushPermissionGate';
 import OrientationLockOverlay from '@/components/OrientationLockOverlay';
+import { OnboardingWizardProvider } from '@/components/onboarding/OnboardingWizardContext';
+import CoachOnboardingWizard from '@/components/onboarding/CoachOnboardingWizard';
 
 function CoachLayoutInner({ children, shellRef, navRef }: {
   children: React.ReactNode;
@@ -22,21 +24,24 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
-    <div ref={shellRef} className="app-shell-pwa">
-      <OrientationLockOverlay />
-      <PushPermissionGate userId={user?.id ?? null} />
-      <TopBar />
-      <div className="app-body-pwa">
-        <Sidebar />
-        <main className="main-content">
-          <PageTransition>{children}</PageTransition>
-        </main>
+    <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
+      <div ref={shellRef} className="app-shell-pwa">
+        <OrientationLockOverlay />
+        <PushPermissionGate userId={user?.id ?? null} />
+        <TopBar />
+        <div className="app-body-pwa">
+          <Sidebar />
+          <main className="main-content">
+            <PageTransition>{children}</PageTransition>
+          </main>
+        </div>
+        <div ref={navRef} className="bottom-nav-wrapper">
+          <BottomNavCoach onMoreClick={() => setMoreOpen(true)} />
+        </div>
+        {moreOpen && <CoachMoreSheet onClose={() => setMoreOpen(false)} />}
       </div>
-      <div ref={navRef} className="bottom-nav-wrapper">
-        <BottomNavCoach onMoreClick={() => setMoreOpen(true)} />
-      </div>
-      {moreOpen && <CoachMoreSheet onClose={() => setMoreOpen(false)} />}
-    </div>
+      <CoachOnboardingWizard />
+    </OnboardingWizardProvider>
   );
 }
 

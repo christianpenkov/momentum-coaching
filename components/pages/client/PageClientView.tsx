@@ -269,11 +269,11 @@ export default function PageClientView() {
       </div>
 
       <div className="grid-2">
-        {/* Plan de la semaine */}
+        {/* Tâches à effectuer */}
         <div className="card">
           <div className="card-head">
             <div>
-              <div className="card-title">Plan de la semaine</div>
+              <div className="card-title">Tâches à effectuer</div>
               <div className="card-sub">{doneCount} sur {coachTasks.length} tâches complétées</div>
             </div>
           </div>
