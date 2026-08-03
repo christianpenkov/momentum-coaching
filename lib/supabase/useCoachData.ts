@@ -37,6 +37,8 @@ export interface ClientSelfBusinessData {
 
 export interface ClientSelfData extends ClientWithMetrics {
   business: ClientSelfBusinessData;
+  coachFullName: string | null;
+  coachAvatarUrl: string | null;
 }
 
 // Hook léger pour l'espace client (vue client connecté)
@@ -71,7 +73,7 @@ export function useClientSelfData() {
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
         supabase.from('messages').select('text, created_at').eq('client_id', clientRow.id).eq('sender_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(1),
-        supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle(),
+        supabase.from('profiles').select('full_name, avatar_url').eq('id', clientRow.coach_id).maybeSingle(),
         // Pas de .limit(1) ici : un call peut avoir scheduled_at futur mais déjà un
         // rapport rempli (coach en avance) — filtré côté client via isCallReallyOver,
         // donc on doit pouvoir passer au suivant si le premier résultat est écarté.
@@ -105,6 +107,7 @@ export function useClientSelfData() {
 
       const coachFullName: string | null = coachProfileRes.data?.full_name ?? null;
       const coachName = coachFullName ? coachFullName.split(' ')[0] : null;
+      const coachAvatarUrl: string | null = coachProfileRes.data?.avatar_url ?? null;
 
       const allCallsThisMonth: Call[] = callsThisMonthRes.data || [];
       // "Bookés ce mois"/closing/cash contracté ne comptent que les calls prospects
@@ -130,6 +133,8 @@ export function useClientSelfData() {
         resources: resourcesRes.data || [],
         lastCoachMessage: lastMsgRes.data?.[0]?.text || null,
         coachName,
+        coachFullName,
+        coachAvatarUrl,
         avatar_url: (ownProfileRes as { data: { avatar_url: string | null } | null }).data?.avatar_url ?? null,
         business: {
           nextCall: (nextCallRes.data || []).find(c => !isCallReallyOver(c)) || null,

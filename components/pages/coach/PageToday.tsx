@@ -228,7 +228,7 @@ export default function PageToday() {
               </Link>
             </div>
             <div style={{ marginTop: 16 }}>
-              <CallStack calls={callsToday} getClient={(clientId) => clients.find(c => c.id === clientId)} />
+              <CallStack calls={callsToday} getClient={(call) => clients.find(c => c.id === call.client_id)} />
             </div>
           </div>
         </StaggerItem>
@@ -280,7 +280,8 @@ export default function PageToday() {
               Voir tout <Icon name="chevR" size={12} />
             </Link>
           </div>
-          <div style={{ overflowX: 'auto' }}>
+          {/* Desktop : tableau. Mobile (≤767px) : cards empilées, voir .today-clients-cards en CSS */}
+          <div className="today-clients-table" style={{ overflowX: 'auto' }}>
             <table className="data-table" style={{ minWidth: 600 }}>
               <thead>
                 <tr>
@@ -320,6 +321,28 @@ export default function PageToday() {
                 ))}
               </tbody>
             </table>
+          </div>
+
+          <div className="today-clients-cards">
+            {clients.slice(0, 5).map((client) => {
+              const s = getClientSignals(client.tasks, client.sessionReports);
+              return (
+                <Link key={client.id} href={`/clients/${client.id}`} className="today-client-card">
+                  <Avatar initials={client.initials || client.name.slice(0, 2).toUpperCase()} avatarUrl={client.avatar_url} size={40} seed={client.id} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+                      {client.niche || 'Infopreneur'} · S{getClientWeek(client.onboarding_completed_at)}
+                    </div>
+                  </div>
+                  {s.total > 0 ? (
+                    <span style={{ fontSize: 11, color: 'var(--red)', fontWeight: 600, flexShrink: 0 }}>{s.total} signal{s.total > 1 ? 's' : ''}</span>
+                  ) : (
+                    <Icon name="chevR" size={14} color="var(--faint)" />
+                  )}
+                </Link>
+              );
+            })}
           </div>
         </div>
       )}

@@ -14,7 +14,10 @@ interface ClientLite {
 
 interface Props {
   calls: Call[];
-  getClient: (clientId: string | null) => ClientLite | undefined;
+  // Reçoit l'objet call complet (pas juste client_id) — nécessaire côté élève où
+  // client_id est identique pour tous les calls (l'élève lui-même) et où le vrai
+  // "interlocuteur" à afficher dépend du call_type (coach vs prospect Calendly).
+  getClient: (call: Call) => ClientLite | undefined;
 }
 
 export default function CallStack({ calls, getClient }: Props) {
@@ -39,7 +42,7 @@ export default function CallStack({ calls, getClient }: Props) {
       {sorted.map((call, i) => {
         const isPast = activeIndex !== -1 ? i < activeIndex : true;
         const isActive = i === activeIndex;
-        const client = getClient(call.client_id);
+        const client = getClient(call);
         const time = call.scheduled_at
           ? new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
           : '—';

@@ -13,6 +13,8 @@ import RapportModal from '@/components/ui/RapportModal';
 import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import { getClientWeek } from '@/lib/clientWeek';
+import CallStack from '@/components/ui/CallStack';
+import type { Call } from '@/lib/supabase/types';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -98,6 +100,18 @@ export default function PageClientView() {
   const coachingCallsToday = callsToday.filter(isCoachingCall).length;
   const prospectCallsToday = callsToday.length - coachingCallsToday;
   const collectRate = cashContracted > 0 && cashCollected !== null ? Math.round((cashCollected / cashContracted) * 100) : null;
+
+  // CallStack attend un "client" par call — côté élève ça n'a pas de sens d'afficher
+  // sa propre fiche : un call coaching (google) se fait avec le coach (avatar réel
+  // dispo), un call vente (calendly) avec un prospect (invitee_name, pas d'avatar
+  // réel donc repli sur initiales).
+  function getCallCounterpart(call: Call) {
+    if (isCoachingCall(call)) {
+      return { id: 'coach', name: client!.coachFullName || client!.coachName || 'Coach', initials: null, avatar_url: client!.coachAvatarUrl };
+    }
+    const name = call.invitee_name || 'Prospect';
+    return { id: call.id, name, initials: name.slice(0, 2).toUpperCase(), avatar_url: null };
+  }
 
   return (
     <div className="page-content">
@@ -268,6 +282,21 @@ export default function PageClientView() {
           </div>
         </div>
       </div>
+
+      {/* Calls du jour */}
+      {callsToday.length > 0 && (
+        <div className="card" style={{ marginBottom: 20 }}>
+          <div className="card-head">
+            <div>
+              <div className="card-title">Calls du jour</div>
+              <div className="card-sub">{callsToday.length} session{callsToday.length !== 1 ? 's' : ''} planifiée{callsToday.length !== 1 ? 's' : ''}</div>
+            </div>
+          </div>
+          <div style={{ marginTop: 16 }}>
+            <CallStack calls={callsToday} getClient={getCallCounterpart} />
+          </div>
+        </div>
+      )}
 
       <div className="grid-2">
         {/* Tâches à effectuer */}
