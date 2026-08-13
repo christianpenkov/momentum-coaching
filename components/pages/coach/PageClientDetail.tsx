@@ -272,7 +272,7 @@ export default function PageClientDetail({ id }: Props) {
   // client_id, fiable pour ce cas : un call de coaching est toujours booké après
   // que l'élève ait déjà un compte (contrairement aux calls de vente, cf.
   // fetchSalesCalls plus bas et docs sur calls.client_id).
-  const { data: calls = [] } = useQuery({
+  const { data: calls = [], isLoading: callsLoading } = useQuery({
     queryKey: ['client-detail-calls', id],
     queryFn: async () => {
       const supabase = createSupabase();
@@ -281,7 +281,7 @@ export default function PageClientDetail({ id }: Props) {
     },
     staleTime: 60 * 1000,
   });
-  const { data: salesCallsData = [] } = useQuery({
+  const { data: salesCallsData = [], isLoading: salesCallsLoading } = useQuery({
     queryKey: ['client-sales-calls', id],
     queryFn: () => fetchSalesCalls(id),
     staleTime: 60 * 1000,
@@ -484,7 +484,8 @@ export default function PageClientDetail({ id }: Props) {
 
   // Un seul flag pour les 8 KPI — tout le bloc apparaît d'un coup une fois prêt,
   // plutôt que carte par carte au fur et à mesure que chaque requête résout.
-  const kpiLoading = igLoading || ytLoading || storiesLoading || igLeadsLoading || stripeLoading;
+  const kpiLoading = igLoading || ytLoading || storiesLoading || igLeadsLoading || stripeLoading
+    || callsLoading || salesCallsLoading;
 
   if (!client && clientLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>
@@ -806,18 +807,30 @@ export default function PageClientDetail({ id }: Props) {
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Calls bookés</div>
-              <div className="kpi-value">{callsBookedCount}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+              {kpiLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{callsBookedCount}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+                </>
+              )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Taux de show-up</div>
-              <div className="kpi-value">{showUpRate}%</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{callsHonoredCount}/{callsBookedCount} calls</div>
+              {kpiLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{showUpRate}%</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{callsHonoredCount}/{callsBookedCount} calls</div>
+                </>
+              )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Taux de closing</div>
-              <div className="kpi-value">{closingRate}%</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{dealsClosedCount}/{callsHonoredCount} calls honorés</div>
+              {kpiLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{closingRate}%</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{dealsClosedCount}/{callsHonoredCount} calls honorés</div>
+                </>
+              )}
             </div>
           </div>
         </div>
