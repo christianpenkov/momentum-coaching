@@ -536,9 +536,28 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'Abonnés IG', value: fmt(ig?.followers || 0), sub: 'total', color: IG_COLOR },
           { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
           null, // carte Publications custom
-          { label: 'Leads', value: fmt(leadsCount), sub: `${period}j — dont ${fmt(newLeadsCount)} nouveaux`, color: BLUE },
+          'leads', // carte Leads custom (badge nouveaux à droite du chiffre)
           { label: 'Calls bookés', value: fmt(callsBookes), sub: `${period}j`, color: 'var(--ink)' as string },
         ] as const).map((item, i) => {
+          if (item === 'leads') return (
+            <div key="leads" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
+                <span>Leads</span>
+                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+                <div style={{ fontSize: 20, fontWeight: 800, color: BLUE, lineHeight: 1 }}>{fmt(leadsCount)}</div>
+                {newLeadsCount > 0 && (
+                  <span style={{
+                    fontSize: 10, fontWeight: 700, color: GREEN, background: 'color-mix(in srgb, var(--green) 14%, transparent)',
+                    borderRadius: 20, padding: '2px 7px', lineHeight: 1.4, whiteSpace: 'nowrap',
+                  }}>
+                    +{fmt(newLeadsCount)} nouveaux
+                  </span>
+                )}
+              </div>
+            </div>
+          );
           if (item === null) return (
             <div key="publications" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
