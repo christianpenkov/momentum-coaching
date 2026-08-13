@@ -284,9 +284,9 @@ export default function PageClientView() {
         </div>
       </div>
 
-      {/* Calls du jour */}
-      {callsToday.length > 0 && (
-        <div className="card" style={{ marginBottom: 20 }}>
+      <div className="grid-2">
+        {/* Calls du jour */}
+        <div className="card">
           <div className="card-head">
             <div>
               <div className="card-title">Calls du jour</div>
@@ -297,9 +297,7 @@ export default function PageClientView() {
             <CallStack calls={callsToday} getClient={getCallCounterpart} />
           </div>
         </div>
-      )}
 
-      <div className="grid-2">
         {/* Tâches à effectuer */}
         <div className="card">
           <div className="card-head">
@@ -367,35 +365,6 @@ export default function PageClientView() {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Ressources */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-          <div className="card">
-            <div className="card-head">
-              <div className="card-title">Ressources</div>
-              <Link href="/client/ressources" className="btn-ghost" style={{ fontSize: 12 }}>
-                Voir tout <Icon name="chevR" size={12} />
-              </Link>
-            </div>
-            <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {client.resources.length === 0 ? (
-                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>Aucune ressource publiée pour le moment.</div>
-              ) : client.resources.map((r) => (
-                <div key={r.id} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <div style={{ width: 32, height: 32, borderRadius: 8, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Icon name="folder" size={14} />
-                  </div>
-                  <div style={{ flex: 1, fontSize: 12, color: 'var(--accent)', minWidth: 0 }}>{r.title}</div>
-                  {r.url && (
-                    <a href={r.url} target="_blank" rel="noopener noreferrer" className="btn-ghost" style={{ fontSize: 11, padding: '3px 8px' }}>
-                      <Icon name="external" size={11} />
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
           </div>
         </div>
       </div>
