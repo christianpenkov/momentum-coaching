@@ -128,6 +128,17 @@ interface DepotFile {
   comments: DepotComment[];
 }
 
+// Remplace la valeur d'une carte KPI pendant que sa requête charge — évite l'effet
+// de saut (0 puis vraie valeur) visible le temps que igRaw/ytRaw/stripeRaw résolvent.
+function KpiSkeleton() {
+  return (
+    <>
+      <div style={{ height: 26, width: '55%', borderRadius: 4, background: 'var(--surface-2)', animation: 'pulse 1.4s ease-in-out infinite', marginTop: 2 }} />
+      <div style={{ height: 11, width: '75%', borderRadius: 4, background: 'var(--surface-2)', animation: 'pulse 1.4s ease-in-out infinite', marginTop: 6 }} />
+    </>
+  );
+}
+
 function ClientResourcesPanel({ clientProfileId, coachId }: { clientProfileId: string; coachId: string }) {
   const supabase = createSupabase();
   const [resources, setResources] = useState<ResourceForClient[]>([]);
@@ -439,36 +450,42 @@ export default function PageClientDetail({ id }: Props) {
   // connectedAt/fetchConnectedAt sur demande explicite de Chris.
   const sinceAccountCreated = client?.onboarding_completed_at ?? null;
 
-  const { data: igRaw } = useQuery({
+  const { data: igRaw, isLoading: igLoading } = useQuery({
     queryKey: ['stats-ig', profileId],
     queryFn: () => fetch(`/api/instagram/stats?profileId=${profileId}`).then(r => r.ok ? r.json() : null),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const { data: ytRaw } = useQuery({
+  const { data: ytRaw, isLoading: ytLoading } = useQuery({
     queryKey: ['stats-yt', profileId],
     queryFn: () => fetch(`/api/youtube/stats?profileId=${profileId}`).then(r => r.ok ? r.json() : null),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const { data: stripeRaw } = useQuery({
+  const { data: stripeRaw, isLoading: stripeLoading } = useQuery({
     queryKey: ['stats-stripe', profileId],
     queryFn: () => fetch(`/api/stripe/client-data?profileId=${profileId}`).then(r => r.ok ? r.json() : null),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const { data: storiesCount } = useQuery({
+  const { data: storiesCount, isLoading: storiesLoading } = useQuery({
     queryKey: ['client-stories-count', profileId, sinceAccountCreated],
     queryFn: () => fetchStoriesCount(profileId!, sinceAccountCreated),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const { data: igLeadsCount } = useQuery({
+  const { data: igLeadsCount, isLoading: igLeadsLoading } = useQuery({
     queryKey: ['client-ig-leads-count', profileId, sinceAccountCreated],
     queryFn: () => fetchIgLeadsCount(profileId!, sinceAccountCreated),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
+
+  // KPI groupés en 3 sections : chaque section attend uniquement les requêtes dont
+  // elle dépend, pour ne pas bloquer Audience si seul Revenu (Stripe) est lent.
+  const audienceLoading = igLoading || ytLoading || storiesLoading;
+  const funnelLoading = igLeadsLoading; // callsBookedCount/showUp/closing viennent de `calls`/`salesCallsData`, déjà résolus avant ce point
+  const revenueLoading = stripeLoading;
 
   if (!client && clientLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>
@@ -757,13 +774,21 @@ export default function PageClientDetail({ id }: Props) {
           <div className="grid-2">
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Abonnés</div>
-              <div className="kpi-value">{followersTotal.toLocaleString('fr-FR')}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {(igRaw?.followers ?? 0).toLocaleString('fr-FR')} · YT {(ytRaw?.subscribers ?? 0).toLocaleString('fr-FR')}</div>
+              {audienceLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{followersTotal.toLocaleString('fr-FR')}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {(igRaw?.followers ?? 0).toLocaleString('fr-FR')} · YT {(ytRaw?.subscribers ?? 0).toLocaleString('fr-FR')}</div>
+                </>
+              )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Publications</div>
-              <div className="kpi-value">{publicationsTotal}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {postsIg ?? 0} · YT {postsYt ?? 0} · Stories {storiesCount ?? 0}</div>
+              {audienceLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{publicationsTotal}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {postsIg ?? 0} · YT {postsYt ?? 0} · Stories {storiesCount ?? 0}</div>
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -773,8 +798,12 @@ export default function PageClientDetail({ id }: Props) {
           <div className="grid-4">
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Leads totaux</div>
-              <div className="kpi-value">{leadsTotal}</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+              {funnelLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{leadsTotal}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
+                </>
+              )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Calls bookés</div>
@@ -799,13 +828,21 @@ export default function PageClientDetail({ id }: Props) {
           <div className="grid-2">
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Cash contracté</div>
-              <div className="kpi-value">{cashContracted.toLocaleString('fr-FR')} €</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cashCollected != null ? `${cashCollected.toLocaleString('fr-FR')} € collecté` : 'collecté : —'}</div>
+              {revenueLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{cashContracted.toLocaleString('fr-FR')} €</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cashCollected != null ? `${cashCollected.toLocaleString('fr-FR')} € collecté` : 'collecté : —'}</div>
+                </>
+              )}
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Revenu par call</div>
-              <div className="kpi-value">{revenuePerCall.toLocaleString('fr-FR')} €</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>par call booké</div>
+              {revenueLoading ? <KpiSkeleton /> : (
+                <>
+                  <div className="kpi-value">{revenuePerCall.toLocaleString('fr-FR')} €</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>par call booké</div>
+                </>
+              )}
             </div>
           </div>
         </div>
