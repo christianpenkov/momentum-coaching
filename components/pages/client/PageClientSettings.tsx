@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
 import LegalFooter from '@/components/ui/LegalFooter';
+import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 
 type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio' | 'google';
 
@@ -71,6 +72,8 @@ export default function PageClientSettings() {
   const [email, setEmail] = useState('');
   const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false });
   const [integrationLabels, setIntegrationLabels] = useState<Partial<Record<Provider, string>>>({});
+  const [shortioMeta, setShortioMeta] = useState<{ domain: string | null; domain_id: number | string | null; all_domains: { id: number | string; hostname: string }[] } | null>(null);
+  const [domainPickerOpen, setDomainPickerOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
@@ -96,13 +99,14 @@ export default function PageClientSettings() {
         if (coachProfile?.full_name) setCoachName(coachProfile.full_name.split(' ')[0]);
       }
 
-      const { data: integs } = await supabase.from('integrations').select('provider, account_label').eq('profile_id', user.id);
+      const { data: integs } = await supabase.from('integrations').select('provider, account_label, metadata').eq('profile_id', user.id);
       if (integs) {
         const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false } as Record<Provider, boolean>;
         const labels: Partial<Record<Provider, string>> = {};
-        integs.forEach((i: { provider: string; account_label: string | null }) => {
+        integs.forEach((i: { provider: string; account_label: string | null; metadata: any }) => {
           if (i.provider in map) map[i.provider as Provider] = true;
           if (i.account_label) labels[i.provider as Provider] = i.account_label;
+          if (i.provider === 'shortio') setShortioMeta(i.metadata || null);
         });
         setIntegrations(map);
         setIntegrationLabels(labels);
@@ -154,7 +158,18 @@ export default function PageClientSettings() {
     setKeyInput('');
     setKeyError(null);
     setSaving(false);
-    showToast(`${INTEGRATIONS.find(i => i.provider === provider)?.name} connecté ✓`);
+
+    if (provider === 'shortio') {
+      setShortioMeta(metadata);
+      if (label) setIntegrationLabels(prev => ({ ...prev, shortio: label }));
+    }
+
+    if (validation.needsDomainSelection) {
+      showToast('Clé Short.io valide — choisis ton domaine');
+      setDomainPickerOpen(true);
+    } else {
+      showToast(`${INTEGRATIONS.find(i => i.provider === provider)?.name} connecté ✓`);
+    }
   }
 
   async function disconnect(provider: Provider) {
@@ -295,7 +310,16 @@ export default function PageClientSettings() {
                   </div>
                   {connected ? (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                      <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
+                      {cfg.provider === 'shortio' && !shortioMeta?.domain_id ? (
+                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
+                      ) : (
+                        <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
+                      )}
+                      {cfg.provider === 'shortio' && (((shortioMeta?.all_domains?.length || 0) > 1) || !shortioMeta?.domain_id) && (
+                        <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => setDomainPickerOpen(true)}>
+                          {shortioMeta?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
+                        </button>
+                      )}
                       {!cfg.oauth && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>Modifier</button>}
                       {cfg.oauth && <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
                       {cfg.provider === 'calendly' && (
@@ -441,6 +465,21 @@ export default function PageClientSettings() {
       <div style={{ marginTop: 28, padding: '0 20px' }}>
         <LegalFooter />
       </div>
+
+      {domainPickerOpen && profileId && (
+        <ShortioDomainPicker
+          open={domainPickerOpen}
+          onClose={() => setDomainPickerOpen(false)}
+          profileId={profileId}
+          initialDomains={shortioMeta?.all_domains || []}
+          currentDomainId={shortioMeta?.domain_id ?? null}
+          onSelected={(domain) => {
+            setShortioMeta(prev => ({ ...(prev || { all_domains: [] }), domain: domain.hostname, domain_id: domain.id }));
+            setIntegrationLabels(prev => ({ ...prev, shortio: domain.hostname }));
+            showToast(`Domaine Short.io : ${domain.hostname} ✓`);
+          }}
+        />
+      )}
     </div>
   );
 }

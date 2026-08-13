@@ -9,6 +9,7 @@ import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
 import type { Integration, Provider } from '@/lib/supabase/types';
 import LegalFooter from '@/components/ui/LegalFooter';
+import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 
 type IntegrationMode = 'oauth' | 'apikey';
 
@@ -101,6 +102,7 @@ export default function PageSettings() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
   const [justSaved, setJustSaved] = useState<Provider | null>(null);
+  const [domainPickerProvider, setDomainPickerProvider] = useState<Provider | null>(null);
 
   useEffect(() => {
     const connected = searchParams.get('connected');
@@ -127,7 +129,7 @@ export default function PageSettings() {
       const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).single();
       if (profile) { setCoachName(profile.full_name || ''); setAvatarUrl(profile.avatar_url || null); }
 
-      const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, connected_at').eq('profile_id', user.id);
+      const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, metadata, connected_at').eq('profile_id', user.id);
       if (integs) {
         const map = { anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null } as Record<Provider, Integration | null>;
         integs.forEach((i) => {
@@ -161,15 +163,16 @@ export default function PageSettings() {
     setSaving(true);
     const key = keyInput.trim();
     const label = validation.label || null;
+    const metadata = validation.meta || null;
 
     const existing = integrations[provider];
     if (existing) {
-      await supabase.from('integrations').update({ api_key: key, account_label: label, connected_at: new Date().toISOString() }).eq('id', existing.id);
+      await supabase.from('integrations').update({ api_key: key, account_label: label, metadata, connected_at: new Date().toISOString() }).eq('id', existing.id);
     } else {
-      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label });
+      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata });
     }
 
-    const { data, error: fetchErr } = await supabase.from('integrations').select('id, profile_id, provider, account_label, connected_at').eq('profile_id', profileId).eq('provider', provider).single();
+    const { data, error: fetchErr } = await supabase.from('integrations').select('id, profile_id, provider, account_label, metadata, connected_at').eq('profile_id', profileId).eq('provider', provider).single();
     if (fetchErr) {
       setSaving(false);
       showToast('Erreur de sauvegarde : ' + fetchErr.message, true);
@@ -182,7 +185,13 @@ export default function PageSettings() {
     setSaving(false);
     setJustSaved(provider);
     setTimeout(() => setJustSaved(null), 2500);
-    showToast(`${INTEGRATION_CONFIG.find(c => c.provider === provider)?.name} connecté ✓`);
+
+    if (validation.needsDomainSelection) {
+      showToast('Clé Short.io valide — choisis ton domaine');
+      setDomainPickerProvider(provider);
+    } else {
+      showToast(`${INTEGRATION_CONFIG.find(c => c.provider === provider)?.name} connecté ✓`);
+    }
   }
 
   async function disconnect(provider: Provider) {
@@ -334,11 +343,20 @@ export default function PageSettings() {
 
                   {integ ? (
                     <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                      <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
+                      {cfg.provider === 'shortio' && !(integ.metadata as any)?.domain_id ? (
+                        <span className="pill" style={{ fontSize: 11, flexShrink: 0, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
+                      ) : (
+                        <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
+                      )}
                       {cfg.mode === 'oauth' && (
                         <a href={cfg.oauthPath} className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>
                           Reconnecter
                         </a>
+                      )}
+                      {cfg.provider === 'shortio' && ((integ.metadata as any)?.all_domains?.length > 1 || !(integ.metadata as any)?.domain_id) && (
+                        <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => setDomainPickerProvider('shortio')}>
+                          {(integ.metadata as any)?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
+                        </button>
                       )}
                       {cfg.mode === 'apikey' && (
                         <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
@@ -485,6 +503,27 @@ export default function PageSettings() {
       <div style={{ marginTop: 28, padding: '0 20px' }}>
         <LegalFooter />
       </div>
+
+      {domainPickerProvider && profileId && (
+        <ShortioDomainPicker
+          open={!!domainPickerProvider}
+          onClose={() => setDomainPickerProvider(null)}
+          profileId={profileId}
+          initialDomains={((integrations.shortio?.metadata as any)?.all_domains) || []}
+          currentDomainId={(integrations.shortio?.metadata as any)?.domain_id ?? null}
+          onSelected={(domain) => {
+            setIntegrations(prev => ({
+              ...prev,
+              shortio: prev.shortio ? {
+                ...prev.shortio,
+                account_label: domain.hostname,
+                metadata: { ...(prev.shortio.metadata as any), domain: domain.hostname, domain_id: domain.id, domain_source: 'user_selected' },
+              } : prev.shortio,
+            }));
+            showToast(`Domaine Short.io : ${domain.hostname} ✓`);
+          }}
+        />
+      )}
     </div>
   );
 }

@@ -92,10 +92,23 @@ export async function POST(request: NextRequest) {
         if (domains.length === 0) {
           return NextResponse.json({ valid: false, error: 'Aucun domaine trouvé sur ce compte Short.io' });
         }
-        // On prend le premier domaine (ou le seul)
-        const first = domains[0];
-        const label = domains.length === 1 ? first.hostname : `${first.hostname} (+${domains.length - 1} autre${domains.length > 2 ? 's' : ''})`;
-        return NextResponse.json({ valid: true, label, meta: { domain: first.hostname, domain_id: first.id, all_domains: domains.map((d: any) => ({ hostname: d.hostname, id: d.id })) } });
+        const allDomains = domains.map((d: any) => ({ hostname: d.hostname, id: d.id }));
+        if (domains.length === 1) {
+          const only = domains[0];
+          return NextResponse.json({
+            valid: true,
+            label: only.hostname,
+            meta: { domain: only.hostname, domain_id: only.id, all_domains: allDomains, domain_source: 'auto_single' },
+          });
+        }
+        // Plusieurs domaines : l'API Short.io ne garantit ni ordre ni domaine "par défaut" —
+        // on ne tranche pas silencieusement, l'utilisateur doit choisir explicitement.
+        return NextResponse.json({
+          valid: true,
+          needsDomainSelection: true,
+          label: `${domains.length} domaines trouvés — sélection requise`,
+          meta: { domain: null, domain_id: null, all_domains: allDomains, domain_source: null },
+        });
       }
 
       default:

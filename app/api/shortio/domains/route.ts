@@ -36,13 +36,17 @@ export async function GET(request: Request) {
 
   if (!integ?.api_key) return NextResponse.json({ error: 'no_token' }, { status: 404 });
 
+  // activeDomain vient EXCLUSIVEMENT de metadata (choisi à la connexion ou via le sélecteur) —
+  // jamais recalculé depuis l'ordre de retour de l'API Short.io, qui ne garantit rien.
+  const activeDomain = (integ.metadata?.domain && integ.metadata?.domain_id)
+    ? { id: integ.metadata.domain_id, hostname: integ.metadata.domain }
+    : null;
+
   // Fallback depuis les metadata Supabase (évite un appel API inutile)
   const metaDomains: { id: number; hostname: string }[] = integ.metadata?.all_domains ?? [];
-  if (integ.metadata?.domain && integ.metadata?.domain_id && metaDomains.length === 0) {
-    metaDomains.push({ id: integ.metadata.domain_id, hostname: integ.metadata.domain });
-  }
 
-  // Tenter l'API Short.io pour avoir la liste à jour
+  // Tenter l'API Short.io pour avoir la liste à jour (sert uniquement à peupler le
+  // sélecteur — ne détermine jamais activeDomain)
   try {
     const res = await fetch('https://api.short.io/api/domains', {
       headers: { authorization: integ.api_key, accept: 'application/json' },
@@ -54,7 +58,7 @@ export async function GET(request: Request) {
         id: d.id,
         hostname: d.hostname,
       }));
-      if (domains.length > 0) return NextResponse.json({ domains });
+      if (domains.length > 0) return NextResponse.json({ activeDomain, domains });
     }
   } catch {
     // API indisponible — on utilise le fallback
@@ -62,7 +66,11 @@ export async function GET(request: Request) {
 
   // Fallback : domaines depuis les metadata Supabase
   if (metaDomains.length > 0) {
-    return NextResponse.json({ domains: metaDomains });
+    return NextResponse.json({ activeDomain, domains: metaDomains });
+  }
+
+  if (activeDomain) {
+    return NextResponse.json({ activeDomain, domains: [activeDomain] });
   }
 
   return NextResponse.json({ error: 'Aucun domaine trouvé' }, { status: 404 });

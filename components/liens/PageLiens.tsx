@@ -195,9 +195,9 @@ function ContentGridSkeleton({ rows = 8 }: { rows?: number }) {
 
 // ─── Modal Paramètres ─────────────────────────────────────────────────────────
 
-function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onCalendlyChange, initialCalendly, leadMagnets, onLmUpdated }: {
+function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded, onCalendlyChange, initialCalendly, leadMagnets, onLmUpdated }: {
   open: boolean; onClose: () => void;
-  profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
+  profileId: string; activeDomain: ShortDomain | null; domainsLoaded: boolean;
   onCalendlyChange: (url: string) => void; initialCalendly: string;
   leadMagnets: LeadMagnet[];
   onLmUpdated: (lm: LeadMagnet) => void;
@@ -215,7 +215,7 @@ function ModalParametres({ open, onClose, profileId, domains, domainsLoaded, onC
   const [lmBioUrls, setLmBioUrls] = useState<Record<string, { ig?: string; yt?: string }>>({});
   const [genLmLoading, setGenLmLoading] = useState<Record<string, boolean>>({});
   const [genLmSuccess, setGenLmSuccess] = useState<Record<string, boolean>>({});
-  const domain = domains[0]?.hostname || '';
+  const domain = activeDomain?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const isValid = calendlyUrl.trim().startsWith('http');
 
@@ -1331,12 +1331,12 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   );
 }
 
-function PanneauActions({ post, profileId, domains, domainsLoaded, calendlyUrl, leadMagnets, onLmCreated, onPostUpdated }: {
-  post: Post; profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
+function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendlyUrl, leadMagnets, onLmCreated, onPostUpdated }: {
+  post: Post; profileId: string; activeDomain: ShortDomain | null; domainsLoaded: boolean;
   calendlyUrl: string; leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
   onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
-  const domain = domains[0]?.hostname || '';
+  const domain = activeDomain?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   // Le bandeau "non connecté" ne doit apparaître qu'une fois le chargement des domaines Short.io
   // terminé — sinon il clignote pendant ~1s à chaque ouverture (canGenerate est faux tant que
@@ -1794,11 +1794,11 @@ function TabStoryCalendly({ primary, isExistingSequence, onSaved }: {
 
 // ─── Panneau droit : Calendly prospect ───────────────────────────────────────
 
-function PanneauCalendlyProspect({ profileId, domains, domainsLoaded, calendlyUrl, posts }: {
-  profileId: string; domains: ShortDomain[]; domainsLoaded: boolean;
+function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calendlyUrl, posts }: {
+  profileId: string; activeDomain: ShortDomain | null; domainsLoaded: boolean;
   calendlyUrl: string; posts: Post[];
 }) {
-  const domain = domains[0]?.hostname || '';
+  const domain = activeDomain?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const hasCalendly = calendlyUrl.trim().startsWith('http');
 
@@ -2505,6 +2505,10 @@ export default function PageLiens() {
 
   // ── Dérivations depuis les queries ───────────────────────────────────────
   const domains: ShortDomain[] = domainsData?.domains?.length ? domainsData.domains : [];
+  // activeDomain = seule source de vérité pour le domaine utilisé à la création de lien —
+  // vient de integrations.metadata (choisi à la connexion ou via le sélecteur), jamais
+  // recalculé depuis l'ordre de domains (non garanti par l'API Short.io).
+  const activeDomain: ShortDomain | null = domainsData?.activeDomain ?? null;
   // !!profileId est requis en plus de !domainsLoading : tant que profileId n'est pas résolu
   // (juste après un rechargement de page, avant que `user` n'arrive), la query est "enabled:
   // false" donc TanStack la rapporte comme idle (isLoading=false) sans jamais l'avoir vraiment
@@ -2743,7 +2747,7 @@ export default function PageLiens() {
 
       <ModalParametres
         open={paramOpen} onClose={() => { setParamOpen(false); }}
-        profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
+        profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded}
         onCalendlyChange={(url: string) => setCalendlyOverride(url)} initialCalendly={calendlyUrl}
         leadMagnets={leadMagnets}
         onLmUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
@@ -3000,7 +3004,7 @@ export default function PageLiens() {
                   onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
                 />
               ) : rightView.type === 'prospect' ? (
-                <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
+                <PanneauCalendlyProspect profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
               ) : rightView.type === 'story' ? (
                 <PanneauStorySequence
                   story={selectedStory || rightView.post} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
@@ -3015,7 +3019,7 @@ export default function PageLiens() {
                 />
               ) : (
                 <PanneauActions
-                  post={selectedPost || rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
+                  post={selectedPost || rightView.post} profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded}
                   calendlyUrl={calendlyUrl} leadMagnets={leadMagnets}
                   onLmCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
                   onPostUpdated={handlePostUpdated}
@@ -3249,7 +3253,7 @@ export default function PageLiens() {
                 onUpdated={(lm: LeadMagnet) => setLmOverrides(prev => (prev ?? leadMagnetsFromQuery).map(l => l.id === lm.id ? lm : l))}
               />
             ) : rightView.type === 'prospect' ? (
-              <PanneauCalendlyProspect profileId={profileId} domains={domains} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
+              <PanneauCalendlyProspect profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded} calendlyUrl={calendlyUrl} posts={posts} />
             ) : rightView.type === 'story' ? (
               <PanneauStorySequence
                 story={selectedStory || rightView.post} allStories={posts} profileId={profileId} leadMagnets={leadMagnets}
@@ -3264,7 +3268,7 @@ export default function PageLiens() {
               />
             ) : (
               <PanneauActions
-                post={selectedPost || rightView.post} profileId={profileId} domains={domains} domainsLoaded={domainsLoaded}
+                post={selectedPost || rightView.post} profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded}
                 calendlyUrl={calendlyUrl} leadMagnets={leadMagnets}
                 onLmCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
                 onPostUpdated={handlePostUpdated}

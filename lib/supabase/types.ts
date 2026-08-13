@@ -180,8 +180,16 @@ export interface Integration {
   refresh_token: string | null;
   api_key: string | null;
   account_label: string | null;
+  metadata: Record<string, unknown> | null;
   expires_at: string | null;
   connected_at: string;
+}
+
+export interface ShortioIntegrationMetadata {
+  domain: string | null;
+  domain_id: number | null;
+  all_domains: { id: number; hostname: string }[];
+  domain_source: 'auto_single' | 'user_selected' | null;
 }
 
 export interface DepotFile {
