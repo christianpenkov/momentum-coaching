@@ -43,6 +43,31 @@ function AddToHomeIcon() {
   );
 }
 
+// Icône "⋮" Chrome Android — trois points verticaux, menu en haut à droite (distinct
+// des "···" horizontaux de Safari iOS en bas de l'écran).
+function MoreIconVertical() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="var(--accent-brand)" style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}>
+      <circle cx="12" cy="5" r="2" />
+      <circle cx="12" cy="12" r="2" />
+      <circle cx="12" cy="19" r="2" />
+    </svg>
+  );
+}
+
+// Icône "Installer" Chrome Android — écran avec flèche vers le bas, telle qu'affichée
+// dans le menu ⋮ quand le site est installable ("Installer l'application").
+function InstallIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--accent-brand)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ display: 'inline-block', verticalAlign: 'middle', margin: '0 2px' }}>
+      <rect x="4" y="3" width="16" height="12" rx="1.5" />
+      <line x1="12" y1="9" x2="12" y2="18" />
+      <polyline points="9 15 12 18 15 15" />
+      <line x1="8" y1="21" x2="16" y2="21" />
+    </svg>
+  );
+}
+
 export default function PwaInstallStep() {
   return (
     <m.div variants={staggerChild} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -63,9 +88,9 @@ export default function PwaInstallStep() {
           </div>
         </div>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>Sur Android</div>
-          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>
-            Appuie sur les <MoreIcon /> en haut à droite, puis sur <strong style={{ color: 'var(--ink)' }}>&quot;Ajouter à l&apos;écran d&apos;accueil&quot;</strong> (ou accepte directement la bannière d&apos;installation qui apparaît automatiquement en bas de l&apos;écran). Le principe est le même sur Chrome, Samsung Internet ou tout autre navigateur Android.
+          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Sur Android</div>
+          <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
+            Ouvre ce lien ou scanne le QR code depuis <strong style={{ color: 'var(--ink)' }}>Chrome</strong> — c&apos;est le navigateur recommandé, le même flow marche sur tous les Android. Appuie sur les <MoreIconVertical /> en haut à droite, puis sur <InstallIcon /> <strong style={{ color: 'var(--ink)' }}>&quot;Installer l&apos;application&quot;</strong> (ou accepte directement la bannière d&apos;installation qui apparaît automatiquement en bas de l&apos;écran).
           </div>
         </div>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
