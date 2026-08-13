@@ -1,5 +1,4 @@
 'use client';
-import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Link from 'next/link';
@@ -83,7 +82,7 @@ export default function PageClients() {
     noshow: clients.filter(c => (signalsByClient.get(c.id)?.activeNoShowsCount ?? 0) > 0).length,
   };
 
-  if (loading) return <InlineLoader fullPage />;
+  if (loading) return <ClientsTableSkeleton />;
 
   return (
     <div className="page-content">
@@ -239,6 +238,56 @@ export default function PageClients() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Skeleton fidèle à la mise en page réelle de la table — évite l'effet de "saut"
+// visuel (valeurs à 0 puis vraies valeurs) pendant que les stats IG/YT/cash chargent.
+function ClientsTableSkeleton() {
+  const bar = (w: number | string, h = 10) => (
+    <div style={{ height: h, width: w, borderRadius: 4, background: 'var(--surface-2)', animation: 'pulse 1.4s ease-in-out infinite' }} />
+  );
+  return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <div style={{ marginBottom: 6 }}>{bar(120, 22)}</div>
+          {bar(160)}
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {bar(140, 32)}
+          {bar(140, 32)}
+        </div>
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20 }}>
+        {bar(90, 28)}
+        {bar(90, 28)}
+        {bar(90, 28)}
+        <div style={{ flex: 1 }} />
+        {bar(160, 28)}
+      </div>
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'center', gap: 16, padding: '14px 20px',
+            borderBottom: i < 6 ? '1px solid var(--border)' : 'none',
+          }}>
+            <div style={{ width: 32, height: 32, borderRadius: '50%', background: 'var(--surface-2)', flexShrink: 0, animation: 'pulse 1.4s ease-in-out infinite', animationDelay: `${(i % 5) * 0.08}s` }} />
+            <div style={{ width: 140, display: 'flex', flexDirection: 'column', gap: 6, flexShrink: 0 }}>
+              {bar(`${60 + (i % 3) * 10}%`)}
+              {bar('40%', 8)}
+            </div>
+            <div style={{ width: 90, flexShrink: 0 }}>{bar(60)}</div>
+            <div style={{ width: 70, flexShrink: 0 }}>{bar(40)}</div>
+            <div style={{ width: 60, flexShrink: 0 }}>{bar(45)}</div>
+            <div style={{ width: 60, flexShrink: 0 }}>{bar(45)}</div>
+            <div style={{ width: 70, flexShrink: 0 }}>{bar(55)}</div>
+            <div style={{ width: 50, flexShrink: 0 }}>{bar(35)}</div>
+            <div style={{ width: 52, flexShrink: 0 }}>{bar(52, 22)}</div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

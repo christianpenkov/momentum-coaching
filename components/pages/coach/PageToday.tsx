@@ -122,9 +122,6 @@ export default function PageToday() {
           <p className="page-sub">{callsToday.length} call{callsToday.length !== 1 ? 's' : ''} aujourd'hui</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <Link href="/calendar" className="btn-secondary" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-            <Icon name="calendar" size={14} /> Planifier
-          </Link>
           <button type="button" onClick={() => setShowCreateCallModal(true)} className="btn-primary btn-primary-brand" style={{ fontSize: 13 }}>
             <Icon name="plus" size={13} /> Créer un call
           </button>
