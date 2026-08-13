@@ -299,27 +299,24 @@ async function syncCalendlyEleve(
       const { data: igLead } = await supabase
         .from('instagram_leads').select('ig_username').eq('id', effectiveIgLeadId).single();
       if (igLead) {
-        const { data: existingEvt } = await supabase
-          .from('prospect_events')
-          .select('id')
-          .eq('call_id', callRow.id)
-          .eq('event_type', 'call_booked')
-          .maybeSingle();
-        if (!existingEvt) {
-          supabase.from('prospect_events').insert({
-            profile_id:       profileId,
-            prospect_key:     igLead.ig_username.toLowerCase(),
-            platform:         'ig',
-            event_type:       'call_booked',
-            // Moment réel de la réservation (bookedAt), pas l'heure du call (scheduledAt).
-            occurred_at:      bookedAt ?? new Date().toISOString(),
-            ig_lead_id:       effectiveIgLeadId,
-            prospect_link_id: finalProspectLinkId,
-            call_id:          callRow.id,
-          }).then(({ error: evtErr }: any) => {
-            if (evtErr) console.error('[sync-calendly] prospect_events:', evtErr.message);
-          });
-        }
+        // upsert (pas select-then-insert) : évite la course avec le webhook temps réel
+        // (app/api/webhooks/calendly/route.ts), qui écrit sur le même index unique
+        // (call_id, event_type) — les deux ciblent maintenant exactement la même
+        // contrainte DB via onConflict, donc convergent proprement sur une seule ligne
+        // au lieu que l'un des deux échoue silencieusement en cas de course serrée.
+        supabase.from('prospect_events').upsert({
+          profile_id:       profileId,
+          prospect_key:     igLead.ig_username.toLowerCase(),
+          platform:         'ig',
+          event_type:       'call_booked',
+          // Moment réel de la réservation (bookedAt), pas l'heure du call (scheduledAt).
+          occurred_at:      bookedAt ?? new Date().toISOString(),
+          ig_lead_id:       effectiveIgLeadId,
+          prospect_link_id: finalProspectLinkId,
+          call_id:          callRow.id,
+        }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }: any) => {
+          if (evtErr) console.error('[sync-calendly] prospect_events:', evtErr.message);
+        });
         await supabase.from('instagram_leads')
           .update({ calendly_event_uuid: eventUuid })
           .eq('id', effectiveIgLeadId);
