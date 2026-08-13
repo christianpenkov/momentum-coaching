@@ -559,8 +559,13 @@ export default function PageClientCalls() {
                 <div key={call.id} className="card" style={{ padding: '18px 20px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
-                        {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
+                          {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : '#E1306C20', color: isCoachingCall(call) ? 'var(--accent)' : '#E1306C' }}>
+                          {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
+                        </span>
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                         {formatDate(call.scheduled_at!)} · {call.duration || '—'}
@@ -622,8 +627,13 @@ export default function PageClientCalls() {
             <button
               type="button"
               onClick={() => setHistoryLimited(false)}
-              className="btn-ghost"
-              style={{ fontSize: 12, marginTop: 10, width: '100%' }}
+              className="card"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: '100%', marginTop: 10, padding: '16px 20px',
+                fontSize: 14, fontWeight: 600, color: 'var(--accent)',
+                cursor: 'pointer', border: '1px dashed var(--border)',
+              }}
             >
               Voir plus ({history.length - 4} restant{history.length - 4 > 1 ? 's' : ''})
             </button>
