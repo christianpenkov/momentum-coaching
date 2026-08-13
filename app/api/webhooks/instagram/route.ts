@@ -1029,7 +1029,15 @@ export async function POST(request: Request) {
         });
       }
 
-      // Historique LM : stocke chaque interaction — idempotent via UNIQUE constraint
+      // Historique LM : stocke chaque interaction — idempotent via UNIQUE constraint sur
+      // comment_id (identifiant Meta stable), pas detected_at (peut différer légèrement
+      // entre ce webhook et le cron pollIgComments fallback qui traite parfois le même
+      // commentaire — voir commentaire détaillé dans supabase/functions/poll-leads/index.ts).
+      // ignoreDuplicates SEULEMENT si ce webhook a échoué à envoyer (leadMagnetSent=false)
+      // — un true ne doit jamais écraser un false du cron déjà en base par erreur, mais
+      // dans le cas rare où le cron aurait écrit sa ligne AVANT ce webhook, un true réel
+      // doit pouvoir mettre à jour cette ligne existante (sinon le badge "réclamé" reste
+      // bloqué à false malgré un DM1 réellement envoyé).
       if (commenterId) {
         await serviceSupabase
           .from('instagram_lead_lm_history')
@@ -1042,8 +1050,9 @@ export async function POST(request: Request) {
             lm_url: shortLink || null,
             lead_magnet_sent: leadMagnetSent,
             detected_at: timestamp,
+            comment_id: commentId || null,
             ig_account_id: canonicalIgAccountId,
-          }, { onConflict: 'profile_id,ig_user_id,media_id,detected_at', ignoreDuplicates: true });
+          }, { onConflict: 'profile_id,ig_user_id,media_id,comment_id', ignoreDuplicates: !leadMagnetSent });
       }
 
       console.log(`[IG Webhook] Lead stocké — @${commenterUsername}, mot-clé: ${matchedKeyword}`);

@@ -224,13 +224,21 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
         const commenterUsername = comment.from?.username || comment.username || '';
         const detectedAt = new Date(comment.timestamp).toISOString();
 
-        const { count } = await supa.from('instagram_lead_lm_history').insert({
+        // BUG "doublon lm_history" (trouvé 2026-08-13) : ce même commentaire peut aussi
+        // être traité par le webhook temps réel, avec un detected_at légèrement différent
+        // (le sien vient de value.timestamp, souvent absent → new Date() au moment du
+        // traitement). comment.id est l'identifiant Meta stable, identique des deux côtés
+        // — clé de dédup fiable, contrairement à detected_at. upsert (pas insert) avec
+        // ignoreDuplicates:true : si le webhook a déjà écrit cette ligne, on ne l'écrase
+        // pas (onConflict sans update), on détecte juste "déjà vu" via count === 0.
+        const { count } = await supa.from('instagram_lead_lm_history').upsert({
           profile_id: profileId, ig_username: commenterUsername || '',
           ig_user_id: commenterId, keyword_matched: cl.lm_keyword,
           media_id: media.id, lm_url: cl.lm_short_url || null,
           lead_magnet_sent: false, detected_at: detectedAt,
+          comment_id: comment.id ? String(comment.id) : null,
           ig_account_id: igAccountId,
-        }, { count: 'exact' }).select();
+        }, { onConflict: 'profile_id,ig_user_id,media_id,comment_id', ignoreDuplicates: true, count: 'exact' }).select();
         if (!count || count === 0) continue;
 
         leadsFound++;
