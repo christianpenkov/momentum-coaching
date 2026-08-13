@@ -1039,7 +1039,7 @@ export async function POST(request: Request) {
       // doit pouvoir mettre à jour cette ligne existante (sinon le badge "réclamé" reste
       // bloqué à false malgré un DM1 réellement envoyé).
       if (commenterId) {
-        await serviceSupabase
+        const { error: lmHistoryError } = await serviceSupabase
           .from('instagram_lead_lm_history')
           .upsert({
             profile_id,
@@ -1053,6 +1053,11 @@ export async function POST(request: Request) {
             comment_id: commentId || null,
             ig_account_id: canonicalIgAccountId,
           }, { onConflict: 'profile_id,ig_user_id,media_id,comment_id', ignoreDuplicates: !leadMagnetSent });
+        // Ne jamais laisser cette erreur silencieuse — un upsert cassé ici (ex: contrainte
+        // DB incompatible avec onConflict) n'empêche pas le DM1 de partir ni "Lead stocké"
+        // de s'afficher plus bas, donc invisible sans ce log explicite (bug vécu 2026-08-13,
+        // voir migration 20260813000000_add_lm_history_comment_id.sql).
+        if (lmHistoryError) console.error('[IG Webhook] instagram_lead_lm_history upsert:', lmHistoryError.message);
       }
 
       console.log(`[IG Webhook] Lead stocké — @${commenterUsername}, mot-clé: ${matchedKeyword}`);
