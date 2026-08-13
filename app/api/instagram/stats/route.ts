@@ -177,14 +177,24 @@ export async function GET(request: Request) {
     }
   }
 
-  // Heatmap abonnés en ligne — period=lifetime, clés PST converties en heure Paris (UTC+2 été)
-  // PST offset : +7h en été (PDT), +8h en hiver (PST)
+  // Heatmap abonnés en ligne — period=lifetime, clés PST converties en heure Paris.
+  // Offset Paris dérivé dynamiquement via Intl.DateTimeFormat (gère DST été/hiver
+  // automatiquement, même pattern que lib/period.ts) — remplace un ancien
+  // localOffset=2 figé sur l'été qui décalait la heatmap d'1h tout l'hiver.
   const now2 = new Date();
+  function parisOffsetHoursAt(d: Date): number {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Europe/Paris', timeZoneName: 'shortOffset',
+    }).formatToParts(d);
+    const tzName = parts.find(p => p.type === 'timeZoneName')?.value ?? 'GMT+1';
+    const match = tzName.match(/GMT([+-]\d+)/);
+    return match ? Number(match[1]) : 1;
+  }
   const yr = now2.getUTCFullYear();
   const dstS = new Date(Date.UTC(yr, 2, 1)); dstS.setUTCDate(1 + (7 - dstS.getUTCDay()) % 7 + 7);
   const dstE = new Date(Date.UTC(yr, 10, 1)); dstE.setUTCDate(1 + (7 - dstE.getUTCDay()) % 7);
   const pstOffset = now2 >= dstS && now2 < dstE ? 7 : 8;
-  const localOffset = 2; // Paris UTC+2 été — à rendre dynamique quand on aura le TZ du coach
+  const localOffset = parisOffsetHoursAt(now2);
 
   const heatmapMatrix: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
   const heatmapCount: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
