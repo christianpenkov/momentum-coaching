@@ -90,7 +90,7 @@ export default function PwaInstallStep() {
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Sur Android</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.6 }}>
-            Ouvre ce lien ou scanne le QR code depuis <strong style={{ color: 'var(--ink)' }}>Chrome</strong> — c&apos;est le navigateur recommandé, le même flow marche sur tous les Android. Appuie sur les <MoreIconVertical /> en haut à droite, puis sur <InstallIcon /> <strong style={{ color: 'var(--ink)' }}>&quot;Installer l&apos;application&quot;</strong> (ou accepte directement la bannière d&apos;installation qui apparaît automatiquement en bas de l&apos;écran).
+            Ouvre ce lien ou scanne le QR code depuis <strong style={{ color: 'var(--ink)' }}>Chrome</strong> — c&apos;est le navigateur recommandé, le même flow marche sur tous les Android. Appuie sur les <MoreIconVertical /> en haut à droite, puis sur <InstallIcon /> <strong style={{ color: 'var(--ink)' }}>&quot;Installer l&apos;application&quot;</strong> (ou, si une bannière d&apos;installation apparaît directement en bas de l&apos;écran, accepte-la sans passer par le menu). Une popup de confirmation Chrome peut s&apos;afficher ensuite — appuie sur <strong style={{ color: 'var(--accent-brand)' }}>Installer</strong> pour valider.
           </div>
         </div>
         <div style={{ padding: '10px 14px', borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)' }}>
