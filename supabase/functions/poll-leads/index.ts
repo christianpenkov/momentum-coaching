@@ -357,11 +357,18 @@ async function pollIgHookReplied(profileId: string, token: string, igAccountId: 
       if (!leadMessages.length) return;
 
       const firstReply = leadMessages[0];
+      // .eq('hook_replied', false) ici aussi (pas seulement dans le SELECT plus haut) :
+      // ferme la fenêtre de course avec le webhook temps réel (route.ts:683-704), qui
+      // écrit à chaque message reçu (pas seulement le premier) et peut poser
+      // hook_replied=true entre le SELECT et cet UPDATE. Sans cette clause, le cron
+      // écraserait le texte déjà posé par le webhook avec leadMessages[0] (toujours le
+      // message le plus ancien, potentiellement différent de ce que le webhook a choisi
+      // si plusieurs messages sont arrivés en rafale) — check-then-act non atomique sinon.
       await supa.from('instagram_leads').update({
         hook_replied: true,
         hook_reply_text: firstReply.message?.slice(0, 500) ?? null,
         hook_replied_at: new Date(firstReply.created_time).toISOString(),
-      }).eq('id', leadToUpdate.id);
+      }).eq('id', leadToUpdate.id).eq('hook_replied', false);
       updated++;
     }));
   } catch (e: any) {
