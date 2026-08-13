@@ -128,13 +128,14 @@ interface DepotFile {
   comments: DepotComment[];
 }
 
-// Remplace la valeur d'une carte KPI pendant que sa requête charge — évite l'effet
-// de saut (0 puis vraie valeur) visible le temps que igRaw/ytRaw/stripeRaw résolvent.
+// Remplace la valeur d'une carte KPI tant que les 8 KPI n'ont pas TOUS fini de
+// charger — évite l'effet de saut (0 puis vraie valeur, cartes qui apparaissent
+// l'une après l'autre) : tout le bloc s'affiche d'un coup une fois prêt.
 function KpiSkeleton() {
   return (
     <>
-      <div style={{ height: 26, width: '55%', borderRadius: 4, background: 'var(--surface-2)', animation: 'pulse 1.4s ease-in-out infinite', marginTop: 2 }} />
-      <div style={{ height: 11, width: '75%', borderRadius: 4, background: 'var(--surface-2)', animation: 'pulse 1.4s ease-in-out infinite', marginTop: 6 }} />
+      <div className="skeleton-shimmer" style={{ height: 26, width: '55%', borderRadius: 4, marginTop: 2 }} />
+      <div className="skeleton-shimmer" style={{ height: 11, width: '75%', borderRadius: 4, marginTop: 6 }} />
     </>
   );
 }
@@ -481,11 +482,9 @@ export default function PageClientDetail({ id }: Props) {
     staleTime: 5 * 60 * 1000,
   });
 
-  // KPI groupés en 3 sections : chaque section attend uniquement les requêtes dont
-  // elle dépend, pour ne pas bloquer Audience si seul Revenu (Stripe) est lent.
-  const audienceLoading = igLoading || ytLoading || storiesLoading;
-  const funnelLoading = igLeadsLoading; // callsBookedCount/showUp/closing viennent de `calls`/`salesCallsData`, déjà résolus avant ce point
-  const revenueLoading = stripeLoading;
+  // Un seul flag pour les 8 KPI — tout le bloc apparaît d'un coup une fois prêt,
+  // plutôt que carte par carte au fur et à mesure que chaque requête résout.
+  const kpiLoading = igLoading || ytLoading || storiesLoading || igLeadsLoading || stripeLoading;
 
   if (!client && clientLoading) return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>
@@ -774,7 +773,7 @@ export default function PageClientDetail({ id }: Props) {
           <div className="grid-2">
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Abonnés</div>
-              {audienceLoading ? <KpiSkeleton /> : (
+              {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{followersTotal.toLocaleString('fr-FR')}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {(igRaw?.followers ?? 0).toLocaleString('fr-FR')} · YT {(ytRaw?.subscribers ?? 0).toLocaleString('fr-FR')}</div>
@@ -783,7 +782,7 @@ export default function PageClientDetail({ id }: Props) {
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Publications</div>
-              {audienceLoading ? <KpiSkeleton /> : (
+              {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{publicationsTotal}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>IG {postsIg ?? 0} · YT {postsYt ?? 0} · Stories {storiesCount ?? 0}</div>
@@ -798,7 +797,7 @@ export default function PageClientDetail({ id }: Props) {
           <div className="grid-4">
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Leads totaux</div>
-              {funnelLoading ? <KpiSkeleton /> : (
+              {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{leadsTotal}</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>depuis inscription</div>
@@ -828,7 +827,7 @@ export default function PageClientDetail({ id }: Props) {
           <div className="grid-2">
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Cash contracté</div>
-              {revenueLoading ? <KpiSkeleton /> : (
+              {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{cashContracted.toLocaleString('fr-FR')} €</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{cashCollected != null ? `${cashCollected.toLocaleString('fr-FR')} € collecté` : 'collecté : —'}</div>
@@ -837,7 +836,7 @@ export default function PageClientDetail({ id }: Props) {
             </div>
             <div className="card kpi-card" style={{ padding: '16px 20px' }}>
               <div className="kpi-label">Revenu par call</div>
-              {revenueLoading ? <KpiSkeleton /> : (
+              {kpiLoading ? <KpiSkeleton /> : (
                 <>
                   <div className="kpi-value">{revenuePerCall.toLocaleString('fr-FR')} €</div>
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>par call booké</div>
