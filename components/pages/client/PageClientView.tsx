@@ -351,20 +351,6 @@ export default function PageClientView() {
             {tasks.filter(t => !t.done).length === 0 && (
               <div style={{ fontSize: 13, color: 'var(--green)', padding: '8px 0' }}>✓ Toutes tes tâches sont terminées !</div>
             )}
-            {tasks.filter(t => t.done).length > 0 && (
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid var(--border)' }}>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>TERMINÉES ({tasks.filter(t => t.done).length})</div>
-                {tasks.filter(t => t.done).map((task) => (
-                  <div key={task.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 14px', opacity: 0.5 }}>
-                    <div className="task-check checked" onClick={() => toggleTask(task.id, false)} role="checkbox" aria-checked={true} tabIndex={0}
-                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') toggleTask(task.id, false); }} style={{ flexShrink: 0 }}>
-                      <svg width="10" height="8" viewBox="0 0 10 8" fill="none"><path d="M1 4l3 3 5-6" stroke="white" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" /></svg>
-                    </div>
-                    <span style={{ fontSize: 12, color: 'var(--muted)', textDecoration: 'line-through', flex: 1 }}>{task.label}</span>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         </div>
       </div>

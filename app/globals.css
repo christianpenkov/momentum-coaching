@@ -1207,6 +1207,52 @@ a { color: inherit; text-decoration: none; }
 @media (max-width: 767px) {
   body.keyboard-open .bottom-nav { display: none !important; }
 }
+
+/* ── Grille calendrier mensuelle compacte (mobile, page /client/calendar-mobile) ── */
+.mini-month-grid {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.mini-month-grid-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.mini-month-grid-title { font-size: 14px; font-weight: 700; color: var(--accent); }
+.mini-month-grid-dow {
+  display: grid; grid-template-columns: repeat(7, 1fr);
+  border-bottom: 1px solid var(--border);
+}
+.mini-month-grid-dow span {
+  text-align: center; padding: 6px 0;
+  font-size: 10px; font-weight: 600; color: var(--muted);
+  text-transform: uppercase;
+}
+.mini-month-grid-body { display: grid; grid-template-columns: repeat(7, 1fr); }
+.mini-month-cell {
+  aspect-ratio: 1 / 1;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  border-right: 1px solid var(--border-soft);
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--surface);
+}
+.mini-month-cell.empty { background: var(--surface-2); cursor: default; }
+.mini-month-cell-num {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 500; color: var(--accent);
+}
+.mini-month-cell.today .mini-month-cell-num { background: var(--accent); color: #fff; font-weight: 800; }
+.mini-month-cell.selected { background: var(--accent-soft); }
+.mini-month-cell-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); }
+@media (max-width: 380px) {
+  .mini-month-cell-num { width: 22px; height: 22px; font-size: 12px; }
+}
 .main-content {
   display: flex;
   flex-direction: column;
