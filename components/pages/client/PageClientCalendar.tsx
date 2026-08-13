@@ -3,10 +3,16 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo } from 'react';
 import Icon from '@/components/ui/Icon';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { useClientAllCalls } from '@/lib/supabase/useClientAllCalls';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { toDateKey, DAYS_FR, MONTHS_FR, monthDays as computeMonthDays } from '@/lib/calendarGrid';
+import type { Call } from '@/lib/supabase/types';
+
+function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
+  return call?.call_type === 'google';
+}
 
 interface CalEvent {
   date: string;
@@ -15,6 +21,7 @@ interface CalEvent {
   time?: string;
   ready?: string;
   priority?: string;
+  call?: Call;
 }
 
 export default function PageClientCalendar() {
@@ -65,6 +72,7 @@ export default function PageClientCalendar() {
         label: call.topic || 'Call coaching',
         time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         ready: call.ready,
+        call,
       });
     });
     (client?.tasks || []).forEach(task => {
@@ -97,6 +105,14 @@ export default function PageClientCalendar() {
   if (loading || callsLoading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   const nextCall = calls.find(c => c.status === 'active' && c.scheduled_at && new Date(c.scheduled_at) >= new Date());
+
+  function getCallCounterpart(call: Call) {
+    if (isCoachingCall(call)) {
+      return { id: 'coach', name: client!.coachFullName || client!.coachName || 'Coach', initials: null, avatar_url: client!.coachAvatarUrl };
+    }
+    const name = call.invitee_name || 'Prospect';
+    return { id: call.id, name, initials: getInitials(name), avatar_url: null };
+  }
 
   return (
     <div className="page-content">
@@ -161,10 +177,15 @@ export default function PageClientCalendar() {
         <div style={{
           background: 'var(--accent-soft)', border: '1px solid var(--accent)30',
           borderRadius: 12, padding: '14px 20px', marginBottom: 20,
-          display: 'flex', alignItems: 'center', gap: 14,
+          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
         }}>
-          <div style={{ fontSize: 24 }}>📞</div>
-          <div style={{ flex: 1 }}>
+          <Avatar
+            initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
+            avatarUrl={getCallCounterpart(nextCall).avatar_url}
+            size={40}
+            seed={getCallCounterpart(nextCall).id}
+          />
+          <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Prochain call</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
               {new Date(nextCall.scheduled_at!).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -173,6 +194,18 @@ export default function PageClientCalendar() {
               {nextCall.topic ? ` · ${nextCall.topic}` : ''}
             </div>
           </div>
+          {(nextCall.join_url || nextCall.meet_link) && (
+            <a
+              href={nextCall.join_url || nextCall.meet_link || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary-brand"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, padding: '7px 14px' }}
+            >
+              <Icon name="phone-call" size={13} />
+              Rejoindre
+            </a>
+          )}
           <span className={`pill pill-${nextCall.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
             {nextCall.ready === 'ready' ? 'Prêt' : 'En attente'}
           </span>
@@ -323,13 +356,35 @@ export default function PageClientCalendar() {
                   background: ev.type === 'call' ? 'var(--accent-soft)' : '#f5a62310',
                   border: `1px solid ${ev.type === 'call' ? 'var(--accent)30' : '#f5a62330'}`,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                    <span style={{ fontSize: 14 }}>{ev.type === 'call' ? '📞' : '✔️'}</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                    {ev.type === 'call' && ev.call ? (
+                      <Avatar
+                        initials={getCallCounterpart(ev.call).initials || getInitials(getCallCounterpart(ev.call).name)}
+                        avatarUrl={getCallCounterpart(ev.call).avatar_url}
+                        size={22}
+                        seed={getCallCounterpart(ev.call).id}
+                      />
+                    ) : (
+                      <span style={{ fontSize: 14 }}>✔️</span>
+                    )}
                     {ev.time && <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{ev.time}</span>}
                     {ev.type === 'call' && ev.ready && (
                       <span className={`pill pill-${ev.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10 }}>
                         {ev.ready === 'ready' ? 'Prêt' : 'En attente'}
                       </span>
+                    )}
+                    {ev.type === 'call' && ev.call && (ev.call.join_url || ev.call.meet_link) && (
+                      <a
+                        href={ev.call.join_url || ev.call.meet_link || '#'}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn-ghost"
+                        style={{ marginLeft: 'auto', fontSize: 10, padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        onClick={e => e.stopPropagation()}
+                      >
+                        <Icon name="phone-call" size={11} />
+                        Rejoindre
+                      </a>
                     )}
                   </div>
                   <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{ev.label}</div>

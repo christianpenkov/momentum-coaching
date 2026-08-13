@@ -2,6 +2,7 @@
 import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { useClientAllCalls } from '@/lib/supabase/useClientAllCalls';
 import { toDateKey } from '@/lib/calendarGrid';
@@ -62,9 +63,9 @@ export default function PageClientCalendarMobile() {
         callsByDate={callsByDate}
       />
 
-      {selectedDay && (
+      {selectedDay && typeof document !== 'undefined' && createPortal(
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 1000 }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 2000 }}
           onClick={e => { if (e.target === e.currentTarget) setSelectedDay(null); }}
         >
           <div className="card" style={{ width: '100%', maxWidth: 480, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: 20, paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
@@ -82,7 +83,8 @@ export default function PageClientCalendarMobile() {
               </div>
             )}
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

@@ -6,7 +6,8 @@ import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { useClientAllCalls } from '@/lib/supabase/useClientAllCalls';
 import { toDateKey } from '@/lib/calendarGrid';
 import CallStack from '@/components/ui/CallStack';
-import { getInitials } from '@/components/ui/Avatar';
+import Icon from '@/components/ui/Icon';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import type { Call } from '@/lib/supabase/types';
 
 function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
@@ -76,26 +77,44 @@ export default function PageClientUpcomingCalls() {
         <div style={{
           background: 'var(--accent-soft)', border: '1px solid var(--accent)30',
           borderRadius: 12, padding: '14px 20px', marginBottom: 20,
-          display: 'flex', alignItems: 'center', gap: 14,
         }}>
-          <div style={{ fontSize: 24 }}>📞</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Prochain call</div>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {new Date(nextCall.scheduled_at!).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-              {' à '}
-              {new Date(nextCall.scheduled_at!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-              {nextCall.topic ? ` · ${nextCall.topic}` : ''}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <Avatar
+              initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
+              avatarUrl={getCallCounterpart(nextCall).avatar_url}
+              size={40}
+              seed={getCallCounterpart(nextCall).id}
+            />
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Prochain call</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                {new Date(nextCall.scheduled_at!).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                {' à '}
+                {new Date(nextCall.scheduled_at!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                {nextCall.topic ? ` · ${nextCall.topic}` : ''}
+              </div>
             </div>
+            <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}>
+              {(() => {
+                const d = daysUntil(nextCall.scheduled_at!);
+                if (d <= 0) return "Aujourd'hui";
+                if (d === 1) return 'Demain';
+                return `J-${d}`;
+              })()}
+            </span>
           </div>
-          <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0, whiteSpace: 'nowrap' }}>
-            {(() => {
-              const d = daysUntil(nextCall.scheduled_at!);
-              if (d <= 0) return "Aujourd'hui";
-              if (d === 1) return 'Demain';
-              return `J-${d}`;
-            })()}
-          </span>
+          {(nextCall.join_url || nextCall.meet_link) && (
+            <a
+              href={nextCall.join_url || nextCall.meet_link || '#'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary-brand"
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, marginTop: 12, padding: '10px 16px' }}
+            >
+              <Icon name="phone-call" size={14} />
+              Rejoindre le call
+            </a>
+          )}
         </div>
       )}
 

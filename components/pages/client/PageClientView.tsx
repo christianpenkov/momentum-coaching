@@ -14,7 +14,7 @@ import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import { getClientWeek } from '@/lib/clientWeek';
 import CallStack from '@/components/ui/CallStack';
-import { getInitials } from '@/components/ui/Avatar';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import type { Call } from '@/lib/supabase/types';
 
 const PRIORITY_CONFIG = {
@@ -121,6 +121,12 @@ export default function PageClientView() {
       {nextCall?.scheduled_at && (
         <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--accent-brand)', padding: '24px 24px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+            <Avatar
+              initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
+              avatarUrl={getCallCounterpart(nextCall).avatar_url}
+              size={48}
+              seed={getCallCounterpart(nextCall).id}
+            />
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
@@ -137,6 +143,18 @@ export default function PageClientView() {
               </div>
               {isCoachingCall(nextCall) && nextCall.topic && (
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{nextCall.topic}</div>
+              )}
+              {(nextCall.join_url || nextCall.meet_link) && (
+                <a
+                  href={nextCall.join_url || nextCall.meet_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn-primary-brand"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 12, padding: '8px 16px' }}
+                >
+                  <Icon name="phone-call" size={14} />
+                  Rejoindre le call
+                </a>
               )}
             </div>
             <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
