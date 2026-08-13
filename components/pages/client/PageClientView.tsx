@@ -119,16 +119,16 @@ export default function PageClientView() {
 
       {/* Prochain call */}
       {nextCall?.scheduled_at && (
-        <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--accent-brand)', padding: '24px 24px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+        <div className="next-call-banner card" style={{ marginBottom: 20, borderLeft: '4px solid var(--accent-brand)', padding: '20px' }}>
+          <div className="next-call-banner-top">
             <Avatar
               initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
               avatarUrl={getCallCounterpart(nextCall).avatar_url}
               size={48}
               seed={getCallCounterpart(nextCall).id}
             />
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <div className="next-call-banner-info">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6, flexWrap: 'wrap' }}>
                 <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
                 <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(nextCall) ? 'var(--surface-2)' : '#E1306C20', color: isCoachingCall(nextCall) ? 'var(--accent)' : '#E1306C' }}>
                   {isCoachingCall(nextCall) ? 'Coaching' : 'Prospect'}
@@ -149,7 +149,7 @@ export default function PageClientView() {
                   href={nextCall.join_url || nextCall.meet_link || '#'}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="btn-primary-brand"
+                  className="btn-primary-brand next-call-banner-join"
                   style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 12, padding: '8px 16px' }}
                 >
                   <Icon name="phone-call" size={14} />
@@ -157,12 +157,12 @@ export default function PageClientView() {
                 </a>
               )}
             </div>
-            <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
+            <div className="next-call-banner-countdown" style={{ background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center' }}>
               {(() => {
                 const days = daysUntil(nextCall.scheduled_at!);
                 return (
                   <>
-                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
                       {days <= 0 ? 'Auj.' : `J-${days}`}
                     </div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>

@@ -5,7 +5,13 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
 import RapportModal from '@/components/ui/RapportModal';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
+import { useClientSelfData } from '@/lib/supabase/useCoachData';
+
+function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
+  return call?.call_type === 'google';
+}
 
 interface Call {
   id: string;
@@ -135,6 +141,7 @@ function MyCallNotes({ callId, initialNotes, initialDismissed, coachHasReported 
 export default function PageClientCalls() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { data: client } = useClientSelfData();
   const [calls, setCalls] = useState<Call[]>([]);
   const [loading, setLoading] = useState(true);
   const [hasCalendly, setHasCalendly] = useState<boolean | null>(null);
@@ -154,8 +161,8 @@ export default function PageClientCalls() {
   // Modal rapport
   const [rapportModal, setRapportModal] = useState<RapportModal | null>(null);
 
-  // Sections pliables — repliées par défaut
-  const [historyExpanded, setHistoryExpanded] = useState(false);
+  // Historique : 4 derniers affichés par défaut, "Voir plus" affiche le reste
+  const [historyLimited, setHistoryLimited] = useState(true);
   const [canceledExpanded, setCanceledExpanded] = useState(false);
 
   // Notes personnelles + statut du rapport coach, par call_id (calls Google coach-élève)
@@ -333,10 +340,20 @@ export default function PageClientCalls() {
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
+  function getCallCounterpart(call: Call) {
+    if (isCoachingCall(call)) {
+      return { id: 'coach', name: client?.coachFullName || client?.coachName || 'Coach', initials: null, avatar_url: client?.coachAvatarUrl };
+    }
+    const name = call.invitee_name || 'Prospect';
+    return { id: call.id, name, initials: getInitials(name), avatar_url: null };
+  }
+
+  const visibleHistory = historyLimited ? history.slice(0, 4) : history;
+
   return (
     <div className="page-content">
       <div className="page-header">
-        <h1 className="page-title">Mes calls</h1>
+        <h1 className="page-title">Calls</h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {syncMsg && (
             <span style={{ fontSize: 12, color: syncMsg.includes('Erreur') ? 'var(--red)' : 'var(--green)' }}>
@@ -477,14 +494,20 @@ export default function PageClientCalls() {
 
       {/* Prochain call */}
       {nextCall ? (
-        <div className="card" style={{ marginBottom: 24, borderLeft: '4px solid var(--accent-brand)', padding: '28px 28px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-            <div style={{ flex: 1 }}>
+        <div className="next-call-banner card" style={{ marginBottom: 24, borderLeft: '4px solid var(--accent-brand)', padding: '24px 28px' }}>
+          <div className="next-call-banner-top">
+            <Avatar
+              initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
+              avatarUrl={getCallCounterpart(nextCall).avatar_url}
+              size={52}
+              seed={getCallCounterpart(nextCall).id}
+            />
+            <div className="next-call-banner-info">
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>PROCHAIN CALL</div>
-              <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
                 {formatDate(nextCall.scheduled_at!)}
               </div>
-              <div style={{ fontSize: 20, fontWeight: 600, color: 'var(--accent)', marginTop: 4 }}>
+              <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--accent)', marginTop: 4 }}>
                 {formatTime(nextCall.scheduled_at!)}
                 {nextCall.duration && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
               </div>
@@ -495,19 +518,17 @@ export default function PageClientCalls() {
                 {nextCall.topic || 'Session de coaching'}
               </div>
               {nextCall.join_url && nextCall.status !== 'canceled' && nextCall.status !== 'cancelled' && (
-                <div style={{ marginTop: 16 }}>
-                  <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary-brand" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                    <Icon name="video" size={14} /> Rejoindre le call
-                  </a>
-                </div>
+                <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary-brand next-call-banner-join" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 16, padding: '8px 16px' }}>
+                  <Icon name="video" size={14} /> Rejoindre le call
+                </a>
               )}
             </div>
-            <div style={{ padding: '20px 24px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 140 }}>
+            <div className="next-call-banner-countdown" style={{ background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center' }}>
               {(() => {
                 const days = daysUntil(nextCall.scheduled_at!);
                 return (
                   <>
-                    <div style={{ fontSize: 36, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                    <div style={{ fontSize: 32, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
                       {days <= 0 ? 'Auj.' : `J-${days}`}
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
@@ -525,41 +546,14 @@ export default function PageClientCalls() {
         </div>
       ) : null}
 
-      {/* Infos pratiques */}
-      {nextCall && (
-        <div className="card" style={{ marginBottom: 24 }}>
-          <div className="card-head">
-            <div className="card-title">Infos pratiques</div>
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 16 }}>
-            {[
-              { label: 'Durée', value: nextCall.duration || '—' },
-              { label: 'Heure', value: formatTime(nextCall.scheduled_at!) },
-            ].map(({ label, value }) => (
-              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid var(--border)' }}>
-                <span style={{ fontSize: 12, color: 'var(--muted)' }}>{label}</span>
-                <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Historique — liste verticale */}
+      {/* Historique — liste verticale, 4 derniers par défaut */}
       {history.length > 0 && (
-        <div>
-          <button
-            type="button"
-            onClick={() => setHistoryExpanded(v => !v)}
-            className="eyebrow-lg"
-            style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--muted)', marginBottom: 10 }}
-          >
-            <Icon name={historyExpanded ? 'chevron-up' : 'chevron-down'} size={11} />
+        <div style={{ marginBottom: 24 }}>
+          <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 10 }}>
             Historique des calls ({history.length})
-          </button>
-          {historyExpanded && (
+          </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {history.map((call) => {
+            {visibleHistory.map((call) => {
               const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
               return (
                 <div key={call.id} className="card" style={{ padding: '18px 20px' }}>
@@ -624,6 +618,15 @@ export default function PageClientCalls() {
               );
             })}
           </div>
+          {historyLimited && history.length > 4 && (
+            <button
+              type="button"
+              onClick={() => setHistoryLimited(false)}
+              className="btn-ghost"
+              style={{ fontSize: 12, marginTop: 10, width: '100%' }}
+            >
+              Voir plus ({history.length - 4} restant{history.length - 4 > 1 ? 's' : ''})
+            </button>
           )}
         </div>
       )}

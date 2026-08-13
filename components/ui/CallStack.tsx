@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
+import Icon from '@/components/ui/Icon';
 import { isCallReallyOver } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
@@ -18,9 +19,12 @@ interface Props {
   // client_id est identique pour tous les calls (l'élève lui-même) et où le vrai
   // "interlocuteur" à afficher dépend du call_type (coach vs prospect Calendly).
   getClient: (call: Call) => ClientLite | undefined;
+  // Affiche une icône "Rejoindre" cliquable quand le call a un lien de visio.
+  // Désactivé par défaut pour garder "Calls du jour" (accueils coach/élève) compact.
+  showJoinButton?: boolean;
 }
 
-export default function CallStack({ calls, getClient }: Props) {
+export default function CallStack({ calls, getClient, showJoinButton }: Props) {
   // Recalcule quel call est "actif" chaque minute, pour que l'encadré se déplace
   // au bon call sans action utilisateur.
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -66,6 +70,23 @@ export default function CallStack({ calls, getClient }: Props) {
                 </span>
               )}
               <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{time}</div>
+              {showJoinButton && (call.join_url || call.meet_link) && (
+                <a
+                  href={call.join_url || call.meet_link || '#'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={e => e.stopPropagation()}
+                  aria-label="Rejoindre le call"
+                  title="Rejoindre le call"
+                  style={{
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: 'var(--accent-brand)', color: '#fff', flexShrink: 0,
+                  }}
+                >
+                  <Icon name="phone-call" size={13} />
+                </a>
+              )}
             </div>
           </div>
         );

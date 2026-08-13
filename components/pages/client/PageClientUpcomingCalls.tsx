@@ -38,11 +38,22 @@ export default function PageClientUpcomingCalls() {
 
   const todayKey = toDateKey(new Date());
 
+  // Liste groupée par jour : garde tous les calls du jour même passés (cohérence
+  // visuelle avec "Aujourd'hui"), mais le nextCall du bandeau doit être strictement
+  // à venir — sinon un call de 22h déjà passé reste affiché comme "prochain call"
+  // toute la journée au lieu de sauter au suivant réellement futur.
   const upcomingCalls = useMemo(() => {
     return calls
       .filter(c => c.scheduled_at && toDateKey(new Date(c.scheduled_at)) >= todayKey)
       .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   }, [calls, todayKey]);
+
+  const nextCall = useMemo(() => {
+    const now = Date.now();
+    return calls
+      .filter(c => c.scheduled_at && new Date(c.scheduled_at).getTime() >= now)
+      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null;
+  }, [calls]);
 
   const groups = useMemo(() => {
     const tomorrowKey = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return toDateKey(t); })();
@@ -61,8 +72,6 @@ export default function PageClientUpcomingCalls() {
   }, [upcomingCalls, todayKey]);
 
   if (loading || callsLoading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
-
-  const nextCall = upcomingCalls[0] ?? null;
 
   return (
     <div className="page-content" style={{ maxWidth: 560, width: '100%', margin: '0 auto' }}>
@@ -130,7 +139,7 @@ export default function PageClientUpcomingCalls() {
               <div className="eyebrow-lg" style={{ color: key === todayKey ? 'var(--accent)' : 'var(--muted)', marginBottom: 4 }}>
                 {label}
               </div>
-              <CallStack calls={groupCalls} getClient={getCallCounterpart} />
+              <CallStack calls={groupCalls} getClient={getCallCounterpart} showJoinButton />
             </div>
           ))}
         </div>

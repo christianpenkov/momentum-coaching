@@ -79,7 +79,7 @@ export default function PageClientCalendarMobile() {
               <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0', textAlign: 'center' }}>Rien ce jour.</div>
             ) : (
               <div style={{ marginTop: 12 }}>
-                <CallStack calls={selectedCalls} getClient={getCallCounterpart} />
+                <CallStack calls={selectedCalls} getClient={getCallCounterpart} showJoinButton />
               </div>
             )}
           </div>

@@ -206,9 +206,6 @@ export default function PageClientCalendar() {
               Rejoindre
             </a>
           )}
-          <span className={`pill pill-${nextCall.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 11 }}>
-            {nextCall.ready === 'ready' ? 'Prêt' : 'En attente'}
-          </span>
         </div>
       )}
 
@@ -250,11 +247,6 @@ export default function PageClientCalendar() {
                           <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--ink)', marginBottom: 2 }}>{ev.label}</div>
                           {ev.time && <div style={{ fontSize: 12, color: 'var(--muted)' }}>{ev.time}</div>}
                         </div>
-                        {ev.type === 'call' && ev.ready && (
-                          <span className={`pill pill-${ev.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10, flexShrink: 0 }}>
-                            {ev.ready === 'ready' ? 'Prêt' : 'En attente'}
-                          </span>
-                        )}
                       </div>
                     ))}
                   </div>
@@ -356,30 +348,36 @@ export default function PageClientCalendar() {
                   background: ev.type === 'call' ? 'var(--accent-soft)' : '#f5a62310',
                   border: `1px solid ${ev.type === 'call' ? 'var(--accent)30' : '#f5a62330'}`,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                     {ev.type === 'call' && ev.call ? (
                       <Avatar
                         initials={getCallCounterpart(ev.call).initials || getInitials(getCallCounterpart(ev.call).name)}
                         avatarUrl={getCallCounterpart(ev.call).avatar_url}
-                        size={22}
+                        size={32}
                         seed={getCallCounterpart(ev.call).id}
                       />
                     ) : (
-                      <span style={{ fontSize: 14 }}>✔️</span>
+                      <span style={{ fontSize: 18, width: 32, textAlign: 'center', flexShrink: 0 }}>✔️</span>
                     )}
-                    {ev.time && <span style={{ fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--muted)' }}>{ev.time}</span>}
-                    {ev.type === 'call' && ev.ready && (
-                      <span className={`pill pill-${ev.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10 }}>
-                        {ev.ready === 'ready' ? 'Prêt' : 'En attente'}
-                      </span>
-                    )}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
+                        {ev.type === 'call' && ev.call ? getCallCounterpart(ev.call).name : ev.label}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1, display: 'flex', alignItems: 'center', gap: 6 }}>
+                        {ev.time && <span style={{ fontFamily: 'var(--font-mono)' }}>{ev.time}</span>}
+                        {ev.type === 'call' && ev.call && <span>{ev.label}</span>}
+                      </div>
+                    </div>
                     {ev.type === 'call' && ev.call && (ev.call.join_url || ev.call.meet_link) && (
                       <a
                         href={ev.call.join_url || ev.call.meet_link || '#'}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="btn-ghost"
-                        style={{ marginLeft: 'auto', fontSize: 10, padding: '3px 8px', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                        style={{
+                          flexShrink: 0, fontSize: 11, padding: '5px 10px', borderRadius: 8,
+                          display: 'inline-flex', alignItems: 'center', gap: 4,
+                          background: 'var(--accent-brand)', color: '#fff', fontWeight: 600,
+                        }}
                         onClick={e => e.stopPropagation()}
                       >
                         <Icon name="phone-call" size={11} />
@@ -387,7 +385,6 @@ export default function PageClientCalendar() {
                       </a>
                     )}
                   </div>
-                  <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{ev.label}</div>
                 </div>
               ))}
             </div>
