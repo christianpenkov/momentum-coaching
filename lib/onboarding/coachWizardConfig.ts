@@ -49,6 +49,7 @@ export const COACH_WIZARD_CONFIG: WizardConfig = {
       points: [
         'Suis l\'avancement de chaque élève individuellement — son statut, ses stats, ses relances.',
         'Ouvre la fiche complète d\'un élève pour voir son historique de calls et tâches.',
+        'Visualise en temps réel la performance du funnel complet de chaque élève, du premier contact jusqu\'au closing.',
       ],
     },
     {
