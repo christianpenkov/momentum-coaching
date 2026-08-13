@@ -10,8 +10,10 @@ const total = 5;
 const nouveaux = 3;
 
 function CardShell({ label, sub, children }: { label: string; sub?: string; children: React.ReactNode }) {
+  // Largeur figée à la vraie taille d'une carte dans la grille "repeat(5, 1fr)"
+  // du bloc KPI réel (page.title ~1120px de large, gap:10 → ~208px par carte).
   return (
-    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', minWidth: 220 }}>
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', width: 208 }}>
       <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
         <span>{label}</span>
         {sub && <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{sub}</span>}
