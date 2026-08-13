@@ -325,7 +325,7 @@ type Period = 7 | 30;
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[] }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const _ovPIdx = periodIndex ?? 0;
@@ -336,15 +336,20 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   const { periodStart: ovPeriodStart, periodEnd: ovPeriodEnd } = getPeriodWindow(_ovPIdx, period === 7 ? 'week' : 'month');
   const cutoff = ovPeriodStart;
 
-  // Leads (commentaires/DM détectés) sur la période — même filtre que TabShortioB
-  // (isInPeriod sur commentedAt), remplace l'ancienne carte "Clics lien".
+  // Leads sur la période — remplace l'ancienne carte "Clics lien". Le total compte
+  // TOUTE interaction (via lmHistory, jamais écrasée — un même prospect qui revient
+  // plusieurs fois sur la période compte plusieurs fois), le sous-texte précise
+  // combien de CES interactions viennent d'un prospect jamais vu avant (igLeads,
+  // une ligne par personne). Donne à la fois le volume d'activité et le signal
+  // business "est-ce que je génère du neuf ?", sans dupliquer une 3e logique.
   const isLeadInPeriod = (ts: string | null | undefined) => {
     if (sinceConnection) return !!ts;
     if (!ts) return false;
     const t = new Date(ts).getTime();
     return t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
   };
-  const leadsCount = (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length;
+  const leadsCount = (lmHistory ?? []).filter(h => isLeadInPeriod(h.detected_at)).length;
+  const newLeadsCount = (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length;
 
   // ── Métriques business ─────────────────────────────────────────────────────
   // callsEff est déjà filtré par la DB en S-1+ → on filtre juste par status ici.
@@ -531,7 +536,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
           { label: 'Abonnés IG', value: fmt(ig?.followers || 0), sub: 'total', color: IG_COLOR },
           { label: 'Abonnés YT', value: fmt(yt?.subscribers || 0), sub: 'total', color: YT_COLOR },
           null, // carte Publications custom
-          { label: 'Leads', value: fmt(leadsCount), sub: `${period}j — commentaires/DM`, color: BLUE },
+          { label: 'Leads', value: fmt(leadsCount), sub: `${period}j — dont ${fmt(newLeadsCount)} nouveaux`, color: BLUE },
           { label: 'Calls bookés', value: fmt(callsBookes), sub: `${period}j`, color: 'var(--ink)' as string },
         ] as const).map((item, i) => {
           if (item === null) return (
@@ -6393,7 +6398,7 @@ export default function PageClientStats({ profileId, clientName }: { profileId?:
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
