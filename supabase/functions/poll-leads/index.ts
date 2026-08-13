@@ -248,13 +248,25 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
           .eq('media_id', media.id)
           .maybeSingle();
 
+        // BUG "cron écrase lead_magnet_sent" (trouvé 2026-08-13) : upserter lead_magnet_sent
+        // en dur à false écrasait en base la vraie valeur true déjà posée par le webhook —
+        // le check juste en dessous utilisait la variable existingLead lue AVANT cet
+        // écrasement, donc sautait bien le renvoi cette fois-ci, mais remettait le terrain
+        // à zéro pour le PROCHAIN passage du cron (5 min après), qui renvoyait alors un vrai
+        // 2e DM1. Symptôme observé : DM1 reçu deux fois par la même personne sur le même
+        // commentaire, le 2e envoi survenant plusieurs minutes après le premier (pas un
+        // doublon rapproché, donc pas couvert par le cooldown/verrou du webhook).
+        // Fix : ne poser lead_magnet_sent que si la ligne n'existait pas encore (première
+        // détection par CE cron, avant tout traitement webhook) — jamais écraser une valeur
+        // déjà présente.
         await supa.from('instagram_leads').upsert({
           profile_id: profileId, source: 'comment',
           ig_username: commenterUsername || null, ig_user_id: commenterId,
           message: comment.text.slice(0, 500), media_id: media.id,
           media_permalink: media.permalink || null, keyword_matched: cl.lm_keyword,
-          detected_at: detectedAt, lead_magnet_sent: false, tracking_link: cl.lm_short_url || null,
+          detected_at: detectedAt, tracking_link: cl.lm_short_url || null,
           ig_account_id: igAccountId,
+          ...(existingLead ? {} : { lead_magnet_sent: false }),
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false });
 
         if (existingLead?.lead_magnet_sent) continue;
@@ -287,8 +299,12 @@ async function pollIgComments(profileId: string, token: string, igAccountId: str
                 access_token: token,
               }),
             });
+            // lead_magnet_sent: true impératif ici — sans lui, le prochain passage du cron
+            // (5 min après) relit lead_magnet_sent toujours falsy et renvoie un 3e DM1
+            // (même bug que le fix ci-dessus, côté écriture cette fois plutôt que côté
+            // écrasement de la valeur webhook).
             await supa.from('instagram_leads')
-              .update({ pending_dm2: cl.lm_short_url, pending_dm3: cl.dm_opener_message || null })
+              .update({ lead_magnet_sent: true, pending_dm2: cl.lm_short_url, pending_dm3: cl.dm_opener_message || null })
               .eq('profile_id', profileId)
               .eq('ig_user_id', commenterId);
           } catch { /* non bloquant */ }
