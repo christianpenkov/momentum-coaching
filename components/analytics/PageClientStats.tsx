@@ -541,11 +541,8 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
         ] as const).map((item, i) => {
           if (item === 'leads') return (
             <div key="leads" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
-              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>
-                <span>Leads</span>
-                <span style={{ fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8 }}>
+              <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 8 }}>Leads</div>
+              <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
                 <div style={{ fontSize: 20, fontWeight: 800, color: BLUE, lineHeight: 1 }}>{fmt(leadsCount)}</div>
                 {newLeadsCount > 0 && (
                   <span style={{
@@ -556,6 +553,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
                   </span>
                 )}
               </div>
+              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{period}j</div>
             </div>
           );
           if (item === null) return (
