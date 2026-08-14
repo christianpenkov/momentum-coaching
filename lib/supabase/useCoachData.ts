@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Client, Task, Call, SessionReport } from '@/lib/supabase/types';
 import { isCallReallyOver } from '@/lib/sessionRapport';
+import { computeSalesCallStats } from '@/lib/salesCallStats';
+import { getPeriodWindow } from '@/lib/period';
 
 export interface CurrentStats {
   followersIg: number;
@@ -28,11 +30,16 @@ export interface ClientWithMetrics extends Client {
 export interface ClientSelfBusinessData {
   nextCall: Call | null;
   callsToday: Call[];
-  callsBookedThisMonth: Call[];
+  callsBookedAllTime: number;
+  leadsAllTimeCount: number;
+  cashContractedAllTime: number;
+  cashCollectedAllTime: number | null;
+  closingRateAllTime: number;
+  callsBookedThisMonthCount: number;
   leadsThisMonthCount: number;
-  cashContracted: number;
-  cashCollected: number | null;
-  closingRate: number;
+  cashContractedThisMonth: number;
+  cashCollectedThisMonth: number | null;
+  closingRateThisMonth: number;
 }
 
 export interface ClientSelfData extends ClientWithMetrics {
@@ -61,14 +68,15 @@ export function useClientSelfData() {
       setClientId(clientRow.id);
 
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const startOfMonth = getPeriodWindow(0, 'month').periodStart.toISOString();
       const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).toISOString();
       const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
+      const onboardingStart = clientRow.onboarding_completed_at;
 
       const [
         tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
-        nextCallRes, callsTodayRes, callsThisMonthRes, leadsThisMonthRes,
-        stripeIntegRes, stripePaymentsRes, ownProfileRes,
+        nextCallRes, callsTodayRes, callsAllTimeRes, leadsAllTimeRes, leadsThisMonthRes,
+        stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, ownProfileRes,
       ] = await Promise.all([
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
@@ -87,10 +95,23 @@ export function useClientSelfData() {
           .eq('status', 'active')
           .neq('ignored', true)
           .gte('scheduled_at', startOfToday).lt('scheduled_at', startOfTomorrow),
-        supabase.from('calls').select('*').eq('client_id', clientRow.id)
-          .eq('status', 'active')
-          .neq('ignored', true)
-          .gte('created_at', startOfMonth),
+        // All-time (depuis onboarding_completed_at si connu) : pas de filtre de
+        // statut ici, computeSalesCallStats() fait son propre filtrage en interne
+        // (isNotCanceled + isCallHonored) et doit rester la seule source de vérité.
+        (() => {
+          let q = supabase.from('calls').select('*').eq('client_id', clientRow.id)
+            .in('call_type', ['calendly', 'manual'])
+            .neq('ignored', true);
+          if (onboardingStart) q = q.gte('created_at', onboardingStart);
+          return q;
+        })(),
+        clientRow.profile_id
+          ? (() => {
+              let q = supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).eq('profile_id', clientRow.profile_id);
+              if (onboardingStart) q = q.gte('detected_at', onboardingStart);
+              return q;
+            })()
+          : Promise.resolve({ count: 0 }),
         clientRow.profile_id
           ? supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).eq('profile_id', clientRow.profile_id).gte('detected_at', startOfMonth)
           : Promise.resolve({ count: 0 }),
@@ -101,6 +122,9 @@ export function useClientSelfData() {
           ? supabase.from('stripe_payments').select('amount').eq('profile_id', clientRow.profile_id).gte('date', startOfMonth)
           : Promise.resolve({ data: [] }),
         clientRow.profile_id
+          ? supabase.from('stripe_payments').select('amount').eq('profile_id', clientRow.profile_id)
+          : Promise.resolve({ data: [] }),
+        clientRow.profile_id
           ? supabase.from('profiles').select('avatar_url').eq('id', clientRow.profile_id).maybeSingle()
           : Promise.resolve({ data: null }),
       ]);
@@ -109,18 +133,26 @@ export function useClientSelfData() {
       const coachName = coachFullName ? coachFullName.split(' ')[0] : null;
       const coachAvatarUrl: string | null = coachProfileRes.data?.avatar_url ?? null;
 
-      const allCallsThisMonth: Call[] = callsThisMonthRes.data || [];
-      // "Bookés ce mois"/closing/cash contracté ne comptent que les calls prospects
-      // (calendly/manual) — les calls coaching (google) n'ont pas de notion de deal
-      // closé/revenue et fausseraient ces stats business si mélangés.
-      const callsThisMonth = allCallsThisMonth.filter(c => c.call_type === 'calendly' || c.call_type === 'manual');
-      const callsHonores = callsThisMonth.filter(c => c.status === 'active' || c.session_completed).length;
-      const dealsCloses = callsThisMonth.filter(c => c.deal_closed).length;
-      const cashContracted = callsThisMonth.reduce((s, c) => s + (c.revenue || 0), 0);
-      const closingRate = callsHonores > 0 ? Math.round((dealsCloses / callsHonores) * 100) : 0;
+      // "Bookés"/closing/cash contracté ne comptent que les calls prospects
+      // (calendly/manual, déjà filtré côté requête) — les calls coaching (google)
+      // n'ont pas de notion de deal closé/revenue et fausseraient ces stats.
+      const allSalesCalls: Call[] = callsAllTimeRes.data || [];
+      const allTimeStats = computeSalesCallStats(allSalesCalls, now);
+      const callsBookedAllTime = allTimeStats.callsBookedCount;
+      const cashContractedAllTime = allTimeStats.cashContracted;
+      const closingRateAllTime = allTimeStats.closingRate;
+
+      const callsThisMonth = allSalesCalls.filter(c => c.created_at >= startOfMonth);
+      const thisMonthStats = computeSalesCallStats(callsThisMonth, now);
+      const callsBookedThisMonthCount = thisMonthStats.callsBookedCount;
+      const cashContractedThisMonth = thisMonthStats.cashContracted;
+      const closingRateThisMonth = thisMonthStats.closingRate;
 
       const stripeConnected = !!(stripeIntegRes as { data: { id: string } | null }).data;
-      const cashCollected = stripeConnected
+      const cashCollectedAllTime = stripeConnected
+        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        : null;
+      const cashCollectedThisMonth = stripeConnected
         ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
         : null;
 
@@ -139,11 +171,16 @@ export function useClientSelfData() {
         business: {
           nextCall: (nextCallRes.data || []).find(c => !isCallReallyOver(c)) || null,
           callsToday: callsTodayRes.data || [],
-          callsBookedThisMonth: callsThisMonth,
+          callsBookedAllTime,
+          leadsAllTimeCount: leadsAllTimeRes.count || 0,
+          cashContractedAllTime,
+          cashCollectedAllTime,
+          closingRateAllTime,
+          callsBookedThisMonthCount,
           leadsThisMonthCount: leadsThisMonthRes.count || 0,
-          cashContracted,
-          cashCollected,
-          closingRate,
+          cashContractedThisMonth,
+          cashCollectedThisMonth,
+          closingRateThisMonth,
         },
       });
       setLoading(false);
@@ -155,7 +192,7 @@ export function useClientSelfData() {
   // Realtime : le premier chargement ne voit que les calls existants au montage —
   // sans ça, un call créé (ou accepté/refusé) après coup ne remplace jamais nextCall
   // tant que la page n'est pas rechargée. Refetch complet plutôt qu'un patch ciblé,
-  // pour garder nextCall/callsToday/callsBookedThisMonth cohérents entre eux.
+  // pour garder nextCall/callsToday/les KPI all-time cohérents entre eux.
   useEffect(() => {
     if (!clientId) return;
     const channel = supabase

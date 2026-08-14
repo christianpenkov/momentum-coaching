@@ -12,6 +12,7 @@ import { useUser } from '@/lib/UserContext';
 import RapportModal from '@/components/ui/RapportModal';
 import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
+import TrendBadge from '@/components/ui/TrendBadge';
 import { getClientWeek } from '@/lib/clientWeek';
 import CallStack from '@/components/ui/CallStack';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
@@ -97,10 +98,14 @@ export default function PageClientView() {
   const doneCount = coachTasks.filter(t => t.done).length;
   const progress = coachTasks.length > 0 ? Math.round((doneCount / coachTasks.length) * 100) : 0;
 
-  const { nextCall, callsToday, callsBookedThisMonth, leadsThisMonthCount, cashContracted, cashCollected, closingRate } = client.business;
+  const {
+    nextCall, callsToday,
+    callsBookedAllTime, leadsAllTimeCount, cashContractedAllTime, cashCollectedAllTime, closingRateAllTime,
+    callsBookedThisMonthCount, leadsThisMonthCount, cashContractedThisMonth, cashCollectedThisMonth, closingRateThisMonth,
+  } = client.business;
   const coachingCallsToday = callsToday.filter(isCoachingCall).length;
   const prospectCallsToday = callsToday.length - coachingCallsToday;
-  const collectRate = cashContracted > 0 && cashCollected !== null ? Math.round((cashCollected / cashContracted) * 100) : null;
+  const collectRate = cashContractedAllTime > 0 && cashCollectedAllTime !== null ? Math.round((cashCollectedAllTime / cashContractedAllTime) * 100) : null;
 
   // CallStack attend un "client" par call — côté élève ça n'a pas de sens d'afficher
   // sa propre fiche : un call coaching (google) se fait avec le coach (avatar réel
@@ -385,40 +390,51 @@ export default function PageClientView() {
           </div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Calls bookés ce mois</div>
-          <div className="kpi-value">{callsBookedThisMonth.length}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>calls prospects</div>
+          <div className="kpi-label">Calls bookés</div>
+          <div className="kpi-value">{callsBookedAllTime}</div>
+          <div style={{ marginTop: 3 }}>
+            <TrendBadge value={callsBookedThisMonthCount} label="ce mois" />
+          </div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
-          <div className="kpi-label">Leads ce mois</div>
-          <div className="kpi-value">{leadsThisMonthCount}</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>nouveaux leads détectés</div>
+          <div className="kpi-label">Leads</div>
+          <div className="kpi-value">{leadsAllTimeCount}</div>
+          <div style={{ marginTop: 3 }}>
+            <TrendBadge value={leadsThisMonthCount} label="ce mois" />
+          </div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Taux de closing</div>
-          <div className="kpi-value">{closingRate}%</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>depuis le 1er du mois</div>
+          <div className="kpi-value">{closingRateAllTime}%</div>
+          <div style={{ marginTop: 3 }}>
+            <TrendBadge value={closingRateThisMonth} label="ce mois" format={(n) => `${n}%`} />
+          </div>
         </div>
       </div>
 
       <div className="grid-2" style={{ marginTop: 16, marginBottom: 22 }}>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash contracté</div>
-          <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashContracted.toLocaleString('fr-FR')} €</div>
-          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>deals closés ce mois</div>
+          <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashContractedAllTime.toLocaleString('fr-FR')} €</div>
+          <div style={{ marginTop: 3 }}>
+            <TrendBadge value={cashContractedThisMonth} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />
+          </div>
         </div>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash collecté</div>
-          {cashCollected === null ? (
+          {cashCollectedAllTime === null ? (
             <>
               <div className="kpi-value" style={{ color: 'var(--muted)' }}>—</div>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>en attente de connexion Stripe</div>
             </>
           ) : (
             <>
-              <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashCollected.toLocaleString('fr-FR')} €</div>
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
-                {collectRate !== null ? `${collectRate}% du cash contracté` : 'ce mois'}
+              <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashCollectedAllTime.toLocaleString('fr-FR')} €</div>
+              <div style={{ marginTop: 3, display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                <TrendBadge value={cashCollectedThisMonth ?? 0} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />
+                {collectRate !== null && (
+                  <span style={{ fontSize: 11, color: 'var(--muted)' }}>{collectRate}% du cash contracté</span>
+                )}
               </div>
             </>
           )}
