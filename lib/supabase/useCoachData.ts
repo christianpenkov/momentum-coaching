@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Client, Task, Call, SessionReport } from '@/lib/supabase/types';
 import { isCallReallyOver } from '@/lib/sessionRapport';
-import { computeSalesCallStats } from '@/lib/salesCallStats';
+import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled } from '@/lib/salesCallStats';
 import { getPeriodWindow } from '@/lib/period';
 
 export interface CurrentStats {
@@ -75,8 +75,9 @@ export function useClientSelfData() {
 
       const [
         tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
-        nextCallRes, callsTodayRes, salesCallsAllTimeRes, manualCallsAllTimeRes, leadsAllTimeRes, leadsThisMonthRes,
+        nextCallRes, callsTodayRes, salesCallsAllTimeRes, manualCallsAllTimeRes,
         stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, ownProfileRes,
+        igLeadsAllTimeCount, igLeadsThisMonthCount,
       ] = await Promise.all([
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
@@ -122,16 +123,6 @@ export function useClientSelfData() {
           return q;
         })(),
         clientRow.profile_id
-          ? (() => {
-              let q = supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).eq('profile_id', clientRow.profile_id);
-              if (onboardingStart) q = q.gte('detected_at', onboardingStart);
-              return q;
-            })()
-          : Promise.resolve({ count: 0 }),
-        clientRow.profile_id
-          ? supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).eq('profile_id', clientRow.profile_id).gte('detected_at', startOfMonth)
-          : Promise.resolve({ count: 0 }),
-        clientRow.profile_id
           ? supabase.from('integrations').select('id').eq('profile_id', clientRow.profile_id).eq('provider', 'stripe').maybeSingle()
           : Promise.resolve({ data: null }),
         clientRow.profile_id
@@ -143,6 +134,8 @@ export function useClientSelfData() {
         clientRow.profile_id
           ? supabase.from('profiles').select('avatar_url').eq('id', clientRow.profile_id).maybeSingle()
           : Promise.resolve({ data: null }),
+        clientRow.profile_id ? fetchIgLeadsCount(supabase, clientRow.profile_id, onboardingStart) : Promise.resolve(0),
+        clientRow.profile_id ? fetchIgLeadsCount(supabase, clientRow.profile_id, startOfMonth) : Promise.resolve(0),
       ]);
 
       const coachFullName: string | null = coachProfileRes.data?.full_name ?? null;
@@ -163,6 +156,14 @@ export function useClientSelfData() {
       const callsBookedThisMonthCount = thisMonthStats.callsBookedCount;
       const cashContractedThisMonth = thisMonthStats.cashContracted;
       const closingRateThisMonth = thisMonthStats.closingRate;
+
+      // Leads totaux = leads IG (3 sources, fetchIgLeadsCount) + calls YouTube
+      // bookés (source commençant par "yt") — même formule que PageClientDetail.tsx
+      // (fiche client coach), pour un chiffre cohérent entre les deux vues.
+      const ytBookedCallsAllTime = allSalesCalls.filter(c => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
+      const ytBookedCallsThisMonth = callsThisMonth.filter(c => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
+      const leadsAllTimeCount = igLeadsAllTimeCount + ytBookedCallsAllTime;
+      const leadsThisMonthCount = igLeadsThisMonthCount + ytBookedCallsThisMonth;
 
       const stripeConnected = !!(stripeIntegRes as { data: { id: string } | null }).data;
       const cashCollectedAllTime = stripeConnected
@@ -188,12 +189,12 @@ export function useClientSelfData() {
           nextCall: (nextCallRes.data || []).find(c => !isCallReallyOver(c)) || null,
           callsToday: callsTodayRes.data || [],
           callsBookedAllTime,
-          leadsAllTimeCount: leadsAllTimeRes.count || 0,
+          leadsAllTimeCount,
           cashContractedAllTime,
           cashCollectedAllTime,
           closingRateAllTime,
           callsBookedThisMonthCount,
-          leadsThisMonthCount: leadsThisMonthRes.count || 0,
+          leadsThisMonthCount,
           cashContractedThisMonth,
           cashCollectedThisMonth,
           closingRateThisMonth,
