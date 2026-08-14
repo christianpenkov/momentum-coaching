@@ -101,10 +101,14 @@ export function useClientSelfData() {
         // computeSalesCallStats() fait son propre filtrage de statut en interne.
         clientRow.profile_id
           ? (() => {
+              // scheduled_at (date réelle du call), pas created_at (date technique
+              // d'insertion en base) — un backfill/sync tardif peut créer une ligne
+              // pour un call déjà passé, avec created_at postérieur à scheduled_at
+              // (ou l'inverse), ce qui fausserait le filtre "depuis l'onboarding".
               let q = supabase.from('calls').select('*').eq('coach_id', clientRow.profile_id)
                 .eq('call_type', 'calendly')
                 .neq('ignored', true);
-              if (onboardingStart) q = q.gte('created_at', onboardingStart);
+              if (onboardingStart) q = q.gte('scheduled_at', onboardingStart);
               return q;
             })()
           : Promise.resolve({ data: [] }),
@@ -114,7 +118,7 @@ export function useClientSelfData() {
           let q = supabase.from('calls').select('*').eq('client_id', clientRow.id)
             .eq('call_type', 'manual')
             .neq('ignored', true);
-          if (onboardingStart) q = q.gte('created_at', onboardingStart);
+          if (onboardingStart) q = q.gte('scheduled_at', onboardingStart);
           return q;
         })(),
         clientRow.profile_id
@@ -154,7 +158,7 @@ export function useClientSelfData() {
       const cashContractedAllTime = allTimeStats.cashContracted;
       const closingRateAllTime = allTimeStats.closingRate;
 
-      const callsThisMonth = allSalesCalls.filter(c => c.created_at >= startOfMonth);
+      const callsThisMonth = allSalesCalls.filter(c => (c.scheduled_at ?? '') >= startOfMonth);
       const thisMonthStats = computeSalesCallStats(callsThisMonth, now);
       const callsBookedThisMonthCount = thisMonthStats.callsBookedCount;
       const cashContractedThisMonth = thisMonthStats.cashContracted;
