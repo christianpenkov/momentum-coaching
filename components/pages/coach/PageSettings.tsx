@@ -81,6 +81,18 @@ const INTEGRATION_CONFIG: {
   },
 ];
 
+// Points de chargement — remplace le bouton "Connecter" / statut le temps de savoir
+// si l'intégration est déjà connectée, pour ne pas afficher "Connecter" à tort.
+function LoadingDots() {
+  return (
+    <div style={{ display: 'flex', gap: 4, padding: '6px 4px' }}>
+      {[0, 1, 2].map(i => (
+        <span key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--faint)', animation: 'typing-dot 1.2s ease-in-out infinite', animationDelay: `${i * 0.2}s` }} />
+      ))}
+    </div>
+  );
+}
+
 export default function PageSettings() {
   const supabase = createClient();
   const searchParams = useSearchParams();
@@ -103,6 +115,7 @@ export default function PageSettings() {
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
   const [justSaved, setJustSaved] = useState<Provider | null>(null);
   const [domainPickerProvider, setDomainPickerProvider] = useState<Provider | null>(null);
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
 
   useEffect(() => {
     const connected = searchParams.get('connected');
@@ -130,12 +143,30 @@ export default function PageSettings() {
       if (profile) { setCoachName(profile.full_name || ''); setAvatarUrl(profile.avatar_url || null); }
 
       const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, metadata, connected_at').eq('profile_id', user.id);
+      setIntegrationsLoading(false);
       if (integs) {
         const map = { anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null } as Record<Provider, Integration | null>;
         integs.forEach((i) => {
           map[i.provider as Provider] = { ...i, access_token: null, refresh_token: null, api_key: null, expires_at: null } as Integration;
         });
         setIntegrations(map);
+
+        // Rafraîchit silencieusement la liste des domaines Short.io dispo (all_domains) —
+        // permet au bouton "Changer de domaine" d'apparaître sans reconnecter la clé si un
+        // domaine a été ajouté côté Short.io depuis la dernière visite de cette page.
+        if (map.shortio) {
+          fetch(`/api/shortio/domains?profileId=${user.id}`)
+            .then(r => r.json())
+            .then(data => {
+              if (data?.domains) {
+                setIntegrations(prev => prev.shortio ? {
+                  ...prev,
+                  shortio: { ...prev.shortio, metadata: { ...(prev.shortio.metadata as any), all_domains: data.domains } } as Integration,
+                } : prev);
+              }
+            })
+            .catch(() => {});
+        }
       }
     }
     load();
@@ -341,7 +372,9 @@ export default function PageSettings() {
                     )}
                   </div>
 
-                  {integ ? (
+                  {integrationsLoading ? (
+                    <LoadingDots />
+                  ) : integ ? (
                     <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       {cfg.provider === 'shortio' && !(integ.metadata as any)?.domain_id ? (
                         <span className="pill" style={{ fontSize: 11, flexShrink: 0, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>

@@ -61,6 +61,18 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
   },
 ];
 
+// Points de chargement — remplace le bouton "Connecter" / statut le temps de savoir
+// si l'intégration est déjà connectée, pour ne pas afficher "Connecter" à tort.
+function LoadingDots() {
+  return (
+    <div style={{ display: 'flex', gap: 4, padding: '6px 4px' }}>
+      {[0, 1, 2].map(i => (
+        <span key={i} style={{ width: 5, height: 5, borderRadius: '50%', background: 'var(--faint)', animation: 'typing-dot 1.2s ease-in-out infinite', animationDelay: `${i * 0.2}s` }} />
+      ))}
+    </div>
+  );
+}
+
 export default function PageClientSettings() {
   const supabase = createClient();
   const { refreshUser } = useUser();
@@ -82,6 +94,7 @@ export default function PageClientSettings() {
   const [toast, setToast] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [coachName, setCoachName] = useState<string | null>(null);
+  const [integrationsLoading, setIntegrationsLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
@@ -100,15 +113,31 @@ export default function PageClientSettings() {
       }
 
       const { data: integs } = await supabase.from('integrations').select('provider, account_label, metadata').eq('profile_id', user.id);
+      setIntegrationsLoading(false);
       if (integs) {
         const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false } as Record<Provider, boolean>;
         const labels: Partial<Record<Provider, string>> = {};
+        let shortioConnected = false;
         integs.forEach((i: { provider: string; account_label: string | null; metadata: any }) => {
           if (i.provider in map) map[i.provider as Provider] = true;
           if (i.account_label) labels[i.provider as Provider] = i.account_label;
-          if (i.provider === 'shortio') setShortioMeta(i.metadata || null);
+          if (i.provider === 'shortio') { setShortioMeta(i.metadata || null); shortioConnected = true; }
         });
         setIntegrations(map);
+
+        // Rafraîchit silencieusement la liste des domaines Short.io dispo (all_domains) —
+        // permet au bouton "Changer de domaine" d'apparaître sans reconnecter la clé si un
+        // domaine a été ajouté côté Short.io depuis la dernière visite de cette page.
+        if (shortioConnected) {
+          fetch(`/api/shortio/domains?profileId=${user.id}`)
+            .then(r => r.json())
+            .then(data => {
+              if (data?.domains) {
+                setShortioMeta(prev => prev ? { ...prev, all_domains: data.domains } : prev);
+              }
+            })
+            .catch(() => {});
+        }
         setIntegrationLabels(labels);
       }
 
@@ -308,7 +337,9 @@ export default function PageClientSettings() {
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integrationLabels[cfg.provider]}</div>
                     )}
                   </div>
-                  {connected ? (
+                  {integrationsLoading ? (
+                    <LoadingDots />
+                  ) : connected ? (
                     <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                       {cfg.provider === 'shortio' && !shortioMeta?.domain_id ? (
                         <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
