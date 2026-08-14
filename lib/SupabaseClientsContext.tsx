@@ -85,7 +85,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now = new Date();
       const startOfMonth = getPeriodWindow(0, 'month').periodStart.toISOString();
 
-      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, salesCallsRes, manualCallsRes, igLeadsCounts] = await Promise.all([
+      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, salesCallsRes, manualCallsRes, coachSalesCallsRes, coachLeadsAllTime, coachLeadsThisMonth] = await Promise.all([
         // Dernier snapshot par élève pour followers IG/YT + MRR actuels — remplace
         // weekly_metrics (jamais écrite par aucun cron, table morte). Fenêtre de 3
         // jours glissants pour tolérer un jour de cron manqué ; on garde ensuite le
@@ -123,23 +123,26 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           : { data: [], error: null },
         // Calls de vente calendly par élève — coach_id de la table calls = profile_id
         // de l'élève, pas le coach humain (piège documenté dans docs/calls-coach-id-piege.md).
+        // Utilisé pour currentStats par-élève (fiches clients), pas pour business
+        // (business = stats PERSONNELLES du coach, cf. requêtes coachSalesCallsRes
+        // ci-dessous — le coach vend son propre coaching, distinct de ses élèves).
         profileIds.length > 0
           ? supabase.from('calls').select('*').in('coach_id', profileIds).eq('call_type', 'calendly').neq('ignored', true)
           : { data: [], error: null },
-        // Calls manuels (créés via le pipeline élève, drag vers "Call booké") : pas
-        // concernés par le piège coach_id, client_id reste fiable ici.
+        // Calls manuels par élève (créés via le pipeline élève, drag vers "Call
+        // booké") — même remarque, sert à currentStats par-élève uniquement.
         ids.length > 0
           ? supabase.from('calls').select('*').in('client_id', ids).eq('call_type', 'manual').neq('ignored', true)
           : { data: [], error: null },
-        // Leads (IG 3-sources + calls YT bookés) par élève, all-time (borné par
-        // l'onboarding de CET élève) et ce mois — même formule que
-        // PageClientDetail.tsx / useClientSelfData (élève), pour ne pas dupliquer
-        // 3 fois une logique de dédup déjà subtile.
-        Promise.all((rawClients || []).filter((c: any) => c.profile_id).map(async (c: any) => ({
-          profileId: c.profile_id as string,
-          allTime: await fetchIgLeadsCount(supabase, c.profile_id, c.onboarding_completed_at ?? null),
-          thisMonth: await fetchIgLeadsCount(supabase, c.profile_id, startOfMonth),
-        }))),
+        // Stats PERSONNELLES du coach (son propre profile_id) : leads/calls/cash
+        // de SON activité de vente à lui, distincte de celle de ses élèves. Le
+        // tracking coach (connexion Calendly/Instagram perso) reste à mettre en
+        // place — ces requêtes renverront 0 tant que rien n'est connecté, mais
+        // fonctionneront automatiquement une fois l'infra branchée.
+        supabase.from('calls').select('*').eq('coach_id', user.id)
+          .eq('call_type', 'calendly').neq('ignored', true),
+        fetchIgLeadsCount(supabase, user.id, null),
+        fetchIgLeadsCount(supabase, user.id, startOfMonth),
       ]);
 
       if (snapshotsRes.error) throw snapshotsRes.error;
@@ -151,6 +154,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (stripePaymentsRes.error) throw stripePaymentsRes.error;
       if (stripePaymentsAllTimeRes.error) throw stripePaymentsAllTimeRes.error;
       if (clientPaymentsRes.error) throw clientPaymentsRes.error;
+      if (coachSalesCallsRes.error) throw coachSalesCallsRes.error;
       if (salesCallsRes.error) throw salesCallsRes.error;
       if (manualCallsRes.error) throw manualCallsRes.error;
 
@@ -189,11 +193,6 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         if (!salesCallsByProfile[pid]) salesCallsByProfile[pid] = [];
         salesCallsByProfile[pid].push(c);
       });
-      const igLeadsCountByProfile: Record<string, { allTime: number; thisMonth: number }> = {};
-      (igLeadsCounts as { profileId: string; allTime: number; thisMonth: number }[]).forEach(l => {
-        igLeadsCountByProfile[l.profileId] = { allTime: l.allTime, thisMonth: l.thisMonth };
-      });
-
       const tasksMap: Record<string, any[]> = {};
       (tasksRes.data || []).forEach((t: any) => {
         if (!tasksMap[t.client_id]) tasksMap[t.client_id] = [];
@@ -224,10 +223,6 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const REQUIRED_PROVIDERS = ['instagram', 'calendly', 'youtube', 'stripe', 'shortio'];
 
       const now2 = new Date();
-      // Accumulé pendant la boucle ci-dessous pour l'agrégation business (all-time
-      // et ce mois) — chaque élève contribue depuis SA propre date d'onboarding,
-      // pas une borne unique pour tout le coach.
-      const allSalesCallsAllStudents: any[] = [];
       setClients((rawClients || []).map((c: any) => {
         const snap = c.profile_id ? latestSnapByProfile[c.profile_id] : null;
         // Cash contracté depuis la création réelle du compte Momentum de l'élève
@@ -237,7 +232,6 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         const salesCalls = c.onboarding_completed_at
           ? allSalesCalls.filter((call: any) => call.scheduled_at >= c.onboarding_completed_at)
           : allSalesCalls;
-        allSalesCallsAllStudents.push(...salesCalls);
         const currentStats = c.profile_id ? {
           followersIg: snap?.ig_followers ?? 0,
           followersYt: snap?.yt_subscribers ?? 0,
@@ -283,11 +277,15 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       }));
       setCalls(callsRes.data || []);
 
-      // All-time : taux recalculé sur les totaux agrégés (pas une moyenne des
-      // taux par élève) — un élève à 50 calls pèse plus qu'un élève à 1 call.
-      const allTimeStats = computeSalesCallStats(allSalesCallsAllStudents, now2);
-      const callsThisMonth = allSalesCallsAllStudents.filter((c: any) => (c.scheduled_at ?? '') >= startOfMonth);
-      const thisMonthStats = computeSalesCallStats(callsThisMonth, now2);
+      // Stats PERSONNELLES du coach (son activité de vente à lui, distincte de
+      // celle de ses élèves) — à 0 tant que le coach n'a pas connecté ses propres
+      // intégrations Calendly/Instagram (tracking coach pas encore mis en place).
+      const coachSalesCalls: any[] = coachSalesCallsRes.data || [];
+      const coachAllTimeStats = computeSalesCallStats(coachSalesCalls, now2);
+      const coachCallsThisMonth = coachSalesCalls.filter((c: any) => (c.scheduled_at ?? '') >= startOfMonth);
+      const coachThisMonthStats = computeSalesCallStats(coachCallsThisMonth, now2);
+      const coachYtBookedAllTime = coachSalesCalls.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
+      const coachYtBookedThisMonth = coachCallsThisMonth.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
 
       const stripeConnected = (integrationsRes.data || []).some((row: any) => row.provider === 'stripe');
       const cashCollected = stripeConnected
@@ -297,23 +295,18 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
         : null;
 
-      const leadsAllTime = Object.values(igLeadsCountByProfile).reduce((s, l) => s + l.allTime, 0);
-      const leadsThisMonthTotal = Object.values(igLeadsCountByProfile).reduce((s, l) => s + l.thisMonth, 0);
-      const ytBookedAllTime = allSalesCallsAllStudents.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
-      const ytBookedThisMonth = callsThisMonth.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
-
       setBusiness({
-        cashContracted: allTimeStats.cashContracted,
-        cashContractedThisMonth: thisMonthStats.cashContracted,
+        cashContracted: coachAllTimeStats.cashContracted,
+        cashContractedThisMonth: coachThisMonthStats.cashContracted,
         cashCollected,
         cashCollectedAllTime,
         cashCollectedThisMonth: cashCollected,
-        prospectCallsBooked: allTimeStats.callsBookedCount,
-        prospectCallsBookedThisMonth: thisMonthStats.callsBookedCount,
-        closingRate: allTimeStats.closingRate,
-        closingRateThisMonth: thisMonthStats.closingRate,
-        leadsAllTimeCount: leadsAllTime + ytBookedAllTime,
-        leadsThisMonthCount: leadsThisMonthTotal + ytBookedThisMonth,
+        prospectCallsBooked: coachAllTimeStats.callsBookedCount,
+        prospectCallsBookedThisMonth: coachThisMonthStats.callsBookedCount,
+        closingRate: coachAllTimeStats.closingRate,
+        closingRateThisMonth: coachThisMonthStats.closingRate,
+        leadsAllTimeCount: coachLeadsAllTime + coachYtBookedAllTime,
+        leadsThisMonthCount: coachLeadsThisMonth + coachYtBookedThisMonth,
       });
     } catch (e: any) {
       setError(e.message || 'Erreur chargement');
