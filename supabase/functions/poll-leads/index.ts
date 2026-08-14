@@ -798,7 +798,18 @@ async function snapshotOldDomainLinks(
         headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
       });
-      if (!lcRes.ok) { errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status}`); continue; }
+      if (!lcRes.ok) {
+        // Instrumentation temporaire (2026-08-14) : le 429 sur cet endpoint est quasi
+        // systématique et ne s'est pas résorbé en allongeant la pause avant l'appel
+        // (1.5s puis 5s, aucune différence). Avant de deviner un nouveau délai, on
+        // capture les headers bruts de la réponse — si Short.io envoie Retry-After ou
+        // X-RateLimit-* (non documenté publiquement mais possible en pratique), c'est
+        // la seule source fiable pour un vrai backoff. À retirer une fois la cause confirmée.
+        const headerDump: Record<string, string> = {};
+        lcRes.headers.forEach((v, k) => { headerDump[k] = v; });
+        errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status} headers=${JSON.stringify(headerDump)}`);
+        continue;
+      }
 
       const lcData = await safeJson(lcRes);
       const rawClicks: { path: string; dt: string; human: boolean }[] = lcData?.clicks ?? lcData ?? [];
