@@ -58,7 +58,22 @@ export async function GET(request: Request) {
         id: d.id,
         hostname: d.hostname,
       }));
-      if (domains.length > 0) return NextResponse.json({ activeDomain, domains });
+      if (domains.length > 0) {
+        // Rafraîchit all_domains en base si la liste a changé (ex: nouveau domaine ajouté
+        // côté Short.io après la connexion initiale) — ne touche JAMAIS domain/domain_id,
+        // uniquement la liste, pour que le bouton "Changer de domaine" puisse apparaître
+        // au prochain chargement de Réglages sans action manuelle.
+        const changed = JSON.stringify(metaDomains.map(d => d.id).sort()) !== JSON.stringify(domains.map((d: any) => d.id).sort());
+        if (changed) {
+          serviceSupabase
+            .from('integrations')
+            .update({ metadata: { ...(integ.metadata as any), all_domains: domains } })
+            .eq('profile_id', targetProfileId)
+            .eq('provider', 'shortio')
+            .then(({ error }) => { if (error) console.error('[shortio/domains] refresh all_domains:', error.message); });
+        }
+        return NextResponse.json({ activeDomain, domains });
+      }
     }
   } catch {
     // API indisponible — on utilise le fallback
