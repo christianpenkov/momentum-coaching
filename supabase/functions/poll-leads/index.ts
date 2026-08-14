@@ -769,6 +769,12 @@ async function snapshotOldDomainLinks(
   const oldDomains = allDomains.filter(d => String(d.id) !== String(activeDomainId));
   if (!oldDomains.length) return errors;
 
+  // Pause avant le premier appel : cette fonction est invoquée juste après une rafale
+  // d'appels Short.io sur le domaine actif (fetchShortioLinks, last_clicks, stats domaine
+  // et par lien) — sans ce délai, le premier appel ici arrivait immédiatement à la suite
+  // et se faisait 429 en prod (confirmé 2026-08-14, old_domain_..._last_clicks: HTTP 429).
+  await new Promise(r => setTimeout(r, 300));
+
   for (const oldDomain of oldDomains) {
     try {
       const links = await fetchShortioLinks({ apiKey, domainId: String(oldDomain.id) });
@@ -783,11 +789,21 @@ async function snapshotOldDomainLinks(
       if (!momentumLinks.length) continue;
 
       const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
+      let lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
         method: 'POST',
         headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
       });
+      // Un seul retry après backoff — un 429 ici est souvent transitoire (rafale d'appels
+      // juste avant sur le domaine actif), pas la peine d'abandonner sur le premier échec.
+      if (lcRes.status === 429) {
+        await new Promise(r => setTimeout(r, 1000));
+        lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
+          method: 'POST',
+          headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+          body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
+        });
+      }
       if (!lcRes.ok) { errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status}`); continue; }
 
       const lcData = await safeJson(lcRes);
