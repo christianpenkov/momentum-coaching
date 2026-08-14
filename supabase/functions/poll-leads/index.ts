@@ -769,11 +769,12 @@ async function snapshotOldDomainLinks(
   const oldDomains = allDomains.filter(d => String(d.id) !== String(activeDomainId));
   if (!oldDomains.length) return errors;
 
-  // Pause avant le premier appel : cette fonction est invoquée juste après une rafale
-  // d'appels Short.io sur le domaine actif (fetchShortioLinks, last_clicks, stats domaine
-  // et par lien) — sans ce délai, le premier appel ici arrivait immédiatement à la suite
-  // et se faisait 429 en prod (confirmé 2026-08-14, old_domain_..._last_clicks: HTTP 429).
-  await new Promise(r => setTimeout(r, 300));
+  // Pause avant le premier appel — laisse retomber la rafale du domaine actif juste avant
+  // (fetchShortioLinks, last_clicks, stats domaine et par lien). Un échec 429 malgré cette
+  // pause n'est pas retenté ici : ce n'est pas grave, errors.push + continue préservent le
+  // run (pas de crash), et ce même domaine sera retenté au prochain passage du cron 5 min
+  // plus tard — pas besoin d'un backoff sophistiqué pour un cas déjà rare et non bloquant.
+  await new Promise(r => setTimeout(r, 1500));
 
   for (const oldDomain of oldDomains) {
     try {
@@ -789,21 +790,11 @@ async function snapshotOldDomainLinks(
       if (!momentumLinks.length) continue;
 
       const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      let lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
+      const lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
         method: 'POST',
         headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
       });
-      // Un seul retry après backoff — un 429 ici est souvent transitoire (rafale d'appels
-      // juste avant sur le domaine actif), pas la peine d'abandonner sur le premier échec.
-      if (lcRes.status === 429) {
-        await new Promise(r => setTimeout(r, 1000));
-        lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
-          method: 'POST',
-          headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
-          body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
-        });
-      }
       if (!lcRes.ok) { errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status}`); continue; }
 
       const lcData = await safeJson(lcRes);
@@ -1118,8 +1109,12 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
       const csErrors = await syncLmClickStream(profileId, rawClicks);
       if (csErrors.length) errors.push(...csErrors.map(e => `shortio_click_stream: ${e}`));
       // Anciens domaines (changement de domaine actif) — liens Momentum uniquement, voir doc fonction.
+      // Best-effort, jamais remonté dans `errors` (qui pilote last_snapshot_status/error
+      // affiché à l'utilisateur) — un échec ici (ex: 429 Short.io) porte sur un domaine
+      // déjà abandonné, sans impact sur le domaine actif ni sur le reste du snapshot. Se
+      // rattrape naturellement au prochain run ; pas une vraie panne à signaler comme telle.
       const oldDomainErrors = await snapshotOldDomainLinks(profileId, shioCreds.apiKey, shioCreds.domainId, shioCreds.allDomains, resolveLinkCategory, dateToday);
-      if (oldDomainErrors.length) errors.push(...oldDomainErrors.map(e => `shortio_old_domain: ${e}`));
+      if (oldDomainErrors.length) console.error(`[poll-leads] shortio_old_domain (${profileId}):`, oldDomainErrors.join(', '));
       // Invalider le cache Short.io pour que le prochain chargement re-fetche les données fraîches
       await supa.from('shortio_stats_cache').delete().eq('profile_id', profileId);
     } catch (e: any) { errors.push(`shortio_snapshot: ${e?.message || 'unknown'}`); }
