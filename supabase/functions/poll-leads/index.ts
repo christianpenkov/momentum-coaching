@@ -528,14 +528,15 @@ async function syncYtCtr(profileId: string, accessToken: string): Promise<{ sync
 // Short.io
 // ─────────────────────────────────────────────────────────────────────────────
 
-async function getShortioLinkCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string } | null> {
+async function getShortioLinkCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string; allDomains: { id: number | string; hostname: string }[] } | null> {
   const { data: integ } = await supa.from('integrations')
     .select('api_key, metadata').eq('profile_id', profileId).eq('provider', 'shortio').single();
   if (!integ?.api_key) return null;
   const domain = (integ.metadata as any)?.domain || null;
   const domainId = (integ.metadata as any)?.domain_id || null;
   if (!domain || !domainId) return null;
-  return { apiKey: integ.api_key, domain, domainId: String(domainId) };
+  const allDomains = (integ.metadata as any)?.all_domains || [];
+  return { apiKey: integ.api_key, domain, domainId: String(domainId), allDomains };
 }
 
 async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
@@ -558,14 +559,19 @@ async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
   return allLinks;
 }
 
-async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string }): Promise<{ errors: string[]; rawClicks: { path: string; dt: string; human: boolean }[] }> {
+async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; domain: string; domainId: string }): Promise<{
+  errors: string[];
+  rawClicks: { path: string; dt: string; human: boolean }[];
+  resolveLinkCategory: (path: string, shortUrl: string, linkType: string | null) => string | null;
+  dateToday: string;
+}> {
   const errors: string[] = [];
-  let links: any[];
-  try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`], rawClicks: [] }; }
-  if (!links.length) return { errors: [], rawClicks: [] };
-
   const dateToday = isoDate(0);
   const dateYesterday = isoDate(1);
+  const noopCategory = () => null;
+  let links: any[];
+  try { links = await fetchShortioLinks(creds); } catch (e: any) { return { errors: [`fetch_links: ${e?.message}`], rawClicks: [], resolveLinkCategory: noopCategory, dateToday }; }
+  if (!links.length) return { errors: [], rawClicks: [], resolveLinkCategory: noopCategory, dateToday };
 
   // Préchargement des tables de référence pour le calcul de link_category
   const [{ data: contentLinksRows }, { data: prospectLinksRows }] = await Promise.all([
@@ -736,7 +742,93 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   ]));
 
   for (const s of settled) if (s.status === 'rejected') errors.push(String(s.reason?.message || 'link_snapshot_failed'));
-  return { errors, rawClicks };
+  return { errors, rawClicks, resolveLinkCategory, dateToday };
+}
+
+// Tracke les clics des liens Momentum restés sur d'anciens domaines (après un changement
+// de domaine actif — voir integrations.metadata.all_domains). Le domaine actif est déjà
+// couvert par snapshotShortioLinks ci-dessus ; cette fonction complète pour les autres.
+// Séquentiel (pas Promise.all) par précaution rate-limit — le volume réel est faible
+// (1 appel liste + 1 appel last_clicks par ancien domaine, zéro pour les profils n'ayant
+// jamais changé de domaine), mais un incident 429 est déjà survenu en prod (2026-07-26,
+// cf. commentaire plus haut) pour un doublon d'appel similaire — mieux vaut rester prudent.
+// Ne couvre QUE les liens Momentum reconnus (resolveLinkCategory non-null) — un lien créé
+// manuellement par l'utilisateur hors app sur ce domaine est hors scope, jamais tracké.
+// Ne maintient que human_clicks/total_clicks du jour (via last_clicks) — pas les stats
+// détaillées (top_countries, etc.) ni J-1, qui n'ont plus d'intérêt pratique pour un
+// domaine que l'utilisateur est en train d'abandonner.
+async function snapshotOldDomainLinks(
+  profileId: string,
+  apiKey: string,
+  activeDomainId: string,
+  allDomains: { id: number | string; hostname: string }[],
+  resolveLinkCategory: (path: string, shortUrl: string, linkType: string | null) => string | null,
+  dateToday: string,
+): Promise<string[]> {
+  const errors: string[] = [];
+  const oldDomains = allDomains.filter(d => String(d.id) !== String(activeDomainId));
+  if (!oldDomains.length) return errors;
+
+  for (const oldDomain of oldDomains) {
+    try {
+      const links = await fetchShortioLinks({ apiKey, domainId: String(oldDomain.id) });
+      if (!links.length) continue;
+
+      const momentumLinks = links.filter((l: any) => {
+        let linkType: string | null = null;
+        try { linkType = new URL(l.originalURL || '').searchParams.get('utm_medium') || null; } catch {}
+        const shortUrl = l.secureShortURL || l.shortURL || `https://${oldDomain.hostname}/${l.path || ''}`;
+        return resolveLinkCategory(l.path || '', shortUrl, linkType) !== null;
+      });
+      if (!momentumLinks.length) continue;
+
+      const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+      const lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
+        method: 'POST',
+        headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+        body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
+      });
+      if (!lcRes.ok) { errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status}`); continue; }
+
+      const lcData = await safeJson(lcRes);
+      const rawClicks: { path: string; dt: string; human: boolean }[] = lcData?.clicks ?? lcData ?? [];
+      const clicksByPath = new Map<string, number>();
+      for (const click of rawClicks) {
+        if (!click.human || !click.path) continue;
+        const clickDate = click.dt ? isoDateFromInstant(click.dt) : dateToday;
+        if (clickDate !== dateToday) continue;
+        const p = click.path.replace(/^\//, '');
+        clicksByPath.set(p, (clicksByPath.get(p) ?? 0) + 1);
+      }
+
+      for (const l of momentumLinks) {
+        const linkId = String(l.id);
+        const path = l.path || '';
+        const shortUrl = l.secureShortURL || l.shortURL || `https://${oldDomain.hostname}/${path}`;
+        let linkType: string | null = null;
+        try { linkType = new URL(l.originalURL || '').searchParams.get('utm_medium') || null; } catch {}
+        const humanClicks = clicksByPath.get(path) ?? 0;
+
+        // top_*/utm_* à null (pas []) : la RPC fait COALESCE(EXCLUDED.x, existant.x) — null
+        // laisse les stats détaillées d'un run précédent intactes, [] les écraserait à vide.
+        await supa.rpc('upsert_shortio_link_snapshot', {
+          p_profile_id: profileId, p_link_id: linkId, p_path: path, p_short_url: shortUrl,
+          p_original_url: l.originalURL || '', p_date: dateToday, p_human_clicks: humanClicks, p_total_clicks: humanClicks,
+          p_link_type: linkType,
+          p_top_countries: null, p_top_referrers: null, p_top_browsers: null, p_top_os: null, p_top_social: null, p_top_cities: null,
+          p_utm_sources: null, p_utm_mediums: null,
+          p_backfill_source: 'cron',
+          p_link_category: resolveLinkCategory(path, shortUrl, linkType),
+        });
+      }
+    } catch (e: any) {
+      errors.push(`old_domain_${oldDomain.id}: ${e?.message || 'unknown'}`);
+    }
+    // Pause entre chaque ancien domaine — même précaution que backfill-shortio/index.ts
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  return errors;
 }
 
 // rawClicks vient désormais de snapshotShortioLinks (même fenêtre afterDate 48h, même
@@ -1005,10 +1097,13 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const shioCreds = await getShortioLinkCreds(profileId);
   if (shioCreds) {
     try {
-      const { errors: shioErrors, rawClicks } = await snapshotShortioLinks(profileId, shioCreds);
+      const { errors: shioErrors, rawClicks, resolveLinkCategory, dateToday } = await snapshotShortioLinks(profileId, shioCreds);
       if (shioErrors.length) errors.push(...shioErrors.map(e => `shortio_link: ${e}`));
       const csErrors = await syncLmClickStream(profileId, rawClicks);
       if (csErrors.length) errors.push(...csErrors.map(e => `shortio_click_stream: ${e}`));
+      // Anciens domaines (changement de domaine actif) — liens Momentum uniquement, voir doc fonction.
+      const oldDomainErrors = await snapshotOldDomainLinks(profileId, shioCreds.apiKey, shioCreds.domainId, shioCreds.allDomains, resolveLinkCategory, dateToday);
+      if (oldDomainErrors.length) errors.push(...oldDomainErrors.map(e => `shortio_old_domain: ${e}`));
       // Invalider le cache Short.io pour que le prochain chargement re-fetche les données fraîches
       await supa.from('shortio_stats_cache').delete().eq('profile_id', profileId);
     } catch (e: any) { errors.push(`shortio_snapshot: ${e?.message || 'unknown'}`); }
