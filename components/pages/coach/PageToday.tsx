@@ -16,6 +16,7 @@ import { useNotifications, type AppNotif } from '@/lib/useNotifications';
 import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
 import { isNotCanceled } from '@/lib/salesCallStats';
+import TrendBadge from '@/components/ui/TrendBadge';
 
 export default function PageToday() {
   const { clients, calls, business, loading, refetch } = useSupabaseClients();
@@ -53,6 +54,9 @@ export default function PageToday() {
       label: 'Total cash collecté', sub: 'par tes élèves, all-time', value: business.cashCollectedAllTime ?? 0,
       formatter: (n: number) => business.cashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
       color: 'var(--green)',
+      viz: business.cashCollectedAllTime !== null && (
+        <TrendBadge value={business.cashCollectedThisMonth ?? 0} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />
+      ),
     },
     {
       label: 'Élèves actifs', sub: 'en cours de coaching', value: activeCount,
@@ -78,23 +82,25 @@ export default function PageToday() {
 
   const kpisBottom = [
     {
-      label: 'Leads générés', sub: 'ce mois', value: business.coachLeadsThisMonthCount,
+      label: 'Leads générés', value: business.leadsAllTimeCount,
+      viz: <TrendBadge value={business.leadsThisMonthCount} label="ce mois" />,
     },
     {
-      label: 'Calls bookés', sub: 'ce mois', value: business.prospectCallsBookedThisMonth,
+      label: 'Calls bookés', value: business.prospectCallsBooked,
+      viz: <TrendBadge value={business.prospectCallsBookedThisMonth} label="ce mois" />,
     },
     {
-      label: 'Taux de closing', sub: 'ce mois', value: business.closingRate,
+      label: 'Taux de closing', value: business.closingRate,
       formatter: (n: number) => `${n}%`,
+      viz: <TrendBadge value={business.closingRateThisMonth} label="ce mois" format={(n) => `${n}%`} />,
     },
     {
       label: 'Cash contracté / collecté',
-      sub: business.cashCollected === null
-        ? 'Stripe non connecté'
-        : (collectRate !== null ? `${collectRate}% collecté` : 'ce mois'),
+      sub: business.cashCollected === null ? 'Stripe non connecté' : (collectRate !== null ? `${collectRate}% collecté` : undefined),
       value: business.cashContracted,
       formatter: (n: number) => `${n.toLocaleString('fr-FR')} € / ${business.cashCollected === null ? '—' : `${business.cashCollected.toLocaleString('fr-FR')} €`}`,
       color: 'var(--green)',
+      viz: <TrendBadge value={business.cashContractedThisMonth} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />,
     },
   ];
 

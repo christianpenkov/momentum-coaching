@@ -27,7 +27,7 @@ export default function KpiRibbon({ items, columns }: KpiRibbonProps) {
       {items.map((item, i) => {
         const content = (
           <>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+            <div className="kpi-card-head">
               <div className="kpi-label" style={{ marginBottom: 0 }}>
                 {item.label}
                 {item.sub && (
@@ -36,10 +36,12 @@ export default function KpiRibbon({ items, columns }: KpiRibbonProps) {
                   </span>
                 )}
               </div>
-              {item.headerRight}
             </div>
-            <div className="kpi-value" style={item.color ? { color: item.color, marginTop: 6 } : { marginTop: 6 }}>
-              <AnimatedNumber value={item.value} formatter={item.formatter} />
+            <div className="kpi-card-body">
+              <div className="kpi-value" style={item.color ? { color: item.color } : undefined}>
+                <AnimatedNumber value={item.value} formatter={item.formatter} />
+              </div>
+              {item.headerRight && <div className="kpi-card-badges">{item.headerRight}</div>}
             </div>
             {item.delta !== undefined && (
               <div className={`kpi-delta${item.delta >= 0 ? ' kpi-delta-up' : ' kpi-delta-down'}`}>
