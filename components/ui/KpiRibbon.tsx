@@ -50,14 +50,12 @@ export default function KpiRibbon({ items, columns }: KpiRibbonProps) {
             {item.viz && <div style={{ marginTop: 12 }}>{item.viz}</div>}
           </>
         );
-        const needsBottomBorder = columns && i < items.length - columns;
-        const cardStyle = needsBottomBorder ? { borderBottom: '1px solid var(--border-soft)' } : undefined;
         return item.href ? (
-          <Link key={i} href={item.href} className="kpi-card kpi-card--clickable" style={{ textDecoration: 'none', ...cardStyle }}>
+          <Link key={i} href={item.href} className="kpi-card kpi-card--clickable" style={{ textDecoration: 'none' }}>
             {content}
           </Link>
         ) : (
-          <div key={i} className="kpi-card" style={cardStyle}>{content}</div>
+          <div key={i} className="kpi-card">{content}</div>
         );
       })}
     </div>

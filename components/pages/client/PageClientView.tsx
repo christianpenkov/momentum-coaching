@@ -382,28 +382,28 @@ export default function PageClientView() {
 
       {/* Business du mois */}
       <div className="grid-4" style={{ marginTop: 24 }}>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+        <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Appels aujourd'hui</div>
           <div className="kpi-value">{callsToday.length}</div>
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 3 }}>
             {callsToday.length > 0 ? `${coachingCallsToday} coaching · ${prospectCallsToday} prospect` : 'Aucun call prévu'}
           </div>
         </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+        <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Calls bookés</div>
           <div className="kpi-value">{callsBookedAllTime}</div>
           <div style={{ marginTop: 3 }}>
             <TrendBadge value={callsBookedThisMonthCount} label="ce mois" />
           </div>
         </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+        <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Leads</div>
           <div className="kpi-value">{leadsAllTimeCount}</div>
           <div style={{ marginTop: 3 }}>
             <TrendBadge value={leadsThisMonthCount} label="ce mois" />
           </div>
         </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+        <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Taux de closing</div>
           <div className="kpi-value">{closingRateAllTime}%</div>
           <div style={{ marginTop: 3 }}>
@@ -413,14 +413,14 @@ export default function PageClientView() {
       </div>
 
       <div className="grid-2" style={{ marginTop: 16, marginBottom: 22 }}>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+        <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash contracté</div>
           <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashContractedAllTime.toLocaleString('fr-FR')} €</div>
           <div style={{ marginTop: 3 }}>
             <TrendBadge value={cashContractedThisMonth} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />
           </div>
         </div>
-        <div className="card kpi-card" style={{ padding: '16px 20px' }}>
+        <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash collecté</div>
           {cashCollectedAllTime === null ? (
             <>
