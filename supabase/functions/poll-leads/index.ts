@@ -684,22 +684,27 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       total_clicks = Number(stats.totalClicks ?? 0);
     }
 
-    await supa.from('shortio_link_daily_snapshots').upsert({
-      profile_id: profileId, link_id: linkId, path, short_url: shortUrl,
-      original_url: originalUrl, date, link_type, link_category,
-      human_clicks,
-      total_clicks,
-      top_countries: (stats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country || 'Inconnu', code: c.country || '', value: Number(c.score) })),
-      top_referrers: (stats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: Number(r.score) })),
-      top_browsers: (stats.browser || []).filter((b: any) => b.score > 0).slice(0, 8).map((b: any) => ({ label: b.browser || 'Inconnu', value: Number(b.score) })),
-      top_os: (stats.os || []).filter((o: any) => o.score > 0).slice(0, 8).map((o: any) => ({ label: o.os || 'Inconnu', value: Number(o.score) })),
-      top_social: (stats.social || []).filter((s: any) => s.score > 0).slice(0, 8).map((s: any) => ({ label: s.social || 'Direct', value: Number(s.score) })),
-      top_cities: (stats.city || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: `${c.name || '?'} (${c.countryCode || '?'})`, value: Number(c.score) })),
-      utm_sources: (stats.utm_source || []).filter((u: any) => u.score > 0 && u.utm_source).slice(0, 8).map((u: any) => ({ label: u.utm_source, value: Number(u.score) })),
-      utm_mediums: (stats.utm_medium || []).filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 8).map((u: any) => ({ label: u.utm_medium, value: Number(u.score) })),
-      backfill_source: 'cron',
-      updated_at: new Date().toISOString(),
-    }, { onConflict: 'profile_id,link_id,date', ignoreDuplicates: false });
+    // Passe par la RPC upsert_shortio_link_snapshot (déjà utilisée côté refresh-today/
+    // lib/shortio-fetch.ts) au lieu d'un upsert direct de table — son ON CONFLICT fait
+    // GREATEST(existant, nouveau) sur human_clicks/total_clicks, ce qu'un upsert direct
+    // ne fait pas. Sans ça, un run 'today' dont last_clicks n'a pas encore indexé un clic
+    // très récent (délai de propagation Short.io) écrasait un compteur déjà correct à 0 —
+    // reproduit et confirmé le 2026-08-14 (human_clicks 1 → 0 entre deux runs cron).
+    await supa.rpc('upsert_shortio_link_snapshot', {
+      p_profile_id: profileId, p_link_id: linkId, p_path: path, p_short_url: shortUrl,
+      p_original_url: originalUrl, p_date: date, p_human_clicks: human_clicks, p_total_clicks: total_clicks,
+      p_link_type: link_type,
+      p_top_countries: (stats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country || 'Inconnu', code: c.country || '', value: Number(c.score) })),
+      p_top_referrers: (stats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: Number(r.score) })),
+      p_top_browsers: (stats.browser || []).filter((b: any) => b.score > 0).slice(0, 8).map((b: any) => ({ label: b.browser || 'Inconnu', value: Number(b.score) })),
+      p_top_os: (stats.os || []).filter((o: any) => o.score > 0).slice(0, 8).map((o: any) => ({ label: o.os || 'Inconnu', value: Number(o.score) })),
+      p_top_social: (stats.social || []).filter((s: any) => s.score > 0).slice(0, 8).map((s: any) => ({ label: s.social || 'Direct', value: Number(s.score) })),
+      p_top_cities: (stats.city || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: `${c.name || '?'} (${c.countryCode || '?'})`, value: Number(c.score) })),
+      p_utm_sources: (stats.utm_source || []).filter((u: any) => u.score > 0 && u.utm_source).slice(0, 8).map((u: any) => ({ label: u.utm_source, value: Number(u.score) })),
+      p_utm_mediums: (stats.utm_medium || []).filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 8).map((u: any) => ({ label: u.utm_medium, value: Number(u.score) })),
+      p_backfill_source: 'cron',
+      p_link_category: link_category,
+    });
   };
 
   // Snapshot agrégat domaine J-1 + J-0 en parallèle
