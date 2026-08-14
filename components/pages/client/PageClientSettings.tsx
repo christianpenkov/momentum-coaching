@@ -117,27 +117,12 @@ export default function PageClientSettings() {
       if (integs) {
         const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false } as Record<Provider, boolean>;
         const labels: Partial<Record<Provider, string>> = {};
-        let shortioConnected = false;
         integs.forEach((i: { provider: string; account_label: string | null; metadata: any }) => {
           if (i.provider in map) map[i.provider as Provider] = true;
           if (i.account_label) labels[i.provider as Provider] = i.account_label;
-          if (i.provider === 'shortio') { setShortioMeta(i.metadata || null); shortioConnected = true; }
+          if (i.provider === 'shortio') setShortioMeta(i.metadata || null);
         });
         setIntegrations(map);
-
-        // Rafraîchit silencieusement la liste des domaines Short.io dispo (all_domains) —
-        // permet au bouton "Changer de domaine" d'apparaître sans reconnecter la clé si un
-        // domaine a été ajouté côté Short.io depuis la dernière visite de cette page.
-        if (shortioConnected) {
-          fetch(`/api/shortio/domains?profileId=${user.id}`)
-            .then(r => r.json())
-            .then(data => {
-              if (data?.domains) {
-                setShortioMeta(prev => prev ? { ...prev, all_domains: data.domains } : prev);
-              }
-            })
-            .catch(() => {});
-        }
         setIntegrationLabels(labels);
       }
 
@@ -350,7 +335,7 @@ export default function PageClientSettings() {
                       ) : (
                         <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
                       )}
-                      {cfg.provider === 'shortio' && (((shortioMeta?.all_domains?.length || 0) > 1) || !shortioMeta?.domain_id) && (
+                      {cfg.provider === 'shortio' && (
                         <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => setDomainPickerOpen(true)}>
                           {shortioMeta?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
                         </button>
@@ -506,7 +491,6 @@ export default function PageClientSettings() {
           open={domainPickerOpen}
           onClose={() => setDomainPickerOpen(false)}
           profileId={profileId}
-          initialDomains={shortioMeta?.all_domains || []}
           currentDomainId={shortioMeta?.domain_id ?? null}
           onSelected={(domain) => {
             setShortioMeta(prev => ({ ...(prev || { all_domains: [] }), domain: domain.hostname, domain_id: domain.id }));

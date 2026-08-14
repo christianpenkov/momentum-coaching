@@ -150,23 +150,6 @@ export default function PageSettings() {
           map[i.provider as Provider] = { ...i, access_token: null, refresh_token: null, api_key: null, expires_at: null } as Integration;
         });
         setIntegrations(map);
-
-        // Rafraîchit silencieusement la liste des domaines Short.io dispo (all_domains) —
-        // permet au bouton "Changer de domaine" d'apparaître sans reconnecter la clé si un
-        // domaine a été ajouté côté Short.io depuis la dernière visite de cette page.
-        if (map.shortio) {
-          fetch(`/api/shortio/domains?profileId=${user.id}`)
-            .then(r => r.json())
-            .then(data => {
-              if (data?.domains) {
-                setIntegrations(prev => prev.shortio ? {
-                  ...prev,
-                  shortio: { ...prev.shortio, metadata: { ...(prev.shortio.metadata as any), all_domains: data.domains } } as Integration,
-                } : prev);
-              }
-            })
-            .catch(() => {});
-        }
       }
     }
     load();
@@ -390,7 +373,7 @@ export default function PageSettings() {
                           Reconnecter
                         </a>
                       )}
-                      {cfg.provider === 'shortio' && ((integ.metadata as any)?.all_domains?.length > 1 || !(integ.metadata as any)?.domain_id) && (
+                      {cfg.provider === 'shortio' && (
                         <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => setDomainPickerProvider('shortio')}>
                           {(integ.metadata as any)?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
                         </button>
@@ -546,7 +529,6 @@ export default function PageSettings() {
           open={!!domainPickerProvider}
           onClose={() => setDomainPickerProvider(null)}
           profileId={profileId}
-          initialDomains={((integrations.shortio?.metadata as any)?.all_domains) || []}
           currentDomainId={(integrations.shortio?.metadata as any)?.domain_id ?? null}
           onSelected={(domain) => {
             setIntegrations(prev => ({
