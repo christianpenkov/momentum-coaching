@@ -279,7 +279,7 @@ export default function PageClientView() {
       )}
 
       {/* Header élève */}
-      <div style={{ background: 'linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%)', borderRadius: 16, padding: 'clamp(16px, 4vw, 28px) clamp(14px, 5vw, 32px)', marginBottom: 20, border: '1px solid var(--border)' }}>
+      <div style={{ background: 'linear-gradient(135deg, var(--surface-2) 0%, var(--surface) 100%)', borderRadius: 16, padding: 'clamp(12px, 3vw, 20px) clamp(14px, 5vw, 32px)', marginBottom: 20, border: '1px solid var(--border)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'clamp(12px, 4vw, 24px)', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', flexShrink: 0 }}>
             <Ring value={progress} size={80} stroke={7} />
@@ -289,9 +289,10 @@ export default function PageClientView() {
             </div>
           </div>
           <div style={{ flex: 1, minWidth: 140 }}>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 1 }}>Bonjour,</div>
-            <h1 style={{ fontSize: 'clamp(22px, 6vw, 32px)', fontWeight: 800, color: 'var(--accent)', marginBottom: 4, lineHeight: 1.05 }}>{client.name}</h1>
-            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10 }}>
+            <h1 style={{ fontSize: 'clamp(16px, 3vw, 20px)', fontWeight: 700, color: 'var(--accent)', marginBottom: 4, lineHeight: 1.2 }}>
+              Bonjour, {client.name}
+            </h1>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 8 }}>
               {client.niche || 'Infopreneur'} · Sem. <strong style={{ color: 'var(--accent)' }}>{getClientWeek(client.onboarding_completed_at)}</strong>
             </div>
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
