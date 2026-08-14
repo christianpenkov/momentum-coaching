@@ -299,22 +299,27 @@ async function syncCalendlyEleve(
       const { data: igLead } = await supabase
         .from('instagram_leads').select('ig_username').eq('id', effectiveIgLeadId).single();
       if (igLead) {
-        // upsert (pas select-then-insert) : évite la course avec le webhook temps réel
-        // (app/api/webhooks/calendly/route.ts), qui écrit sur le même index unique
-        // (call_id, event_type) — les deux ciblent maintenant exactement la même
-        // contrainte DB via onConflict, donc convergent proprement sur une seule ligne
-        // au lieu que l'un des deux échoue silencieusement en cas de course serrée.
-        supabase.from('prospect_events').upsert({
-          profile_id:       profileId,
-          prospect_key:     igLead.ig_username.toLowerCase(),
-          platform:         'ig',
-          event_type:       'call_booked',
+        // RPC upsert_prospect_event_call_booked (pas .upsert() du client JS) : l'index
+        // unique réel prospect_events_call_event_uidx est PARTIEL
+        // (UNIQUE (call_id, event_type) WHERE call_id IS NOT NULL) — le client Supabase
+        // JS ne peut cibler un ON CONFLICT que sur un index/contrainte total, donc
+        // .upsert({...}, { onConflict: 'call_id,event_type' }) échouait systématiquement
+        // ("no unique or exclusion constraint matching the ON CONFLICT specification"),
+        // reproduit et confirmé le 2026-08-14. La RPC fait l'upsert en SQL brut, où
+        // Postgres résout nativement l'ON CONFLICT contre un index partiel. Même RPC
+        // utilisée par le webhook temps réel (app/api/webhooks/calendly/route.ts) —
+        // les deux convergent sur la même ligne en cas de course serrée.
+        supabase.rpc('upsert_prospect_event_call_booked', {
+          p_profile_id: profileId,
+          p_prospect_key: igLead.ig_username.toLowerCase(),
+          p_platform: 'ig',
+          p_event_type: 'call_booked',
           // Moment réel de la réservation (bookedAt), pas l'heure du call (scheduledAt).
-          occurred_at:      bookedAt ?? new Date().toISOString(),
-          ig_lead_id:       effectiveIgLeadId,
-          prospect_link_id: finalProspectLinkId,
-          call_id:          callRow.id,
-        }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }: any) => {
+          p_occurred_at: bookedAt ?? new Date().toISOString(),
+          p_ig_lead_id: effectiveIgLeadId,
+          p_prospect_link_id: finalProspectLinkId,
+          p_call_id: callRow.id,
+        }).then(({ error: evtErr }: any) => {
           if (evtErr) console.error('[sync-calendly] prospect_events:', evtErr.message);
         });
         await supabase.from('instagram_leads')

@@ -279,18 +279,27 @@ export async function POST(request: NextRequest) {
       }
       const prospectKey = igUsername?.toLowerCase() ?? prospectId ?? eventUuid;
       const platform = igUsername ? 'ig' : effectivePlatform;
-      serviceSupabase.from('prospect_events').upsert({
-        profile_id:       leadsProfileId,
-        prospect_key:     prospectKey,
-        platform,
-        event_type:       'call_booked',
+      // RPC upsert_prospect_event_call_booked (pas .upsert() du client JS) : l'index
+      // unique réel prospect_events_call_event_uidx est PARTIEL
+      // (UNIQUE (call_id, event_type) WHERE call_id IS NOT NULL) — le client Supabase JS
+      // ne peut cibler un ON CONFLICT que sur un index/contrainte total, donc
+      // .upsert({...}, { onConflict: 'call_id,event_type' }) échouait systématiquement
+      // ("no unique or exclusion constraint matching the ON CONFLICT specification"),
+      // reproduit et confirmé le 2026-08-14. Même RPC utilisée côté cron
+      // (supabase/functions/sync-calendly/index.ts) — les deux convergent sur la même
+      // ligne en cas de course serrée.
+      serviceSupabase.rpc('upsert_prospect_event_call_booked', {
+        p_profile_id: leadsProfileId,
+        p_prospect_key: prospectKey,
+        p_platform: platform,
+        p_event_type: 'call_booked',
         // Moment réel de la réservation (booked_at), pas l'heure du call (scheduledAt) —
         // ce sont deux instants distincts sauf coïncidence.
-        occurred_at:      bookedAt ?? new Date().toISOString(),
-        ig_lead_id:       igLeadId,
-        prospect_link_id: prospectLinkId,
-        call_id:          callRow.id,
-      }, { onConflict: 'call_id,event_type' }).then(({ error: evtErr }) => {
+        p_occurred_at: bookedAt ?? new Date().toISOString(),
+        p_ig_lead_id: igLeadId,
+        p_prospect_link_id: prospectLinkId,
+        p_call_id: callRow.id,
+      }).then(({ error: evtErr }) => {
         if (evtErr) console.error('[webhook/calendly] prospect_events upsert:', evtErr.message);
       });
     }
