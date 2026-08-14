@@ -287,25 +287,24 @@ export default function PageSettings() {
               className="tap-scale"
               style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', cursor: uploadingAvatar ? 'default' : 'pointer', flexShrink: 0 }}
             >
-              <Avatar initials={getInitials(coachName)} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
-              <div style={{
-                position: 'absolute', inset: 0, borderRadius: '50%',
-                background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                opacity: uploadingAvatar ? 1 : 0, transition: 'opacity 150ms',
-              }}
-                onMouseEnter={e => { if (!uploadingAvatar) e.currentTarget.style.opacity = '1'; }}
-                onMouseLeave={e => { if (!uploadingAvatar) e.currentTarget.style.opacity = '0'; }}
-              >
-                <Icon name={uploadingAvatar ? 'loader' : 'camera'} size={18} color="#fff" style={uploadingAvatar ? { animation: 'spin 1s linear infinite' } : undefined} />
-              </div>
-              {integrationsLoading && (
-                <div style={{
-                  position: 'absolute', bottom: -2, right: -2, width: 22, height: 22, borderRadius: '50%',
-                  background: 'var(--surface)', border: '2px solid var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
-                }}>
-                  <Icon name="loader" size={12} color="var(--muted)" style={{ animation: 'spin 1s linear infinite' }} />
+              {integrationsLoading ? (
+                <div style={{ width: 72, height: 72, borderRadius: '50%', border: '1px solid var(--border)', overflow: 'hidden' }}>
+                  <div style={{ width: '100%', height: '100%', borderRadius: '50%', background: 'var(--surface-2)', animation: 'pulse 1.4s ease-in-out infinite' }} />
                 </div>
+              ) : (
+                <>
+                  <Avatar initials={getInitials(coachName)} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
+                  <div style={{
+                    position: 'absolute', inset: 0, borderRadius: '50%',
+                    background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    opacity: uploadingAvatar ? 1 : 0, transition: 'opacity 150ms',
+                  }}
+                    onMouseEnter={e => { if (!uploadingAvatar) e.currentTarget.style.opacity = '1'; }}
+                    onMouseLeave={e => { if (!uploadingAvatar) e.currentTarget.style.opacity = '0'; }}
+                  >
+                    <Icon name={uploadingAvatar ? 'loader' : 'camera'} size={18} color="#fff" style={uploadingAvatar ? { animation: 'spin 1s linear infinite' } : undefined} />
+                  </div>
+                </>
               )}
             </div>
             <input ref={avatarInputRef} type="file" accept="image/*" onChange={onAvatarChange} style={{ display: 'none' }} />
