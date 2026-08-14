@@ -1261,13 +1261,21 @@ a { color: inherit; text-decoration: none; }
   gap: 20px;
 }
 .next-call-banner-info { flex: 1; min-width: 0; }
-.next-call-banner-countdown { padding: 16px 20px; min-width: 110px; flex-shrink: 0; text-align: center; }
+.next-call-banner-side {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 110px;
+}
+.next-call-banner-countdown { padding: 10px 20px; text-align: center; }
+.next-call-banner-join-mobile { display: none; }
+.next-call-banner-join-desktop { display: flex; }
 @media (max-width: 640px) {
   .next-call-banner-top { align-items: flex-start; gap: 14px; }
-  .next-call-banner-countdown { padding: 8px 14px; min-width: 0; }
-  .next-call-banner-countdown > div:first-child { font-size: 16px !important; }
-  .next-call-banner-countdown > div:last-child { display: none; }
-  .next-call-banner-join { display: flex !important; width: 100%; justify-content: center; }
+  .next-call-banner-avatar { display: none !important; }
+  .next-call-banner-side { display: none; }
+  .next-call-banner-join-mobile { display: flex !important; width: 100%; justify-content: center; }
 }
 .main-content {
   display: flex;

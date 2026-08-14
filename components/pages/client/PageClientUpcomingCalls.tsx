@@ -48,12 +48,16 @@ export default function PageClientUpcomingCalls() {
       .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   }, [calls, todayKey]);
 
-  const nextCall = useMemo(() => {
+  // Strictement à venir (horodatage complet) — distinct de upcomingCalls qui garde
+  // les calls déjà passés dans la journée pour l'affichage groupé "Aujourd'hui".
+  const strictlyUpcoming = useMemo(() => {
     const now = Date.now();
     return calls
       .filter(c => c.scheduled_at && new Date(c.scheduled_at).getTime() >= now)
-      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime())[0] ?? null;
+      .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   }, [calls]);
+
+  const nextCall = strictlyUpcoming[0] ?? null;
 
   const groups = useMemo(() => {
     const tomorrowKey = (() => { const t = new Date(); t.setDate(t.getDate() + 1); return toDateKey(t); })();
@@ -78,7 +82,7 @@ export default function PageClientUpcomingCalls() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Calls</h1>
-          <p className="page-sub">{upcomingCalls.length} call{upcomingCalls.length !== 1 ? 's' : ''} à venir</p>
+          <p className="page-sub">{strictlyUpcoming.length} call{strictlyUpcoming.length !== 1 ? 's' : ''} à venir</p>
         </div>
       </div>
 

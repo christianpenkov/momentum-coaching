@@ -563,7 +563,7 @@ export default function PageClientCalls() {
                         <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
                           {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
                         </span>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : '#E1306C20', color: isCoachingCall(call) ? 'var(--accent)' : '#E1306C' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(call) ? 'var(--accent)' : 'var(--accent-brand)' }}>
                           {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
                         </span>
                       </div>
