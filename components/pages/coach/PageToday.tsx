@@ -119,7 +119,6 @@ export default function PageToday() {
             {dayCapitalized}
           </div>
           <h1 className="page-title">Bonjour{firstName ? ` ${firstName}` : ''}</h1>
-          <p className="page-sub">{callsToday.length} call{callsToday.length !== 1 ? 's' : ''} aujourd'hui</p>
         </div>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button type="button" onClick={() => setShowCreateCallModal(true)} className="btn-primary btn-primary-brand" style={{ fontSize: 13 }}>

@@ -381,7 +381,7 @@ export default function PageClientView() {
       </div>
 
       {/* Business du mois */}
-      <div className="grid-4" style={{ marginTop: 24 }}>
+      <div className="grid-4 client-kpi-grid" style={{ marginTop: 24 }}>
         <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Appels aujourd'hui</div>
           <div className="kpi-value">{callsToday.length}</div>
@@ -412,7 +412,7 @@ export default function PageClientView() {
         </div>
       </div>
 
-      <div className="grid-2" style={{ marginTop: 16, marginBottom: 22 }}>
+      <div className="grid-2 client-kpi-grid" style={{ marginTop: 16, marginBottom: 22 }}>
         <div className="card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash contracté</div>
           <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashContractedAllTime.toLocaleString('fr-FR')} €</div>
