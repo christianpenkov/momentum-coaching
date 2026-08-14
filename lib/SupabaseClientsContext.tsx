@@ -4,16 +4,21 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { createClient } from '@/lib/supabase/client';
 import type { Task } from '@/lib/supabase/types';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
-import { computeSalesCallStats } from '@/lib/salesCallStats';
+import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled } from '@/lib/salesCallStats';
+import { getPeriodWindow } from '@/lib/period';
 
 export interface CoachBusinessData {
   cashContracted: number;
+  cashContractedThisMonth: number;
   cashCollected: number | null;
   cashCollectedAllTime: number | null;
+  cashCollectedThisMonth: number | null;
+  prospectCallsBooked: number;
   prospectCallsBookedThisMonth: number;
   closingRate: number;
+  closingRateThisMonth: number;
+  leadsAllTimeCount: number;
   leadsThisMonthCount: number;
-  coachLeadsThisMonthCount: number;
 }
 
 interface SupabaseClientsContextValue {
@@ -32,12 +37,16 @@ interface SupabaseClientsContextValue {
 
 const EMPTY_BUSINESS: CoachBusinessData = {
   cashContracted: 0,
+  cashContractedThisMonth: 0,
   cashCollected: null,
   cashCollectedAllTime: null,
+  cashCollectedThisMonth: null,
+  prospectCallsBooked: 0,
   prospectCallsBookedThisMonth: 0,
   closingRate: 0,
+  closingRateThisMonth: 0,
+  leadsAllTimeCount: 0,
   leadsThisMonthCount: 0,
-  coachLeadsThisMonthCount: 0,
 };
 
 const SupabaseClientsContext = createContext<SupabaseClientsContextValue | null>(null);
@@ -74,9 +83,9 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const profileIds = (rawClients || []).map((c: any) => c.profile_id).filter(Boolean);
 
       const now = new Date();
-      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+      const startOfMonth = getPeriodWindow(0, 'month').periodStart.toISOString();
 
-      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, callsThisMonthRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, leadsThisMonthRes, coachIgLeadsRes, coachProspectsRes, clientPaymentsRes, salesCallsRes] = await Promise.all([
+      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, salesCallsRes, manualCallsRes, igLeadsCounts] = await Promise.all([
         // Dernier snapshot par élève pour followers IG/YT + MRR actuels — remplace
         // weekly_metrics (jamais écrite par aucun cron, table morte). Fenêtre de 3
         // jours glissants pour tolérer un jour de cron manqué ; on garde ensuite le
@@ -99,12 +108,6 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         profileIds.length > 0
           ? supabase.from('profiles').select('id, avatar_url, full_name').in('id', profileIds)
           : { data: [], error: null },
-        // Requête dédiée aux agrégats "Ton business" : bornée par date (mois en cours),
-        // pas par limit(100) comme calls ci-dessus (R3-10) — évite de tronquer les KPIs
-        // business dès que le coach dépasse 100 calls récents tous flux confondus.
-        supabase.from('calls').select('*').eq('coach_id', user.id)
-          .neq('ignored', true)
-          .gte('created_at', startOfMonth),
         profileIds.length > 0
           ? supabase.from('integrations').select('profile_id, provider').in('profile_id', profileIds)
           : { data: [], error: null },
@@ -114,24 +117,29 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         profileIds.length > 0
           ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds)
           : { data: [], error: null },
-        profileIds.length > 0
-          ? supabase.from('instagram_leads').select('id', { count: 'exact', head: true }).in('profile_id', profileIds).gte('detected_at', startOfMonth)
-          : { count: 0 },
-        // Stats personnelles du coach (distinctes de ses élèves) : "Leads générés" ce mois
-        supabase.from('instagram_leads').select('id', { count: 'exact', head: true })
-          .eq('profile_id', user.id).gte('detected_at', startOfMonth),
-        supabase.from('prospects').select('id', { count: 'exact', head: true })
-          .eq('profile_id', user.id).gte('created_at', startOfMonth),
         // Cash collecté all-time par élève (agrégat + tendance sparkbar, PageClients.tsx)
         profileIds.length > 0
           ? supabase.from('stripe_payments').select('profile_id, amount, date').in('profile_id', profileIds).order('date', { ascending: true })
           : { data: [], error: null },
-        // Calls de vente par élève pour le closing rate — coach_id de la table calls
-        // = profile_id de l'élève, pas le coach humain (piège documenté dans
-        // docs/calls-coach-id-piege.md).
+        // Calls de vente calendly par élève — coach_id de la table calls = profile_id
+        // de l'élève, pas le coach humain (piège documenté dans docs/calls-coach-id-piege.md).
         profileIds.length > 0
           ? supabase.from('calls').select('*').in('coach_id', profileIds).eq('call_type', 'calendly').neq('ignored', true)
           : { data: [], error: null },
+        // Calls manuels (créés via le pipeline élève, drag vers "Call booké") : pas
+        // concernés par le piège coach_id, client_id reste fiable ici.
+        ids.length > 0
+          ? supabase.from('calls').select('*').in('client_id', ids).eq('call_type', 'manual').neq('ignored', true)
+          : { data: [], error: null },
+        // Leads (IG 3-sources + calls YT bookés) par élève, all-time (borné par
+        // l'onboarding de CET élève) et ce mois — même formule que
+        // PageClientDetail.tsx / useClientSelfData (élève), pour ne pas dupliquer
+        // 3 fois une logique de dédup déjà subtile.
+        Promise.all((rawClients || []).filter((c: any) => c.profile_id).map(async (c: any) => ({
+          profileId: c.profile_id as string,
+          allTime: await fetchIgLeadsCount(supabase, c.profile_id, c.onboarding_completed_at ?? null),
+          thisMonth: await fetchIgLeadsCount(supabase, c.profile_id, startOfMonth),
+        }))),
       ]);
 
       if (snapshotsRes.error) throw snapshotsRes.error;
@@ -139,15 +147,12 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (sessionReportsRes.error) throw sessionReportsRes.error;
       if (callsRes.error) throw callsRes.error;
       if (avatarsRes.error) throw avatarsRes.error;
-      if (callsThisMonthRes.error) throw callsThisMonthRes.error;
       if (integrationsRes.error) throw integrationsRes.error;
       if (stripePaymentsRes.error) throw stripePaymentsRes.error;
       if (stripePaymentsAllTimeRes.error) throw stripePaymentsAllTimeRes.error;
-      if ('error' in leadsThisMonthRes && leadsThisMonthRes.error) throw leadsThisMonthRes.error;
-      if (coachIgLeadsRes.error) throw coachIgLeadsRes.error;
-      if (coachProspectsRes.error) throw coachProspectsRes.error;
       if (clientPaymentsRes.error) throw clientPaymentsRes.error;
       if (salesCallsRes.error) throw salesCallsRes.error;
+      if (manualCallsRes.error) throw manualCallsRes.error;
 
       // Snapshots triés desc par date → pour chaque métrique, on garde la première
       // valeur non-null rencontrée par profil (pas juste le tout premier snapshot :
@@ -169,11 +174,24 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       });
 
       // Calls de vente groupés par profile_id élève (coach_id de `calls` = profile_id
-      // élève, voir docs/calls-coach-id-piege.md) — utilisés pour le closing rate.
+      // élève, voir docs/calls-coach-id-piege.md) — calendly + manual fusionnés,
+      // utilisés pour le closing rate / cash contracté / calls bookés.
       const salesCallsByProfile: Record<string, any[]> = {};
       (salesCallsRes.data || []).forEach((c: any) => {
         if (!salesCallsByProfile[c.coach_id]) salesCallsByProfile[c.coach_id] = [];
         salesCallsByProfile[c.coach_id].push(c);
+      });
+      const clientIdToProfileId: Record<string, string> = {};
+      (rawClients || []).forEach((c: any) => { if (c.profile_id) clientIdToProfileId[c.id] = c.profile_id; });
+      (manualCallsRes.data || []).forEach((c: any) => {
+        const pid = clientIdToProfileId[c.client_id];
+        if (!pid) return;
+        if (!salesCallsByProfile[pid]) salesCallsByProfile[pid] = [];
+        salesCallsByProfile[pid].push(c);
+      });
+      const igLeadsCountByProfile: Record<string, { allTime: number; thisMonth: number }> = {};
+      (igLeadsCounts as { profileId: string; allTime: number; thisMonth: number }[]).forEach(l => {
+        igLeadsCountByProfile[l.profileId] = { allTime: l.allTime, thisMonth: l.thisMonth };
       });
 
       const tasksMap: Record<string, any[]> = {};
@@ -206,6 +224,10 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const REQUIRED_PROVIDERS = ['instagram', 'calendly', 'youtube', 'stripe', 'shortio'];
 
       const now2 = new Date();
+      // Accumulé pendant la boucle ci-dessous pour l'agrégation business (all-time
+      // et ce mois) — chaque élève contribue depuis SA propre date d'onboarding,
+      // pas une borne unique pour tout le coach.
+      const allSalesCallsAllStudents: any[] = [];
       setClients((rawClients || []).map((c: any) => {
         const snap = c.profile_id ? latestSnapByProfile[c.profile_id] : null;
         // Cash contracté depuis la création réelle du compte Momentum de l'élève
@@ -215,6 +237,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         const salesCalls = c.onboarding_completed_at
           ? allSalesCalls.filter((call: any) => call.scheduled_at >= c.onboarding_completed_at)
           : allSalesCalls;
+        allSalesCallsAllStudents.push(...salesCalls);
         const currentStats = c.profile_id ? {
           followersIg: snap?.ig_followers ?? 0,
           followersYt: snap?.yt_subscribers ?? 0,
@@ -260,12 +283,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       }));
       setCalls(callsRes.data || []);
 
-      const callsThisMonth: import('@/lib/supabase/types').Call[] = callsThisMonthRes.data || [];
-      const prospectCallsThisMonth = callsThisMonth.filter(c => c.call_type === 'calendly' || c.call_type === 'manual');
-      const callsHonores = callsThisMonth.filter(c => c.status === 'active' || c.session_completed).length;
-      const dealsCloses = callsThisMonth.filter(c => c.deal_closed).length;
-      const cashContracted = callsThisMonth.reduce((s, c) => s + (c.revenue || 0), 0);
-      const closingRate = callsHonores > 0 ? Math.round((dealsCloses / callsHonores) * 100) : 0;
+      // All-time : taux recalculé sur les totaux agrégés (pas une moyenne des
+      // taux par élève) — un élève à 50 calls pèse plus qu'un élève à 1 call.
+      const allTimeStats = computeSalesCallStats(allSalesCallsAllStudents, now2);
+      const callsThisMonth = allSalesCallsAllStudents.filter((c: any) => (c.scheduled_at ?? '') >= startOfMonth);
+      const thisMonthStats = computeSalesCallStats(callsThisMonth, now2);
 
       const stripeConnected = (integrationsRes.data || []).some((row: any) => row.provider === 'stripe');
       const cashCollected = stripeConnected
@@ -275,14 +297,23 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
         : null;
 
+      const leadsAllTime = Object.values(igLeadsCountByProfile).reduce((s, l) => s + l.allTime, 0);
+      const leadsThisMonthTotal = Object.values(igLeadsCountByProfile).reduce((s, l) => s + l.thisMonth, 0);
+      const ytBookedAllTime = allSalesCallsAllStudents.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
+      const ytBookedThisMonth = callsThisMonth.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
+
       setBusiness({
-        cashContracted,
+        cashContracted: allTimeStats.cashContracted,
+        cashContractedThisMonth: thisMonthStats.cashContracted,
         cashCollected,
         cashCollectedAllTime,
-        prospectCallsBookedThisMonth: prospectCallsThisMonth.length,
-        closingRate,
-        leadsThisMonthCount: leadsThisMonthRes.count || 0,
-        coachLeadsThisMonthCount: (coachIgLeadsRes.count || 0) + (coachProspectsRes.count || 0),
+        cashCollectedThisMonth: cashCollected,
+        prospectCallsBooked: allTimeStats.callsBookedCount,
+        prospectCallsBookedThisMonth: thisMonthStats.callsBookedCount,
+        closingRate: allTimeStats.closingRate,
+        closingRateThisMonth: thisMonthStats.closingRate,
+        leadsAllTimeCount: leadsAllTime + ytBookedAllTime,
+        leadsThisMonthCount: leadsThisMonthTotal + ytBookedThisMonth,
       });
     } catch (e: any) {
       setError(e.message || 'Erreur chargement');
