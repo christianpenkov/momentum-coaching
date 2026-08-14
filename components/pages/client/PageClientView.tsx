@@ -401,7 +401,7 @@ export default function PageClientView() {
         </div>
       </div>
 
-      <div className="grid-2" style={{ marginTop: 16, marginBottom: 32 }}>
+      <div className="grid-2" style={{ marginTop: 16, marginBottom: 22 }}>
         <div className="card kpi-card" style={{ padding: '16px 20px' }}>
           <div className="kpi-label">Cash contracté</div>
           <div className="kpi-value" style={{ color: 'var(--green)' }}>{cashContracted.toLocaleString('fr-FR')} €</div>
