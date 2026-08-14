@@ -770,11 +770,14 @@ async function snapshotOldDomainLinks(
   if (!oldDomains.length) return errors;
 
   // Pause avant le premier appel — laisse retomber la rafale du domaine actif juste avant
-  // (fetchShortioLinks, last_clicks, stats domaine et par lien). Un échec 429 malgré cette
-  // pause n'est pas retenté ici : ce n'est pas grave, errors.push + continue préservent le
-  // run (pas de crash), et ce même domaine sera retenté au prochain passage du cron 5 min
-  // plus tard — pas besoin d'un backoff sophistiqué pour un cas déjà rare et non bloquant.
-  await new Promise(r => setTimeout(r, 1500));
+  // (snapshotShortioLinks tire ~2 appels/lien en Promise.allSettled, ex. ~40 requêtes
+  // simultanées pour 20 liens, plus les stats domaine J-1/J-0). Mesuré en prod le 2026-08-14 :
+  // 1.5s ne suffisait pas — 429 quasi systématique sur cet appel pendant ~5h de runs cron
+  // consécutifs (logs function_logs). 5s laisse largement retomber la fenêtre de rate-limit
+  // Short.io. Un échec malgré cette pause n'est toujours pas retenté ici : errors.push +
+  // continue préservent le run (pas de crash), rattrapé au prochain passage du cron 5 min
+  // plus tard.
+  await new Promise(r => setTimeout(r, 5000));
 
   for (const oldDomain of oldDomains) {
     try {
