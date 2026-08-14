@@ -158,34 +158,20 @@ export default function PageClientView() {
                 </a>
               )}
             </div>
-            <div className="next-call-banner-side">
-              <div className="next-call-banner-countdown" style={{ background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center' }}>
-                {(() => {
-                  const days = daysUntil(nextCall.scheduled_at!);
-                  return (
-                    <>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
-                        {days <= 0 ? 'Auj.' : `J-${days}`}
-                      </div>
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                        {days <= 0 ? "aujourd'hui" : days === 1 ? 'demain' : `dans ${days}j`}
-                      </div>
-                    </>
-                  );
-                })()}
-              </div>
-              {(nextCall.join_url || nextCall.meet_link) && (
-                <a
-                  href={nextCall.join_url || nextCall.meet_link || '#'}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn-primary-brand next-call-banner-join-desktop"
-                  style={{ alignItems: 'center', justifyContent: 'center', gap: 6, fontSize: 13, padding: '8px 16px' }}
-                >
-                  <Icon name="phone-call" size={14} />
-                  Rejoindre
-                </a>
-              )}
+            <div className="next-call-banner-countdown" style={{ background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center' }}>
+              {(() => {
+                const days = daysUntil(nextCall.scheduled_at!);
+                return (
+                  <>
+                    <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                      {days <= 0 ? 'Auj.' : `J-${days}`}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                      {days <= 0 ? "aujourd'hui" : days === 1 ? 'demain' : `dans ${days}j`}
+                    </div>
+                  </>
+                );
+              })()}
             </div>
           </div>
         </div>
