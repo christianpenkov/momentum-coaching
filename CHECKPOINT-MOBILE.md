@@ -32,12 +32,12 @@
 
 ## Prochaine étape — UX/UI messagerie
 
-Animations à ajouter :
-- Bulles messages : slide+fade à l'envoi (déjà présent `.msg-bubble-in`)
-- Statuts message : envoyé / lu / vu (double coche style WhatsApp)
-- Indicateur "en ligne" dynamique
-- Player audio vocal custom (au lieu du `<audio>` natif gris)
-- Indicateur "est en train d'écrire..."
+✅ **Tous les points ci-dessous confirmés FAITS le 2026-08-14** (des deux côtés, coach `PageChat.tsx` et élève `PageClientMessages.tsx`) — ce chantier UX est clos, voir plan mobile en cours pour la suite (audit visuel global) :
+- ~~Bulles messages : slide+fade à l'envoi~~ — `.msg-bubble-in`
+- ~~Statuts message : envoyé / lu / vu (double coche style WhatsApp)~~ — composant `MessageStatus`, distingue lu/écouté pour les vocaux
+- ~~Indicateur "en ligne" dynamique~~ — `lib/GlobalPresenceContext.tsx`
+- ~~Player audio vocal custom (au lieu du `<audio>` natif gris)~~ — composant `AudioBubble` avec waveform
+- ~~Indicateur "est en train d'écrire..."~~ — composant `TypingIndicator`, broadcast Realtime avec throttle 2s
 
 ## Infos clés projet
 - Supabase : `nvjgwtetyuatnkjihmtw` (eu-west-3)

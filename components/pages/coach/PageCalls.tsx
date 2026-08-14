@@ -178,7 +178,7 @@ export default function PageCalls() {
         const displayName = cl?.name || nextCall.invitee_name || '—';
         const isGoogle = (nextCall as { call_type?: string }).call_type === 'google';
         return (
-          <div className="card" style={{ marginBottom: 20, borderLeft: '4px solid var(--accent-brand)', padding: '24px 24px' }}>
+          <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '24px 24px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
@@ -232,7 +232,7 @@ export default function PageCalls() {
               const initials = cl?.initials || getInitials(displayName !== '—' ? displayName : null);
               const d = new Date(call.scheduled_at!);
               return (
-                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderLeft: '3px solid #f59e0b' }}>
+                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderLeft: '3px solid var(--amber)' }}>
                   <div style={{ minWidth: 70, textAlign: 'center' }}>
                     <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>
                       {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
@@ -299,7 +299,7 @@ export default function PageCalls() {
               const d = new Date(call.scheduled_at!);
               const isGoogle = (call as { call_type?: string }).call_type === 'google';
               return (
-                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
+                <div key={call.id} className="card call-row" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
                   <div style={{ minWidth: 80, textAlign: 'center', opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)', textDecoration: ['canceled','declined'].includes(call.status || '') ? 'line-through' : 'none' }}>
                       {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}

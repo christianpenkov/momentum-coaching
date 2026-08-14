@@ -1886,10 +1886,29 @@ a { color: inherit; text-decoration: none; }
   .kpi-card:nth-child(-n+2) { border-bottom: 1px solid var(--border-soft); }
   .kpi-value { font-size: 21px !important; }
   .kpi-label { font-size: 10.5px !important; }
+  /* Le label peut wrapper sur 2-3 lignes en 2 colonnes ; réserve la place du
+     chevron absolu (kpi-card--clickable::after) pour qu'il ne se superpose
+     jamais au texte, quel que soit le nombre de lignes du wrap. */
+  .kpi-card--clickable .kpi-label { padding-right: 14px; }
 
   /* PageToday — "Tous tes clients" : cards au lieu du tableau à scroll horizontal */
   .today-clients-table { display: none !important; }
   .today-clients-cards { display: block !important; }
+
+  /* PageCalls (coach) — la carte de call "à venir" empile jusqu'à 6 éléments
+     de largeur fixe sur une seule ligne flex (heure, séparateur, avatar, nom,
+     bouton(s) Rejoindre/Annuler, badge de statut) : ça ne tient pas sur 375px,
+     le texte déborde sous les boutons. Passe en grille 2 lignes sur mobile :
+     rang 1 = identité (heure + avatar + nom), rang 2 = actions, pleine largeur. */
+  .call-row {
+    flex-wrap: wrap !important;
+    row-gap: 10px !important;
+  }
+  .call-row > div:first-child { min-width: 56px !important; }
+  .call-row > div[style*="flex: 1"] {
+    flex-basis: 0 !important;
+    min-width: 120px !important;
+  }
 
 }
 

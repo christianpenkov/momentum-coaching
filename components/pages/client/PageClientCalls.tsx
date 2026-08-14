@@ -390,7 +390,7 @@ export default function PageClientCalls() {
               const call = pendingRapports[rapportIdx];
               if (!call) return null;
               return (
-                <div className="card" style={{ flex: 1, borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
@@ -438,7 +438,7 @@ export default function PageClientCalls() {
               const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
               const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
               return (
-                <div key={call.id} className="card" style={{ borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>TON COACH TE PROPOSE UN CALL</div>
@@ -494,7 +494,7 @@ export default function PageClientCalls() {
 
       {/* Prochain call */}
       {nextCall ? (
-        <div className="next-call-banner card" style={{ marginBottom: 24, borderLeft: '4px solid var(--accent-brand)', padding: '24px 28px' }}>
+        <div className="next-call-banner card" style={{ marginBottom: 24, borderLeft: '3px solid var(--accent-brand)', padding: '24px 28px' }}>
           <div className="next-call-banner-top">
             <Avatar
               initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
@@ -541,7 +541,7 @@ export default function PageClientCalls() {
           </div>
         </div>
       ) : hasCalendly ? (
-        <div className="card" style={{ padding: '32px 24px', textAlign: 'center', marginBottom: 24, borderLeft: '4px solid var(--border)' }}>
+        <div className="card" style={{ padding: '32px 24px', textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun call planifié pour le moment.</div>
         </div>
       ) : null}
@@ -658,7 +658,7 @@ export default function PageClientCalls() {
             {canceledCalls.map(call => {
               const isDeclined = call.status === 'declined';
               return (
-                <div key={call.id} className="card" style={{ borderLeft: '3px solid #ef4444', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
+                <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--red)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
                   <div style={{ flex: 1, minWidth: 0, opacity: 0.6 }}>
                     <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'line-through' }}>{call.topic || 'Call coaching'}</div>
                     {call.scheduled_at && (

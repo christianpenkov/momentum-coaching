@@ -148,7 +148,7 @@ export default function PageToday() {
               const call = calls.find(c => c.id === notif.callId);
               const client = call ? clients.find(c => c.id === call.client_id) : null;
               return (
-                <div className="card" style={{ flex: 1, borderLeft: '4px solid var(--accent-brand)', padding: '18px 20px' }}>
+                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)', marginBottom: 4 }}>

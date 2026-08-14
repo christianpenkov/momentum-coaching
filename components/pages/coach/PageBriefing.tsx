@@ -72,7 +72,7 @@ export default function PageBriefing({ id }: Props) {
 
       <div className="grid-2">
         {/* TL;DR */}
-        <div className="card" style={{ borderLeft: '3px solid var(--accent)' }}>
+        <div className="card" style={{ borderLeft: '3px solid var(--accent-brand)' }}>
           <div className="card-head">
             <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <Icon name="zap" size={15} /> TL;DR

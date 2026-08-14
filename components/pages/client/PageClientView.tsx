@@ -124,7 +124,7 @@ export default function PageClientView() {
 
       {/* Prochain call */}
       {nextCall?.scheduled_at && (
-        <div className="next-call-banner card" style={{ marginBottom: 20, borderLeft: '4px solid var(--accent-brand)', padding: '20px' }}>
+        <div className="next-call-banner card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '20px' }}>
           <div className="next-call-banner-top">
             <Avatar
               initials={getCallCounterpart(nextCall).initials || getInitials(getCallCounterpart(nextCall).name)}
@@ -189,7 +189,7 @@ export default function PageClientView() {
             {callRequestNotifs.length} demande{callRequestNotifs.length > 1 ? 's' : ''} de call en attente
           </div>
           {callRequestNotifs.map(notif => (
-            <div key={notif.id} className="card" style={{ borderLeft: '4px solid var(--accent)', padding: '18px 20px', marginBottom: 10 }}>
+            <div key={notif.id} className="card" style={{ borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div>
                   <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>DEMANDE DE CALL COACHING</div>
@@ -232,7 +232,7 @@ export default function PageClientView() {
               const notif = rapportNotifs[rapportIdx];
               if (!notif) return null;
               return (
-                <div className="card" style={{ flex: 1, borderLeft: '4px solid #f59e0b', padding: '18px 20px' }}>
+                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
                       <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
