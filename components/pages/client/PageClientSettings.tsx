@@ -267,11 +267,7 @@ export default function PageClientSettings() {
               className="tap-scale"
               style={{ position: 'relative', width: 72, height: 72, borderRadius: '50%', cursor: uploadingAvatar ? 'default' : 'pointer', flexShrink: 0 }}
             >
-              {integrationsLoading ? (
-                <div style={{ width: 72, height: 72, borderRadius: '50%', background: 'var(--surface-2)', animation: 'pulse 1.4s ease-in-out infinite' }} />
-              ) : (
-                <Avatar initials={getInitials(name)} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
-              )}
+              <Avatar initials={getInitials(name)} avatarUrl={avatarUrl} size={72} seed={profileId || undefined} />
               <div style={{
                 position: 'absolute', inset: 0, borderRadius: '50%',
                 background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -282,6 +278,15 @@ export default function PageClientSettings() {
               >
                 <Icon name={uploadingAvatar ? 'loader' : 'camera'} size={18} color="#fff" style={uploadingAvatar ? { animation: 'spin 1s linear infinite' } : undefined} />
               </div>
+              {integrationsLoading && (
+                <div style={{
+                  position: 'absolute', bottom: -2, right: -2, width: 22, height: 22, borderRadius: '50%',
+                  background: 'var(--surface)', border: '2px solid var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.15)',
+                }}>
+                  <Icon name="loader" size={12} color="var(--muted)" style={{ animation: 'spin 1s linear infinite' }} />
+                </div>
+              )}
             </div>
             <input ref={avatarInputRef} type="file" accept="image/*" onChange={onAvatarChange} style={{ display: 'none' }} />
             <div style={{ fontSize: 12, color: 'var(--muted)' }}>
