@@ -769,15 +769,18 @@ async function snapshotOldDomainLinks(
   const oldDomains = allDomains.filter(d => String(d.id) !== String(activeDomainId));
   if (!oldDomains.length) return errors;
 
-  // Pause avant le premier appel — laisse retomber la rafale du domaine actif juste avant
-  // (snapshotShortioLinks tire ~2 appels/lien en Promise.allSettled, ex. ~40 requêtes
-  // simultanées pour 20 liens, plus les stats domaine J-1/J-0). Mesuré en prod le 2026-08-14 :
-  // 1.5s ne suffisait pas — 429 quasi systématique sur cet appel pendant ~5h de runs cron
-  // consécutifs (logs function_logs). 5s laisse largement retomber la fenêtre de rate-limit
-  // Short.io. Un échec malgré cette pause n'est toujours pas retenté ici : errors.push +
-  // continue préservent le run (pas de crash), rattrapé au prochain passage du cron 5 min
-  // plus tard.
-  await new Promise(r => setTimeout(r, 5000));
+  // Cause confirmée en prod le 2026-08-14 via instrumentation des headers de réponse :
+  // Short.io renvoie x-ratelimit-limit=60, x-ratelimit-remaining=0, x-ratelimit-reset=48
+  // sur cet endpoint précis. Le quota (60 req/fenêtre) était déjà épuisé au moment de
+  // l'appel, avec ~48s avant réinitialisation — largement au-delà des pauses fixes
+  // testées avant (1.5s puis 5s, toutes deux sans effet, cf. git blame). Cause probable :
+  // ce domaine "ancien" pour ce profil est le domaine ACTIF d'autres profils du même
+  // run cron (vérifié en base : 2 autres profils ont ubizenai.s.gy comme domaine actif),
+  // dont les propres appels last_clicks/statistics consomment le même quota avant que
+  // ce profil-ci ne tente le sien. Fix : lire x-ratelimit-reset et attendre ce délai
+  // exact (avec un plafond, budget total de l'Edge Function = 150s) avant un unique
+  // retry, plutôt que deviner un délai fixe qui ne correspond pas au vrai temps de reset.
+  const MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
   for (const oldDomain of oldDomains) {
     try {
@@ -793,23 +796,22 @@ async function snapshotOldDomainLinks(
       if (!momentumLinks.length) continue;
 
       const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-      const lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
+      const callLastClicks = () => fetch(`https://api-v2.short.io/statistics/domain/${oldDomain.id}/last_clicks`, {
         method: 'POST',
         headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
         body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
       });
-      if (!lcRes.ok) {
-        // Instrumentation temporaire (2026-08-14) : le 429 sur cet endpoint est quasi
-        // systématique et ne s'est pas résorbé en allongeant la pause avant l'appel
-        // (1.5s puis 5s, aucune différence). Avant de deviner un nouveau délai, on
-        // capture les headers bruts de la réponse — si Short.io envoie Retry-After ou
-        // X-RateLimit-* (non documenté publiquement mais possible en pratique), c'est
-        // la seule source fiable pour un vrai backoff. À retirer une fois la cause confirmée.
-        const headerDump: Record<string, string> = {};
-        lcRes.headers.forEach((v, k) => { headerDump[k] = v; });
-        errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status} headers=${JSON.stringify(headerDump)}`);
-        continue;
+
+      let lcRes = await callLastClicks();
+      if (lcRes.status === 429) {
+        const resetSeconds = Number(lcRes.headers.get('x-ratelimit-reset'));
+        const waitMs = Number.isFinite(resetSeconds) && resetSeconds > 0
+          ? Math.min(resetSeconds * 1000 + 1000, MAX_RATE_LIMIT_WAIT_MS)
+          : 10_000; // fallback si le header est absent — ne devrait pas arriver, cf. observation prod
+        await new Promise(r => setTimeout(r, waitMs));
+        lcRes = await callLastClicks();
       }
+      if (!lcRes.ok) { errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status}`); continue; }
 
       const lcData = await safeJson(lcRes);
       const rawClicks: { path: string; dt: string; human: boolean }[] = lcData?.clicks ?? lcData ?? [];
