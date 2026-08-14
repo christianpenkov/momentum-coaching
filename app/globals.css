@@ -1545,16 +1545,15 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--border);
   border-radius: var(--r-xl);
   box-shadow: var(--shadow-card);
-  /* Un label plus long (sur 2-3 lignes) pousse sinon la valeur plus bas que
-     dans les cartes voisines de la même rangée — le corps (valeur + badges)
-     reste toujours ancré à la base de la carte, aligné entre toutes les
-     cartes du rang, quelle que soit la longueur du label au-dessus. */
+  /* Colonne flexible : la valeur reste juste sous le label (comme une carte
+     sans contenu additionnel) ; seul le badge/delta/viz optionnel est ancré
+     en bas via le spacer flexible inséré avant lui (voir KpiRibbon.tsx) —
+     évite qu'une carte sans sous-contenu ait sa valeur isolée tout en bas. */
   display: flex;
   flex-direction: column;
 }
 .kpi-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8; }
-.kpi-card-body { margin-top: auto; padding-top: 6px; }
-.kpi-card .kpi-value { margin-bottom: 0; }
+.kpi-card .kpi-value { margin-top: 6px; margin-bottom: 0; }
 .kpi-card-badges { margin-top: 6px; }
 /* Affordance statique (pas seulement au survol, qui n'existe pas sur tactile) pour
    distinguer un KPI cliquable des autres du ruban — jour 7 design structurel. */
