@@ -75,7 +75,7 @@ export function useClientSelfData() {
 
       const [
         tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
-        nextCallRes, callsTodayRes, callsAllTimeRes, leadsAllTimeRes, leadsThisMonthRes,
+        nextCallRes, callsTodayRes, salesCallsAllTimeRes, manualCallsAllTimeRes, leadsAllTimeRes, leadsThisMonthRes,
         stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, ownProfileRes,
       ] = await Promise.all([
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
@@ -95,12 +95,24 @@ export function useClientSelfData() {
           .eq('status', 'active')
           .neq('ignored', true)
           .gte('scheduled_at', startOfToday).lt('scheduled_at', startOfTomorrow),
-        // All-time (depuis onboarding_completed_at si connu) : pas de filtre de
-        // statut ici, computeSalesCallStats() fait son propre filtrage en interne
-        // (isNotCanceled + isCallHonored) et doit rester la seule source de vérité.
+        // Calls calendly (vente) : piège calls.coach_id — cette colonne contient en
+        // réalité le profile_id de l'élève pour les calls calendly, jamais client_id
+        // (systématiquement NULL). Voir docs/calls-coach-id-piege.md.
+        // computeSalesCallStats() fait son propre filtrage de statut en interne.
+        clientRow.profile_id
+          ? (() => {
+              let q = supabase.from('calls').select('*').eq('coach_id', clientRow.profile_id)
+                .eq('call_type', 'calendly')
+                .neq('ignored', true);
+              if (onboardingStart) q = q.gte('created_at', onboardingStart);
+              return q;
+            })()
+          : Promise.resolve({ data: [] }),
+        // Calls manuels : pas concernés par le piège coach_id (non documenté comme
+        // tel), client_id reste fiable ici.
         (() => {
           let q = supabase.from('calls').select('*').eq('client_id', clientRow.id)
-            .in('call_type', ['calendly', 'manual'])
+            .eq('call_type', 'manual')
             .neq('ignored', true);
           if (onboardingStart) q = q.gte('created_at', onboardingStart);
           return q;
@@ -136,7 +148,7 @@ export function useClientSelfData() {
       // "Bookés"/closing/cash contracté ne comptent que les calls prospects
       // (calendly/manual, déjà filtré côté requête) — les calls coaching (google)
       // n'ont pas de notion de deal closé/revenue et fausseraient ces stats.
-      const allSalesCalls: Call[] = callsAllTimeRes.data || [];
+      const allSalesCalls: Call[] = [...(salesCallsAllTimeRes.data || []), ...(manualCallsAllTimeRes.data || [])];
       const allTimeStats = computeSalesCallStats(allSalesCalls, now);
       const callsBookedAllTime = allTimeStats.callsBookedCount;
       const cashContractedAllTime = allTimeStats.cashContracted;
