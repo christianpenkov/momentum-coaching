@@ -24,6 +24,17 @@ interface Props {
   showJoinButton?: boolean;
 }
 
+// Même style que le badge Coaching/Prospect de PageCalls.tsx (coach) et
+// PageClientCalls.tsx (élève) — réutilisé ici pour rester cohérent partout
+// où un call est affiché.
+function CallTypeBadge({ isGoogle }: { isGoogle: boolean }) {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)', whiteSpace: 'nowrap' }}>
+      {isGoogle ? 'Coaching' : 'Prospect'}
+    </span>
+  );
+}
+
 export default function CallStack({ calls, getClient, showJoinButton }: Props) {
   // Recalcule quel call est "actif" chaque minute, pour que l'encadré se déplace
   // au bon call sans action utilisateur.
@@ -60,7 +71,10 @@ export default function CallStack({ calls, getClient, showJoinButton }: Props) {
           }}>
             <Avatar initials={client?.initials || getInitials(client?.name)} avatarUrl={client?.avatar_url} size={36} seed={client?.id} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client?.name || '—'}</div>
+                <CallTypeBadge isGoogle={call.call_type === 'google'} />
+              </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic || 'Call coaching'}</div>
             </div>
             <div style={{ textAlign: 'right', flexShrink: 0, display: 'flex', alignItems: 'center', gap: 8 }}>

@@ -65,10 +65,10 @@ export default function PageClientCalendarMobile() {
 
       {selectedDay && typeof document !== 'undefined' && createPortal(
         <div
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 2000 }}
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 'calc(64px + env(safe-area-inset-bottom) + 6px)', background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'flex-end', justifyContent: 'center', zIndex: 2000 }}
           onClick={e => { if (e.target === e.currentTarget) setSelectedDay(null); }}
         >
-          <div className="card" style={{ width: '100%', maxWidth: 480, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: 20, paddingBottom: 'calc(env(safe-area-inset-bottom) + 20px)' }}>
+          <div className="card" style={{ width: '100%', maxWidth: 480, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: 20, paddingBottom: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
               <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
             </div>
