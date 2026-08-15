@@ -6,7 +6,7 @@ import Ring from '@/components/ui/Ring';
 import Icon from '@/components/ui/Icon';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { createClient } from '@/lib/supabase/client';
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
 import { useUser } from '@/lib/UserContext';
 import RapportModal from '@/components/ui/RapportModal';
@@ -17,6 +17,7 @@ import { getClientWeek } from '@/lib/clientWeek';
 import CallStack from '@/components/ui/CallStack';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import type { Call } from '@/lib/supabase/types';
+import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -39,12 +40,12 @@ function CallRequestInlineButtons({ callId, onRefresh }: { callId: string; onRef
   if (state === 'done') return <span style={{ fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>✓ Réponse envoyée</span>;
   return (
     <>
-      <button type="button" onClick={() => respond('accepted')} disabled={state !== 'idle'}
-        style={{ fontSize: 12, fontWeight: 700, background: 'var(--accent-brand)', color: '#fff', border: 'none', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
+      <button type="button" className="btn-primary-brand" onClick={() => respond('accepted')} disabled={state !== 'idle'}
+        style={{ fontSize: 12, padding: '7px 14px' }}>
         {state === 'accepting' ? '…' : 'Accepter'}
       </button>
-      <button type="button" onClick={() => respond('declined')} disabled={state !== 'idle'}
-        style={{ fontSize: 12, fontWeight: 700, background: 'none', color: '#ef4444', border: '1px solid #ef4444', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
+      <button type="button" className="btn-ghost call-action-decline" onClick={() => respond('declined')} disabled={state !== 'idle'}
+        style={{ fontSize: 12, fontWeight: 700, background: 'none', color: 'var(--red)', border: '1px solid var(--red)', borderRadius: 8, padding: '7px 14px', cursor: 'pointer' }}>
         {state === 'declining' ? '…' : 'Refuser'}
       </button>
     </>
@@ -63,6 +64,23 @@ function isCoachingCall(call: { call_type?: string | null } | null | undefined) 
   return call?.call_type === 'google';
 }
 
+const WIDGET_VISIBILITY_WINDOW_MS = 24 * 3600_000;
+
+// Widget d'accueil : même bascule que la page Calls (vers le suivant dès que le call
+// affiché est réellement terminé, peu importe le délai), MAIS n'affiche rien du tout
+// si le call à montrer est à plus de 24h — l'accueil est une alerte "call bientôt",
+// pas un calendrier complet (contrairement à la page Calls).
+function pickAccueilCall(list: Call[], now: number): Call | null {
+  const candidates = list.filter(c => c.scheduled_at && isCallJoinable(c, now));
+  if (candidates.length === 0) return null;
+  const current = candidates[0];
+  const next = candidates[1];
+  const displayed = (next && isCallReallyOver(current, now)) ? next : current;
+  if (!displayed.scheduled_at) return null;
+  const startsIn = new Date(displayed.scheduled_at).getTime() - now;
+  return startsIn <= WIDGET_VISIBILITY_WINDOW_MS ? displayed : null;
+}
+
 export default function PageClientView() {
   const { data: client, loading } = useClientSelfData();
   const [taskOverrides, setTaskOverrides] = useState<Record<string, boolean>>({});
@@ -73,6 +91,14 @@ export default function PageClientView() {
   const callRequestNotifs = notifs.filter(n => n.type === 'call_request');
   const [openRapport, setOpenRapport] = useState<typeof rapportNotifs[0] | null>(null);
   const [rapportIdx, setRapportIdx] = useState(0);
+
+  // Recalcul local chaque minute (bascule + fenêtre de grâce du widget "Prochain
+  // call") — zéro requête réseau, purement sur les données déjà en mémoire.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
 
   const toggleTask = useCallback(async (taskId: string, done: boolean) => {
     setTaskOverrides(prev => ({ ...prev, [taskId]: done }));
@@ -99,10 +125,11 @@ export default function PageClientView() {
   const progress = coachTasks.length > 0 ? Math.round((doneCount / coachTasks.length) * 100) : 0;
 
   const {
-    nextCall, callsToday,
+    upcomingCalls, callsToday,
     callsBookedAllTime, leadsAllTimeCount, cashContractedAllTime, cashCollectedAllTime, closingRateAllTime,
     callsBookedThisMonthCount, leadsThisMonthCount, cashContractedThisMonth, cashCollectedThisMonth, closingRateThisMonth,
   } = client.business;
+  const nextCall = pickAccueilCall(upcomingCalls, nowTick);
   const coachingCallsToday = callsToday.filter(isCoachingCall).length;
   const prospectCallsToday = callsToday.length - coachingCallsToday;
   const collectRate = cashContractedAllTime > 0 && cashCollectedAllTime !== null ? Math.round((cashCollectedAllTime / cashContractedAllTime) * 100) : null;
@@ -150,7 +177,7 @@ export default function PageClientView() {
               {isCoachingCall(nextCall) && nextCall.topic && (
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>{nextCall.topic}</div>
               )}
-              {(nextCall.join_url || nextCall.meet_link) && (
+              {(nextCall.join_url || nextCall.meet_link) && isCallJoinable(nextCall, nowTick) && (
                 <a
                   href={nextCall.join_url || nextCall.meet_link || '#'}
                   target="_blank"

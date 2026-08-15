@@ -3,7 +3,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Client, Task, Call, SessionReport } from '@/lib/supabase/types';
-import { isCallReallyOver } from '@/lib/sessionRapport';
 import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled } from '@/lib/salesCallStats';
 import { getPeriodWindow } from '@/lib/period';
 
@@ -28,7 +27,10 @@ export interface ClientWithMetrics extends Client {
 }
 
 export interface ClientSelfBusinessData {
-  nextCall: Call | null;
+  // Liste brute triée (pas un seul call déjà résolu) — le composant choisit lequel
+  // afficher, recalculé localement chaque minute (bascule + fenêtre de grâce), sans
+  // requête réseau supplémentaire. Voir components/pages/client/PageClientView.tsx.
+  upcomingCalls: Call[];
   callsToday: Call[];
   callsBookedAllTime: number;
   leadsAllTimeCount: number;
@@ -86,10 +88,13 @@ export function useClientSelfData() {
         // Pas de .limit(1) ici : un call peut avoir scheduled_at futur mais déjà un
         // rapport rempli (coach en avance) — filtré côté client via isCallReallyOver,
         // donc on doit pouvoir passer au suivant si le premier résultat est écarté.
+        // Marge de 2h avant `now` : inclut aussi les calls tout juste terminés (fenêtre
+        // de rattrapage isCallJoinable de 15min gérée côté client dans PageClientView.tsx),
+        // sans avoir à refaire une requête réseau pour ce cas précis.
         supabase.from('calls').select('*').eq('client_id', clientRow.id)
           .eq('status', 'active')
           .neq('ignored', true)
-          .gte('scheduled_at', now.toISOString())
+          .gte('scheduled_at', new Date(now.getTime() - 2 * 3600_000).toISOString())
           .order('scheduled_at', { ascending: true })
           .limit(5),
         supabase.from('calls').select('*').eq('client_id', clientRow.id)
@@ -186,7 +191,7 @@ export function useClientSelfData() {
         coachAvatarUrl,
         avatar_url: (ownProfileRes as { data: { avatar_url: string | null } | null }).data?.avatar_url ?? null,
         business: {
-          nextCall: (nextCallRes.data || []).find(c => !isCallReallyOver(c)) || null,
+          upcomingCalls: (nextCallRes.data || []) as Call[],
           callsToday: callsTodayRes.data || [],
           callsBookedAllTime,
           leadsAllTimeCount,
@@ -207,9 +212,9 @@ export function useClientSelfData() {
   }, []);
 
   // Realtime : le premier chargement ne voit que les calls existants au montage —
-  // sans ça, un call créé (ou accepté/refusé) après coup ne remplace jamais nextCall
+  // sans ça, un call créé (ou accepté/refusé) après coup ne remplace jamais upcomingCalls
   // tant que la page n'est pas rechargée. Refetch complet plutôt qu'un patch ciblé,
-  // pour garder nextCall/callsToday/les KPI all-time cohérents entre eux.
+  // pour garder upcomingCalls/callsToday/les KPI all-time cohérents entre eux.
   useEffect(() => {
     if (!clientId) return;
     const channel = supabase

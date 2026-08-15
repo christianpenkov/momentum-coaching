@@ -27,7 +27,7 @@ const NAV = [
     ),
   },
   {
-    href: '/client/calls-a-venir',
+    href: '/client/calls',
     label: 'Calls',
     icon: (
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round">

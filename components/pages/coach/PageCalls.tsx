@@ -5,10 +5,12 @@ import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import RapportModal from '@/components/ui/RapportModal';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { createClient } from '@/lib/supabase/client';
 import { getPendingSessionRapports, isCallReallyOver, isCallMissingRecording, isCallJoinable, isCallInProgress } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
@@ -64,6 +66,15 @@ export default function PageCalls() {
 
   // Modale de consultation (rapport déjà rempli + infos Fathom) — jamais de formulaire.
   const [infosModalCall, setInfosModalCall] = useState<{ call: Call; clientName: string | null } | null>(null);
+
+  // Rapport de vente pour les calls Calendly du coach lui-même (coach_id = son propre
+  // profile_id, cf. docs/calls-coach-id-piege.md). Jamais pour les calls de ses élèves.
+  const [userId, setUserId] = useState<string | null>(null);
+  useEffect(() => {
+    const supabase = createClient();
+    supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
+  }, []);
+  const [openSalesRapportCall, setOpenSalesRapportCall] = useState<{ callId: string; inviteeName: string | null; scheduledAt: string | null } | null>(null);
 
   // Force un recalcul du split upcoming/historique chaque minute, pour que la
   // bascule se fasse en temps réel sans dépendre uniquement des changements
@@ -268,6 +279,16 @@ export default function PageCalls() {
                   Rapport
                 </button>
               )}
+              {!isGoogle && call.coach_id === userId && call.outcome == null && (
+                <button
+                  type="button"
+                  className="btn-primary-brand"
+                  style={{ fontSize: 11, background: 'var(--accent-brand)', flexShrink: 0 }}
+                  onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
+                >
+                  Rapport
+                </button>
+              )}
               {call.status === 'canceled' ? (
                 <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Annulé</span>
               ) : call.status === 'declined' ? (
@@ -338,6 +359,15 @@ export default function PageCalls() {
                           className="btn-ghost"
                           style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
                           onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}
+                        >
+                          Rapport
+                        </button>
+                      ) : (!isGoogle && call.coach_id === userId && call.outcome == null) ? (
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
+                          onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
                         >
                           Rapport
                         </button>
@@ -619,6 +649,15 @@ export default function PageCalls() {
           studentName={openSessionRapportCall.clientName}
           scheduledAt={openSessionRapportCall.scheduledAt}
           onClose={() => { setOpenSessionRapportCall(null); refetch(); }}
+        />
+      )}
+
+      {openSalesRapportCall && (
+        <RapportModal
+          callId={openSalesRapportCall.callId}
+          inviteeName={openSalesRapportCall.inviteeName}
+          scheduledAt={openSalesRapportCall.scheduledAt}
+          onClose={() => { setOpenSalesRapportCall(null); refetch(); }}
         />
       )}
 

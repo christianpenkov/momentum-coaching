@@ -1,7 +1,7 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
@@ -9,6 +9,7 @@ import Icon from '@/components/ui/Icon';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import CallStack from '@/components/ui/CallStack';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import RapportModal from '@/components/ui/RapportModal';
 import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
@@ -16,16 +17,50 @@ import { useNotifications, type AppNotif } from '@/lib/useNotifications';
 import { getClientSignals, getAggregatedSignals } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
 import { isNotCanceled } from '@/lib/salesCallStats';
+import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
 import TrendBadge from '@/components/ui/TrendBadge';
+import type { Call } from '@/lib/supabase/types';
+
+const WIDGET_VISIBILITY_WINDOW_MS = 24 * 3600_000;
+
+// Widget "Prochain call" accueil coach — un seul call, tous types confondus (coaching
+// + vente), même bascule que la page Calls, mais n'affiche rien si à plus de 24h
+// (l'accueil est une alerte "call bientôt", pas un calendrier complet).
+function pickAccueilCall(calls: Call[], now: number): Call | null {
+  const candidates = calls
+    .filter(c => c.scheduled_at && c.status === 'active' && isCallJoinable(c, now))
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  if (candidates.length === 0) return null;
+  const current = candidates[0];
+  const next = candidates[1];
+  const displayed = (next && isCallReallyOver(current, now)) ? next : current;
+  const startsIn = new Date(displayed.scheduled_at!).getTime() - now;
+  return startsIn <= WIDGET_VISIBILITY_WINDOW_MS ? displayed : null;
+}
 
 export default function PageToday() {
   const { clients, calls, business, loading, refetch } = useSupabaseClients();
   const { user } = useUser();
   const [showCreateCallModal, setShowCreateCallModal] = useState(false);
   const { notifs, refresh: refreshNotifs } = useNotifications(user?.id ?? null, false);
-  const sessionRapportNotifs = notifs.filter(n => n.type === 'session_rapport');
+  // Fusionne rapports de session coaching (élèves) et rapports de call de vente (calls
+  // du coach lui-même, cf. useNotifications.ts) dans un seul carrousel, triés par date.
+  const rapportNotifs = notifs
+    .filter(n => n.type === 'session_rapport' || n.type === 'rapport_call')
+    .sort((a, b) => new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime());
   const [sessionRapportIdx, setSessionRapportIdx] = useState(0);
   const [openSessionRapport, setOpenSessionRapport] = useState<AppNotif | null>(null);
+  const [openSalesRapport, setOpenSalesRapport] = useState<AppNotif | null>(null);
+
+  // Recalcul local chaque minute (bascule du widget "Prochain call") — zéro requête
+  // réseau, purement sur les données déjà en mémoire (même pattern que PageCalls.tsx).
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const nextCall = pickAccueilCall(calls, nowTick);
 
   const activeCount = clients.length;
   const clientsWithSignals = clients.map(c => ({ client: c, signals: getClientSignals(c.tasks, c.sessionReports) }));
@@ -136,34 +171,97 @@ export default function PageToday() {
         </div>
       </div>
 
-      {/* Rapports de session en attente — carrousel avec flèches latérales (miroir du flux Calendly élève-prospect) */}
-      {sessionRapportNotifs.length > 0 && (
+      {/* Prochain call — un seul, tous types confondus (coaching + vente), même bascule
+          que la page Calls mais masqué si à plus de 24h (alerte, pas un calendrier). */}
+      {nextCall?.scheduled_at && (() => {
+        const cl = clients.find(c => c.id === nextCall.client_id);
+        const displayName = cl?.name || nextCall.invitee_name || '—';
+        const isGoogle = nextCall.call_type === 'google';
+        return (
+          <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '24px 24px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
+                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)' }}>
+                    {isGoogle ? 'Coaching' : 'Prospect'}
+                  </span>
+                </div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
+                  {new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                </div>
+                <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)', marginTop: 2 }}>
+                  {new Date(nextCall.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+                  {displayName}{nextCall.topic ? ` · ${nextCall.topic}` : ''}
+                </div>
+                {nextCall.join_url && isCallJoinable(nextCall, nowTick) && (
+                  <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, textDecoration: 'none', marginTop: 12, padding: '8px 16px', border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <Icon name="video" size={14} /> Rejoindre
+                  </a>
+                )}
+              </div>
+              <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
+                {(() => {
+                  const diffMs = new Date(nextCall.scheduled_at).getTime() - nowTick;
+                  const days = Math.ceil(diffMs / 86_400_000);
+                  return (
+                    <>
+                      <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--accent)', fontFamily: 'var(--font-mono)' }}>
+                        {days <= 0 ? 'Auj.' : `J-${days}`}
+                      </div>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                        {days <= 0 ? "aujourd'hui" : days === 1 ? 'demain' : `dans ${days}j`}
+                      </div>
+                    </>
+                  );
+                })()}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Rapports en attente — carrousel fusionné session coaching (élèves) + call de
+          vente (calls du coach lui-même), badge Coaching/Prospect pour distinguer. */}
+      {rapportNotifs.length > 0 && (
         <div style={{ marginBottom: 20 }}>
           <div className="eyebrow-lg" style={{ color: 'var(--accent-brand)', marginBottom: 10 }}>
-            {sessionRapportNotifs.length} rapport{sessionRapportNotifs.length > 1 ? 's' : ''} de session en attente
+            {rapportNotifs.length} rapport{rapportNotifs.length > 1 ? 's' : ''} en attente
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <button
               type="button"
               onClick={() => setSessionRapportIdx(i => Math.max(0, i - 1))}
-              disabled={sessionRapportIdx === 0 || sessionRapportNotifs.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === 0 ? 'default' : 'pointer', opacity: sessionRapportIdx === 0 || sessionRapportNotifs.length <= 1 ? 0.2 : 1 }}
+              disabled={sessionRapportIdx === 0 || rapportNotifs.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === 0 ? 'default' : 'pointer', opacity: sessionRapportIdx === 0 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
             >‹</button>
 
             {(() => {
-              const notif = sessionRapportNotifs[sessionRapportIdx];
+              const notif = rapportNotifs[sessionRapportIdx];
               if (!notif) return null;
+              const isSession = notif.type === 'session_rapport';
               const call = calls.find(c => c.id === notif.callId);
               const client = call ? clients.find(c => c.id === call.client_id) : null;
               return (
                 <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)', marginBottom: 4 }}>
-                        RAPPORT DE SESSION{sessionRapportNotifs.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{sessionRapportIdx + 1} / {sessionRapportNotifs.length}</span>}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)' }}>
+                          RAPPORT DE CALL{rapportNotifs.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{sessionRapportIdx + 1} / {rapportNotifs.length}</span>}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isSession ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isSession ? 'var(--accent)' : 'var(--accent-brand)' }}>
+                          {isSession ? 'Coaching' : 'Prospect'}
+                        </span>
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-                        {client?.name ? `Session avec ${client.name}` : 'Session de coaching'}
+                        {isSession
+                          ? (client?.name ? `Session avec ${client.name}` : 'Session de coaching')
+                          : (notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte')}
                       </div>
                       {call?.topic && (
                         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic}</div>
@@ -181,7 +279,7 @@ export default function PageToday() {
                       className="btn-primary-brand"
                       type="button"
                       style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
-                      onClick={() => setOpenSessionRapport(notif)}
+                      onClick={() => isSession ? setOpenSessionRapport(notif) : setOpenSalesRapport(notif)}
                     >
                       Remplir le rapport
                     </button>
@@ -192,9 +290,9 @@ export default function PageToday() {
 
             <button
               type="button"
-              onClick={() => setSessionRapportIdx(i => Math.min(sessionRapportNotifs.length - 1, i + 1))}
-              disabled={sessionRapportIdx === sessionRapportNotifs.length - 1 || sessionRapportNotifs.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === sessionRapportNotifs.length - 1 ? 'default' : 'pointer', opacity: sessionRapportIdx === sessionRapportNotifs.length - 1 || sessionRapportNotifs.length <= 1 ? 0.2 : 1 }}
+              onClick={() => setSessionRapportIdx(i => Math.min(rapportNotifs.length - 1, i + 1))}
+              disabled={sessionRapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === rapportNotifs.length - 1 ? 'default' : 'pointer', opacity: sessionRapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
             >›</button>
           </div>
         </div>
@@ -213,6 +311,15 @@ export default function PageToday() {
           />
         );
       })()}
+
+      {openSalesRapport?.callId && (
+        <RapportModal
+          callId={openSalesRapport.callId}
+          inviteeName={openSalesRapport.inviteeName ?? null}
+          scheduledAt={openSalesRapport.scheduledAt ?? null}
+          onClose={() => { setOpenSalesRapport(null); refreshNotifs(); }}
+        />
+      )}
 
       <KpiRibbon items={kpisTop} columns={4} />
 

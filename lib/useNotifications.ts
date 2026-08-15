@@ -121,7 +121,36 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         }));
       }
 
-      const allCoachNotifs = [...coachNotifs, ...sessionRapportNotifs];
+      // ── Rapports de call de vente en attente — uniquement les calls du coach
+      // lui-même (coach_id = profileId), jamais ceux de ses élèves. Pour un call
+      // Calendly, coach_id désigne le propriétaire du lien Calendly connecté — voir
+      // docs/calls-coach-id-piege.md. Ne renvoie rien tant que le coach n'a pas
+      // connecté son propre Calendly (comportement attendu, pas une erreur).
+      const nowIso = new Date().toISOString();
+      const { data: coachSalesCalls } = await supabase
+        .from('calls')
+        .select('id, invitee_name, scheduled_at, duration, outcome')
+        .eq('coach_id', profileId)
+        .eq('status', 'active')
+        .is('outcome', null)
+        .neq('ignored', true)
+        .eq('call_type', 'calendly')
+        .lt('scheduled_at', nowIso);
+
+      const salesRapportNotifs: AppNotif[] = (coachSalesCalls ?? [])
+        .filter(c => c.outcome === null)
+        .map(c => ({
+          id: `rapport_${c.id}`,
+          type: 'rapport_call' as NotifType,
+          title: 'Rapport de call',
+          body: `Comment s'est passé ton appel${c.invitee_name ? ` avec ${c.invitee_name}` : ''} ?`,
+          callId: c.id,
+          inviteeName: c.invitee_name,
+          scheduledAt: c.scheduled_at,
+          duration: c.duration,
+        }));
+
+      const allCoachNotifs = [...coachNotifs, ...sessionRapportNotifs, ...salesRapportNotifs];
       setNotifs(allCoachNotifs);
       // Recalcule le badge natif au nombre exact à chaque refresh — un push pose
       // toujours 1 (pas d'unreadCount dans le payload), donc sans ça le badge reste
