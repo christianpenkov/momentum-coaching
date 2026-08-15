@@ -7,6 +7,18 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Le coach n'a jamais de ligne dans `clients` (table réservée aux élèves) — son URL
+// Calendly perso vit sur profiles.calendly_url. Voir app/api/client/settings/route.ts.
+async function getCalendlyUrl(profileId: string): Promise<string | null> {
+  const { data: profile } = await serviceSupabase.from('profiles').select('role').eq('id', profileId).single();
+  if (profile?.role === 'coach') {
+    const { data } = await serviceSupabase.from('profiles').select('calendly_url').eq('id', profileId).single();
+    return data?.calendly_url ?? null;
+  }
+  const { data } = await serviceSupabase.from('clients').select('calendly_url').eq('profile_id', profileId).single();
+  return data?.calendly_url ?? null;
+}
+
 export async function GET() {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -119,8 +131,8 @@ export async function POST(request: Request) {
   if (!contiguity.ok) return NextResponse.json({ error: contiguity.error }, { status: 409 });
 
   if (wantsCalendly) {
-    const { data: settings } = await serviceSupabase.from('clients').select('calendly_url').eq('profile_id', user.id).single();
-    if (!settings?.calendly_url) return NextResponse.json({ error: 'Aucun lien Calendly configuré dans les Réglages' }, { status: 400 });
+    const calendlyUrl = await getCalendlyUrl(user.id);
+    if (!calendlyUrl) return NextResponse.json({ error: 'Aucun lien Calendly configuré dans les Réglages' }, { status: 400 });
     const { data: shortioInteg } = await serviceSupabase.from('integrations').select('api_key, metadata').eq('profile_id', user.id).eq('provider', 'shortio').single();
     if (!shortioInteg?.api_key || !(shortioInteg?.metadata as any)?.domain) return NextResponse.json({ error: 'Short.io non configuré' }, { status: 400 });
   }
@@ -162,12 +174,11 @@ export async function POST(request: Request) {
 }
 
 async function generateCalendlyLink(profileId: string, sequenceId: string, name: string): Promise<string | null> {
-  const { data: settings } = await serviceSupabase.from('clients').select('calendly_url').eq('profile_id', profileId).single();
+  const calendlyUrl = await getCalendlyUrl(profileId);
   const { data: shortioInteg } = await serviceSupabase.from('integrations').select('api_key, metadata').eq('profile_id', profileId).eq('provider', 'shortio').single();
-  if (!settings?.calendly_url || !shortioInteg?.api_key || !(shortioInteg?.metadata as any)?.domain) return null;
+  if (!calendlyUrl || !shortioInteg?.api_key || !(shortioInteg?.metadata as any)?.domain) return null;
   const apiKey = shortioInteg.api_key;
   const domain = (shortioInteg.metadata as any).domain;
-  const calendlyUrl = settings.calendly_url;
 
   const slug = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
   const path = `story-calendly-${slug}`;
