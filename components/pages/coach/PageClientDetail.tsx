@@ -407,6 +407,9 @@ export default function PageClientDetail({ id }: Props) {
 
   // Modale de consultation (rapport déjà rempli + infos Fathom) — jamais de formulaire.
   const [infosModalReport, setInfosModalReport] = useState<SessionReport | null>(null);
+  // Même modale, mais pour un call avec replay Fathom sans rapport de session rempli
+  // (ex. cron de rattrapage arrivé avant que le coach n'ait rapporté le call).
+  const [infosModalCall, setInfosModalCall] = useState<Call | null>(null);
 
   const clientCalls = calls.filter(c => c.client_id === id);
   const pendingSessionRapports = getPendingSessionRapports(clientCalls);
@@ -905,6 +908,20 @@ export default function PageClientDetail({ id }: Props) {
         );
       })()}
 
+      {infosModalCall && (
+        <CallInfosModal
+          counterpartName={client.name}
+          scheduledAt={infosModalCall.scheduled_at}
+          fathomData={{
+            shareUrl: infosModalCall.fathom_share_url ?? null,
+            summary: infosModalCall.fathom_summary ?? null,
+            actionItems: infosModalCall.fathom_action_items ?? null,
+            transcript: infosModalCall.fathom_transcript ?? null,
+          }}
+          onClose={() => setInfosModalCall(null)}
+        />
+      )}
+
       {taskHistoryOpen && (
         <ModalShell onClose={() => setTaskHistoryOpen(false)} width={480}>
           <div style={{ padding: 24 }}>
@@ -1226,6 +1243,16 @@ export default function PageClientDetail({ id }: Props) {
               <span style={{ flex: 1, fontSize: 12, color: 'var(--accent)' }}>
                 Call du {call.scheduled_at ? new Date(call.scheduled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—'} — en attente de rapport
               </span>
+              {call.fathom_status === 'matched' && (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 8 }}
+                  onClick={() => setInfosModalCall(call)}
+                >
+                  Infos
+                </button>
+              )}
               <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setSessionRapportCallId(call.id)}>
                 Remplir
               </button>
