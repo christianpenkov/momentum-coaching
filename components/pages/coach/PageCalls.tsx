@@ -28,7 +28,7 @@ function CallTypeBadge({ isGoogle }: { isGoogle: boolean }) {
 // (pas var(--surface-2) plein) pour rester visuellement distinct de CallTypeBadge.
 function FathomMissingBadge() {
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>
       Non enregistré
     </span>
   );

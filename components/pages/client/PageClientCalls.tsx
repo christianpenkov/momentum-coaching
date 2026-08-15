@@ -584,7 +584,7 @@ export default function PageClientCalls() {
                           {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
                         </span>
                         {isCallMissingRecording(call as any) && (
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)' }}>
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
                             Non enregistré
                           </span>
                         )}
