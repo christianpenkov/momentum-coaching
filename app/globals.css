@@ -1441,6 +1441,7 @@ a { color: inherit; text-decoration: none; }
   border: none; background: transparent; cursor: pointer;
   white-space: nowrap; transition: background 120ms;
 }
+.call-action-sync { border-radius: 7px; border: 1px solid var(--border); }
 .icon-btn {
   display: inline-flex; align-items: center; justify-content: center;
   width: 28px; height: 28px; border-radius: 6px;
@@ -1909,10 +1910,10 @@ a { color: inherit; text-decoration: none; }
      Rejoindre/Refuser en fond plein (actions positives/décisives), Annuler/Sync en
      contour seul (actions secondaires ou destructives à confirmer). */
   .call-action-join {
-    border-radius: 20px !important; border: 1px solid var(--accent-brand) !important;
+    border-radius: 8px !important; border: 1px solid var(--accent-brand) !important;
     background: var(--accent-brand) !important; color: #fff !important;
   }
-  .call-action-cancel { border-radius: 20px !important; border: 1.5px solid var(--red) !important; }
+  .call-action-cancel { border-radius: 8px !important; border: 1.5px solid var(--red) !important; }
   .call-action-sync { border-radius: 20px !important; border: 1px solid var(--border) !important; }
   .call-action-decline {
     border-radius: 20px !important; border: 1px solid var(--red) !important;

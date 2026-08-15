@@ -550,7 +550,7 @@ export default function PageClientCalls() {
       {/* Rapports en attente — carrousel, flèches latérales */}
       {pendingRapports.length > 0 && (
         <div style={{ marginBottom: 24 }}>
-          <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 10 }}>
+          <div className="eyebrow-lg" style={{ color: 'var(--accent-brand)', marginBottom: 10 }}>
             {pendingRapports.length} rapport{pendingRapports.length > 1 ? 's' : ''} en attente
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -564,10 +564,10 @@ export default function PageClientCalls() {
               const call = pendingRapports[rapportIdx];
               if (!call) return null;
               return (
-                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
+                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)', marginBottom: 4 }}>
                         RAPPORT DE CALL{pendingRapports.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{rapportIdx + 1} / {pendingRapports.length}</span>}
                       </div>
                       <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
@@ -581,7 +581,7 @@ export default function PageClientCalls() {
                     <button
                       className="btn-primary-brand"
                       type="button"
-                      style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
+                      style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
                       onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
                     >
                       Remplir le rapport
