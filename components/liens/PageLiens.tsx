@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import ModalShell from '@/components/ui/ModalShell';
+import { useIsMobile } from '@/lib/useIsMobile';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -33,8 +33,13 @@ const GREEN_SOFT = 'var(--green-soft)';
 const RED = 'var(--red)';
 const AMBER = 'var(--amber)';
 const AMBER_SOFT = 'var(--amber-soft)';
-const BLUE = '#6b7cde';
-const BLUE_SOFT = '#6b7cde12';
+// Ardoise du design system (DESIGN.md) — remplace l'ancien bleu-violet #6b7cde qui
+// n'appartenait pas à la palette Momentum. BLUE/BLUE_SOFT gardés comme alias pour
+// limiter le diff sur les ~60 usages existants (CTA, onglet actif, focus, sélection).
+const ACCENT = 'var(--accent-brand)';
+const ACCENT_SOFT = 'var(--accent-brand-soft)';
+const BLUE = ACCENT;
+const BLUE_SOFT = ACCENT_SOFT;
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -155,9 +160,10 @@ function Badge({ color, bg, children }: { color: string; bg: string; children: R
 
 function CopyBtn({ url }: { url: string }) {
   const [copied, setCopied] = useState(false);
+  const isMobile = useIsMobile();
   return (
     <button onClick={() => { navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
-      style={{ padding: '5px 12px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${copied ? 'transparent' : BORDER}`, background: copied ? 'var(--green)' : SURFACE, color: copied ? '#fff' : INK, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap' }}>
+      style={{ padding: isMobile ? '11px 14px' : '5px 12px', minHeight: isMobile ? 44 : undefined, fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${copied ? 'transparent' : BORDER}`, background: copied ? 'var(--green)' : SURFACE, color: copied ? '#fff' : INK, cursor: 'pointer', transition: 'all .2s', whiteSpace: 'nowrap' }}>
       {copied ? '✓ Copié' : 'Copier'}
     </button>
   );
@@ -168,7 +174,7 @@ function GeneratedUrlRow({ url, label }: { url: string; label: string }) {
     <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: SURFACE2, borderRadius: 8, padding: '8px 12px' }}>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div className="eyebrow-sm" style={{ color: MUTED, marginBottom: 2 }}>{label}</div>
-        <div style={{ fontSize: 12, fontWeight: 700, color: BLUE, wordBreak: 'break-all' }}>{url}</div>
+        <div style={{ fontSize: 12, fontWeight: 700, color: INK, wordBreak: 'break-all' }}>{url}</div>
       </div>
       <CopyBtn url={url} />
     </div>
@@ -204,6 +210,7 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
   leadMagnets: LeadMagnet[];
   onLmUpdated: (lm: LeadMagnet) => void;
 }) {
+  const isMobile = useIsMobile();
   const [calendlyUrl, setCalendlyUrl] = useState(initialCalendly);
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -299,11 +306,11 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
   if (!open) return null;
 
   return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.45)', zIndex: 9999, display: 'flex', alignItems: 'flex-start', justifyContent: 'flex-end', padding: 16 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 14, padding: 28, width: 560, maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 8px 40px rgba(0,0,0,.18)', border: `1px solid ${BORDER}` }}>
+    <ModalShell onClose={onClose} width={560} variant={isMobile ? 'sheet' : 'centered'}>
+      <div style={{ padding: isMobile ? '20px 16px' : 28, overflowY: 'auto' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <div style={{ fontSize: 14, fontWeight: 700, color: INK }}>Paramètres des liens</div>
-          <button onClick={onClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: MUTED, lineHeight: 1, padding: '0 4px' }}>×</button>
+          <button onClick={onClose} aria-label="Fermer" className="icon-btn" style={{ background: 'none', border: 'none', fontSize: 24, cursor: 'pointer', color: MUTED, lineHeight: 1, padding: 10, minWidth: 44, minHeight: 44, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>×</button>
         </div>
 
         {/* Calendly */}
@@ -330,7 +337,7 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
               <div key={platform} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px 12px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}` }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 11, color: result ? BLUE : FAINT, fontWeight: result ? 600 : 400, wordBreak: 'break-all' }}>
+                  <div style={{ fontSize: 11, color: result ? INK : FAINT, fontWeight: result ? 600 : 400, wordBreak: 'break-all' }}>
                     {result || (domain ? `${domain}/bio-calendly-${platform === 'instagram' ? 'ig' : 'yt'}` : '—')}
                   </div>
                 </div>
@@ -405,7 +412,7 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
                             <div key={p} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 8, background: SURFACE, border: `1px solid ${BORDER}` }}>
                               <div style={{ flex: 1, minWidth: 0 }}>
                                 <div style={{ fontSize: 11, fontWeight: 600, marginBottom: 2 }}>{label}</div>
-                                <div style={{ fontSize: 11, color: url ? BLUE : FAINT, wordBreak: 'break-all' }}>
+                                <div style={{ fontSize: 11, color: url ? INK : FAINT, wordBreak: 'break-all' }}>
                                   {url || '—'}
                                 </div>
                               </div>
@@ -448,7 +455,7 @@ function ModalParametres({ open, onClose, profileId, activeDomain, domainsLoaded
           </div>
         )}
       </div>
-    </div>
+    </ModalShell>
   );
 }
 
@@ -695,13 +702,13 @@ function TabDesc({ post, profileId, domain, canGenerate, showDisconnectedWarning
       {/* Bouton générer — Calendly (une fois) et Custom uniquement */}
       {destType === 'calendly' && !currentUrl && (
         <button onClick={() => generate()} disabled={loading || !canGenerate || !canGenBtn}
-          style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          style={{ minHeight: 44, padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {loading ? <><Spinner /> Génération...</> : 'Générer le lien description'}
         </button>
       )}
       {destType === 'custom' && (
         <button onClick={() => generate()} disabled={loading || !canGenerate || !canGenBtn}
-          style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+          style={{ minHeight: 44, padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !canGenBtn ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
           {loading ? <><Spinner /> Génération...</> : currentUrl ? 'Regénérer le lien' : 'Générer le lien description'}
         </button>
       )}
@@ -805,6 +812,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   onPostUpdated: (postId: string, patch: Partial<Post>) => void;
 }) {
   const isYT = post.platform === 'YT';
+  const isMobile = useIsMobile();
   const [lmMode, setLmMode] = useState<'existing' | 'new'>('existing');
   const [selectedLmId, setSelectedLmId] = useState('');
   const [newLmName, setNewLmName] = useState('');
@@ -1005,14 +1013,16 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Statut LM */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 10, background: 'var(--green-soft)', borderRadius: 8, padding: '10px 14px' }}>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>Lead magnet associé</span>
-          {(() => { const lmName = (post.lmLmId ? leadMagnets.find(lm => lm.id === post.lmLmId)?.name : null) ?? leadMagnets.find(lm => lm.keyword === (keyword || post.lmKeyword))?.name; return lmName ? <span style={{ fontSize: 12, fontWeight: 700, color: INK, marginLeft: 6 }}>{lmName}</span> : null; })()}
-          <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong></span>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', gap: isMobile ? 6 : 10, background: 'var(--green-soft)', borderRadius: 8, padding: '10px 14px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0, width: isMobile ? '100%' : undefined }}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="20 6 9 17 4 12"/></svg>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--green)' }}>Lead magnet associé</span>
+            {(() => { const lmName = (post.lmLmId ? leadMagnets.find(lm => lm.id === post.lmLmId)?.name : null) ?? leadMagnets.find(lm => lm.keyword === (keyword || post.lmKeyword))?.name; return lmName ? <span style={{ fontSize: 12, fontWeight: 700, color: INK, marginLeft: 6 }}>{lmName}</span> : null; })()}
+            <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>Mot-clé : <strong style={{ color: INK }}>#{keyword || post.lmKeyword}</strong></span>
+          </div>
         </div>
-        <div style={{ fontSize: 10, color: MUTED, textAlign: 'right', lineHeight: 1.4, flexShrink: 0, maxWidth: 200 }}>
+        <div style={{ fontSize: 10, color: MUTED, textAlign: isMobile ? 'left' : 'right', lineHeight: 1.4, flexShrink: 0, maxWidth: isMobile ? '100%' : 200, marginLeft: isMobile ? 24 : undefined }}>
           Actif — DM envoyé automatiquement à chaque commentaire
         </div>
       </div>
@@ -1024,7 +1034,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
           <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
         </div>
 
-        <div style={{ padding: '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ padding: isMobile ? '14px' : '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
           {/* DM1 — accroche, même style autonome que DM3 */}
           <div>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
@@ -1040,7 +1050,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
           {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8 }}>{dm1Error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2, marginBottom: 4 }}>
             <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
-              style={{ padding: '3px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+              style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
               {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
             </button>
           </div>
@@ -1055,13 +1065,13 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
                 placeholder="🚀 Je veux le lien !"
                 style={{
                   padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                  borderRadius: 18, border: `1.5px solid ${buttonSaved ? '#6b7cde55' : AMBER}`,
+                  borderRadius: 18, border: `1.5px solid ${buttonSaved ? 'var(--accent-brand-soft)' : AMBER}`,
                   background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
                   width: `${Math.max(buttonText.length, 10) + 4}ch`, maxWidth: '100%',
                 }}
               />
               <button onClick={() => saveButtonText(buttonText)} disabled={buttonSaving || buttonSaved}
-                style={{ padding: '3px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: buttonSaved ? 'var(--green)' : BLUE, color: '#fff', cursor: buttonSaved ? 'default' : 'pointer', transition: 'background .2s' }}>
+                style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: buttonSaved ? 'var(--green)' : BLUE, color: '#fff', cursor: buttonSaved ? 'default' : 'pointer', transition: 'background .2s' }}>
                 {buttonSaving ? '...' : buttonSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
               </button>
             </div>
@@ -1094,7 +1104,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
           {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dm2Error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
             <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
-              style={{ padding: '3px 10px', fontSize: 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
+              style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
               {dm2Saving ? '...' : dm2Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
             </button>
           </div>
@@ -1205,7 +1215,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
           <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>Séquence de messages automatique</span>
           <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
         </div>
-        <div style={{ padding: '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
+        <div style={{ padding: isMobile ? '14px' : '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
               DM 1 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé avec le commentaire</span>
@@ -1257,7 +1267,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
-        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        style={{ minHeight: 44, padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         {loading ? <><Spinner /> Sauvegarde...</> : editing ? 'Sauvegarder les modifications' : (result || isExisting) ? 'Régénérer le lien LM' : 'Associer le lead magnet'}
       </button>
     </div>
@@ -1326,7 +1336,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
       {error && <div style={{ fontSize: 12, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '8px 10px' }}>{error}</div>}
 
       <button onClick={generate} disabled={loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl))}
-        style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+        style={{ minHeight: 44, padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !keyword.trim() || (lmMode === 'existing' ? !selectedLmId : !isValidUrl(newLmUrl)) ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
         {loading ? <><Spinner /> Génération...</> : 'Associer le lead magnet'}
       </button>
     </div>
@@ -1346,6 +1356,7 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
   const showDisconnectedWarning = domainsLoaded && !canGenerate;
   const [activeTab, setActiveTab] = useState<'desc' | 'lm'>('desc');
   const unsavedGuard = useUnsavedGuard();
+  const isMobile = useIsMobile();
 
   useEffect(() => { setActiveTab('desc'); }, [post.id]);
 
@@ -1357,7 +1368,7 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header post */}
-      <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ padding: isMobile ? '14px' : '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
             {post.thumbnail
@@ -1385,7 +1396,7 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
       <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG }}>
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => unsavedGuard?.guard(() => setActiveTab(tab.key as 'desc' | 'lm'))} style={{
-            flex: 1, padding: '11px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+            flex: 1, minHeight: 44, padding: '0', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
             background: activeTab === tab.key ? SURFACE : 'transparent',
             color: activeTab === tab.key ? INK : MUTED,
             borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
@@ -1395,7 +1406,7 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
       </div>
 
       {/* Contenu */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '20px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px' : '20px 24px' }}>
         {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onPostUpdated={onPostUpdated} />}
         {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} leadMagnets={leadMagnets} onLmCreated={onLmCreated} onPostUpdated={onPostUpdated} />}
       </div>
@@ -1429,6 +1440,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   onNavigateStory: (post: Post) => void;
   onNavigateToSequencesTab: (sequenceId: string) => void;
 }) {
+  const isMobile = useIsMobile();
   const isGroup = !story && !!stories?.length;
   const groupStories = stories ?? [];
   const primary = story ?? groupStories[0];
@@ -1530,7 +1542,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
       {/* Header */}
-      <div style={{ padding: '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
+      <div style={{ padding: isMobile ? '14px' : '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
             {primary.thumbnail
@@ -1554,16 +1566,20 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
           </div>
         </div>
         {isExistingSequence && (
-          <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
-            {sequenceMates.map(s => (
-              <div key={s.id} style={{ position: 'relative' }}>
-                <div onClick={() => onNavigateStory(s)} style={{ width: 28, height: 28, borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0 }}>
-                  {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+          <div style={{ display: 'flex', gap: isMobile ? 10 : 6, marginTop: 10, flexWrap: 'wrap', alignItems: 'center' }}>
+            {sequenceMates.map(s => {
+              const thumbSize = isMobile ? 40 : 28;
+              const closeSize = isMobile ? 20 : 14;
+              return (
+                <div key={s.id} style={{ position: 'relative' }}>
+                  <div onClick={() => onNavigateStory(s)} style={{ width: thumbSize, height: thumbSize, borderRadius: 5, overflow: 'hidden', cursor: 'pointer', border: s.id === primary.id ? `2px solid ${BLUE}` : `1px solid ${BORDER}`, background: SURFACE2, flexShrink: 0 }}>
+                    {s.thumbnail && <img src={s.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+                  </div>
+                  <button onClick={() => removeStory(s.id)} title="Retirer de la séquence" style={{ position: 'absolute', top: -6, right: -6, width: closeSize, height: closeSize, borderRadius: '50%', border: 'none', background: '#d32f2f', color: '#fff', fontSize: isMobile ? 12 : 9, lineHeight: `${closeSize}px`, textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
                 </div>
-                <button onClick={() => removeStory(s.id)} title="Retirer de la séquence" style={{ position: 'absolute', top: -5, right: -5, width: 14, height: 14, borderRadius: '50%', border: 'none', background: '#d32f2f', color: '#fff', fontSize: 9, lineHeight: '14px', textAlign: 'center', cursor: 'pointer', padding: 0 }}>×</button>
-              </div>
-            ))}
-            <button onClick={() => setAddingStories(v => !v)} style={{ width: 28, height: 28, borderRadius: 5, border: `1px dashed ${BORDER}`, background: 'transparent', color: MUTED, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>+</button>
+              );
+            })}
+            <button onClick={() => setAddingStories(v => !v)} style={{ width: isMobile ? 40 : 28, height: isMobile ? 40 : 28, borderRadius: 5, border: `1px dashed ${BORDER}`, background: 'transparent', color: MUTED, fontSize: 14, cursor: 'pointer', flexShrink: 0 }}>+</button>
           </div>
         )}
         {addingStories && (
@@ -1603,7 +1619,7 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
 
       {/* Nom + story CTA (création uniquement) */}
       {!isExistingSequence && (
-        <div style={{ padding: '16px 24px 0' }}>
+        <div style={{ padding: isMobile ? '14px 14px 0' : '16px 24px 0' }}>
           <label style={{ fontSize: 12, fontWeight: 600, color: MUTED, display: 'block', marginBottom: 4 }}>Nom de la séquence</label>
           <input value={name} onChange={e => setName(e.target.value)} style={{ width: '100%', padding: '8px 10px', fontSize: 13, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, marginBottom: 14, boxSizing: 'border-box' }} />
           {candidateStories.length > 1 && (
@@ -1618,20 +1634,20 @@ function PanneauStorySequence({ story, stories, allStories, profileId, leadMagne
       )}
 
       {/* Onglets internes Lead Magnet / Calendly */}
-      <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, margin: '10px 24px 0' }}>
+      <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, margin: isMobile ? '10px 14px 0' : '10px 24px 0' }}>
         {([
           { key: 'calendly' as const, label: `Calendly${primary.calendlyShortUrl ? ' ✓' : ''}` },
           { key: 'lm' as const, label: `Lead Magnet${primary.lmKeyword ? ' ✓' : ''}` },
         ]).map(tab => (
           <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
-            flex: 1, padding: '9px 0', fontSize: 12, fontWeight: 600, border: 'none', cursor: 'pointer',
+            flex: 1, minHeight: 44, padding: '0', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
             background: 'transparent', color: activeTab === tab.key ? INK : MUTED,
             borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
           }}>{tab.label}</button>
         ))}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto', padding: '18px 24px' }}>
+      <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px' : '18px 24px' }}>
         {activeTab === 'lm' ? (
           <TabStoryLeadMagnet
             primary={primary} isExistingSequence={isExistingSequence} isGroup={isGroup}
@@ -1787,7 +1803,7 @@ function TabStoryCalendly({ primary, isExistingSequence, onSaved }: {
         Un lien Calendly trackable sera généré. Tu devras l'ajouter toi-même via le sticker "Lien" natif d'Instagram sur ta story CTA.
       </div>
       {error && <div style={{ fontSize: 12, color: 'var(--red)', marginBottom: 10 }}>{error}</div>}
-      <button onClick={generate} disabled={loading} style={{ width: '100%', padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}>
+      <button onClick={generate} disabled={loading} style={{ width: '100%', minHeight: 44, padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: loading ? 'default' : 'pointer', opacity: loading ? 0.7 : 1 }}>
         {loading ? 'Génération...' : 'Générer le lien Calendly'}
       </button>
     </div>
@@ -1800,6 +1816,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   profileId: string; activeDomain: ShortDomain | null; domainsLoaded: boolean;
   calendlyUrl: string; posts: Post[];
 }) {
+  const isMobile = useIsMobile();
   const domain = activeDomain?.hostname || '';
   const canGenerate = domainsLoaded && !!domain;
   const hasCalendly = calendlyUrl.trim().startsWith('http');
@@ -1898,7 +1915,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   };
 
   return (
-    <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
+    <div style={{ padding: isMobile ? '14px' : '20px 24px', display: 'flex', flexDirection: 'column', gap: 16 }}>
       <div>
         <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 4 }}>Lien Calendly prospect</div>
         <div style={{ fontSize: 12, color: MUTED }}>Génère un lien unique par prospect à envoyer en DM. Chaque clic est tracké.</div>
@@ -2053,7 +2070,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
             );
             return (
               <button onClick={generate} disabled={loading || !canGenerate || !hasCalendly || !username.trim()}
-                style={{ padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+                style={{ minHeight: 44, padding: '10px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: loading || !canGenerate || !hasCalendly || !username.trim() ? 0.4 : 1, transition: 'opacity .15s', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                 {loading ? <><Spinner /> Génération...</> : 'Générer le lien prospect'}
               </button>
             );
@@ -2161,6 +2178,7 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   onCreated: (lm: LeadMagnet) => void; onDeleted: (id: string) => void;
   onUpdated: (lm: LeadMagnet) => void;
 }) {
+  const isMobile = useIsMobile();
   const [name, setName] = useState('');
   const [url, setUrl] = useState('');
   const [keyword, setKeyword] = useState('');
@@ -2226,7 +2244,7 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   };
 
   return (
-    <div style={{ padding: '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
+    <div style={{ padding: isMobile ? '14px' : '20px 24px', display: 'flex', flexDirection: 'column', gap: 20 }}>
       <div>
         <div style={{ fontSize: 14, fontWeight: 700, color: INK, marginBottom: 2 }}>Mes lead magnets</div>
         <div style={{ fontSize: 12, color: FAINT }}>Crée et gère ta bibliothèque de LM. Tu peux les réutiliser sur n'importe quel contenu.</div>
@@ -2261,7 +2279,7 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
           </div>
           {error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '6px 10px' }}>{error}</div>}
           <button onClick={create} disabled={saving || !isValidUrl(url)}
-            style={{ padding: '8px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: 'var(--green)', color: '#fff', cursor: !isValidUrl(url) || saving ? 'not-allowed' : 'pointer', opacity: !isValidUrl(url) || saving ? 0.4 : 1, transition: 'opacity .15s' }}>
+            style={{ minHeight: 44, padding: '8px', fontSize: 13, fontWeight: 600, borderRadius: 7, border: 'none', background: 'var(--green)', color: '#fff', cursor: !isValidUrl(url) || saving ? 'not-allowed' : 'pointer', opacity: !isValidUrl(url) || saving ? 0.4 : 1, transition: 'opacity .15s' }}>
             {saving ? 'Sauvegarde...' : '+ Ajouter'}
           </button>
         </div>
@@ -2298,11 +2316,11 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
                     {editError && <div style={{ fontSize: 11, color: RED }}>{editError}</div>}
                     <div style={{ display: 'flex', gap: 8 }}>
                       <button onClick={saveEdit} disabled={editSaving || !isValidUrl(editUrl)}
-                        style={{ flex: 1, padding: '7px', fontSize: 12, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: editSaving || !isValidUrl(editUrl) ? 0.5 : 1 }}>
+                        style={{ flex: 1, minHeight: 44, padding: '7px', fontSize: 13, fontWeight: 700, borderRadius: 7, border: 'none', background: BLUE, color: '#fff', cursor: 'pointer', opacity: editSaving || !isValidUrl(editUrl) ? 0.5 : 1 }}>
                         {editSaving ? '...' : 'Sauvegarder'}
                       </button>
                       <button onClick={() => setEditingId(null)}
-                        style={{ padding: '7px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, cursor: 'pointer' }}>
+                        style={{ minHeight: 44, padding: '7px 12px', fontSize: 13, fontWeight: 600, borderRadius: 7, border: `1px solid ${BORDER}`, background: 'none', color: MUTED, cursor: 'pointer' }}>
                         Annuler
                       </button>
                     </div>
@@ -2745,14 +2763,7 @@ export default function PageLiens() {
   // "Générer un lien", qui faisait exactement la même chose)
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [drawerClosing, setDrawerClosing] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < 768);
-    check();
-    window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
-  }, []);
+  const isMobile = useIsMobile();
 
   const openMobileDetail = (view: RightView) => {
     unsavedGuardApi.guard(() => {
@@ -2783,9 +2794,15 @@ export default function PageLiens() {
           .liens-shell { flex-direction: column !important; }
           .liens-desktop-only { display: none !important; }
           .liens-mobile-panel { display: block !important; }
-          .liens-header { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
-          .liens-header-actions { flex-wrap: wrap !important; gap: 6px !important; }
-          .liens-header-actions button { flex: 1 1 auto; justify-content: center !important; padding: 6px 8px !important; font-size: 11px !important; }
+          .liens-header { align-items: center !important; gap: 10px !important; }
+          .liens-header-actions { gap: 4px !important; flex-shrink: 0; }
+          .liens-header-actions button {
+            min-width: 44px !important; min-height: 44px !important;
+            padding: 0 !important; font-size: 0 !important;
+          }
+          .liens-header-actions button svg { width: 17px !important; height: 17px !important; }
+          .liens-header-actions .liens-btn-label { display: none !important; }
+          .liens-header-title-sub { display: none !important; }
         }
         @media (min-width: 768px) {
           .liens-mobile-panel { display: none !important; }
@@ -2814,31 +2831,31 @@ export default function PageLiens() {
         {/* Header */}
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div className="liens-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: domainsLoaded && domains.length === 0 ? 'none' : `1px solid ${BORDER}`, background: SURFACE }}>
-          <div>
+          <div style={{ minWidth: 0 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: INK, letterSpacing: '-0.01em' }}>Gérer mes liens</div>
-            <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
+            <div className="liens-header-title-sub" style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
           <div className="liens-header-actions" style={{ display: 'flex', gap: 6 }}>
-            <button onClick={handleRefreshPosts} disabled={refreshingPosts} style={{
-              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: refreshingPosts ? 'default' : 'pointer', transition: 'all .15s',
+            <button onClick={handleRefreshPosts} disabled={refreshingPosts} aria-label="Actualiser les posts" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: refreshingPosts ? 'default' : 'pointer', transition: 'all .15s',
               border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED, opacity: refreshingPosts ? 0.6 : 1,
             }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshingPosts ? { animation: 'spin 1s linear infinite' } : undefined}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-              Actualiser Posts
+              <span className="liens-btn-label">Actualiser Posts</span>
             </button>
-            <button onClick={handleHeaderLmLibrary} style={{
-              display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s',
+            <button onClick={handleHeaderLmLibrary} aria-label="Lead Magnets" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s', position: 'relative',
               border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
               background: rightView?.type === 'lm-library' ? 'var(--green-soft)' : 'transparent',
               color: rightView?.type === 'lm-library' ? 'var(--green)' : MUTED,
             }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              Lead Magnets
-              {leadMagnets.length > 0 && <span style={{ fontSize: 10, fontWeight: 700, background: rightView?.type === 'lm-library' ? 'var(--green)' : SURFACE2, color: rightView?.type === 'lm-library' ? '#fff' : MUTED, borderRadius: 10, padding: '1px 5px', minWidth: 16, textAlign: 'center' }}>{leadMagnets.length}</span>}
+              <span className="liens-btn-label">Lead Magnets</span>
+              {leadMagnets.length > 0 && <span style={{ position: 'absolute', top: -6, right: -6, fontSize: 10, fontWeight: 700, background: rightView?.type === 'lm-library' ? 'var(--green)' : SURFACE2, color: rightView?.type === 'lm-library' ? '#fff' : MUTED, borderRadius: 10, padding: '1px 5px', minWidth: 16, textAlign: 'center', border: '2px solid var(--surface)' }}>{leadMagnets.length}</span>}
             </button>
-            <button onClick={() => setParamOpen(true)} style={{ display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer', position: 'relative', transition: 'all .15s' }}>
+            <button onClick={() => setParamOpen(true)} aria-label="Paramètres des liens" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer', position: 'relative', transition: 'all .15s' }}>
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              Paramètres
+              <span className="liens-btn-label">Paramètres</span>
               {leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
                 <span style={{ position: 'absolute', top: -6, right: -6, width: 14, height: 14, borderRadius: '50%', background: AMBER, border: '2px solid var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 700 }}>!</span>
               )}
@@ -2860,7 +2877,7 @@ export default function PageLiens() {
           {(
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
-                width: '100%', padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                width: '100%', minHeight: 44, padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, boxSizing: 'border-box',
                 border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
               }}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
@@ -2868,14 +2885,14 @@ export default function PageLiens() {
               </button>
 
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
-                style={{ width: '100%', padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
+                style={{ width: '100%', minHeight: 44, padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
 
               <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
                 {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
                   const active = filterPlatform === f;
                   return (
                     <button key={f} onClick={() => setFilterPlatform(f)} style={{
-                      display: 'flex', alignItems: 'center', gap: 5, padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+                      display: 'flex', alignItems: 'center', gap: 5, minHeight: 44, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
                       background: active ? INK : SURFACE2, color: active ? 'var(--bg)' : MUTED, transition: 'all .12s',
                     }}>
                       {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
@@ -2888,7 +2905,7 @@ export default function PageLiens() {
                 <div style={{ display: 'flex', gap: 4 }}>
                   {(['stories', 'sequences'] as const).map(t => (
                     <button key={t} onClick={() => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }} style={{
-                      padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
+                      minHeight: 44, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
                       background: storiesSubTab === t ? INK : SURFACE2, color: storiesSubTab === t ? 'var(--bg)' : MUTED, transition: 'all .12s',
                     }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
                   ))}
@@ -2943,7 +2960,7 @@ export default function PageLiens() {
                     if (ctaStory) openMobileDetail({ type: 'story', post: ctaStory });
                   }} style={{
                     display: 'flex', alignItems: 'center', gap: 10, padding: '12px 14px', cursor: 'pointer', borderRadius: 10, border: `1px solid ${BORDER}`,
-                    background: highlightedSequenceId === seq.id ? BLUE_SOFT : SURFACE, transition: 'all .3s',
+                    background: highlightedSequenceId === seq.id ? ACCENT_SOFT : SURFACE, transition: 'all .3s',
                   }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, color: INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{seq.name}</div>
@@ -2952,7 +2969,7 @@ export default function PageLiens() {
                           <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{seq.lm_keyword}</span>
                         )}
                         {seq.calendly_short_url && (
-                          <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
                         )}
                         {!seq.lm_keyword && !seq.calendly_short_url && (
                           <span style={{ fontSize: 10, color: FAINT }}>Aucun CTA</span>
@@ -2999,14 +3016,14 @@ export default function PageLiens() {
                     {post.thumbnail && <img src={post.thumbnail} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600 }}>{post.caption}</div>
-                      <div style={{ fontSize: 11, color: MUTED, marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
+                      <div style={{ fontSize: 12, color: MUTED, marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
                         <span>{post.platform}</span>
                         {isStory ? (
                           (post.sequenceStoryCount ?? 0) > 1
                             ? <span style={{ color: '#8b5cf6' }}>· {post.sequenceName}</span>
                             : <>
                                 {post.lmKeyword && <span style={{ color: 'var(--green)' }}>· #{post.lmKeyword}</span>}
-                                {post.calendlyShortUrl && <span style={{ color: BLUE }}>· Calendly</span>}
+                                {post.calendlyShortUrl && <span style={{ color: MUTED }}>· Calendly</span>}
                               </>
                         ) : (
                           <>
@@ -3201,7 +3218,7 @@ export default function PageLiens() {
                           <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{seq.lm_keyword}</span>
                         )}
                         {seq.calendly_short_url && (
-                          <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
+                          <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
                         )}
                         {!seq.lm_keyword && !seq.calendly_short_url && (
                           <span style={{ fontSize: 10, color: FAINT }}>Aucun CTA</span>
@@ -3267,7 +3284,7 @@ export default function PageLiens() {
                             : post.lmKeyword || post.calendlyShortUrl
                               ? <span style={{ display: 'flex', gap: 4 }}>
                                   {post.lmKeyword && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{post.lmKeyword}</span>}
-                                  {post.calendlyShortUrl && <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>}
+                                  {post.calendlyShortUrl && <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>}
                                 </span>
                               : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de CTA" />
                         ) : (
@@ -3336,23 +3353,14 @@ export default function PageLiens() {
         </div>
       </div>
 
-      {pendingLeaveAction && typeof document !== 'undefined' && createPortal(
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={() => setPendingLeaveAction(null)}>
-          <div onClick={e => e.stopPropagation()} style={{ background: SURFACE, borderRadius: 12, padding: 24, maxWidth: 380, width: '90%', boxShadow: '0 10px 40px rgba(0,0,0,.2)' }}>
+      {pendingLeaveAction && (
+        <ModalShell onClose={() => setPendingLeaveAction(null)} width={380} variant={isMobile ? 'sheet' : 'centered'}>
+          <div style={{ padding: 24 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 8 }}>Modifications non sauvegardées</div>
             <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5, marginBottom: 20 }}>
               Tu as des changements dans la séquence de DM qui n'ont pas été enregistrés. Si tu quittes maintenant, ils seront perdus.
             </div>
-            <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-              <button onClick={() => setPendingLeaveAction(null)} disabled={savingAll}
-                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
-                Annuler
-              </button>
-              <button onClick={() => { const action = pendingLeaveAction; hasUnsavedRef.current = false; setPendingLeaveAction(null); action(); }} disabled={savingAll}
-                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: RED, color: '#fff', cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
-                Ne pas enregistrer
-              </button>
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: 10, justifyContent: isMobile ? undefined : 'flex-end' }}>
               <button onClick={async () => {
                   setSavingAll(true);
                   try { await unsavedGuardApi.saveAll(); } finally { setSavingAll(false); }
@@ -3361,13 +3369,20 @@ export default function PageLiens() {
                   setPendingLeaveAction(null);
                   action?.();
                 }} disabled={savingAll}
-                style={{ padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.7 : 1 }}>
+                style={{ order: isMobile ? 1 : 3, minHeight: 44, padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: 'var(--green)', color: '#fff', cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.7 : 1 }}>
                 {savingAll ? 'Enregistrement...' : 'Enregistrer'}
+              </button>
+              <button onClick={() => { const action = pendingLeaveAction; hasUnsavedRef.current = false; setPendingLeaveAction(null); action(); }} disabled={savingAll}
+                style={{ order: isMobile ? 2 : 2, minHeight: 44, padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: 'none', background: RED, color: '#fff', cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
+                Ne pas enregistrer
+              </button>
+              <button onClick={() => setPendingLeaveAction(null)} disabled={savingAll}
+                style={{ order: isMobile ? 3 : 1, minHeight: 44, padding: '8px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: savingAll ? 'default' : 'pointer', opacity: savingAll ? 0.5 : 1 }}>
+                Annuler
               </button>
             </div>
           </div>
-        </div>,
-        document.body
+        </ModalShell>
       )}
       </div>
     </UnsavedGuardContext.Provider>
