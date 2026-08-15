@@ -5,6 +5,7 @@ import { useState, useMemo } from 'react';
 import Link from 'next/link';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
+import CreateCallModal from '@/components/ui/CreateCallModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Call } from '@/lib/supabase/types';
 
@@ -31,10 +32,11 @@ const DAYS_FR = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 export default function PageCalendar() {
-  const { clients, calls, loading } = useSupabaseClients();
+  const { clients, calls, loading, refetch } = useSupabaseClients();
   const [view, setView] = useState<ViewMode>('month');
   const [cursor, setCursor] = useState(new Date());
   const [selectedDay, setSelectedDay] = useState<string | null>(toDateKey(new Date()));
+  const [showCreateCallModal, setShowCreateCallModal] = useState(false);
 
   // Construire tous les événements
   const events = useMemo<CalEvent[]>(() => {
@@ -135,23 +137,33 @@ export default function PageCalendar() {
 
   return (
     <div className="page-content">
+      <CreateCallModal
+        open={showCreateCallModal}
+        onClose={() => setShowCreateCallModal(false)}
+        onCreated={refetch}
+      />
+
       <div className="page-header">
         <div>
           <h1 className="page-title">Calendrier</h1>
           <p className="page-sub">{events.filter(e => e.type === 'call').length} calls · {events.filter(e => e.type === 'deadline').length} deadlines</p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          <div style={{ display: 'flex', gap: 4 }}>
-            {(['month', 'week'] as ViewMode[]).map(v => (
-              <button key={v} type="button"
-                className={view === v ? 'btn-primary' : 'btn-ghost'}
-                style={{ fontSize: 12, padding: '6px 12px' }}
-                onClick={() => setView(v)}>
-                {v === 'month' ? 'Mois' : 'Semaine'}
-              </button>
-            ))}
-          </div>
-        </div>
+        <button type="button" onClick={() => setShowCreateCallModal(true)} className="btn-primary btn-primary-brand" style={{ fontSize: 13 }}>
+          <Icon name="plus" size={13} /> Créer un call
+        </button>
+      </div>
+
+      {/* Toggle Mois/Semaine — ligne dédiée pour ne pas surcharger le page-header
+          mobile, qui garde toujours un seul bouton d'action à droite du titre. */}
+      <div style={{ display: 'flex', gap: 4, marginBottom: 16 }}>
+        {(['month', 'week'] as ViewMode[]).map(v => (
+          <button key={v} type="button"
+            className={view === v ? 'btn-primary' : 'btn-ghost'}
+            style={{ fontSize: 12, padding: '6px 12px' }}
+            onClick={() => setView(v)}>
+            {v === 'month' ? 'Mois' : 'Semaine'}
+          </button>
+        ))}
       </div>
 
       <div className="calendar-layout">
@@ -189,6 +201,7 @@ export default function PageCalendar() {
                 return (
                   <div key={key}
                     onClick={() => setSelectedDay(key)}
+                    className="calendar-day-cell"
                     style={{
                       minHeight: 80, padding: '6px 8px',
                       borderRight: i % 7 !== 6 ? '1px solid var(--border)' : 'none',
@@ -205,7 +218,11 @@ export default function PageCalendar() {
                       display: 'flex', alignItems: 'center', justifyContent: 'center',
                       marginBottom: 4,
                     }}>{day.getDate()}</div>
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {/* Desktop : badge texte tronqué (nom du client / libellé). Sur mobile
+                        (≤767px), .calendar-day-events-text est masqué et remplacé par
+                        .calendar-day-dots (pastilles emoji seules) — voir globals.css,
+                        7 colonnes à ~50px ne laissent pas de place pour du texte lisible. */}
+                    <div className="calendar-day-events-text" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                       {dayEvents.slice(0, 3).map((ev, idx) => (
                         <div key={idx} style={{
                           fontSize: 10, fontWeight: 600,
@@ -219,6 +236,16 @@ export default function PageCalendar() {
                       ))}
                       {dayEvents.length > 3 && (
                         <div style={{ fontSize: 10, color: 'var(--muted)', paddingLeft: 5 }}>+{dayEvents.length - 3}</div>
+                      )}
+                    </div>
+                    <div className="calendar-day-dots">
+                      {dayEvents.slice(0, 4).map((ev, idx) => (
+                        <span key={idx} style={{ fontSize: 12, lineHeight: 1 }}>
+                          {ev.type === 'call' ? '📞' : '⏰'}
+                        </span>
+                      ))}
+                      {dayEvents.length > 4 && (
+                        <span style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)' }}>+{dayEvents.length - 4}</span>
                       )}
                     </div>
                   </div>
