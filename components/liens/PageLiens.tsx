@@ -2740,8 +2740,8 @@ export default function PageLiens() {
           .liens-desktop-only { display: none !important; }
           .liens-mobile-panel { display: block !important; }
           .liens-header { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
-          .liens-header-actions { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
-          .liens-header-actions button { flex-shrink: 0; }
+          .liens-header-actions { flex-wrap: wrap !important; gap: 6px !important; }
+          .liens-header-actions button { flex: 1 1 auto; justify-content: center !important; padding: 6px 8px !important; font-size: 11px !important; }
         }
         @media (min-width: 768px) {
           .liens-mobile-panel { display: none !important; }
