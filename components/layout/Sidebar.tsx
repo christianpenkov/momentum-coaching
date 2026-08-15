@@ -14,7 +14,6 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
   { href: '/analytics', icon: 'bar-chart', label: 'Stats Clients' },
   { href: '/clients', icon: 'users', label: 'Clients' },
   { href: '/pipeline', icon: 'trending-up', label: 'Pipeline Leads' },
-  { href: '/liens', icon: 'link', label: 'Mes liens' },
   { href: '/mes-stats', icon: 'bar-chart', label: 'Mes Stats' },
   { href: '/messages', icon: 'message-circle', label: 'Messages' },
   { href: '/calls', icon: 'phone-call', label: 'Calls' },
@@ -26,6 +25,7 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
+  { href: '/liens', icon: 'link', label: 'Mes liens' },
   { href: '/settings', icon: 'settings', label: 'Réglages' },
 ];
 
