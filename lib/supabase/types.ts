@@ -1,6 +1,6 @@
 export type Role = 'coach' | 'client';
 export type Status = 'green' | 'amber' | 'red';
-export type Provider = 'stripe' | 'stripe_webhook' | 'calendly' | 'instagram' | 'youtube' | 'shortio' | 'anthropic' | 'google';
+export type Provider = 'stripe' | 'stripe_webhook' | 'calendly' | 'instagram' | 'youtube' | 'shortio' | 'anthropic' | 'google' | 'fathom';
 
 export interface Profile {
   id: string;
@@ -153,6 +153,13 @@ export interface Call {
   utm_medium?: string | null;
   utm_content?: string | null;
   utm_campaign?: string | null;
+  fathom_recording_id?: string | null;
+  fathom_share_url?: string | null;
+  fathom_summary?: string | null;
+  fathom_action_items?: unknown | null;
+  fathom_transcript?: string | null;
+  fathom_status?: 'pending' | 'matched' | 'unmatched' | 'not_recorded' | null;
+  fathom_matched_at?: string | null;
 }
 
 export interface SessionReport {

@@ -178,10 +178,12 @@ export async function POST() {
 
     let clientId: string | null = null;
     if (inviteeEmail) {
-      const { data: authUsers } = await serviceSupabase.auth.admin.listUsers();
-      const matched = authUsers?.users?.find((u: any) => u.email === inviteeEmail);
-      if (matched) {
-        const { data } = await serviceSupabase.from('clients').select('id').eq('profile_id', matched.id).single();
+      // RPC get_profile_id_by_email (index direct sur auth.users) plutôt que
+      // auth.admin.listUsers() — non paginé, ne retourne que les 50 premiers
+      // utilisateurs et cesserait silencieusement de résoudre certains profils.
+      const { data: matchedId } = await serviceSupabase.rpc('get_profile_id_by_email', { p_email: inviteeEmail });
+      if (matchedId) {
+        const { data } = await serviceSupabase.from('clients').select('id').eq('profile_id', matchedId).single();
         clientId = data?.id || null;
       }
     }

@@ -44,3 +44,15 @@ export function isCallReallyOver(call: Call, now: number = Date.now()): boolean 
   if (reportFilled) return true;
   return callEndTime(call) < now;
 }
+
+// Délai de grâce avant d'afficher "non enregistré" — Fathom traite l'enregistrement
+// (transcript/résumé) quelques minutes après la fin du call, jamais instantanément.
+// En dessous de ce délai on ne sait juste pas encore, donc on n'affiche rien plutôt
+// qu'un faux "non enregistré" qui se corrigerait tout seul quelques minutes plus tard.
+const FATHOM_GRACE_PERIOD_MS = 2 * 60 * 60_000;
+
+export function isCallMissingRecording(call: Call, now: number = Date.now()): boolean {
+  if (call.fathom_status === 'matched') return false;
+  if (call.status === 'canceled' || call.no_show === true || call.session_no_show === true) return false;
+  return callEndTime(call) + FATHOM_GRACE_PERIOD_MS < now;
+}

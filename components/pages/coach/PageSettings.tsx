@@ -72,6 +72,14 @@ const INTEGRATION_CONFIG: {
     oauthPath: '/api/oauth/google',
   },
   {
+    provider: 'fathom',
+    name: 'Fathom',
+    icon: 'video',
+    desc: 'Enregistrement, résumé et transcript de tes appels, automatiquement',
+    mode: 'oauth',
+    oauthPath: '/api/oauth/fathom',
+  },
+  {
     provider: 'shortio',
     name: 'Short.io',
     icon: 'link',
@@ -102,7 +110,7 @@ export default function PageSettings() {
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
 
   const [integrations, setIntegrations] = useState<Record<Provider, Integration | null>>({
-    anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null,
+    anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null, fathom: null,
   } as Record<Provider, Integration | null>);
   const [editing, setEditing] = useState<Provider | null>(null);
   const [keyInput, setKeyInput] = useState('');
@@ -145,7 +153,7 @@ export default function PageSettings() {
       const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, metadata, connected_at').eq('profile_id', user.id);
       setIntegrationsLoading(false);
       if (integs) {
-        const map = { anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null } as Record<Provider, Integration | null>;
+        const map = { anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null, fathom: null } as Record<Provider, Integration | null>;
         integs.forEach((i) => {
           map[i.provider as Provider] = { ...i, access_token: null, refresh_token: null, api_key: null, expires_at: null } as Integration;
         });
@@ -360,6 +368,12 @@ export default function PageSettings() {
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc}</div>
                     {integ?.account_label && (
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integ.account_label}</div>
+                    )}
+                    {cfg.provider === 'fathom' && integ && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                        Vérifie que l'auto-join est activé sur ton compte Fathom →{' '}
+                        <a href="https://fathom.video/calendar" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>fathom.video/calendar</a>
+                      </div>
                     )}
                   </div>
 

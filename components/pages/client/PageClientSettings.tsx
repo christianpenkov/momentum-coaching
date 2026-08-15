@@ -9,7 +9,7 @@ import { useUser } from '@/lib/UserContext';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 
-type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio' | 'google';
+type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio' | 'google' | 'fathom';
 
 const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean; oauthPath?: string }[] = [
   {
@@ -53,6 +53,15 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
     oauth: true,
   },
   {
+    provider: 'fathom',
+    name: 'Fathom',
+    icon: 'video',
+    desc: 'Enregistrement, résumé et transcript de tes appels, automatiquement',
+    placeholder: '',
+    oauth: true,
+    oauthPath: '/api/oauth/fathom',
+  },
+  {
     provider: 'shortio',
     name: 'Short.io',
     icon: 'link',
@@ -82,7 +91,7 @@ export default function PageClientSettings() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false });
+  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false, fathom: false });
   const [integrationLabels, setIntegrationLabels] = useState<Partial<Record<Provider, string>>>({});
   const [shortioMeta, setShortioMeta] = useState<{ domain: string | null; domain_id: number | string | null; all_domains: { id: number | string; hostname: string }[] } | null>(null);
   const [domainPickerOpen, setDomainPickerOpen] = useState(false);
@@ -115,7 +124,7 @@ export default function PageClientSettings() {
       const { data: integs } = await supabase.from('integrations').select('provider, account_label, metadata').eq('profile_id', user.id);
       setIntegrationsLoading(false);
       if (integs) {
-        const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false } as Record<Provider, boolean>;
+        const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false, fathom: false } as Record<Provider, boolean>;
         const labels: Partial<Record<Provider, string>> = {};
         integs.forEach((i: { provider: string; account_label: string | null; metadata: any }) => {
           if (i.provider in map) map[i.provider as Provider] = true;
@@ -328,6 +337,12 @@ export default function PageClientSettings() {
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc.replace('ton coach', coachName || 'ton coach')}</div>
                     {integrationLabels[cfg.provider] && (
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integrationLabels[cfg.provider]}</div>
+                    )}
+                    {cfg.provider === 'fathom' && integrations.fathom && (
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
+                        Vérifie que l'auto-join est activé sur ton compte Fathom →{' '}
+                        <a href="https://fathom.video/calendar" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>fathom.video/calendar</a>
+                      </div>
                     )}
                   </div>
                   {integrationsLoading ? (

@@ -6,11 +6,12 @@ import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import CreateCallModal from '@/components/ui/CreateCallModal';
+import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import { getPendingSessionRapports, isCallReallyOver } from '@/lib/sessionRapport';
+import { getPendingSessionRapports, isCallReallyOver, isCallMissingRecording } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
-type Tab = 'upcoming' | 'history';
+type Tab = 'upcoming' | 'history' | 'unmatched';
 
 // Badge Coaching/Prospect — même style que la carte "Prochain call", réutilisé
 // partout dans la page pour que l'œil apprenne un seul pattern visuel.
@@ -18,6 +19,14 @@ function CallTypeBadge({ isGoogle }: { isGoogle: boolean }) {
   return (
     <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)', whiteSpace: 'nowrap' }}>
       {isGoogle ? 'Coaching' : 'Prospect'}
+    </span>
+  );
+}
+
+function FathomMissingBadge() {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef3c7', color: '#92400e', whiteSpace: 'nowrap' }}>
+      Non enregistré
     </span>
   );
 }
@@ -38,7 +47,7 @@ export default function PageCalls() {
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
 
   // Rapports de session Google Meet en attente — même condition que le badge élève
-  const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null } | null>(null);
+  const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null; call: Call } | null>(null);
   const pendingSessionRapportIds = new Set(getPendingSessionRapports(calls as Call[]).map(c => c.id));
 
   // Force un recalcul du split upcoming/historique chaque minute, pour que la
@@ -284,14 +293,25 @@ export default function PageCalls() {
         </div>
       )}
 
-      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+      <div className="chip-scroll" style={{ display: 'flex', gap: 6, marginBottom: 20, overflowX: 'auto' }}>
         <button className={`chip${tab === 'upcoming' ? ' chip-active' : ''}`} onClick={() => setTab('upcoming')} type="button">
           À venir ({upcomingActive.length})
         </button>
         <button className={`chip${tab === 'history' ? ' chip-active' : ''}`} onClick={() => setTab('history')} type="button">
           Historique ({history.length})
         </button>
+        <button className={`chip${tab === 'unmatched' ? ' chip-active' : ''}`} onClick={() => setTab('unmatched')} type="button">
+          Non rattachés
+        </button>
       </div>
+
+      {tab === 'unmatched' && (
+        <FathomUnmatchedTab
+          calls={calls}
+          getClientName={(clientId) => (clientId ? getClient(clientId)?.name ?? null : null)}
+          onResolved={refetch}
+        />
+      )}
 
       {tab === 'upcoming' && (
         upcoming.length === 0 ? (
@@ -359,7 +379,7 @@ export default function PageCalls() {
                       type="button"
                       className="btn-primary-brand"
                       style={{ fontSize: 11, background: 'var(--accent-brand)', flexShrink: 0 }}
-                      onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at })}
+                      onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}
                     >
                       Rapport
                     </button>
@@ -411,7 +431,10 @@ export default function PageCalls() {
                           <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={28} seed={cl?.id} />
                           <div>
                             <div style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</div>
-                            <div style={{ marginTop: 2 }}><CallTypeBadge isGoogle={isGoogle} /></div>
+                            <div style={{ marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+                              <CallTypeBadge isGoogle={isGoogle} />
+                              {isCallMissingRecording(call, nowTick) && <FathomMissingBadge />}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -422,7 +445,7 @@ export default function PageCalls() {
                             type="button"
                             className="btn-ghost"
                             style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
-                            onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at })}
+                            onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}
                           >
                             Rapport
                           </button>
@@ -482,6 +505,12 @@ export default function PageCalls() {
           callId={openSessionRapportCall.callId}
           studentName={openSessionRapportCall.clientName}
           scheduledAt={openSessionRapportCall.scheduledAt}
+          fathomData={{
+            shareUrl: openSessionRapportCall.call.fathom_share_url ?? null,
+            summary: openSessionRapportCall.call.fathom_summary ?? null,
+            actionItems: openSessionRapportCall.call.fathom_action_items ?? null,
+            transcript: openSessionRapportCall.call.fathom_transcript ?? null,
+          }}
           onClose={() => { setOpenSessionRapportCall(null); refetch(); }}
         />
       )}

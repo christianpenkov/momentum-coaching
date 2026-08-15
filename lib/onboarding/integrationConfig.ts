@@ -101,6 +101,19 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
       { text: 'Copie la clé (commence par sk_) et colle-la ci-dessous — elle ne sera plus visible après' },
     ],
   },
+  {
+    provider: 'fathom',
+    name: 'Fathom',
+    icon: 'video',
+    desc: 'Enregistrement, résumé et transcript de tes appels, automatiquement',
+    mode: 'oauth',
+    oauthPath: '/api/oauth/fathom',
+    wizardCopy: 'Chaque appel enregistré par Fathom apparaît automatiquement dans ton historique, avec vidéo, résumé et points clés.',
+    instructions: [
+      { text: 'La connexion se fait via le bouton OAuth ci-dessus.' },
+      { text: 'Vérifie ensuite que l\'auto-join est activé sur ton compte Fathom →', href: 'https://fathom.video/calendar', hrefLabel: 'fathom.video/calendar' },
+    ],
+  },
 ];
 
 function findBase(provider: Provider): IntegrationDef {
@@ -116,6 +129,7 @@ export const COACH_WIZARD_INTEGRATIONS: IntegrationDef[] = [
   findBase('instagram'),
   findBase('youtube'),
   findBase('google'),
+  findBase('fathom'),
   findBase('shortio'),
 ];
 
@@ -125,5 +139,6 @@ export const CLIENT_WIZARD_INTEGRATIONS: IntegrationDef[] = [
   findBase('instagram'),
   findBase('youtube'),
   { ...findBase('stripe'), desc: 'Clé secrète Stripe pour afficher ton MRR, paiements et abonnements', wizardCopy: 'Ton coach voit ton MRR et tes paiements sans que tu aies à les lui envoyer.' },
+  findBase('fathom'),
   findBase('shortio'),
 ];

@@ -133,13 +133,15 @@ export async function POST(request: NextRequest) {
     }
 
     // Si toujours pas trouvé : fallback par email invitee → trouver le coach via clients
+    // Lookup via RPC get_profile_id_by_email (index direct sur auth.users) plutôt que
+    // auth.admin.listUsers(), qui ne retourne que les 50 premiers utilisateurs par
+    // défaut et cesserait silencieusement de résoudre certains profils au-delà.
     let clientId: string | null = null;
     if (!leadsProfileId && inviteeEmail) {
-      const { data: authUsers } = await serviceSupabase.auth.admin.listUsers();
-      const matched = authUsers?.users?.find((u: any) => u.email === inviteeEmail);
-      if (matched) {
+      const { data: matchedId } = await serviceSupabase.rpc('get_profile_id_by_email', { p_email: inviteeEmail });
+      if (matchedId) {
         const { data: clientData } = await serviceSupabase
-          .from('clients').select('id, coach_id').eq('profile_id', matched.id).single();
+          .from('clients').select('id, coach_id').eq('profile_id', matchedId).single();
         if (clientData) {
           clientId = clientData.id;
           leadsProfileId = clientData.coach_id;
@@ -187,11 +189,10 @@ export async function POST(request: NextRequest) {
 
     // Résoudre client_id si pas déjà trouvé (cas coach qui connect lui-même)
     if (!clientId && inviteeEmail) {
-      const { data: authUsers } = await serviceSupabase.auth.admin.listUsers();
-      const matched = authUsers?.users?.find((u: any) => u.email === inviteeEmail);
-      if (matched) {
+      const { data: matchedId } = await serviceSupabase.rpc('get_profile_id_by_email', { p_email: inviteeEmail });
+      if (matchedId) {
         const { data: clientData } = await serviceSupabase
-          .from('clients').select('id').eq('profile_id', matched.id).single();
+          .from('clients').select('id').eq('profile_id', matchedId).single();
         clientId = clientData?.id ?? null;
       }
     }

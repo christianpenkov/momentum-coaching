@@ -8,6 +8,7 @@ import RapportModal from '@/components/ui/RapportModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
+import { isCallMissingRecording } from '@/lib/sessionRapport';
 
 function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
   return call?.call_type === 'google';
@@ -31,12 +32,23 @@ interface Call {
   revenue: number | null;
   outcome: string | null;
   lead_rapport_comment: string | null;
+  session_completed?: boolean | null;
+  session_no_show?: boolean | null;
+  fathom_status?: 'pending' | 'matched' | 'unmatched' | 'not_recorded' | null;
+  fathom_share_url?: string | null;
+  fathom_summary?: string | null;
+  fathom_action_items?: unknown;
+  fathom_transcript?: string | null;
 }
 
 interface RapportModal {
   callId: string;
   inviteeName: string | null;
   scheduledAt: string | null;
+  fathomShareUrl?: string | null;
+  fathomSummary?: string | null;
+  fathomActionItems?: unknown;
+  fathomTranscript?: string | null;
 }
 
 function daysUntil(dateStr: string) {
@@ -256,7 +268,7 @@ export default function PageClientCalls() {
     const call = calls.find(c => c.id === rapportId);
     if (!call || call.no_show !== null) return;
     deepLinkHandled.current = true;
-    setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at });
+    setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript });
   }, [searchParams, calls]);
 
   function closeRapportModal() {
@@ -408,7 +420,7 @@ export default function PageClientCalls() {
                       className="btn-primary-brand"
                       type="button"
                       style={{ fontSize: 13, background: '#f59e0b', flexShrink: 0 }}
-                      onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
+                      onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
                     >
                       Remplir le rapport
                     </button>
@@ -571,6 +583,11 @@ export default function PageClientCalls() {
                         <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(call) ? 'var(--accent)' : 'var(--accent-brand)' }}>
                           {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
                         </span>
+                        {isCallMissingRecording(call as any) && (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef3c7', color: '#92400e' }}>
+                            Non enregistré
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                         {formatDate(call.scheduled_at!)} · {call.duration || '—'}
@@ -582,7 +599,7 @@ export default function PageClientCalls() {
                           className="btn-ghost"
                           type="button"
                           style={{ fontSize: 11, color: '#f59e0b', border: '1px solid #f59e0b' }}
-                          onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
+                          onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
                         >
                           Rapport
                         </button>
@@ -732,6 +749,12 @@ export default function PageClientCalls() {
           callId={rapportModal.callId}
           inviteeName={rapportModal.inviteeName}
           scheduledAt={rapportModal.scheduledAt}
+          fathomData={{
+            shareUrl: rapportModal.fathomShareUrl ?? null,
+            summary: rapportModal.fathomSummary ?? null,
+            actionItems: rapportModal.fathomActionItems ?? null,
+            transcript: rapportModal.fathomTranscript ?? null,
+          }}
           onClose={closeRapportModal}
         />
       )}
