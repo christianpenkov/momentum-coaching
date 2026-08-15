@@ -1905,6 +1905,20 @@ a { color: inherit; text-decoration: none; }
   /* Boutons d'action principaux — même radius pilule que les chips de filtre */
   .btn-primary-brand { border-radius: 20px; border: 1px solid var(--accent-brand); }
 
+  /* Actions de call (Calls coach + élève) — même famille visuelle pilule que les chips.
+     Rejoindre/Refuser en fond plein (actions positives/décisives), Annuler/Sync en
+     contour seul (actions secondaires ou destructives à confirmer). */
+  .call-action-join {
+    border-radius: 20px !important; border: 1px solid var(--accent-brand) !important;
+    background: var(--accent-brand) !important; color: #fff !important;
+  }
+  .call-action-cancel { border-radius: 20px !important; border: 1.5px solid var(--red) !important; }
+  .call-action-sync { border-radius: 20px !important; border: 1px solid var(--border) !important; }
+  .call-action-decline {
+    border-radius: 20px !important; border: 1px solid var(--red) !important;
+    background: var(--red) !important; color: #fff !important;
+  }
+
   /* Onglets Tâches — pills accent pleine largeur répartie */
   .tasks-tabs { display: flex !important; }
   .tasks-tabs .chip { flex: 1; justify-content: center; }

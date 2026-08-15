@@ -215,7 +215,7 @@ export default function PageCalls() {
                 </div>
               </div>
               {call.join_url && call.status !== 'canceled' && (
-                <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost"
+                <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
                   style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>
                   <Icon name="video" size={13} /> Rejoindre
                 </a>
@@ -229,7 +229,7 @@ export default function PageCalls() {
                     <button className="btn-ghost" type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>Non</button>
                   </div>
                 ) : (
-                  <button className="btn-ghost" type="button"
+                  <button className="btn-ghost call-action-cancel" type="button"
                     onClick={() => ['canceled','declined'].includes(call.status || '') ? setConfirmDeleteId(call.id) : setConfirmCancelId(call.id)}
                     disabled={cancelingId === call.id}
                     style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)', border: '1px solid #fca5a5', borderRadius: 8, padding: '4px 10px' }}>
@@ -361,10 +361,6 @@ export default function PageCalls() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Calls</h1>
-          <p className="page-sub">
-            {pending.length > 0 && <span style={{ color: 'var(--amber, #f59e0b)', fontWeight: 600 }}>{pending.length} en attente · </span>}
-            {upcomingActive.length} à venir · {history.length} dans l'historique
-          </p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           {syncMsg && (
@@ -372,7 +368,7 @@ export default function PageCalls() {
               {syncMsg}
             </span>
           )}
-          <button className="btn-ghost" type="button" onClick={syncCalls} disabled={syncing}
+          <button className="btn-ghost call-action-sync" type="button" onClick={syncCalls} disabled={syncing}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
             <Icon name="refresh-cw" size={13} />
             {syncing ? 'Sync…' : 'Sync calls'}
