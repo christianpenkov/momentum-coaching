@@ -421,7 +421,7 @@ export default function PageClientCalls() {
                     <button
                       className="btn-ghost"
                       type="button"
-                      style={{ fontSize: 11, color: '#f59e0b', border: '1px solid #f59e0b' }}
+                      style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
                       onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
                     >
                       Rapport
