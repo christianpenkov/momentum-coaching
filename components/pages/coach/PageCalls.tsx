@@ -9,7 +9,7 @@ import CreateCallModal from '@/components/ui/CreateCallModal';
 import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import { getPendingSessionRapports, isCallReallyOver, isCallMissingRecording } from '@/lib/sessionRapport';
+import { getPendingSessionRapports, isCallReallyOver, isCallMissingRecording, isCallJoinable, isCallInProgress } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled' | 'unmatched';
@@ -146,19 +146,30 @@ export default function PageCalls() {
     setDeletingId(null);
   }
 
-  // Un call reste "à venir" jusqu'à son heure de fin réelle (scheduled_at + duration),
-  // pas jusqu'à minuit — nowTick force ce recalcul chaque minute (voir useEffect ci-dessus).
+  // La liste "À venir" inclut aussi les calls encore dans leur fenêtre de rattrapage
+  // (isCallJoinable, 15min après la fin théorique) — pas seulement !isCallReallyOver
+  // strict — pour que le bouton Rejoindre reste visible pendant le rattrapage.
+  // nowTick force ce recalcul chaque minute (voir useEffect ci-dessus).
   const upcoming = calls
-    .filter(c => c.scheduled_at && !isCallReallyOver(c, nowTick))
+    .filter(c => c.scheduled_at && isCallJoinable(c, nowTick))
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  // Historique : réellement terminé (fin théorique stricte), inchangé.
   const history = calls
     .filter(c => c.scheduled_at && isCallReallyOver(c, nowTick))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
   const upcomingActive = upcoming.filter(c => c.status === 'active');
-  // "Prochain call" ignore aussi un call dont le rapport est déjà rempli (coach en
-  // avance) même s'il n'est pas encore basculé en historique — c'est déjà le premier
-  // filtre d'isCallReallyOver ci-dessus, donc upcomingActive[0] est toujours correct.
-  const nextCall = upcomingActive[0] ?? null;
+
+  // Widget "Prochain call" — liste candidate séparée de `upcoming` (qui inclut la
+  // grâce) : bascule vers le call suivant dès que le call affiché est réellement
+  // terminé (isCallReallyOver), peu importe le délai avant le suivant.
+  function pickDisplayedCall(list: Call[], now: number): Call | null {
+    if (list.length === 0) return null;
+    const current = list[0];
+    const next = list[1];
+    if (!next) return current;
+    return isCallReallyOver(current, now) ? next : current;
+  }
+  const nextCall = pickDisplayedCall(upcomingActive, nowTick);
   const pending = calls.filter(c => c.status === 'pending_acceptance');
 
   // Onglets Prospects / Coachings / Annulés — chacun affiche ses propres sections
@@ -216,9 +227,14 @@ export default function PageCalls() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
                   <CallTypeBadge isGoogle={isGoogle} />
                   {isGoogle && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Google Meet</span>}
+                  {isCallInProgress(call, nowTick) && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)' }}>
+                      En cours
+                    </span>
+                  )}
                 </div>
               </div>
-              {call.join_url && call.status !== 'canceled' && (
+              {call.join_url && isCallJoinable(call, nowTick) && (
                 <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
                   style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>
                   <Icon name="video" size={13} /> Rejoindre
@@ -330,7 +346,7 @@ export default function PageCalls() {
                         <button
                           type="button"
                           className="btn-ghost"
-                          style={{ fontSize: 11, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 8 }}
+                          style={{ fontSize: 11, flexShrink: 0, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
                           onClick={() => setInfosModalCall({ call, clientName: cl?.name ?? null })}
                         >
                           Infos
@@ -424,6 +440,12 @@ export default function PageCalls() {
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
                   {displayName}{nextCall.topic ? ` · ${nextCall.topic}` : ''}
                 </div>
+                {nextCall.join_url && isCallJoinable(nextCall, nowTick) && (
+                  <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, textDecoration: 'none', marginTop: 12, padding: '8px 16px', border: '1px solid var(--border)', borderRadius: 8 }}>
+                    <Icon name="video" size={14} /> Rejoindre
+                  </a>
+                )}
               </div>
               <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
                 {(() => {

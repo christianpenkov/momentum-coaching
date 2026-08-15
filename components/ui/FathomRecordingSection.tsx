@@ -2,12 +2,16 @@
 
 import { useState, useRef, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
+import InlineLoader from '@/components/ui/InlineLoader';
 
 interface Props {
   shareUrl: string | null;
   summary: string | null;
   actionItems: unknown;
   transcript: string | null;
+  // Email de l'utilisateur qui consulte — sert à marquer "(Vous)" dans le
+  // transcript sur les lignes dont matched_calendar_invitee_email correspond.
+  currentUserEmail?: string | null;
 }
 
 // Fenêtre de grâce pour détecter un refus d'embed — filet de sécurité résiduel,
@@ -32,6 +36,7 @@ function parseActionItems(raw: unknown): string[] {
 
 interface TranscriptLine {
   speakerName: string;
+  speakerEmail: string | null;
   text: string;
   timestamp: string;
 }
@@ -46,6 +51,7 @@ function parseTranscript(raw: string): TranscriptLine[] | null {
     if (!Array.isArray(parsed) || !parsed.length || !parsed[0]?.speaker) return null;
     return parsed.map((line: any) => ({
       speakerName: line.speaker?.display_name || 'Inconnu',
+      speakerEmail: line.speaker?.matched_calendar_invitee_email || null,
       text: line.text || '',
       timestamp: line.timestamp || '',
     }));
@@ -58,7 +64,7 @@ function parseTranscript(raw: string): TranscriptLine[] | null {
 // distinguer visuellement qui parle sans dépendre d'une correspondance email fragile.
 const SPEAKER_COLORS = ['var(--accent-brand)', 'var(--green)', '#8b5cf6', '#f59e0b'];
 
-export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript }: Props) {
+export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
   const [embedFailed, setEmbedFailed] = useState(false);
   const [embedLoaded, setEmbedLoaded] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
@@ -88,12 +94,17 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
         <div style={{ marginBottom: 16 }}>
           {!embedFailed ? (
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
+              {!embedLoaded && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <InlineLoader />
+                </div>
+              )}
               <iframe
                 src={toEmbedUrl(shareUrl)}
                 title="Enregistrement de l'appel"
                 allow="fullscreen"
                 allowFullScreen
-                style={{ width: '100%', height: '100%', border: 'none' }}
+                style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
                 onLoad={() => { setEmbedLoaded(true); if (timeoutRef.current) clearTimeout(timeoutRef.current); }}
               />
             </div>
@@ -142,15 +153,20 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
             <div style={{ marginTop: 10, maxHeight: 320, overflowY: 'auto', padding: 14, background: 'var(--surface-2)', borderRadius: 8 }}>
               {transcriptLines ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-                  {transcriptLines.map((line, i) => (
-                    <div key={i}>
-                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, color: colorFor(line.speakerName) }}>{line.speakerName}</span>
-                        {line.timestamp && <span style={{ fontSize: 10, color: 'var(--faint)', fontFamily: 'var(--font-mono)' }}>{line.timestamp}</span>}
+                  {transcriptLines.map((line, i) => {
+                    const isYou = !!currentUserEmail && !!line.speakerEmail && line.speakerEmail.toLowerCase() === currentUserEmail.toLowerCase();
+                    return (
+                      <div key={i}>
+                        <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: colorFor(line.speakerName) }}>
+                            {line.speakerName}{isYou && ' (Vous)'}
+                          </span>
+                          {line.timestamp && <span style={{ fontSize: 10, color: 'var(--faint)', fontFamily: 'var(--font-mono)' }}>{line.timestamp}</span>}
+                        </div>
+                        <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>{line.text}</div>
                       </div>
-                      <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>{line.text}</div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{transcript}</div>

@@ -9,7 +9,7 @@ import CallInfosModal from '@/components/ui/CallInfosModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
-import { isCallMissingRecording, isCallReallyOver } from '@/lib/sessionRapport';
+import { isCallMissingRecording, isCallReallyOver, isCallJoinable, isCallInProgress } from '@/lib/sessionRapport';
 
 function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
   return call?.call_type === 'google';
@@ -42,6 +42,18 @@ interface Call {
   fathom_summary?: string | null;
   fathom_action_items?: unknown;
   fathom_transcript?: string | null;
+}
+
+// Bascule anticipée du widget "Prochain call" : si le call affiché est déjà réellement
+// terminé (fin théorique stricte dépassée) et qu'un call suivant existe, on bascule
+// dessus — peu importe le délai avant ce suivant. Un call encore dans son créneau normal
+// n'est jamais remplacé, même si le suivant approche.
+function pickDisplayedCall(list: Call[], now: number): Call | null {
+  if (list.length === 0) return null;
+  const current = list[0];
+  const next = list[1];
+  if (!next) return current;
+  return isCallReallyOver(current as any, now) ? next : current;
 }
 
 interface RapportModal {
@@ -170,6 +182,15 @@ export default function PageClientCalls() {
   const [userId, setUserId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('upcoming');
 
+  // Force un recalcul du split upcoming/historique chaque minute, pour que la
+  // bascule se fasse en temps réel sans dépendre uniquement des changements
+  // de `calls` déclenchés par le realtime.
+  const [nowTick, setNowTick] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = setInterval(() => setNowTick(Date.now()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Carrousel rapports en attente
   const [rapportIdx, setRapportIdx] = useState(0);
   // Carrousel historique
@@ -286,20 +307,20 @@ export default function PageClientCalls() {
     load();
   }
 
-  const now = new Date();
   const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && c.call_type !== 'calendly');
   const canceledCalls = calls.filter(c => ['canceled', 'cancelled', 'declined'].includes(c.status || ''));
-  // isCallReallyOver (pas juste scheduled_at < now) : un call reste "à venir" tant que
-  // son heure de FIN théorique (scheduled_at + duration) n'est pas dépassée, pour rester
-  // rejoignable pendant toute sa durée même si l'élève arrive après l'heure de début.
+  // La liste "À venir" inclut aussi les calls encore dans leur fenêtre de rattrapage
+  // (isCallJoinable, 15min après la fin théorique) — pas seulement !isCallReallyOver
+  // strict — pour que le bouton Rejoindre reste visible pendant le rattrapage. isCallReallyOver
+  // reste la référence stricte pour Historique, inchangée.
   const upcoming = calls
-    .filter(c => c.scheduled_at && !isCallReallyOver(c as any, now.getTime()) && c.status === 'active')
+    .filter(c => c.scheduled_at && c.status === 'active' && isCallJoinable(c as any, nowTick))
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
-  const nextCall = upcoming[0];
 
-  // Calls historique : passés, non annulés
+  // Calls historique : passés, non annulés, réellement terminés (fin théorique stricte,
+  // pas la fenêtre de rattrapage — un call encore en rattrapage reste dans "upcoming").
   const history = calls
-    .filter(c => c.scheduled_at && isCallReallyOver(c as any, now.getTime()) && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
+    .filter(c => c.scheduled_at && isCallReallyOver(c as any, nowTick) && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
   // Onglets Prospects / Coachings — chacun affiche ses propres sections À venir puis
@@ -310,6 +331,14 @@ export default function PageClientCalls() {
   const coachingUpcoming = upcoming.filter(c => isCoachingCall(c));
   const coachingHistory = history.filter(c => isCoachingCall(c));
 
+  // Widget "Prochain call" — liste candidate séparée de `upcoming` (qui inclut la
+  // grâce) : bascule vers le call suivant dès que le call affiché est réellement
+  // terminé (isCallReallyOver), peu importe le délai avant le suivant.
+  const widgetCandidates = calls
+    .filter(c => c.scheduled_at && c.status === 'active' && isCallJoinable(c as any, nowTick))
+    .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
+  const nextCall = pickDisplayedCall(widgetCandidates as any, nowTick);
+
   // Rapports en attente : calls Calendly passés sans rapport rempli
   // outcome = source de vérité : null = pas rempli, renseigné = rempli (tous les chemins du formulaire écrivent outcome)
   const pendingRapports = calls.filter(c =>
@@ -317,7 +346,7 @@ export default function PageClientCalls() {
     c.outcome === null &&
     c.status === 'active' &&
     c.scheduled_at !== null &&
-    new Date(c.scheduled_at).getTime() <= now.getTime()
+    new Date(c.scheduled_at).getTime() <= nowTick
   );
 
   async function handleAccept(callId: string) {
@@ -447,7 +476,7 @@ export default function PageClientCalls() {
                     <button
                       type="button"
                       className="btn-ghost"
-                      style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 8 }}
+                      style={{ fontSize: 11, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
                       onClick={() => setInfosModalCall(call)}
                     >
                       Infos
@@ -503,14 +532,19 @@ export default function PageClientCalls() {
                   <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(call) ? 'var(--accent)' : 'var(--accent-brand)' }}>
                     {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
                   </span>
+                  {isCallInProgress(call as any, nowTick) && (
+                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)' }}>
+                      En cours
+                    </span>
+                  )}
                 </div>
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, textTransform: 'capitalize' }}>
                   {formatDate(call.scheduled_at!)} · {formatTime(call.scheduled_at!)}
                   {call.duration && <span> · {call.duration}</span>}
                 </div>
               </div>
-              {call.join_url && call.status !== 'canceled' && call.status !== 'cancelled' && (
-                <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost"
+              {call.join_url && isCallJoinable(call as any, nowTick) && (
+                <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
                   style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', flexShrink: 0 }}>
                   <Icon name="video" size={13} /> Rejoindre
                 </a>
@@ -710,7 +744,7 @@ export default function PageClientCalls() {
               <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: nextCall.invitee_name ? 2 : 8 }}>
                 {nextCall.topic || 'Session de coaching'}
               </div>
-              {nextCall.join_url && nextCall.status !== 'canceled' && nextCall.status !== 'cancelled' && (
+              {nextCall.join_url && isCallJoinable(nextCall as any, nowTick) && (
                 <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary-brand next-call-banner-join" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, marginTop: 16, padding: '8px 16px' }}>
                   <Icon name="video" size={14} /> Rejoindre le call
                 </a>

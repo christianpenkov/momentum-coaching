@@ -1202,7 +1202,7 @@ export default function PageClientDetail({ id }: Props) {
                           type="button"
                           onClick={() => setInfosModalReport(report)}
                           className="btn-ghost"
-                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 8 }}
+                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
                         >
                           Infos
                         </button>
@@ -1247,7 +1247,7 @@ export default function PageClientDetail({ id }: Props) {
                 <button
                   type="button"
                   className="btn-ghost"
-                  style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 8 }}
+                  style={{ fontSize: 11, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
                   onClick={() => setInfosModalCall(call)}
                 >
                   Infos

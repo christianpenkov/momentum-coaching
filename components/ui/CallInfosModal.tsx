@@ -4,6 +4,7 @@ import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
 import FathomRecordingSection from '@/components/ui/FathomRecordingSection';
 import { SESSION_TOPICS, type SessionTopic } from '@/lib/sessionRapport';
+import { useUser } from '@/lib/UserContext';
 
 interface FathomData {
   shareUrl: string | null;
@@ -36,6 +37,7 @@ function formatDate(dateStr: string) {
 export default function CallInfosModal({
   counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, fathomData, onClose,
 }: Props) {
+  const { user } = useUser();
   const topicLabel = topic === 'autre' ? topicCustom : SESSION_TOPICS.find(t => t.value === topic)?.label;
   const hasReport = attended !== undefined && attended !== null;
 
@@ -62,6 +64,7 @@ export default function CallInfosModal({
           summary={fathomData.summary}
           actionItems={fathomData.actionItems}
           transcript={fathomData.transcript}
+          currentUserEmail={user?.email ?? null}
         />
 
         {hasReport && (
