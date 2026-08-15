@@ -10,11 +10,17 @@ interface Props {
   transcript: string | null;
 }
 
-// Fenêtre de grâce pour détecter un refus d'embed (X-Frame-Options/CSP) — un iframe
-// bloqué ne déclenche PAS onError côté navigateur, seul onLoad ne se déclenche jamais.
-// Ce délai sert donc de filet : si onLoad n'a pas répondu après ce délai, on bascule
-// sur le fallback lien externe plutôt que de laisser un cadre vide indéfiniment.
+// Fenêtre de grâce pour détecter un refus d'embed — filet de sécurité résiduel,
+// gardé au cas où Fathom changerait sa politique CSP un jour. En pratique
+// fathom.video/share/{id} refuse l'embed cross-origin (X-Frame-Options: SAMEORIGIN,
+// confirmé par test réel) mais fathom.video/embed/{id} — même identifiant, endpoint
+// dédié à l'embed — l'autorise explicitement (aucun X-Frame-Options/frame-ancestors,
+// confirmé par test réel). On dérive donc toujours l'URL d'embed depuis share_url.
 const IFRAME_LOAD_TIMEOUT_MS = 4000;
+
+function toEmbedUrl(shareUrl: string): string {
+  return shareUrl.replace('/share/', '/embed/');
+}
 
 function parseActionItems(raw: unknown): string[] {
   if (!raw) return [];
@@ -49,7 +55,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
           {!embedFailed ? (
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
               <iframe
-                src={shareUrl}
+                src={toEmbedUrl(shareUrl)}
                 title="Enregistrement de l'appel"
                 allow="fullscreen"
                 allowFullScreen
