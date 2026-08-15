@@ -20,7 +20,11 @@ interface Props {
 // confirmé par test réel) mais fathom.video/embed/{id} — même identifiant, endpoint
 // dédié à l'embed — l'autorise explicitement (aucun X-Frame-Options/frame-ancestors,
 // confirmé par test réel). On dérive donc toujours l'URL d'embed depuis share_url.
-const IFRAME_LOAD_TIMEOUT_MS = 4000;
+// Délai volontairement généreux : l'iframe charge une page complète (HTML/JS/player),
+// pas juste un fichier vidéo — un timeout court (ex. 4s) déclenchait le fallback à
+// tort sur une modale qui vient de s'ouvrir, alors que l'embed finissait par charger
+// correctement une seconde plus tard (observé en conditions réelles).
+const IFRAME_LOAD_TIMEOUT_MS = 15000;
 
 function toEmbedUrl(shareUrl: string): string {
   return shareUrl.replace('/share/', '/embed/');
@@ -70,13 +74,14 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   const [showTranscript, setShowTranscript] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Un seul timer par shareUrl — le nettoyage se fait via onLoad (clearTimeout direct),
+  // pas via une dépendance embedLoaded qui reprogrammerait inutilement le timer à
+  // chaque changement d'état.
   useEffect(() => {
     if (!shareUrl) return;
-    timeoutRef.current = setTimeout(() => {
-      if (!embedLoaded) setEmbedFailed(true);
-    }, IFRAME_LOAD_TIMEOUT_MS);
+    timeoutRef.current = setTimeout(() => setEmbedFailed(true), IFRAME_LOAD_TIMEOUT_MS);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [shareUrl, embedLoaded]);
+  }, [shareUrl]);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
