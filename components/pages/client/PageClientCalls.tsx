@@ -583,11 +583,15 @@ export default function PageClientCalls() {
                         <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(call) ? 'var(--accent)' : 'var(--accent-brand)' }}>
                           {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
                         </span>
-                        {isCallMissingRecording(call as any) && (
-                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
-                            Non enregistré
+                        {call.fathom_status === 'matched' ? (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)' }}>
+                            Replay dispo
                           </span>
-                        )}
+                        ) : isCallMissingRecording(call as any) ? (
+                          <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
+                            Pas de replay
+                          </span>
+                        ) : null}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
                         {formatDate(call.scheduled_at!)} · {call.duration || '—'}
