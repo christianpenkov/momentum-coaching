@@ -1927,7 +1927,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
           <div>
             <div style={{ fontSize: 11, fontWeight: 600, color: MUTED, marginBottom: 6 }}>Pseudo Instagram du prospect</div>
             <div style={{ position: 'relative' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 0, border: `1px solid ${BORDER}`, borderRadius: 8, background: BG, overflow: 'hidden' }}>
+              <div className="liens-input-wrap" style={{ display: 'flex', alignItems: 'center', gap: 0, border: `1px solid ${BORDER}`, borderRadius: 8, background: BG, overflow: 'hidden', transition: 'border-color .15s, box-shadow .15s' }}>
                 <span style={{ padding: '0 8px 0 12px', fontSize: 13, color: FAINT }}>@</span>
                 <input
                   value={username}
@@ -2079,9 +2079,9 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
               <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}`, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
                 <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url} seed={lead?.ig_user_id || h.ig_username} size={28} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
-                    <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>@{h.ig_username}</span>
-                    {post && <span style={{ fontSize: 10, color: FAINT }}>· {post.platform} · {post.caption.slice(0, 25)}...</span>}
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2, minWidth: 0 }}>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
+                    {post && <span style={{ fontSize: 10, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· {post.platform} · {post.caption.slice(0, 25)}...</span>}
                   </div>
                   <div style={{ fontSize: 10, color: FAINT }}>
                     {new Date(h.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })} à {new Date(h.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
@@ -2750,9 +2750,19 @@ export default function PageLiens() {
         @media (min-width: 768px) {
           .liens-mobile-panel { display: none !important; }
         }
+        .liens-root input:focus, .liens-root textarea:focus {
+          border-color: var(--accent-brand, #2563eb) !important;
+          box-shadow: 0 0 0 3px var(--accent-brand-soft, rgba(37,99,235,0.15));
+        }
+        .liens-root .liens-input-wrap:focus-within {
+          border-color: var(--accent-brand, #2563eb) !important;
+          box-shadow: 0 0 0 3px var(--accent-brand-soft, rgba(37,99,235,0.15));
+        }
       `}</style>
 
+      <div className="liens-root">
       <ModalParametres
+
         open={paramOpen} onClose={() => { setParamOpen(false); }}
         profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded}
         onCalendlyChange={(url: string) => setCalendlyOverride(url)} initialCalendly={calendlyUrl}
@@ -3320,6 +3330,7 @@ export default function PageLiens() {
         </div>,
         document.body
       )}
+      </div>
     </UnsavedGuardContext.Provider>
   );
 }
