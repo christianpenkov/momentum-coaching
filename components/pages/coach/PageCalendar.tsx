@@ -21,7 +21,6 @@ interface CalEvent {
   clientId: string;
   time?: string;
   meta?: string;
-  ready?: string;
   status?: string | null;
 }
 
@@ -56,7 +55,6 @@ export default function PageCalendar() {
         clientAvatarUrl: client?.avatar_url,
         clientId: call.client_id || '',
         time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
-        ready: call.ready,
         status: call.status,
       });
     });
@@ -345,11 +343,6 @@ export default function PageCalendar() {
                             Réponse en attente
                           </span>
                         )}
-                        {ev.type === 'call' && ev.status !== 'pending_acceptance' && ev.ready && (
-                          <span className={`pill pill-${ev.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10, marginTop: 4, display: 'inline-block' }}>
-                            {ev.ready === 'ready' ? 'Prêt' : ev.ready === 'partial' ? 'Partiel' : 'En attente'}
-                          </span>
-                        )}
                         {ev.type === 'deadline' && ev.meta && (
                           <span style={{
                             fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, marginTop: 4, display: 'inline-block',
@@ -391,13 +384,9 @@ export default function PageCalendar() {
                           {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                         </div>
                       </div>
-                      {call.status === 'pending_acceptance' ? (
+                      {call.status === 'pending_acceptance' && (
                         <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
                           Réponse en attente
-                        </span>
-                      ) : (
-                        <span className={`pill pill-${call.ready === 'ready' ? 'green' : 'amber'}`} style={{ fontSize: 10 }}>
-                          {call.ready === 'ready' ? 'Prêt' : 'Partiel'}
                         </span>
                       )}
                     </div>
