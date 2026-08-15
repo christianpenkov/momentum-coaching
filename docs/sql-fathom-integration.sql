@@ -75,3 +75,12 @@ $$;
 
 revoke all on function public.get_profile_id_by_email(text) from public, anon, authenticated;
 grant execute on function public.get_profile_id_by_email(text) to service_role;
+
+-- 4. Élargit la contrainte CHECK sur integrations.provider pour accepter 'fathom'
+-- (liste fixe pré-existante ne l'incluait pas — cause du 1er échec silencieux
+-- de connexion OAuth Fathom en test : "violates check constraint
+-- integrations_provider_check", visible uniquement une fois la vérification
+-- d'erreur ajoutée sur l'upsert du callback).
+alter table integrations drop constraint integrations_provider_check;
+alter table integrations add constraint integrations_provider_check
+  check (provider = ANY (ARRAY['stripe'::text, 'stripe_webhook'::text, 'calendly'::text, 'instagram'::text, 'youtube'::text, 'shortio'::text, 'anthropic'::text, 'google'::text, 'fathom'::text]));
