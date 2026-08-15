@@ -12,6 +12,7 @@ import Sparkbars from '@/components/ui/Sparkbars';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import CallInfosModal from '@/components/ui/CallInfosModal';
 import ModalShell from '@/components/ui/ModalShell';
 import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
@@ -403,6 +404,9 @@ export default function PageClientDetail({ id }: Props) {
   const [editingReport, setEditingReport] = useState<SessionReport | null>(null);
   const [sessionReports, setSessionReports] = useState<SessionReport[]>([]);
   const deepLinkHandled = useRef(false);
+
+  // Modale de consultation (rapport déjà rempli + infos Fathom) — jamais de formulaire.
+  const [infosModalReport, setInfosModalReport] = useState<SessionReport | null>(null);
 
   const clientCalls = calls.filter(c => c.client_id === id);
   const pendingSessionRapports = getPendingSessionRapports(clientCalls);
@@ -879,6 +883,28 @@ export default function PageClientDetail({ id }: Props) {
         />
       )}
 
+      {infosModalReport && (() => {
+        const call = calls.find(c => c.id === infosModalReport.call_id);
+        return (
+          <CallInfosModal
+            counterpartName={client.name}
+            scheduledAt={call?.scheduled_at ?? null}
+            attended={infosModalReport.attended}
+            topic={infosModalReport.topic as any}
+            topicCustom={infosModalReport.topic_custom}
+            notes={infosModalReport.notes}
+            studentNotes={infosModalReport.student_notes}
+            fathomData={{
+              shareUrl: call?.fathom_share_url ?? null,
+              summary: call?.fathom_summary ?? null,
+              actionItems: call?.fathom_action_items ?? null,
+              transcript: call?.fathom_transcript ?? null,
+            }}
+            onClose={() => setInfosModalReport(null)}
+          />
+        );
+      })()}
+
       {taskHistoryOpen && (
         <ModalShell onClose={() => setTaskHistoryOpen(false)} width={480}>
           <div style={{ padding: 24 }}>
@@ -1153,16 +1179,28 @@ export default function PageClientDetail({ id }: Props) {
                       {isNoShow ? 'No-show' : 'Présent'}
                     </span>
                     {topicLabel && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{topicLabel}</span>}
-                    {!isNoShow && (
-                      <button
-                        type="button"
-                        onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
-                        className="btn-ghost"
-                        style={{ fontSize: 11, padding: '2px 8px', marginLeft: 'auto' }}
-                      >
-                        Éditer
-                      </button>
-                    )}
+                    <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
+                      {calls.find(c => c.id === report.call_id)?.fathom_status === 'matched' && (
+                        <button
+                          type="button"
+                          onClick={() => setInfosModalReport(report)}
+                          className="btn-ghost"
+                          style={{ fontSize: 11, padding: '2px 8px' }}
+                        >
+                          Infos
+                        </button>
+                      )}
+                      {!isNoShow && (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
+                          className="btn-ghost"
+                          style={{ fontSize: 11, padding: '2px 8px' }}
+                        >
+                          Éditer
+                        </button>
+                      )}
+                    </div>
                   </div>
                   {report.notes && (
                     <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, whiteSpace: 'pre-wrap' }}>{report.notes}</div>

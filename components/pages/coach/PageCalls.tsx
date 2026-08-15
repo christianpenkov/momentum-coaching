@@ -7,6 +7,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';
+import CallInfosModal from '@/components/ui/CallInfosModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getPendingSessionRapports, isCallReallyOver, isCallMissingRecording } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
@@ -60,6 +61,9 @@ export default function PageCalls() {
   // Rapports de session Google Meet en attente — même condition que le badge élève
   const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null; call: Call } | null>(null);
   const pendingSessionRapportIds = new Set(getPendingSessionRapports(calls as Call[]).map(c => c.id));
+
+  // Modale de consultation (rapport déjà rempli + infos Fathom) — jamais de formulaire.
+  const [infosModalCall, setInfosModalCall] = useState<{ call: Call; clientName: string | null } | null>(null);
 
   // Force un recalcul du split upcoming/historique chaque minute, pour que la
   // bascule se fasse en temps réel sans dépendre uniquement des changements
@@ -311,16 +315,28 @@ export default function PageCalls() {
                   </td>
                   <td style={{ fontSize: 12 }}>{call.topic || '—'}</td>
                   <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200 }}>
-                    {pendingSessionRapportIds.has(call.id) ? (
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
-                        onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}
-                      >
-                        Rapport
-                      </button>
-                    ) : (call.notes || '—')}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
+                      {pendingSessionRapportIds.has(call.id) ? (
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
+                          onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}
+                        >
+                          Rapport
+                        </button>
+                      ) : (call.notes || '—')}
+                      {(call.fathom_status === 'matched' || call.session_completed || call.session_no_show || call.outcome != null) && (
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          style={{ fontSize: 11, flexShrink: 0 }}
+                          onClick={() => setInfosModalCall({ call, clientName: cl?.name ?? null })}
+                        >
+                          Infos
+                        </button>
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -495,13 +511,13 @@ export default function PageCalls() {
           Historique ({history.length})
         </button>
         <button className={`chip${tab === 'prospects' ? ' chip-active' : ''}`} onClick={() => setTab('prospects')} type="button">
-          Prospects
+          Prospects ({prospectUpcoming.length + prospectHistory.length})
         </button>
         <button className={`chip${tab === 'coachings' ? ' chip-active' : ''}`} onClick={() => setTab('coachings')} type="button">
-          Coachings
+          Coachings ({coachingUpcoming.length + coachingHistory.length})
         </button>
         <button className={`chip${tab === 'canceled' ? ' chip-active' : ''}`} onClick={() => setTab('canceled')} type="button">
-          Annulés
+          Annulés ({canceledUpcoming.length + canceledHistory.length})
         </button>
         <button className={`chip${tab === 'unmatched' ? ' chip-active' : ''}`} onClick={() => setTab('unmatched')} type="button">
           Autres Fathoms
@@ -589,6 +605,31 @@ export default function PageCalls() {
           onClose={() => { setOpenSessionRapportCall(null); refetch(); }}
         />
       )}
+
+      {infosModalCall && (() => {
+        const { call } = infosModalCall;
+        const report = call.client_id
+          ? (getClient(call.client_id) as any)?.sessionReports?.find((r: any) => r.call_id === call.id)
+          : null;
+        return (
+          <CallInfosModal
+            counterpartName={infosModalCall.clientName}
+            scheduledAt={call.scheduled_at}
+            attended={report ? report.attended : (call.outcome != null ? call.outcome !== 'no_show' : undefined)}
+            topic={report?.topic ?? null}
+            topicCustom={report?.topic_custom ?? null}
+            notes={report?.notes ?? call.lead_rapport_comment ?? null}
+            studentNotes={report?.student_notes ?? null}
+            fathomData={{
+              shareUrl: call.fathom_share_url ?? null,
+              summary: call.fathom_summary ?? null,
+              actionItems: call.fathom_action_items ?? null,
+              transcript: call.fathom_transcript ?? null,
+            }}
+            onClose={() => setInfosModalCall(null)}
+          />
+        );
+      })()}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Icon from '@/components/ui/Icon';
 import RapportModal from '@/components/ui/RapportModal';
+import CallInfosModal from '@/components/ui/CallInfosModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
@@ -175,6 +176,9 @@ export default function PageClientCalls() {
 
   // Modal rapport
   const [rapportModal, setRapportModal] = useState<RapportModal | null>(null);
+
+  // Modale de consultation (rapport déjà rempli + infos Fathom) — jamais de formulaire.
+  const [infosModalCall, setInfosModalCall] = useState<Call | null>(null);
 
   // Historique : 4 derniers affichés par défaut, "Voir plus" affiche le reste
   const [historyLimited, setHistoryLimited] = useState(true);
@@ -438,6 +442,16 @@ export default function PageClientCalls() {
                     <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
                   ) : (
                     <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Terminé</span>
+                  )}
+                  {(call.fathom_status === 'matched' || sessionReportsByCall[call.id]?.attended != null || call.outcome != null) && (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      style={{ fontSize: 11 }}
+                      onClick={() => setInfosModalCall(call)}
+                    >
+                      Infos
+                    </button>
                   )}
                 </div>
               </div>
@@ -735,10 +749,10 @@ export default function PageClientCalls() {
           Historique ({history.length})
         </button>
         <button className={`chip${tab === 'prospects' ? ' chip-active' : ''}`} onClick={() => setTab('prospects')} type="button">
-          Prospects
+          Prospects ({prospectUpcoming.length + prospectHistory.length})
         </button>
         <button className={`chip${tab === 'coachings' ? ' chip-active' : ''}`} onClick={() => setTab('coachings')} type="button">
-          Coachings
+          Coachings ({coachingUpcoming.length + coachingHistory.length})
         </button>
         <button className={`chip${tab === 'canceled' ? ' chip-active' : ''}`} onClick={() => setTab('canceled')} type="button">
           Annulés ({canceledCalls.length})
@@ -865,6 +879,23 @@ export default function PageClientCalls() {
             transcript: rapportModal.fathomTranscript ?? null,
           }}
           onClose={closeRapportModal}
+        />
+      )}
+
+      {infosModalCall && (
+        <CallInfosModal
+          counterpartName={infosModalCall.invitee_name}
+          scheduledAt={infosModalCall.scheduled_at}
+          attended={sessionReportsByCall[infosModalCall.id]?.attended ?? (infosModalCall.outcome != null ? infosModalCall.outcome !== 'no_show' : undefined)}
+          notes={infosModalCall.notes ?? infosModalCall.lead_rapport_comment ?? null}
+          studentNotes={sessionReportsByCall[infosModalCall.id]?.student_notes ?? null}
+          fathomData={{
+            shareUrl: infosModalCall.fathom_share_url ?? null,
+            summary: infosModalCall.fathom_summary ?? null,
+            actionItems: infosModalCall.fathom_action_items ?? null,
+            transcript: infosModalCall.fathom_transcript ?? null,
+          }}
+          onClose={() => setInfosModalCall(null)}
         />
       )}
 
