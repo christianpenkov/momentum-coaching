@@ -1165,7 +1165,12 @@ export default function PageClientDetail({ id }: Props) {
         </div>
       </div>
 
-      {/* Rapports de fin d'appel de Coaching (calls Google Meet coach-élève) */}
+      {/* Rapports de fin d'appel de Coaching (calls Google Meet coach-élève) — rapports
+          remplis et calls en attente fusionnés dans une seule timeline triée par date
+          réelle (scheduled_at pour un call en attente, created_at pour un rapport rempli),
+          plutôt que deux blocs empilés qui reléguaient les calls récents sans rapport
+          tout en bas, hors de l'ordre chronologique attendu. Style visuel de chaque
+          entrée inchangé (ambre pour "en attente", neutre pour rempli). */}
       <div className="card" style={{ marginTop: 24 }}>
         <div className="card-head">
           <div className="card-title">Rapports de fin d'appel de Coaching</div>
@@ -1174,7 +1179,33 @@ export default function PageClientDetail({ id }: Props) {
           {sessionReports.length === 0 && pendingSessionRapports.length === 0 && (
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune session rapportée pour l'instant.</div>
           )}
-          {sessionReports.map(report => {
+          {[
+            ...sessionReports.map(report => ({ type: 'report' as const, date: report.created_at, report })),
+            ...pendingSessionRapports.map(call => ({ type: 'pending' as const, date: call.scheduled_at || call.created_at, call })),
+          ]
+            .sort((a, b) => new Date(b.date!).getTime() - new Date(a.date!).getTime())
+            .map(entry => entry.type === 'pending' ? (
+            <div key={entry.call.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--amber-soft)', borderRadius: 10, border: '1px solid var(--amber)' }}>
+              <Icon name="phone-call" size={14} style={{ color: 'var(--amber)', flexShrink: 0 }} />
+              <span style={{ flex: 1, fontSize: 12, color: 'var(--accent)' }}>
+                Call du {entry.call.scheduled_at ? new Date(entry.call.scheduled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—'} — en attente de rapport
+              </span>
+              {entry.call.fathom_status === 'matched' && (
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ fontSize: 11, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
+                  onClick={() => setInfosModalCall(entry.call)}
+                >
+                  Infos
+                </button>
+              )}
+              <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setSessionRapportCallId(entry.call.id)}>
+                Remplir
+              </button>
+            </div>
+          ) : (() => {
+            const report = entry.report;
             const topicLabel = report.topic === 'autre'
               ? report.topic_custom
               : SESSION_TOPICS.find(t => t.value === report.topic)?.label;
@@ -1236,28 +1267,7 @@ export default function PageClientDetail({ id }: Props) {
                 </div>
               </div>
             );
-          })}
-          {pendingSessionRapports.map(call => (
-            <div key={call.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--amber-soft)', borderRadius: 10, border: '1px solid var(--amber)' }}>
-              <Icon name="phone-call" size={14} style={{ color: 'var(--amber)', flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 12, color: 'var(--accent)' }}>
-                Call du {call.scheduled_at ? new Date(call.scheduled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—'} — en attente de rapport
-              </span>
-              {call.fathom_status === 'matched' && (
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ fontSize: 11, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
-                  onClick={() => setInfosModalCall(call)}
-                >
-                  Infos
-                </button>
-              )}
-              <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setSessionRapportCallId(call.id)}>
-                Remplir
-              </button>
-            </div>
-          ))}
+          })())}
         </div>
       </div>
 
