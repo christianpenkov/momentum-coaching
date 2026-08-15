@@ -99,7 +99,12 @@ export default function PageClientUpcomingCalls() {
               seed={getCallCounterpart(nextCall).id}
             />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Prochain call</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Prochain call</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(nextCall) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(nextCall) ? 'var(--accent)' : 'var(--accent-brand)' }}>
+                  {isCoachingCall(nextCall) ? 'Coaching' : 'Prospect'}
+                </span>
+              </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
                 {new Date(nextCall.scheduled_at!).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
                 {' à '}
