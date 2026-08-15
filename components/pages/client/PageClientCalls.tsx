@@ -8,7 +8,7 @@ import RapportModal from '@/components/ui/RapportModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
-import { isCallMissingRecording } from '@/lib/sessionRapport';
+import { isCallMissingRecording, isCallReallyOver } from '@/lib/sessionRapport';
 
 function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
   return call?.call_type === 'google';
@@ -285,14 +285,17 @@ export default function PageClientCalls() {
   const now = new Date();
   const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && c.call_type !== 'calendly');
   const canceledCalls = calls.filter(c => ['canceled', 'cancelled', 'declined'].includes(c.status || ''));
+  // isCallReallyOver (pas juste scheduled_at < now) : un call reste "à venir" tant que
+  // son heure de FIN théorique (scheduled_at + duration) n'est pas dépassée, pour rester
+  // rejoignable pendant toute sa durée même si l'élève arrive après l'heure de début.
   const upcoming = calls
-    .filter(c => c.scheduled_at && new Date(c.scheduled_at) >= now && c.status === 'active')
+    .filter(c => c.scheduled_at && !isCallReallyOver(c as any, now.getTime()) && c.status === 'active')
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
   const nextCall = upcoming[0];
 
   // Calls historique : passés, non annulés
   const history = calls
-    .filter(c => c.scheduled_at && new Date(c.scheduled_at) < now && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
+    .filter(c => c.scheduled_at && isCallReallyOver(c as any, now.getTime()) && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
   // Onglets Prospects / Coachings — chacun affiche ses propres sections À venir puis
@@ -632,7 +635,7 @@ export default function PageClientCalls() {
                         {respondingId === call.id ? '…' : 'Accepter'}
                       </button>
                       <button
-                        className="btn-ghost"
+                        className="btn-ghost call-action-decline"
                         type="button"
                         onClick={() => setDeclineModal({ callId: call.id, topic: call.topic || 'Call coaching', scheduledAt: call.scheduled_at! })}
                         disabled={respondingId === call.id}
