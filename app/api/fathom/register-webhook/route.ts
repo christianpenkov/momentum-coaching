@@ -5,6 +5,15 @@ import { getFathomToken } from '@/lib/fathom-auth';
 
 const FATHOM_API_BASE = 'https://api.fathom.ai/external/v1';
 
+const serviceSupabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
+
+async function logDebug(message: string, data: Record<string, unknown>) {
+  await serviceSupabase.from('webhook_debug_log').insert({ message, data });
+}
+
 export async function POST() {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -12,6 +21,7 @@ export async function POST() {
 
   const accessToken = await getFathomToken(user.id);
   if (!accessToken) {
+    await logDebug('[register-webhook] pas de token Fathom pour ce profil', { profile_id: user.id });
     return NextResponse.json({ error: 'Fathom non connecté' }, { status: 404 });
   }
 
@@ -52,6 +62,7 @@ export async function POST() {
 
   if (!createRes.ok) {
     const err = await createRes.json().catch(() => ({}));
+    await logDebug('[register-webhook] création webhook Fathom échouée', { profile_id: user.id, status: createRes.status, err });
     return NextResponse.json({ error: err.message || 'Erreur création webhook Fathom' }, { status: 400 });
   }
 
@@ -62,15 +73,13 @@ export async function POST() {
   // pour ne pas dépendre d'un ordre de déploiement parfait avec FATHOM_WEBHOOK_SECRET ;
   // le webhook entrant doit lire ce secret en priorité (à défaut, la variable d'env).
   if (created?.secret) {
-    const serviceSupabase = createClient(
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-      process.env.SUPABASE_SERVICE_ROLE_KEY!
-    );
     await serviceSupabase
       .from('integrations')
       .update({ metadata: { webhook_secret: created.secret } })
       .eq('profile_id', user.id)
       .eq('provider', 'fathom');
+  } else {
+    await logDebug('[register-webhook] pas de secret dans la réponse Fathom', { profile_id: user.id, created });
   }
 
   return NextResponse.json({ ok: true, message: 'Webhook Fathom enregistré' });

@@ -6,6 +6,10 @@ const serviceSupabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+async function logDebug(message: string, data: Record<string, unknown>) {
+  await serviceSupabase.from('webhook_debug_log').insert({ message, data });
+}
+
 // Fenêtre de tolérance pour le fallback email+créneau (Fathom peut démarrer
 // l'enregistrement quelques minutes après scheduled_at, ou le call peut avoir
 // légèrement dérivé côté organisateur).
@@ -67,7 +71,7 @@ export async function POST(request: NextRequest) {
   if (process.env.FATHOM_WEBHOOK_SECRET) knownSecrets.push(process.env.FATHOM_WEBHOOK_SECRET);
 
   if (knownSecrets.length === 0) {
-    console.error('[webhook/fathom] aucun secret connu (integrations.metadata ni FATHOM_WEBHOOK_SECRET) — refus fail-closed');
+    await logDebug('[webhook/fathom] aucun secret connu — refus fail-closed', {});
     return NextResponse.json({ error: 'Erreur de configuration serveur' }, { status: 500 });
   }
 
@@ -214,7 +218,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (!profileId) {
-    console.error('[webhook/fathom] impossible de résoudre le profil pour recording_id:', recordingId);
+    await logDebug('[webhook/fathom] impossible de résoudre le profil', { recording_id: recordingId, recorded_by: payload.recorded_by });
     return NextResponse.json({ ok: true });
   }
 

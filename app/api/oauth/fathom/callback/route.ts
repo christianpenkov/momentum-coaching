@@ -52,8 +52,20 @@ export async function GET(request: NextRequest) {
 
   const tokenData = await tokenRes.json();
 
+  const serviceSupabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  );
+
+  // Logs écrits en base (webhook_debug_log) plutôt que console.error — les logs
+  // Vercel ne sont pas la méthode de debug utilisée sur ce projet, cf. convention
+  // déjà en place pour les autres webhooks/callbacks.
+  async function logDebug(message: string, data: Record<string, unknown>) {
+    await serviceSupabase.from('webhook_debug_log').insert({ message, data });
+  }
+
   if (!tokenData.access_token) {
-    console.error('[Fathom callback] token exchange failed:', JSON.stringify(tokenData));
+    await logDebug('[Fathom callback] token exchange failed', { profile_id: user.id, response: tokenData });
     return NextResponse.redirect(`${origin}/settings?error=fathom_token`);
   }
 
@@ -61,12 +73,7 @@ export async function GET(request: NextRequest) {
     ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
     : null;
 
-  const serviceSupabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!
-  );
-
-  await serviceSupabase.from('integrations').upsert({
+  const { error: upsertError } = await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'fathom',
     access_token: tokenData.access_token,
@@ -76,15 +83,27 @@ export async function GET(request: NextRequest) {
     connected_at: new Date().toISOString(),
   }, { onConflict: 'profile_id,provider' });
 
+  if (upsertError) {
+    await logDebug('[Fathom callback] integrations upsert failed', { profile_id: user.id, error: upsertError });
+    return NextResponse.redirect(`${origin}/settings?error=fathom_save`);
+  }
+
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
 
   const base = process.env.NEXT_PUBLIC_PLATFORM_URL || '';
 
-  // Enregistrement webhook Fathom (fire-and-forget, idempotent côté route)
+  // Enregistrement webhook Fathom (fire-and-forget, idempotent côté route) —
+  // résultat loggé en base même si non bloquant pour la redirection.
   fetch(`${base}/api/fathom/register-webhook`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', cookie: request.headers.get('cookie') || '' },
-  }).catch(e => console.error('[Fathom callback] register-webhook failed:', e));
+  }).then(async res => {
+    if (!res.ok) {
+      await logDebug('[Fathom callback] register-webhook non-ok', { profile_id: user.id, status: res.status, body: await res.text().catch(() => null) });
+    }
+  }).catch(async e => {
+    await logDebug('[Fathom callback] register-webhook fetch failed', { profile_id: user.id, error: String(e) });
+  });
 
   const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=fathom`);
