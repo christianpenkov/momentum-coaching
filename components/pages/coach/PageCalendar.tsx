@@ -23,6 +23,7 @@ interface CalEvent {
   time?: string;
   meta?: string;
   status?: string | null;
+  callType?: string | null;
 }
 
 function pad(n: number) { return String(n).padStart(2, '0'); }
@@ -57,6 +58,7 @@ export default function PageCalendar() {
         clientId: call.client_id || '',
         time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
         status: call.status,
+        callType: call.call_type,
       });
     });
 
@@ -381,6 +383,16 @@ export default function PageCalendar() {
   );
 }
 
+// Même style que le badge Coaching/Prospect de PageCalls.tsx / CallStack.tsx —
+// réutilisé ici pour rester cohérent partout où un call est affiché.
+function CallTypeBadge({ isGoogle }: { isGoogle: boolean }) {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)', whiteSpace: 'nowrap' }}>
+      {isGoogle ? 'Coaching' : 'Prospect'}
+    </span>
+  );
+}
+
 function DayEventsList({ events }: { events: CalEvent[] }) {
   if (events.length === 0) {
     return (
@@ -408,6 +420,7 @@ function DayEventsList({ events }: { events: CalEvent[] }) {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
                 <Avatar initials={ev.clientInitials} avatarUrl={ev.clientAvatarUrl} size={20} seed={ev.clientId} />
                 <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>{ev.clientName}</span>
+                {ev.type === 'call' && <CallTypeBadge isGoogle={ev.callType === 'google'} />}
                 {ev.time && <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{ev.time}</span>}
               </div>
               <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{ev.label}</div>
