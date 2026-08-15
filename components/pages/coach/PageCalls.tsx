@@ -23,9 +23,12 @@ function CallTypeBadge({ isGoogle }: { isGoogle: boolean }) {
   );
 }
 
+// Info neutre, pas une alerte — un call sans enregistrement Fathom n'est pas un
+// problème (bot pas rejoint, appel hors visio, etc.). Fond transparent + bordure
+// (pas var(--surface-2) plein) pour rester visuellement distinct de CallTypeBadge.
 function FathomMissingBadge() {
   return (
-    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: '#fef3c7', color: '#92400e', whiteSpace: 'nowrap' }}>
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
       Non enregistré
     </span>
   );
