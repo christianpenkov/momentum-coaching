@@ -128,7 +128,7 @@ export default function PageClients() {
 
       {/* Filtres + recherche */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
-        <div style={{ display: 'flex', gap: 6 }}>
+        <div className="chip-scroll" style={{ display: 'flex', gap: 6, overflowX: 'auto' }}>
           {(['all', 'overdue', 'noshow'] as Filter[]).map(f => (
             <Chip
               key={f}
