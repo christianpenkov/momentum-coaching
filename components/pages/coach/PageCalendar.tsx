@@ -2,6 +2,7 @@
 import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import Link from 'next/link';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
@@ -299,8 +300,10 @@ export default function PageCalendar() {
           )}
         </div>
 
-        {/* Panneau latéral — événements du jour sélectionné */}
-        <div>
+        {/* Panneau latéral — événements du jour sélectionné, desktop uniquement.
+            Sur mobile (≤767px), remplacé par un modal bottom-sheet (voir plus bas) :
+            pas assez de place pour un panneau permanent sous la grille compressée. */}
+        <div className="calendar-day-panel">
           <div className="card">
             <div className="card-head">
               <div>
@@ -312,54 +315,7 @@ export default function PageCalendar() {
                 <div className="card-sub">{selectedEvents.length} événement{selectedEvents.length !== 1 ? 's' : ''}</div>
               </div>
             </div>
-
-            {selectedEvents.length === 0 ? (
-              <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0', textAlign: 'center' }}>
-                Aucun événement ce jour.
-              </div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
-                {selectedEvents
-                  .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
-                  .map((ev, i) => (
-                    <div key={i} style={{
-                      display: 'flex', alignItems: 'flex-start', gap: 10,
-                      padding: '10px 12px', borderRadius: 10,
-                      background: ev.type === 'call' ? 'var(--accent-soft)' : '#f5a62310',
-                      border: `1px solid ${ev.type === 'call' ? 'var(--accent)30' : '#f5a62330'}`,
-                    }}>
-                      <div style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>
-                        {ev.type === 'call' ? '📞' : '⏰'}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
-                          <Avatar initials={ev.clientInitials} avatarUrl={ev.clientAvatarUrl} size={20} seed={ev.clientId} />
-                          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>{ev.clientName}</span>
-                          {ev.time && <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{ev.time}</span>}
-                        </div>
-                        <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{ev.label}</div>
-                        {ev.type === 'call' && ev.status === 'pending_acceptance' && (
-                          <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', marginTop: 4, display: 'inline-block' }}>
-                            Réponse en attente
-                          </span>
-                        )}
-                        {ev.type === 'deadline' && ev.meta && (
-                          <span style={{
-                            fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, marginTop: 4, display: 'inline-block',
-                            background: ev.meta === 'high' ? '#ef444420' : ev.meta === 'medium' ? '#f5a62320' : '#22c55e20',
-                            color: ev.meta === 'high' ? 'var(--red)' : ev.meta === 'medium' ? 'var(--amber)' : 'var(--green)',
-                          }}>
-                            {ev.meta === 'high' ? 'Haute' : ev.meta === 'medium' ? 'Moyenne' : 'Basse'}
-                          </span>
-                        )}
-                      </div>
-                      <Link href={`/clients/${ev.clientId}`} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 2 }}>
-                        <Icon name="chevR" size={12} />
-                      </Link>
-                    </div>
-                  ))}
-              </div>
-            )}
+            <DayEventsList events={selectedEvents} />
           </div>
 
           {/* Prochains calls */}
@@ -399,6 +355,82 @@ export default function PageCalendar() {
           </div>
         </div>
       </div>
+
+      {/* Modal bottom-sheet — mobile uniquement (voir .calendar-day-modal-overlay
+          en CSS, masqué ≥768px). S'arrête au-dessus de la bottom nav plutôt que de
+          passer par-dessus, même pattern que le calendrier mobile élève. */}
+      {selectedDay && typeof document !== 'undefined' && createPortal(
+        <div
+          className="calendar-day-modal-overlay"
+          style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 'calc(64px + env(safe-area-inset-bottom) + 6px)', background: 'rgba(0,0,0,0.5)', alignItems: 'flex-end', justifyContent: 'center', zIndex: 2000 }}
+          onClick={e => { if (e.target === e.currentTarget) setSelectedDay(null); }}
+        >
+          <div className="card" style={{ width: '100%', maxWidth: 480, borderBottomLeftRadius: 0, borderBottomRightRadius: 0, padding: 20, paddingBottom: 24, maxHeight: '70vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 12 }}>
+              <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+            </div>
+            <div className="card-title" style={{ marginBottom: 4, textTransform: 'capitalize' }}>
+              {new Date(selectedDay + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </div>
+            <DayEventsList events={selectedEvents} />
+          </div>
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+function DayEventsList({ events }: { events: CalEvent[] }) {
+  if (events.length === 0) {
+    return (
+      <div style={{ fontSize: 13, color: 'var(--muted)', padding: '16px 0', textAlign: 'center' }}>
+        Aucun événement ce jour.
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 14 }}>
+      {events
+        .slice()
+        .sort((a, b) => (a.time || '').localeCompare(b.time || ''))
+        .map((ev, i) => (
+          <div key={i} style={{
+            display: 'flex', alignItems: 'flex-start', gap: 10,
+            padding: '10px 12px', borderRadius: 10,
+            background: ev.type === 'call' ? 'var(--accent-soft)' : '#f5a62310',
+            border: `1px solid ${ev.type === 'call' ? 'var(--accent)30' : '#f5a62330'}`,
+          }}>
+            <div style={{ fontSize: 16, flexShrink: 0, marginTop: 1 }}>
+              {ev.type === 'call' ? '📞' : '⏰'}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+                <Avatar initials={ev.clientInitials} avatarUrl={ev.clientAvatarUrl} size={20} seed={ev.clientId} />
+                <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--accent)' }}>{ev.clientName}</span>
+                {ev.time && <span style={{ fontSize: 11, color: 'var(--muted)', fontFamily: 'var(--font-mono)' }}>{ev.time}</span>}
+              </div>
+              <div style={{ fontSize: 12, color: 'var(--ink-2)' }}>{ev.label}</div>
+              {ev.type === 'call' && ev.status === 'pending_acceptance' && (
+                <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', marginTop: 4, display: 'inline-block' }}>
+                  Réponse en attente
+                </span>
+              )}
+              {ev.type === 'deadline' && ev.meta && (
+                <span style={{
+                  fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, marginTop: 4, display: 'inline-block',
+                  background: ev.meta === 'high' ? '#ef444420' : ev.meta === 'medium' ? '#f5a62320' : '#22c55e20',
+                  color: ev.meta === 'high' ? 'var(--red)' : ev.meta === 'medium' ? 'var(--amber)' : 'var(--green)',
+                }}>
+                  {ev.meta === 'high' ? 'Haute' : ev.meta === 'medium' ? 'Moyenne' : 'Basse'}
+                </span>
+              )}
+            </div>
+            <Link href={`/clients/${ev.clientId}`} style={{ color: 'var(--muted)', flexShrink: 0, marginTop: 2 }}>
+              <Icon name="chevR" size={12} />
+            </Link>
+          </div>
+        ))}
     </div>
   );
 }
