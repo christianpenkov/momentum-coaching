@@ -45,6 +45,33 @@ export function isCallReallyOver(call: Call, now: number = Date.now()): boolean 
   return callEndTime(call) < now;
 }
 
+// Délai de rattrapage pour le bouton "Rejoindre" — un coach/élève en retard doit
+// pouvoir rejoindre encore quelques minutes après la fin théorique du call. Distinct
+// d'isCallReallyOver (qui reste la référence stricte pour historique/rapport, jamais
+// modifiée) : un call peut être "réellement terminé" (bascule en historique) tout en
+// restant "joignable" quelques minutes de plus.
+const JOIN_GRACE_PERIOD_MS = 15 * 60_000;
+
+// Pas de borne basse (avant scheduled_at) : on peut déjà rejoindre en avance
+// aujourd'hui sur les 3 boutons "Rejoindre" existants, comportement préservé ici.
+export function isCallJoinable(call: Call, now: number = Date.now()): boolean {
+  const reportFilled = call.outcome != null || call.session_completed === true || call.session_no_show === true;
+  if (reportFilled) return false;
+  if (['canceled', 'cancelled', 'declined'].includes(call.status || '')) return false;
+  if (!call.scheduled_at) return false;
+  return now <= callEndTime(call) + JOIN_GRACE_PERIOD_MS;
+}
+
+// Lecture stricte : vrai uniquement dans le créneau planifié (entre le début et la fin
+// théorique), jamais pendant le délai de rattrapage — sert uniquement au badge "En cours"
+// affiché sur les cartes de la liste À venir.
+export function isCallInProgress(call: Call, now: number = Date.now()): boolean {
+  if (!call.scheduled_at) return false;
+  if (['canceled', 'cancelled', 'declined'].includes(call.status || '')) return false;
+  const start = new Date(call.scheduled_at).getTime();
+  return now >= start && now < callEndTime(call);
+}
+
 // Délai de grâce avant d'afficher "non enregistré" — Fathom traite l'enregistrement
 // (transcript/résumé) quelques minutes après la fin du call, jamais instantanément.
 // En dessous de ce délai on ne sait juste pas encore, donc on n'affiche rien plutôt
