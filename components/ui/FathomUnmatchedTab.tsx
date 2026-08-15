@@ -76,7 +76,7 @@ export default function FathomUnmatchedTab({ calls, getClientName, onResolved }:
   if (items.length === 0) {
     return (
       <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', fontSize: 13 }}>
-        Aucun enregistrement Fathom en attente de rattachement.
+        Aucun autre enregistrement Fathom pour le moment.
       </div>
     );
   }
