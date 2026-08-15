@@ -2802,7 +2802,6 @@ export default function PageLiens() {
 
       <div className="liens-root">
       <ModalParametres
-
         open={paramOpen} onClose={() => { setParamOpen(false); }}
         profileId={profileId} activeDomain={activeDomain} domainsLoaded={domainsLoaded}
         onCalendlyChange={(url: string) => setCalendlyOverride(url)} initialCalendly={calendlyUrl}
