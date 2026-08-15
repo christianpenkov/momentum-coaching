@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
+import Avatar, { getInitials } from '@/components/ui/Avatar';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -1807,7 +1808,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   const [igUserId, setIgUserId] = useState<string | null>(null);
   const [usernameSearch, setUsernameSearch] = useState('');
   const [showLeads, setShowLeads] = useState(false);
-  const [leads, setLeads] = useState<{ ig_username: string; ig_user_id: string | null; detected_at: string; keyword_matched: string; media_id: string | null }[]>([]);
+  const [leads, setLeads] = useState<{ ig_username: string; ig_user_id: string | null; detected_at: string; keyword_matched: string; media_id: string | null; avatar_url?: string | null }[]>([]);
   const [leadsLoading, setLeadsLoading] = useState(false);
 
   // Contenu source — postMode: 'auto' | 'lead' | 'manual' | 'none'
@@ -1957,11 +1958,12 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                   )}
                   {!leadsLoading && filteredLeads.length > 0 && filteredLeads.map(l => (
                     <div key={l.ig_username} onMouseDown={() => { setUsername(l.ig_username); setIgUserId(l.ig_user_id ?? null); setUsernameSearch(''); setShowLeads(false); if (l.media_id) { setPostId(l.media_id); setPostMode('lead'); } }}
-                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
+                      style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 12px', cursor: 'pointer', fontSize: 12, color: INK, borderBottom: `1px solid ${BORDER}` }}
                       onMouseEnter={e => (e.currentTarget.style.background = SURFACE2)}
                       onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
-                      <span style={{ fontWeight: 600 }}>@{l.ig_username}</span>
-                      <span style={{ fontSize: 10, color: FAINT }}>{l.keyword_matched}</span>
+                      <Avatar initials={getInitials(l.ig_username)} avatarUrl={l.avatar_url} seed={l.ig_user_id || l.ig_username} size={24} />
+                      <span style={{ fontWeight: 600, flex: 1 }}>@{l.ig_username}</span>
+                      <span style={{ fontSize: 10, color: FAINT, flexShrink: 0 }}>{l.keyword_matched}</span>
                     </div>
                   ))}
                 </div>
@@ -2070,10 +2072,12 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
           />
           {history.filter(h => !historySearch || h.ig_username.toLowerCase().includes(historySearch.toLowerCase())).map(h => {
             const post = posts.find(p => p.id === h.content_id);
+            const lead = leads.find(l => l.ig_username.toLowerCase() === h.ig_username.toLowerCase());
             const copied = historyCopied === h.id;
             const isDeleting = deletingId === h.id;
             return (
               <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, background: SURFACE2, border: `1px solid ${BORDER}`, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
+                <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url} seed={lead?.ig_user_id || h.ig_username} size={28} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 2 }}>
                     <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>@{h.ig_username}</span>
@@ -2810,7 +2814,8 @@ export default function PageLiens() {
                 width: '100%', padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
                 border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
               }}>
-                📅 Lien Calendly prospect DM
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                Envoyer un lien Calendly Prospect en DM
               </button>
 
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
@@ -3046,7 +3051,8 @@ export default function PageLiens() {
                 background: rightView?.type === 'prospect' ? BLUE_SOFT : 'transparent',
                 color: rightView?.type === 'prospect' ? BLUE : MUTED, transition: 'all .15s',
               }}>
-                📅 Lien Calendly prospect DM
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                Envoyer un lien Calendly Prospect en DM
               </button>
             </div>
 
