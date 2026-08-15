@@ -6,6 +6,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
+import ModalShell from '@/components/ui/ModalShell';
 
 // ─── Garde de navigation — bloque un changement de post/onglet si des DMs ne sont pas sauvegardés ──
 interface UnsavedGuardApi {
@@ -1854,6 +1855,8 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   const [historyCopied, setHistoryCopied] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ id: string; ig_username: string } | null>(null);
+  const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
 
   // Charge l'historique des liens générés
   useEffect(() => {
@@ -2089,18 +2092,11 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
                 </div>
                 <button
                   onClick={() => { navigator.clipboard.writeText(h.short_url); setHistoryCopied(h.id); setTimeout(() => setHistoryCopied(null), 2000); }}
-                  style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 6, border: `1px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : BG, color: copied ? 'var(--green)' : MUTED, cursor: 'pointer', transition: 'all .15s' }}>
+                  style={{ flexShrink: 0, fontSize: 13, fontWeight: 700, padding: '9px 16px', borderRadius: 7, border: `1.5px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : BG, color: copied ? 'var(--green)' : MUTED, cursor: 'pointer', transition: 'all .15s' }}>
                   {copied ? '✓ Copié' : 'Copier'}
                 </button>
                 <button
-                  onClick={async () => {
-                    if (isDeleting) return;
-                    setDeletingId(h.id);
-                    try {
-                      await fetch(`/api/client/prospect-links?id=${h.id}`, { method: 'DELETE' });
-                      setHistory(prev => prev.filter(x => x.id !== h.id));
-                    } finally { setDeletingId(null); }
-                  }}
+                  onClick={() => { setDeleteTarget({ id: h.id, ig_username: h.ig_username }); setDeleteConfirmChecked(false); }}
                   title="Supprimer ce lien"
                   style={{ flexShrink: 0, width: 24, height: 24, borderRadius: 6, border: 'none', background: 'none', color: MUTED, cursor: 'pointer', fontSize: 14, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 0 }}>
                   ×
@@ -2109,6 +2105,50 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
             );
           })}
         </div>
+      )}
+
+      {deleteTarget && (
+        <ModalShell onClose={() => setDeleteTarget(null)} width={380}>
+          <div style={{ padding: 24, display: 'flex', flexDirection: 'column', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: INK, marginBottom: 6 }}>Supprimer ce lien prospect</div>
+              <div style={{ fontSize: 13, color: MUTED, lineHeight: 1.5 }}>
+                Le lien Calendly généré pour <strong>@{deleteTarget.ig_username}</strong> sera supprimé définitivement. Il ne sera plus trackable.
+              </div>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: INK }}>
+              <input
+                type="checkbox"
+                checked={deleteConfirmChecked}
+                onChange={e => setDeleteConfirmChecked(e.target.checked)}
+                style={{ width: 16, height: 16, cursor: 'pointer', accentColor: RED }}
+              />
+              Je confirme vouloir supprimer ce lien
+            </label>
+            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+              <button
+                onClick={() => setDeleteTarget(null)}
+                style={{ padding: '9px 16px', fontSize: 13, fontWeight: 600, borderRadius: 8, border: `1px solid ${BORDER}`, background: 'none', color: INK, cursor: 'pointer' }}>
+                Annuler
+              </button>
+              <button
+                disabled={!deleteConfirmChecked || deletingId === deleteTarget.id}
+                onClick={async () => {
+                  const target = deleteTarget;
+                  if (!target) return;
+                  setDeletingId(target.id);
+                  try {
+                    await fetch(`/api/client/prospect-links?id=${target.id}`, { method: 'DELETE' });
+                    setHistory(prev => prev.filter(x => x.id !== target.id));
+                    setDeleteTarget(null);
+                  } finally { setDeletingId(null); }
+                }}
+                style={{ padding: '9px 16px', fontSize: 13, fontWeight: 700, borderRadius: 8, border: 'none', background: RED, color: '#fff', cursor: deleteConfirmChecked ? 'pointer' : 'default', opacity: deleteConfirmChecked ? 1 : 0.4, transition: 'opacity .15s' }}>
+                {deletingId === deleteTarget.id ? 'Suppression...' : 'Supprimer'}
+              </button>
+            </div>
+          </div>
+        </ModalShell>
       )}
     </div>
   );
