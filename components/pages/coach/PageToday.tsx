@@ -51,9 +51,10 @@ export default function PageToday() {
 
   const kpisTop = [
     {
-      label: 'Total cash collecté', sub: 'par tes élèves, all-time', value: business.cashCollectedAllTime ?? 0,
+      label: 'Total cash collecté', sub: 'ton activité perso, all-time', value: business.cashCollectedAllTime ?? 0,
       formatter: (n: number) => business.cashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
       color: 'var(--green)',
+      href: '/mes-stats',
       viz: business.cashCollectedAllTime !== null && (
         <TrendBadge value={business.cashCollectedThisMonth ?? 0} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />
       ),
@@ -83,10 +84,12 @@ export default function PageToday() {
   const kpisBottom = [
     {
       label: 'Leads générés', value: business.leadsAllTimeCount,
+      href: '/pipeline',
       viz: <TrendBadge value={business.leadsThisMonthCount} label="ce mois" />,
     },
     {
       label: 'Calls bookés', value: business.prospectCallsBooked,
+      href: '/pipeline',
       viz: <TrendBadge value={business.prospectCallsBookedThisMonth} label="ce mois" />,
     },
     {

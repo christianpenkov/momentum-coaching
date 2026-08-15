@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUnreadMessagesCount } from '@/lib/useUnreadMessagesCount';
 
-const MORE_ROUTES = ['/tasks', '/calendar', '/ressources', '/settings'];
+const MORE_ROUTES = ['/pipeline', '/liens', '/mes-stats', '/tasks', '/calendar', '/ressources', '/settings'];
 
 const NAV = [
   {

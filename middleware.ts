@@ -74,5 +74,8 @@ export const config = {
     '/metrics/:path*',
     '/api-debug/:path*',
     '/ig-live/:path*',
+    '/pipeline/:path*',
+    '/liens/:path*',
+    '/mes-stats/:path*',
   ],
 };
