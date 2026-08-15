@@ -447,7 +447,7 @@ export default function PageClientCalls() {
                     <button
                       type="button"
                       className="btn-ghost"
-                      style={{ fontSize: 11 }}
+                      style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 8 }}
                       onClick={() => setInfosModalCall(call)}
                     >
                       Infos
@@ -872,12 +872,6 @@ export default function PageClientCalls() {
           callId={rapportModal.callId}
           inviteeName={rapportModal.inviteeName}
           scheduledAt={rapportModal.scheduledAt}
-          fathomData={{
-            shareUrl: rapportModal.fathomShareUrl ?? null,
-            summary: rapportModal.fathomSummary ?? null,
-            actionItems: rapportModal.fathomActionItems ?? null,
-            transcript: rapportModal.fathomTranscript ?? null,
-          }}
           onClose={closeRapportModal}
         />
       )}

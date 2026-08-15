@@ -4,17 +4,9 @@ import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
-import FathomRecordingSection from '@/components/ui/FathomRecordingSection';
 import { SESSION_TOPICS, type SessionTopic } from '@/lib/sessionRapport';
 
 type SessionRapportStep = 'attended' | 'topic_notes' | 'done';
-
-interface FathomData {
-  shareUrl: string | null;
-  summary: string | null;
-  actionItems: unknown;
-  transcript: string | null;
-}
 
 interface Props {
   callId: string;
@@ -26,14 +18,13 @@ interface Props {
   // l'étape topic_notes (le "présent/no-show" initial n'est pas remis en cause ici,
   // seuls sujet/notes sont modifiables après coup).
   editInitial?: { topic: SessionTopic | null; topicCustom: string; notes: string };
-  fathomData?: FathomData;
 }
 
 function formatDate(dateStr: string) {
   return new Date(dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
 }
 
-export default function SessionRapportModal({ callId, studentName, scheduledAt, topic: callTopic, onClose, editInitial, fathomData }: Props) {
+export default function SessionRapportModal({ callId, studentName, scheduledAt, topic: callTopic, onClose, editInitial }: Props) {
   const isEdit = !!editInitial;
   const [step, setStep] = useState<SessionRapportStep>(isEdit ? 'topic_notes' : 'attended');
   const [saving, setSaving] = useState(false);
@@ -121,14 +112,6 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
         </div>
 
         <div style={{ padding: '26px 30px' }}>
-          {fathomData && (
-            <FathomRecordingSection
-              shareUrl={fathomData.shareUrl}
-              summary={fathomData.summary}
-              actionItems={fathomData.actionItems}
-              transcript={fathomData.transcript}
-            />
-          )}
           {scheduledAt && step === 'attended' && (
             <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 20 }}>
               Call du {formatDate(scheduledAt)}

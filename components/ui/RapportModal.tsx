@@ -5,7 +5,6 @@ import { createPortal } from 'react-dom';
 import Lottie from 'lottie-react';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
-import FathomRecordingSection from '@/components/ui/FathomRecordingSection';
 import celebrationAnimation from '@/public/animations/celebration.json';
 
 type RapportStep =
@@ -30,20 +29,12 @@ type RapportStep =
   // (pas closé, closé, 2ème call prévu) ; jamais sur no-show/reporté.
   | 'comment';
 
-interface FathomData {
-  shareUrl: string | null;
-  summary: string | null;
-  actionItems: unknown;
-  transcript: string | null;
-}
-
 interface Props {
   callId: string;
   inviteeName: string | null;
   scheduledAt: string | null;
   isFollowUp?: boolean;
   onClose: () => void;
-  fathomData?: FathomData;
 }
 
 function formatDate(dateStr: string) {
@@ -74,7 +65,7 @@ function CelebrationOverlay({ onDone }: { onDone: () => void }) {
   );
 }
 
-export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, onClose, fathomData }: Props) {
+export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, onClose }: Props) {
   const [step, setStep] = useState<RapportStep>('show_up');
   const [revenue, setRevenue] = useState('');
   const [saving, setSaving] = useState(false);
@@ -437,15 +428,6 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <Icon name="alert" size={14} style={{ flexShrink: 0 }} />
               {error}
             </div>
-          )}
-
-          {fathomData && step === 'show_up' && (
-            <FathomRecordingSection
-              shareUrl={fathomData.shareUrl}
-              summary={fathomData.summary}
-              actionItems={fathomData.actionItems}
-              transcript={fathomData.transcript}
-            />
           )}
 
           {/* ── Étape 1 — présent ? ─────────────────────────────────────────── */}

@@ -1185,7 +1185,7 @@ export default function PageClientDetail({ id }: Props) {
                           type="button"
                           onClick={() => setInfosModalReport(report)}
                           className="btn-ghost"
-                          style={{ fontSize: 11, padding: '2px 8px' }}
+                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--border)', borderRadius: 8 }}
                         >
                           Infos
                         </button>

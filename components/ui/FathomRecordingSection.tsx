@@ -30,6 +30,34 @@ function parseActionItems(raw: unknown): string[] {
   return [];
 }
 
+interface TranscriptLine {
+  speakerName: string;
+  text: string;
+  timestamp: string;
+}
+
+// fathom_transcript est stocké en base via JSON.stringify(transcript) — un tableau
+// { speaker: { display_name, matched_calendar_invitee_email }, text, timestamp }[]
+// (format confirmé par appel réel à l'API Fathom). Si le JSON.parse échoue ou ne
+// matche pas ce shape, on retombe sur le texte brut plutôt que de planter.
+function parseTranscript(raw: string): TranscriptLine[] | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.length || !parsed[0]?.speaker) return null;
+    return parsed.map((line: any) => ({
+      speakerName: line.speaker?.display_name || 'Inconnu',
+      text: line.text || '',
+      timestamp: line.timestamp || '',
+    }));
+  } catch {
+    return null;
+  }
+}
+
+// Couleurs stables par intervenant (assignées dans l'ordre d'apparition), pour
+// distinguer visuellement qui parle sans dépendre d'une correspondance email fragile.
+const SPEAKER_COLORS = ['var(--accent-brand)', 'var(--green)', '#8b5cf6', '#f59e0b'];
+
 export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript }: Props) {
   const [embedFailed, setEmbedFailed] = useState(false);
   const [embedLoaded, setEmbedLoaded] = useState(false);
@@ -45,6 +73,12 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   }, [shareUrl, embedLoaded]);
 
   const items = parseActionItems(actionItems);
+  const transcriptLines = transcript ? parseTranscript(transcript) : null;
+  const speakerColor = new Map<string, string>();
+  function colorFor(name: string) {
+    if (!speakerColor.has(name)) speakerColor.set(name, SPEAKER_COLORS[speakerColor.size % SPEAKER_COLORS.length]);
+    return speakerColor.get(name)!;
+  }
 
   if (!shareUrl && !summary && !items.length && !transcript) return null;
 
@@ -98,14 +132,29 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
           <button
             type="button"
             className="btn-ghost"
-            style={{ fontSize: 12 }}
+            style={{ fontSize: 13, fontWeight: 600, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}
             onClick={() => setShowTranscript(v => !v)}
           >
+            <Icon name={showTranscript ? 'chevron-up' : 'chevron-down'} size={14} />
             {showTranscript ? 'Masquer la transcription' : 'Voir la transcription complète'}
           </button>
           {showTranscript && (
-            <div style={{ marginTop: 10, maxHeight: 260, overflowY: 'auto', padding: 12, background: 'var(--surface-2)', borderRadius: 8, fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
-              {transcript}
+            <div style={{ marginTop: 10, maxHeight: 320, overflowY: 'auto', padding: 14, background: 'var(--surface-2)', borderRadius: 8 }}>
+              {transcriptLines ? (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                  {transcriptLines.map((line, i) => (
+                    <div key={i}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 2 }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, color: colorFor(line.speakerName) }}>{line.speakerName}</span>
+                        {line.timestamp && <span style={{ fontSize: 10, color: 'var(--faint)', fontFamily: 'var(--font-mono)' }}>{line.timestamp}</span>}
+                      </div>
+                      <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>{line.text}</div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{transcript}</div>
+              )}
             </div>
           )}
         </div>

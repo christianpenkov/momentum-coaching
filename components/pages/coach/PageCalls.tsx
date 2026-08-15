@@ -330,7 +330,7 @@ export default function PageCalls() {
                         <button
                           type="button"
                           className="btn-ghost"
-                          style={{ fontSize: 11, flexShrink: 0 }}
+                          style={{ fontSize: 11, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 8 }}
                           onClick={() => setInfosModalCall({ call, clientName: cl?.name ?? null })}
                         >
                           Infos
@@ -596,12 +596,6 @@ export default function PageCalls() {
           callId={openSessionRapportCall.callId}
           studentName={openSessionRapportCall.clientName}
           scheduledAt={openSessionRapportCall.scheduledAt}
-          fathomData={{
-            shareUrl: openSessionRapportCall.call.fathom_share_url ?? null,
-            summary: openSessionRapportCall.call.fathom_summary ?? null,
-            actionItems: openSessionRapportCall.call.fathom_action_items ?? null,
-            transcript: openSessionRapportCall.call.fathom_transcript ?? null,
-          }}
           onClose={() => { setOpenSessionRapportCall(null); refetch(); }}
         />
       )}
