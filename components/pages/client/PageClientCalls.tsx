@@ -503,7 +503,12 @@ export default function PageClientCalls() {
               seed={getCallCounterpart(nextCall).id}
             />
             <div className="next-call-banner-info">
-              <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6, fontWeight: 600 }}>PROCHAIN CALL</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
+                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(nextCall) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(nextCall) ? 'var(--accent)' : 'var(--accent-brand)' }}>
+                  {isCoachingCall(nextCall) ? 'Coaching' : 'Prospect'}
+                </span>
+              </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
                 {formatDate(nextCall.scheduled_at!)}
               </div>

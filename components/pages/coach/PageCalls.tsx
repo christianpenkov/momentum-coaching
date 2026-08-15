@@ -12,6 +12,16 @@ import type { Call } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history';
 
+// Badge Coaching/Prospect — même style que la carte "Prochain call", réutilisé
+// partout dans la page pour que l'œil apprenne un seul pattern visuel.
+function CallTypeBadge({ isGoogle }: { isGoogle: boolean }) {
+  return (
+    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)', whiteSpace: 'nowrap' }}>
+      {isGoogle ? 'Coaching' : 'Prospect'}
+    </span>
+  );
+}
+
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
   const { calls, clients, loading, refetch } = useSupabaseClients();
@@ -183,9 +193,7 @@ export default function PageCalls() {
               <div style={{ flex: 1 }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)' }}>
-                    {isGoogle ? 'Coaching' : 'Prospect'}
-                  </span>
+                  <CallTypeBadge isGoogle={isGoogle} />
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
                   {new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
@@ -317,7 +325,10 @@ export default function PageCalls() {
                       {displayName}
                       {call.topic && <span style={{ fontWeight: 400, color: 'var(--ink)', marginLeft: 6 }}>· {call.topic}</span>}
                     </div>
-                    {isGoogle && <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>Google Meet</div>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                      <CallTypeBadge isGoogle={isGoogle} />
+                      {isGoogle && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Google Meet</span>}
+                    </div>
                   </div>
                   {call.join_url && call.status !== 'canceled' && (
                     <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost"
@@ -389,6 +400,7 @@ export default function PageCalls() {
                   const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
                   const initials = cl?.initials || getInitials(call.invitee_name);
                   const d = new Date(call.scheduled_at!);
+                  const isGoogle = (call as { call_type?: string }).call_type === 'google';
                   return (
                     <tr key={call.id}>
                       <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
@@ -397,7 +409,10 @@ export default function PageCalls() {
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                           <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={28} seed={cl?.id} />
-                          <span style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</span>
+                          <div>
+                            <div style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</div>
+                            <div style={{ marginTop: 2 }}><CallTypeBadge isGoogle={isGoogle} /></div>
+                          </div>
                         </div>
                       </td>
                       <td style={{ fontSize: 12 }}>{call.topic || '—'}</td>
