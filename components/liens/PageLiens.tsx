@@ -2739,6 +2739,9 @@ export default function PageLiens() {
           .liens-shell { flex-direction: column !important; }
           .liens-desktop-only { display: none !important; }
           .liens-mobile-panel { display: block !important; }
+          .liens-header { flex-direction: column !important; align-items: stretch !important; gap: 10px !important; }
+          .liens-header-actions { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+          .liens-header-actions button { flex-shrink: 0; }
         }
         @media (min-width: 768px) {
           .liens-mobile-panel { display: none !important; }
@@ -2757,12 +2760,12 @@ export default function PageLiens() {
 
         {/* Header */}
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: domainsLoaded && domains.length === 0 ? 'none' : `1px solid ${BORDER}`, background: SURFACE }}>
+        <div className="liens-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: domainsLoaded && domains.length === 0 ? 'none' : `1px solid ${BORDER}`, background: SURFACE }}>
           <div>
             <div style={{ fontSize: 15, fontWeight: 700, color: INK, letterSpacing: '-0.01em' }}>Gérer mes liens</div>
             <div style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
           </div>
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div className="liens-header-actions" style={{ display: 'flex', gap: 6 }}>
             <button onClick={handleRefreshPosts} disabled={refreshingPosts} style={{
               display: 'flex', alignItems: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: refreshingPosts ? 'default' : 'pointer', transition: 'all .15s',
               border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED, opacity: refreshingPosts ? 0.6 : 1,
