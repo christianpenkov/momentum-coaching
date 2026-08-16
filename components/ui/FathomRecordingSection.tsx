@@ -79,10 +79,25 @@ function parseTranscript(raw: string): TranscriptLine[] | null {
 // distinguer visuellement qui parle sans dépendre d'une correspondance email fragile.
 const SPEAKER_COLORS = ['var(--accent-brand)', 'var(--green)', '#8b5cf6', '#f59e0b'];
 
+// Confirmé par les logs : le crash (Jetsam iOS, "A problem occurred with this
+// webpage so it was reloaded") survient précisément au tout premier chargement
+// après une reprise d'app — même en retardant le chargement de l'iframe jusqu'à
+// un clic explicite (testé, n'a pas suffi). Hypothèse retenue : iOS n'a pas
+// encore fini de réallouer la mémoire à la PWA juste après la reprise, la
+// rendant temporairement fragile pendant quelques secondes, indépendamment du
+// moment où l'utilisateur interagit. On bloque donc le chargement de l'iframe
+// pendant une courte fenêtre après le vrai démarrage du document (pas du
+// composant — performance.timeOrigin reflète le chargement réel de la page,
+// contrairement au moment où cette section se monte, qui peut survenir bien
+// après si l'utilisateur navigue avant d'ouvrir la modale).
+const POST_LOAD_SAFETY_MS = 3000;
+
 export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
   const [embedFailed, setEmbedFailed] = useState(false);
   const [embedLoaded, setEmbedLoaded] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  const msSincePageLoad = typeof performance !== 'undefined' ? Date.now() - performance.timeOrigin : Infinity;
+  const [waitingForSafety, setWaitingForSafety] = useState(msSincePageLoad < POST_LOAD_SAFETY_MS);
   // La vraie Fullscreen API est bloquée/limitée sur iOS pour une vidéo à l'intérieur
   // d'un iframe cross-origin (limitation documentée de la plateforme, pas un bug
   // corrigeable côté code) — bouton plein écran maison à la place : agrandit le
@@ -96,6 +111,17 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedAtRef = useRef<number>(0);
   const embedLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (!waitingForSafety) return;
+    const remaining = POST_LOAD_SAFETY_MS - (Date.now() - performance.timeOrigin);
+    logClient('safety_wait_start', { remainingMs: remaining });
+    const t = setTimeout(() => {
+      logClient('safety_wait_end', {});
+      setWaitingForSafety(false);
+    }, Math.max(0, remaining));
+    return () => clearTimeout(t);
+  }, [waitingForSafety]);
 
   // Instrumentation temporaire — bug mobile "toute la page flashe/recharge" au
   // chargement de la vidéo, cause encore inconnue (pas résolu par délai de montage
@@ -188,7 +214,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   const autoRetriedRef = useRef(false);
 
   useEffect(() => {
-    if (!shareUrl) return;
+    if (!shareUrl || waitingForSafety) return;
     autoRetriedRef.current = false;
     logClient('iframe_timer_start', { shareUrl, embedUrl: toEmbedUrl(shareUrl) });
 
@@ -208,7 +234,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       clearTimeout(retryTimer);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [shareUrl]);
+  }, [shareUrl, waitingForSafety]);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
@@ -231,30 +257,35 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
               } : { position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}
             >
               {!embedLoaded && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                   <InlineLoader />
+                  {waitingForSafety && (
+                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Un instant…</span>
+                  )}
                 </div>
               )}
-              <iframe
-                key={iframeKey}
-                src={toEmbedUrl(shareUrl)}
-                title="Enregistrement de l'appel"
-                allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
-                allowFullScreen
-                // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
-                // ignorer silencieusement la demande fullscreen du player interne sans
-                // eux, même avec allow="fullscreen" présent.
-                // @ts-expect-error — attribut HTML legacy non typé par React/JSX
-                webkitallowfullscreen="true"
-                mozallowfullscreen="true"
-                style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
-                onLoad={() => {
-                  logClient('iframe_onload', { msSinceMount: Date.now() - mountedAtRef.current });
-                  embedLoadedRef.current = true;
-                  setEmbedLoaded(true);
-                  if (timeoutRef.current) clearTimeout(timeoutRef.current);
-                }}
-              />
+              {!waitingForSafety && (
+                <iframe
+                  key={iframeKey}
+                  src={toEmbedUrl(shareUrl)}
+                  title="Enregistrement de l'appel"
+                  allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
+                  // ignorer silencieusement la demande fullscreen du player interne sans
+                  // eux, même avec allow="fullscreen" présent.
+                  // @ts-expect-error — attribut HTML legacy non typé par React/JSX
+                  webkitallowfullscreen="true"
+                  mozallowfullscreen="true"
+                  style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
+                  onLoad={() => {
+                    logClient('iframe_onload', { msSinceMount: Date.now() - mountedAtRef.current });
+                    embedLoadedRef.current = true;
+                    setEmbedLoaded(true);
+                    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+                  }}
+                />
+              )}
               {embedLoaded && (
                 <button
                   type="button"
