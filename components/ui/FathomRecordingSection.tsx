@@ -232,7 +232,20 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
         {!embedRequested && (
           <button
             type="button"
-            onClick={() => { logClient('embed_requested', { fullscreen }); setEmbedRequested(true); }}
+            onClick={(e) => {
+              const btn = e.currentTarget;
+              logClient('embed_requested', {
+                fullscreen,
+                // Écarte l'hypothèse d'un bouton dans un <form> qui déclencherait
+                // une soumission/navigation involontaire sur iOS (type="button" est
+                // déjà posé ci-dessus, mais on vérifie aussi qu'aucun ancêtre <form>
+                // ou <a> n'englobe le bouton, ce qui casserait ça malgré tout).
+                inForm: !!btn.closest('form'),
+                inAnchor: !!btn.closest('a'),
+                defaultPrevented: e.defaultPrevented,
+              });
+              setEmbedRequested(true);
+            }}
             style={{
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
               justifyContent: 'center', gap: 8, background: 'transparent', border: 'none', cursor: 'pointer', color: fullscreen ? '#fff' : 'var(--ink-2)',
