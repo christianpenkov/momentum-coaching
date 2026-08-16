@@ -93,7 +93,22 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
               });
             });
           }
-          fetch('/api/client-log', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: '[APP] boot', data: { navType: (performance.getEntriesByType('navigation')[0] || {}).type || null, href: location.href, standalone: window.navigator.standalone === true } }) }).catch(function() {});
+          (function() {
+            // sessionId persiste tant que sessionStorage survit — s'il change entre
+            // deux boots rapprochés, c'est la preuve que ce sont deux contextes JS
+            // distincts (nouveau processus/webview), pas un simple double-appel de ce
+            // script dans la même page. bootCount incrémente à chaque exécution de ce
+            // script dans CE contexte précis — un bootCount qui repart à 1 à chaque
+            // fois confirme un vrai nouveau contexte plutôt qu'une ré-exécution locale.
+            var sessionId = sessionStorage.getItem('__boot_session_id');
+            if (!sessionId) {
+              sessionId = Date.now() + '-' + Math.random().toString(36).slice(2);
+              sessionStorage.setItem('__boot_session_id', sessionId);
+            }
+            var bootCount = parseInt(sessionStorage.getItem('__boot_count') || '0', 10) + 1;
+            sessionStorage.setItem('__boot_count', String(bootCount));
+            fetch('/api/client-log', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: '[APP] boot', data: { navType: (performance.getEntriesByType('navigation')[0] || {}).type || null, href: location.href, standalone: window.navigator.standalone === true, sessionId: sessionId, bootCount: bootCount, referrer: document.referrer || null } }) }).catch(function() {});
+          })();
           window.addEventListener('pagehide', function(e) {
             fetch('/api/client-log', { method: 'POST', keepalive: true, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ message: '[APP] pagehide', data: { persisted: e.persisted } }) }).catch(function() {});
           });
