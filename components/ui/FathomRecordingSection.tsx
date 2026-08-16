@@ -106,12 +106,26 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   useEffect(() => {
     mountedAtRef.current = Date.now();
     const mem = (performance as any).memory;
+    const conn = (navigator as any).connection;
     logClient('mount', {
       shareUrl,
       standalone: typeof window !== 'undefined' ? (window.navigator as any).standalone : null,
       displayModeStandalone: typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(display-mode: standalone)').matches : null,
       memory: mem ? { usedJSHeapSize: mem.usedJSHeapSize, jsHeapSizeLimit: mem.jsHeapSizeLimit } : null,
+      onLine: navigator.onLine,
+      connection: conn ? { effectiveType: conn.effectiveType, rtt: conn.rtt, downlink: conn.downlink } : null,
     });
+
+    // Piste réseau : mesure le temps réel d'une requête cross-origin vers fathom.video
+    // (indépendante de l'iframe elle-même) — si iOS met du temps à "réveiller" la
+    // connexion réseau au tout premier chargement après reprise d'app, ce fetch devrait
+    // le révéler avec un timing anormalement long comparé aux ouvertures suivantes.
+    if (shareUrl) {
+      const netStart = Date.now();
+      fetch('https://fathom.video/favicon.ico', { mode: 'no-cors', cache: 'no-store' })
+        .then(() => logClient('network_probe_ok', { durationMs: Date.now() - netStart }))
+        .catch(err => logClient('network_probe_error', { durationMs: Date.now() - netStart, error: String(err) }));
+    }
 
     function onVisibilityChange() {
       logClient('visibilitychange', { state: document.visibilityState, msSinceMount: Date.now() - mountedAtRef.current });
