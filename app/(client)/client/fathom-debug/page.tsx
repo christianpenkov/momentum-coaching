@@ -18,6 +18,7 @@ const VARIANTS: { label: string; url: string }[] = [
   { label: 'C. Fathom sans paramètres', url: 'https://fathom.video/embed/e79x-Sm1_KKeFxkZRPDh_DPszyCweqMs' },
   { label: 'D. Fathom autoplay=0', url: 'https://fathom.video/embed/e79x-Sm1_KKeFxkZRPDh_DPszyCweqMs?autoplay=0' },
   { label: 'E. Fathom autoplay=0&preload=none (actuel)', url: 'https://fathom.video/embed/e79x-Sm1_KKeFxkZRPDh_DPszyCweqMs?autoplay=0&preload=none' },
+  { label: 'F. Fathom /share/ au lieu de /embed/ (test)', url: 'https://fathom.video/share/e79x-Sm1_KKeFxkZRPDh_DPszyCweqMs' },
 ];
 
 function logClient(message: string, data: Record<string, unknown> = {}) {
