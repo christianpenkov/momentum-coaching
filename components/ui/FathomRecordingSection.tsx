@@ -23,15 +23,11 @@ interface Props {
 // confirmé par test réel). On dérive donc toujours l'URL d'embed depuis share_url.
 const IFRAME_LOAD_TIMEOUT_MS = 15000;
 
-// Délai de sécurité après le vrai démarrage du document (performance.timeOrigin,
-// pas le montage du composant) avant d'autoriser le chargement de l'iframe Fathom
-// — laisse à iOS le temps de finir de réallouer la mémoire à la PWA après une
-// reprise à froid. Isolé par test réel : une iframe cross-origin légère
-// (example.com) chargée dans le même modal/CSS/cycle de vie au 1er clic après
-// cold start NE crash PAS, alors que Fathom crash systématiquement dans les
-// mêmes conditions — élimine l'hypothèse modal/CSS/cycle de vie, confirme que la
-// charge spécifique du player Fathom (JS, polices, décodage vidéo) est la cause.
-const POST_LOAD_SAFETY_MS = 4000;
+// Clé sessionStorage — mémorise "l'utilisateur a demandé cette vidéo" avant le
+// clic, survit au rechargement de page provoqué par le crash WebKit (contrairement
+// à l'état React), pour relancer automatiquement le chargement au retour sans
+// jamais imposer un second clic manuel.
+const SESSION_RETRY_KEY = 'fathom_embed_retry';
 
 // autoplay=0/preload=none : tentative pour réduire la charge du player au tout
 // premier chargement après reprise d'app (piste crash Jetsam iOS) — Fathom accepte
@@ -99,16 +95,19 @@ function parseTranscript(raw: string): TranscriptLine[] | null {
 // distinguer visuellement qui parle sans dépendre d'une correspondance email fragile.
 const SPEAKER_COLORS = ['var(--accent-brand)', 'var(--green)', '#8b5cf6', '#f59e0b'];
 
-// Confirmé par les logs (avec keepalive:true sur les requêtes de debug, donc
-// fiable) : le crash (Jetsam iOS, "A problem occurred with this webpage so it
-// was reloaded") survient au niveau OS pendant le chargement de l'iframe cross-
-// origin, en cold start après reprise d'app — pageLoadedAt change entre le
-// mount qui crash et le suivant, preuve qu'iOS détruit et recrée tout le
-// document. Aucun hook JS ne peut s'exécuter quand ça arrive (aucun pagehide/
-// unload/error loggé malgré keepalive), donc pas de fix côté code possible —
-// seulement un contournement : ne plus charger l'iframe automatiquement au
-// montage, l'utilisateur doit cliquer explicitement pour la charger (comme le
-// 2e essai qui marchait toujours, sans jamais avoir besoin de fermer/rouvrir).
+// Bug WebKit générique confirmé (reproduit en Safari normal hors PWA, hors
+// Service Worker, avec une iframe de contrôle légère qui ne crash pas dans le
+// même contexte) : le tout premier chargement de l'iframe Fathom après un cold
+// start du navigateur/app déclenche systématiquement "A problem occurred with
+// this webpage so it was reloaded" — toute la page recharge. Vérifié : ce n'est
+// pas un Jetsam OOM système classique (aucun des rapports JetsamEvent.ips du
+// device ne montre Safari/WebContent tué), donc probablement un crash interne
+// du renderer WebKit spécifique au contenu du player Fathom, indépendant de
+// notre code (modal, CSS, Service Worker tous écartés par test direct).
+// Le 2e essai marche toujours après le rechargement de page provoqué par le
+// crash — SESSION_RETRY_KEY (sessionStorage) mémorise l'intention de
+// l'utilisateur avant le clic et relance automatiquement le chargement au
+// retour, pour ne jamais lui imposer de recliquer manuellement.
 
 export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
   const [embedRequested, setEmbedRequested] = useState(false);
@@ -130,12 +129,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   // portrait, on simule le paysage en tournant le cadre vidéo lui-même via CSS
   // plutôt que de laisser une vidéo 16:9 minuscule au milieu d'un écran portrait.
   const [isPortrait, setIsPortrait] = useState(false);
-  // true tant qu'on attend la fin de POST_LOAD_SAFETY_MS après un clic trop
-  // précoce sur "Voir l'enregistrement" — affiche "Un instant…" au lieu de
-  // charger l'iframe immédiatement.
-  const [waitingForSafety, setWaitingForSafety] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const safetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedAtRef = useRef<number>(0);
   const embedLoadedRef = useRef(false);
   const embedRequestedRef = useRef(false);
@@ -148,6 +142,23 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     window.addEventListener('resize', updateOrientation);
     return () => window.removeEventListener('resize', updateOrientation);
   }, []);
+
+  // Auto-retry après crash WebKit — si sessionStorage contient l'URL demandée
+  // avant le crash (posée juste avant le clic ci-dessous), on relance
+  // automatiquement le chargement au remount plutôt que de laisser l'utilisateur
+  // face à l'écran "Voir l'enregistrement" après un rechargement de page qu'il
+  // n'a pas provoqué lui-même.
+  useEffect(() => {
+    if (!shareUrl) return;
+    let pending: string | null = null;
+    try {
+      pending = sessionStorage.getItem(SESSION_RETRY_KEY);
+    } catch {}
+    if (pending === shareUrl) {
+      logClient('auto_retry_after_crash', { shareUrl });
+      setEmbedRequested(true);
+    }
+  }, [shareUrl]);
 
   // Instrumentation temporaire — bug mobile "toute la page flashe/recharge" au
   // chargement de la vidéo, cause encore inconnue (pas résolu par délai de montage
@@ -234,7 +245,6 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
       }
-      if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
     };
   }, [shareUrl]);
 
@@ -324,17 +334,13 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
             : { position: 'relative', width: '100%', maxHeight: '100%', aspectRatio: '16 / 9' })
           : { display: 'contents' }}
       >
-        {!embedRequested && !waitingForSafety && (
+        {!embedRequested && (
           <button
             type="button"
             onClick={(e) => {
               const btn = e.currentTarget;
-              const msSincePageLoad = Date.now() - performance.timeOrigin;
-              const remainingWait = POST_LOAD_SAFETY_MS - msSincePageLoad;
               logClient('embed_requested', {
                 fullscreen,
-                msSincePageLoad,
-                remainingWait,
                 // Écarte l'hypothèse d'un bouton dans un <form> qui déclencherait
                 // une soumission/navigation involontaire sur iOS (type="button" est
                 // déjà posé ci-dessus, mais on vérifie aussi qu'aucun ancêtre <form>
@@ -343,16 +349,8 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                 inAnchor: !!btn.closest('a'),
                 defaultPrevented: e.defaultPrevented,
               });
-              if (remainingWait > 0) {
-                setWaitingForSafety(true);
-                safetyTimeoutRef.current = setTimeout(() => {
-                  logClient('safety_wait_elapsed', { waitedMs: remainingWait });
-                  setWaitingForSafety(false);
-                  setEmbedRequested(true);
-                }, remainingWait);
-              } else {
-                setEmbedRequested(true);
-              }
+              try { sessionStorage.setItem(SESSION_RETRY_KEY, shareUrl!); } catch {}
+              setEmbedRequested(true);
             }}
             style={{
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -362,15 +360,6 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
             <Icon name="video" size={28} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Voir l'enregistrement</span>
           </button>
-        )}
-        {waitingForSafety && (
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
-            justifyContent: 'center', gap: 8, color: fullscreen ? '#fff' : 'var(--ink-2)',
-          }}>
-            <InlineLoader />
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Un instant…</span>
-          </div>
         )}
         {embedRequested && !embedLoaded && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -398,6 +387,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
               embedLoadedRef.current = true;
               setEmbedLoaded(true);
               if (timeoutRef.current) clearTimeout(timeoutRef.current);
+              try { sessionStorage.removeItem(SESSION_RETRY_KEY); } catch {}
             }}
           />
         )}
