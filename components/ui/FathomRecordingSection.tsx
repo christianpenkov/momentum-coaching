@@ -23,6 +23,16 @@ interface Props {
 // confirmé par test réel). On dérive donc toujours l'URL d'embed depuis share_url.
 const IFRAME_LOAD_TIMEOUT_MS = 15000;
 
+// Délai de sécurité après le vrai démarrage du document (performance.timeOrigin,
+// pas le montage du composant) avant d'autoriser le chargement de l'iframe Fathom
+// — hypothèse de travail (PAS confirmée) : laisser à iOS le temps de finir de
+// réallouer la mémoire à la PWA après une reprise à froid réduirait le risque de
+// crash au 1er clic. Observé en conditions réelles : le crash arrive uniquement
+// au 1er clic après ouverture d'app, jamais au 2e — compatible avec une pression
+// mémoire au cold start, mais pas encore isolé (voir le test avec une iframe
+// légère de contrôle avant de considérer ce délai comme LE fix).
+const POST_LOAD_SAFETY_MS = 4000;
+
 // autoplay=0/preload=none : tentative pour réduire la charge du player au tout
 // premier chargement après reprise d'app (piste crash Jetsam iOS) — Fathom accepte
 // ces paramètres sans erreur (200 OK confirmé), mais aucune garantie qu'ils soient
@@ -120,7 +130,18 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   // portrait, on simule le paysage en tournant le cadre vidéo lui-même via CSS
   // plutôt que de laisser une vidéo 16:9 minuscule au milieu d'un écran portrait.
   const [isPortrait, setIsPortrait] = useState(false);
+  // true tant qu'on attend la fin de POST_LOAD_SAFETY_MS après un clic trop
+  // précoce sur "Voir l'enregistrement" — affiche "Un instant…" au lieu de
+  // charger l'iframe immédiatement.
+  const [waitingForSafety, setWaitingForSafety] = useState(false);
+  // Test d'isolement TEMPORAIRE (à retirer une fois la cause du crash confirmée) —
+  // permet de charger une iframe cross-origin légère (example.com) au lieu de
+  // l'embed Fathom réel, dans le même modal/CSS/cycle de vie, pour trancher si le
+  // crash vient spécifiquement de la charge du player Fathom ou de n'importe quel
+  // iframe cross-origin ici (modal, CSS, cycle de vie du composant).
+  const [isolationTestActive, setIsolationTestActive] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const safetyTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedAtRef = useRef<number>(0);
   const embedLoadedRef = useRef(false);
   const embedRequestedRef = useRef(false);
@@ -219,6 +240,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
       }
+      if (safetyTimeoutRef.current) clearTimeout(safetyTimeoutRef.current);
     };
   }, [shareUrl]);
 
@@ -308,13 +330,17 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
             : { position: 'relative', width: '100%', maxHeight: '100%', aspectRatio: '16 / 9' })
           : { display: 'contents' }}
       >
-        {!embedRequested && (
+        {!embedRequested && !waitingForSafety && (
           <button
             type="button"
             onClick={(e) => {
               const btn = e.currentTarget;
+              const msSincePageLoad = Date.now() - performance.timeOrigin;
+              const remainingWait = POST_LOAD_SAFETY_MS - msSincePageLoad;
               logClient('embed_requested', {
                 fullscreen,
+                msSincePageLoad,
+                remainingWait,
                 // Écarte l'hypothèse d'un bouton dans un <form> qui déclencherait
                 // une soumission/navigation involontaire sur iOS (type="button" est
                 // déjà posé ci-dessus, mais on vérifie aussi qu'aucun ancêtre <form>
@@ -323,7 +349,16 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                 inAnchor: !!btn.closest('a'),
                 defaultPrevented: e.defaultPrevented,
               });
-              setEmbedRequested(true);
+              if (remainingWait > 0) {
+                setWaitingForSafety(true);
+                safetyTimeoutRef.current = setTimeout(() => {
+                  logClient('safety_wait_elapsed', { waitedMs: remainingWait });
+                  setWaitingForSafety(false);
+                  setEmbedRequested(true);
+                }, remainingWait);
+              } else {
+                setEmbedRequested(true);
+              }
             }}
             style={{
               position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
@@ -333,6 +368,44 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
             <Icon name="video" size={28} />
             <span style={{ fontSize: 13, fontWeight: 600 }}>Voir l'enregistrement</span>
           </button>
+        )}
+        {/* Bouton de test d'isolement TEMPORAIRE — à retirer une fois la cause du
+            crash confirmée. Charge une iframe cross-origin légère (example.com) au
+            lieu de Fathom, dans le même conteneur/CSS/cycle de vie, pour trancher :
+            si ce test crash aussi, la cause n'est pas la charge de Fathom mais le
+            modal/CSS/cycle de vie du composant lui-même. */}
+        {!embedRequested && !waitingForSafety && !isolationTestActive && (
+          <button
+            type="button"
+            onClick={() => {
+              logClient('isolation_test_started', { fullscreen });
+              setIsolationTestActive(true);
+            }}
+            style={{
+              position: 'absolute', bottom: 6, left: 6, fontSize: 10, padding: '4px 8px',
+              borderRadius: 6, border: '1px solid rgba(255,255,255,0.3)', background: 'rgba(0,0,0,0.4)',
+              color: fullscreen ? '#fff' : 'var(--muted)', cursor: 'pointer', zIndex: 2,
+            }}
+          >
+            Test isolement (debug)
+          </button>
+        )}
+        {isolationTestActive && (
+          <iframe
+            src="https://example.com"
+            title="Test isolement"
+            style={{ width: '100%', height: '100%', border: 'none' }}
+            onLoad={() => logClient('isolation_test_onload', { msSinceMount: Date.now() - mountedAtRef.current })}
+          />
+        )}
+        {waitingForSafety && (
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center',
+            justifyContent: 'center', gap: 8, color: fullscreen ? '#fff' : 'var(--ink-2)',
+          }}>
+            <InlineLoader />
+            <span style={{ fontSize: 13, fontWeight: 600 }}>Un instant…</span>
+          </div>
         )}
         {embedRequested && !embedLoaded && (
           <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
