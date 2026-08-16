@@ -20,14 +20,25 @@ interface Props {
 // confirmé par test réel) mais fathom.video/embed/{id} — même identifiant, endpoint
 // dédié à l'embed — l'autorise explicitement (aucun X-Frame-Options/frame-ancestors,
 // confirmé par test réel). On dérive donc toujours l'URL d'embed depuis share_url.
-// Délai volontairement généreux : l'iframe charge une page complète (HTML/JS/player),
-// pas juste un fichier vidéo — un timeout court (ex. 4s) déclenchait le fallback à
-// tort sur une modale qui vient de s'ouvrir, alors que l'embed finissait par charger
-// correctement une seconde plus tard (observé en conditions réelles).
 const IFRAME_LOAD_TIMEOUT_MS = 15000;
 
 function toEmbedUrl(shareUrl: string): string {
   return shareUrl.replace('/share/', '/embed/');
+}
+
+// Log de debug mobile — écrit dans webhook_debug_log via une route API (pas de
+// console accessible sur mobile). Fire-and-forget, ne doit jamais bloquer l'UI.
+function logClient(message: string, data: Record<string, unknown> = {}) {
+  try {
+    fetch('/api/client-log', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        message: `[FathomRecordingSection] ${message}`,
+        data: { ...data, ua: typeof navigator !== 'undefined' ? navigator.userAgent : null, ts: Date.now() },
+      }),
+    }).catch(() => {});
+  } catch {}
 }
 
 function parseActionItems(raw: unknown): string[] {
@@ -72,22 +83,54 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   const [embedFailed, setEmbedFailed] = useState(false);
   const [embedLoaded, setEmbedLoaded] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
-  // Click-to-load : l'iframe (page complète avec player, scripts tiers) ne se monte
-  // qu'après un clic explicite, jamais automatiquement à l'ouverture de la modale.
-  // Sur iOS en PWA (mode standalone), la limite mémoire est plus stricte qu'un onglet
-  // Safari classique — charger l'iframe dès l'ouverture pouvait faire tuer/relancer
-  // silencieusement toute la PWA par l'OS (observé en conditions réelles : la page
-  // entière semblait "flasher/recharger" au premier essai). Différer le chargement
-  // jusqu'à une intention claire de l'utilisateur réduit ce risque, et l'interaction
-  // fraîche du clic aide aussi la Fullscreen API du player à se déclencher ensuite.
-  const [playClicked, setPlayClicked] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mountedAtRef = useRef<number>(0);
+
+  // Instrumentation temporaire — bug mobile "toute la page flashe/recharge" au
+  // chargement de la vidéo, cause encore inconnue (pas résolu par délai de montage
+  // ni par click-to-load). Ces logs doivent capter : le cycle de vie réel du
+  // composant (mount/unmount = la page a-t-elle vraiment rechargé ?), la mémoire
+  // dispo si exposée par le navigateur, et tout signal de visibilité/pagehide qui
+  // trahirait un rechargement OS plutôt qu'un bug purement visuel.
+  useEffect(() => {
+    mountedAtRef.current = Date.now();
+    const mem = (performance as any).memory;
+    logClient('mount', {
+      shareUrl,
+      standalone: typeof window !== 'undefined' ? (window.navigator as any).standalone : null,
+      displayModeStandalone: typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(display-mode: standalone)').matches : null,
+      memory: mem ? { usedJSHeapSize: mem.usedJSHeapSize, jsHeapSizeLimit: mem.jsHeapSizeLimit } : null,
+    });
+
+    function onVisibilityChange() {
+      logClient('visibilitychange', { state: document.visibilityState, msSinceMount: Date.now() - mountedAtRef.current });
+    }
+    function onPageHide(e: PageTransitionEvent) {
+      logClient('pagehide', { persisted: e.persisted, msSinceMount: Date.now() - mountedAtRef.current });
+    }
+    function onPageShow(e: PageTransitionEvent) {
+      logClient('pageshow', { persisted: e.persisted, msSinceMount: Date.now() - mountedAtRef.current });
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onPageHide);
+    window.addEventListener('pageshow', onPageShow);
+    return () => {
+      logClient('unmount', { msSinceMount: Date.now() - mountedAtRef.current });
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('pagehide', onPageHide);
+      window.removeEventListener('pageshow', onPageShow);
+    };
+  }, [shareUrl]);
 
   useEffect(() => {
-    if (!shareUrl || !playClicked) return;
-    timeoutRef.current = setTimeout(() => setEmbedFailed(true), IFRAME_LOAD_TIMEOUT_MS);
+    if (!shareUrl) return;
+    logClient('iframe_timer_start', { shareUrl, embedUrl: toEmbedUrl(shareUrl) });
+    timeoutRef.current = setTimeout(() => {
+      logClient('iframe_timeout_fallback', { shareUrl, msWaited: IFRAME_LOAD_TIMEOUT_MS });
+      setEmbedFailed(true);
+    }, IFRAME_LOAD_TIMEOUT_MS);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [shareUrl, playClicked]);
+  }, [shareUrl]);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
@@ -105,40 +148,29 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
         <div style={{ marginBottom: 16 }}>
           {!embedFailed ? (
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
-              {!playClicked ? (
-                <button
-                  type="button"
-                  onClick={() => setPlayClicked(true)}
-                  style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'var(--surface-2)', cursor: 'pointer' }}
-                  aria-label="Lire l'enregistrement"
-                >
-                  <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--accent-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                    <Icon name="play" size={22} style={{ color: '#fff', marginLeft: 3 }} />
-                  </div>
-                </button>
-              ) : (
-                <>
-                  {!embedLoaded && (
-                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                      <InlineLoader />
-                    </div>
-                  )}
-                  <iframe
-                    src={toEmbedUrl(shareUrl)}
-                    title="Enregistrement de l'appel"
-                    allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
-                    allowFullScreen
-                    // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
-                    // ignorer silencieusement la demande fullscreen du player interne sans
-                    // eux, même avec allow="fullscreen" présent.
-                    // @ts-expect-error — attribut HTML legacy non typé par React/JSX
-                    webkitallowfullscreen="true"
-                    mozallowfullscreen="true"
-                    style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
-                    onLoad={() => { setEmbedLoaded(true); if (timeoutRef.current) clearTimeout(timeoutRef.current); }}
-                  />
-                </>
+              {!embedLoaded && (
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <InlineLoader />
+                </div>
               )}
+              <iframe
+                src={toEmbedUrl(shareUrl)}
+                title="Enregistrement de l'appel"
+                allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+                // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
+                // ignorer silencieusement la demande fullscreen du player interne sans
+                // eux, même avec allow="fullscreen" présent.
+                // @ts-expect-error — attribut HTML legacy non typé par React/JSX
+                webkitallowfullscreen="true"
+                mozallowfullscreen="true"
+                style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
+                onLoad={() => {
+                  logClient('iframe_onload', { msSinceMount: Date.now() - mountedAtRef.current });
+                  setEmbedLoaded(true);
+                  if (timeoutRef.current) clearTimeout(timeoutRef.current);
+                }}
+              />
             </div>
           ) : (
             <a
@@ -147,6 +179,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
               rel="noopener noreferrer"
               className="btn-primary-brand"
               style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+              onClick={() => logClient('fallback_link_click', { shareUrl })}
             >
               <Icon name="video" size={15} /> Voir l'enregistrement
             </a>
