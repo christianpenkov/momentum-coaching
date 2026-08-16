@@ -13,6 +13,24 @@ import { useEffect } from 'react';
 // React réel, jamais dupliqué par le streaming SSR.
 let bootLogged = false;
 
+declare global {
+  interface Window {
+    __MOMENTUM_RUNTIME_ID__?: string;
+    __MOMENTUM_MOUNT_COUNT__?: number;
+  }
+}
+
+// window.__MOMENTUM_RUNTIME_ID__ (pas une variable de module) — seule preuve
+// fiable pour trancher entre "même document, module ré-exécuté" (id identique)
+// et "vrai second document/contexte JS" (id différent, puisque window lui-même
+// serait recréé). Voir aussi timeOrigin envoyé plus bas dans le boot log.
+function getRuntimeId(): string {
+  if (!window.__MOMENTUM_RUNTIME_ID__) {
+    window.__MOMENTUM_RUNTIME_ID__ = Date.now() + '-' + Math.random().toString(36).slice(2);
+  }
+  return window.__MOMENTUM_RUNTIME_ID__;
+}
+
 function logClient(message: string, data: Record<string, unknown> = {}) {
   fetch('/api/client-log', {
     method: 'POST',
@@ -36,6 +54,15 @@ export default function AppBootstrap() {
     }
     document.addEventListener('touchstart', onTouchStart, { passive: false });
     document.addEventListener('touchend', onTouchEnd, false);
+
+    window.__MOMENTUM_MOUNT_COUNT__ = (window.__MOMENTUM_MOUNT_COUNT__ || 0) + 1;
+    logClient('[APP] appbootstrap_mount', {
+      runtimeId: getRuntimeId(),
+      mountCount: window.__MOMENTUM_MOUNT_COUNT__,
+      moduleBootLogged: bootLogged,
+      timeOrigin: performance.timeOrigin,
+      navigationStart: (performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined)?.startTime ?? null,
+    });
 
     if (bootLogged) {
       return () => {
@@ -79,6 +106,8 @@ export default function AppBootstrap() {
       sessionId,
       bootCount,
       referrer: document.referrer || null,
+      runtimeId: getRuntimeId(),
+      timeOrigin: performance.timeOrigin,
     });
 
     function onPageHide(e: PageTransitionEvent) {
