@@ -18,7 +18,7 @@ import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
 import { isTaskOverdue } from '@/lib/clientSignals';
-import { computeSalesCallStats, isNotCanceled } from '@/lib/salesCallStats';
+import { computeSalesCallStats, isNotCanceled, fetchAllLeadsCount } from '@/lib/salesCallStats';
 import { getClientWeek } from '@/lib/clientWeek';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import type { Task, SessionReport, Call, Client } from '@/lib/supabase/types';
@@ -66,43 +66,8 @@ async function fetchStoriesCount(profileId: string, since: string | null): Promi
   return count ?? 0;
 }
 
-// Leads IG totaux — voir docs/pipeline-leads-ig-sources.md pour l'explication
-// complète. 3 sources cumulées, pas juste instagram_leads : (1) leads détectés
-// automatiquement, (2) prospect_links dédupliqués par ig_username avec (1), (3)
-// calls IG directs sans lead (clic bio/description sans jamais avoir commenté).
-async function fetchIgLeadsCount(profileId: string, since: string | null): Promise<number> {
-  const supabase = createSupabase();
-
-  let leadsQuery = supabase.from('instagram_leads').select('ig_username')
-    .eq('profile_id', profileId).is('archived_at', null).eq('not_a_lead', false);
-  if (since) leadsQuery = leadsQuery.gte('detected_at', since);
-
-  let linksQuery = supabase.from('prospect_links').select('ig_username').eq('profile_id', profileId);
-  if (since) linksQuery = linksQuery.gte('created_at', since);
-
-  // .neq('ignored', true) est indispensable ici — sans lui, ce compteur inclut
-  // aussi les calls que le coach a "supprimés" depuis le pipeline (PagePipeline.tsx
-  // les marque ignored=true plutôt que de les effacer physiquement). Vérifié en
-  // base sur le compte Christian : 26 calls ig_description/ig_bio sans lead,
-  // dont 23 ignored=true (tests nettoyés) — seuls 3 sont réellement actifs et
-  // visibles dans le pipeline. Même filtre que app/api/client/pipeline/route.ts:31.
-  let directCallsQuery = supabase.from('calls').select('id')
-    .eq('coach_id', profileId)
-    .eq('call_type', 'calendly')
-    .neq('ignored', true)
-    .is('ig_lead_id', null)
-    .neq('lead_deleted', true)
-    .in('source', ['ig_description', 'ig_bio']);
-  if (since) directCallsQuery = directCallsQuery.gte('scheduled_at', since);
-
-  const [leadsRes, linksRes, directCallsRes] = await Promise.all([leadsQuery, linksQuery, directCallsQuery]);
-
-  const usernames = new Set<string>();
-  for (const r of leadsRes.data || []) if (r.ig_username) usernames.add(r.ig_username.toLowerCase());
-  for (const r of linksRes.data || []) if (r.ig_username) usernames.add(r.ig_username.toLowerCase());
-
-  return usernames.size + (directCallsRes.data?.length ?? 0);
-}
+// fetchAllLeadsCount (lib/salesCallStats.ts) fait ce calcul — voir
+// docs/pipeline-leads-ig-sources.md pour le détail des sources cumulées.
 
 interface ResourceForClient {
   id: string;
@@ -481,9 +446,9 @@ export default function PageClientDetail({ id }: Props) {
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
-  const { data: igLeadsCount, isLoading: igLeadsLoading } = useQuery({
-    queryKey: ['client-ig-leads-count', profileId, sinceAccountCreated],
-    queryFn: () => fetchIgLeadsCount(profileId!, sinceAccountCreated),
+  const { data: leadsTotalCount, isLoading: igLeadsLoading } = useQuery({
+    queryKey: ['client-all-leads-count', profileId, sinceAccountCreated],
+    queryFn: () => fetchAllLeadsCount(createSupabase(), profileId!, sinceAccountCreated),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
@@ -527,12 +492,9 @@ export default function PageClientDetail({ id }: Props) {
   const showUpRate = callsBookedCount > 0 ? Math.round((callsHonoredCount / callsBookedCount) * 100) : 0;
   const revenuePerCall = callsBookedCount > 0 ? Math.round(cashContracted / callsBookedCount) : 0;
 
-  // Leads totaux = leads IG (pré-call, toutes sources) + calls YT bookés (source
-  // UTM commence par 'yt', même pattern que PagePipeline.tsx:1427-1428 — YT n'a
-  // pas de notion de lead pré-call, un chevauchement partiel avec
-  // callsBookedCount est assumé, pas un double comptage à corriger).
-  const ytBookedCalls = salesCallsData.filter(c => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
-  const leadsTotal = (igLeadsCount ?? 0) + ytBookedCalls;
+  // Leads totaux = fetchAllLeadsCount (Instagram + YouTube), calculé plus haut — même
+  // fonction que l'accueil élève et Mes Stats, pour un chiffre garanti identique.
+  const leadsTotal = leadsTotalCount ?? 0;
 
   const postsIg = igRaw?.posts?.length ?? null;
   const postsYt = ytRaw?.videos?.length ?? null;

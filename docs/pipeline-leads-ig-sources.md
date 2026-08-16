@@ -2,6 +2,8 @@
 
 Documentation de référence : tout calcul de "nombre de leads IG" (KPI, export, autre page) doit reproduire ces **3 sources cumulées**, pas seulement `instagram_leads`. Découvert le 2026-08-03 après un bug où le KPI "Leads totaux" de la fiche client (`components/pages/coach/PageClientDetail.tsx`) affichait 3 alors que le pipeline visuel (`components/pipeline/PagePipeline.tsx`) en affichait 6 pour le même élève — écart exact expliqué par l'oubli de la 3e source ci-dessous.
 
+**Fonction canonique : `fetchIgLeadsCount` (`lib/salesCallStats.ts`)** implémente ces 3 sources — tout nouvel écran affichant un total "Leads IG" doit l'appeler plutôt que réécrire la logique (une 3e copie locale dans `PageClientDetail.tsx`, désynchronisée du fix de dédup par date la plus ancienne, a été découverte et supprimée en août 2026). Pour un total "Leads" incluant aussi YouTube (ce que les 3 écrans utilisateur affichent réellement — accueil élève, fiche coach, "Mes stats"), utiliser `fetchAllLeadsCount` — voir `docs/integrations-ready-at-vs-onboarding-completed-at.md` pour la 4e source (calls YouTube bookés) et la référence de date à utiliser (`integrations_ready_at`, plus `first_connected_at`/`connected_at`).
+
 ## Les 3 sources
 
 ### 1. `instagram_leads` — détection automatique

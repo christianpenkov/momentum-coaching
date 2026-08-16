@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import type { Client, Task, Call, SessionReport } from '@/lib/supabase/types';
-import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled } from '@/lib/salesCallStats';
+import { computeSalesCallStats, fetchAllLeadsCount } from '@/lib/salesCallStats';
 import { getPeriodWindow } from '@/lib/period';
 
 export interface CurrentStats {
@@ -87,7 +87,7 @@ export function useClientSelfData() {
         tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
         nextCallRes, callsTodayRes, salesCallsAllTimeRes, manualCallsAllTimeRes,
         stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, ownProfileRes,
-        igLeadsAllTimeCount, igLeadsThisMonthCount,
+        leadsAllTimeCount, leadsThisMonthCount,
       ] = await Promise.all([
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
@@ -155,8 +155,10 @@ export function useClientSelfData() {
         // reste un vrai lead, il ne doit pas disparaître selon l'écran regardé. Même
         // référence que le gate d'onboarding, voir
         // docs/integrations-ready-at-vs-onboarding-completed-at.md.
-        clientRow.profile_id ? fetchIgLeadsCount(supabase, clientRow.profile_id, clientRow.integrations_ready_at ?? null) : Promise.resolve(0),
-        clientRow.profile_id ? fetchIgLeadsCount(supabase, clientRow.profile_id, startOfMonth) : Promise.resolve(0),
+        // fetchAllLeadsCount (Instagram + YouTube) : point d'entrée unique réutilisé
+        // par la fiche coach et Mes Stats, pour ne plus jamais diverger sur ce calcul.
+        clientRow.profile_id ? fetchAllLeadsCount(supabase, clientRow.profile_id, clientRow.integrations_ready_at ?? null) : Promise.resolve(0),
+        clientRow.profile_id ? fetchAllLeadsCount(supabase, clientRow.profile_id, startOfMonth) : Promise.resolve(0),
       ]);
 
       const coachFullName: string | null = coachProfileRes.data?.full_name ?? null;
@@ -178,13 +180,9 @@ export function useClientSelfData() {
       const cashContractedThisMonth = thisMonthStats.cashContracted;
       const closingRateThisMonth = thisMonthStats.closingRate;
 
-      // Leads totaux = leads IG (3 sources, fetchIgLeadsCount) + calls YouTube
-      // bookés (source commençant par "yt") — même formule que PageClientDetail.tsx
-      // (fiche client coach), pour un chiffre cohérent entre les deux vues.
-      const ytBookedCallsAllTime = allSalesCalls.filter(c => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
-      const ytBookedCallsThisMonth = callsThisMonth.filter(c => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
-      const leadsAllTimeCount = igLeadsAllTimeCount + ytBookedCallsAllTime;
-      const leadsThisMonthCount = igLeadsThisMonthCount + ytBookedCallsThisMonth;
+      // Leads totaux = fetchAllLeadsCount (Instagram + YouTube), calculé plus haut —
+      // même fonction que la fiche coach et Mes Stats, pour un chiffre garanti
+      // identique entre les 3 écrans.
 
       const stripeConnected = !!(stripeIntegRes as { data: { id: string } | null }).data;
       const cashCollectedAllTime = stripeConnected

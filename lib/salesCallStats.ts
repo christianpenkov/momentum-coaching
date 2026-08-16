@@ -87,3 +87,26 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
 
   return count + ((directCallsRes.data as { id: string }[] | null)?.length ?? 0);
 }
+
+// Leads toutes sources = fetchIgLeadsCount (Instagram) + calls YouTube bookés (source
+// commençant par "yt", non annulés). Point d'entrée unique "Leads" pour tout écran
+// (accueil élève, fiche coach, Mes stats) — évite que chacun recolle IG + YT séparément
+// et diverge silencieusement (déjà arrivé : Mes Stats oubliait YouTube).
+export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
+  let ytCallsQuery = supabase.from('calls').select('id, status')
+    .eq('coach_id', profileId)
+    .eq('call_type', 'calendly')
+    .neq('ignored', true)
+    .like('source', 'yt%');
+  if (since) ytCallsQuery = ytCallsQuery.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
+
+  const [igCount, ytCallsRes] = await Promise.all([
+    fetchIgLeadsCount(supabase, profileId, since),
+    ytCallsQuery,
+  ]);
+
+  const ytBookedCount = ((ytCallsRes.data ?? []) as { id: string; status: string | null }[])
+    .filter(c => !['cancelled', 'canceled', 'declined'].includes(c.status ?? '')).length;
+
+  return igCount + ytBookedCount;
+}
