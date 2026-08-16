@@ -111,9 +111,14 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   // conteneur de la vidéo en overlay CSS plein écran, pas une vraie sortie
   // fullscreen système, mais donne l'espace visuel attendu.
   const [videoFullscreen, setVideoFullscreen] = useState(false);
+  // Incrémenté pour forcer un remount propre de l'iframe (voir onControllerChange
+  // ci-dessous) — un nouveau key force React à détruire/recréer le nœud DOM plutôt
+  // que de réutiliser une iframe dont la requête réseau a été interrompue.
+  const [iframeKey, setIframeKey] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedAtRef = useRef<number>(0);
   const embedLoadedRef = useRef(false);
+  const embedRequestedRef = useRef(false);
 
   // Instrumentation temporaire — bug mobile "toute la page flashe/recharge" au
   // chargement de la vidéo, cause encore inconnue (pas résolu par délai de montage
@@ -161,7 +166,21 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       logClient('pageshow', { persisted: e.persisted, msSinceMount: Date.now() - mountedAtRef.current });
     }
     function onControllerChange() {
-      logClient('sw_controllerchange', { msSinceMount: Date.now() - mountedAtRef.current, embedLoaded: embedLoadedRef.current });
+      // iOS tue le SW en arrière-plan et le relance à la réouverture de l'app — ce
+      // relaunch peut tomber pile pendant le tout premier chargement de l'iframe
+      // Fathom (confirmé par les logs : sw_controllerchange loggé avec embedLoaded:
+      // false au moment exact du crash "flash/reload"). clients.claim() dans sw.js
+      // interrompt alors la requête réseau en cours, et onLoad ne se déclenche
+      // jamais — l'iframe reste bloquée indéfiniment. On force ici un remount
+      // propre (nouvelle iframe, nouvelle requête) plutôt que de laisser
+      // l'utilisateur constater un chargement infini et devoir rouvrir le modal.
+      const stillLoading = embedRequestedRef.current && !embedLoadedRef.current;
+      logClient('sw_controllerchange', { msSinceMount: Date.now() - mountedAtRef.current, embedLoaded: embedLoadedRef.current, forcingRemount: stillLoading });
+      if (stillLoading) {
+        embedLoadedRef.current = false;
+        setEmbedLoaded(false);
+        setIframeKey(k => k + 1);
+      }
     }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
@@ -190,8 +209,12 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   }, [shareUrl]);
 
   useEffect(() => {
+    embedRequestedRef.current = embedRequested;
+  }, [embedRequested]);
+
+  useEffect(() => {
     if (!embedRequested || !shareUrl) return;
-    logClient('iframe_timer_start', { shareUrl, embedUrl: toEmbedUrl(shareUrl) });
+    logClient('iframe_timer_start', { shareUrl, embedUrl: toEmbedUrl(shareUrl), iframeKey });
 
     timeoutRef.current = setTimeout(() => {
       logClient('iframe_timeout_fallback', { shareUrl, msWaited: IFRAME_LOAD_TIMEOUT_MS });
@@ -200,7 +223,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
     };
-  }, [shareUrl, embedRequested]);
+  }, [shareUrl, embedRequested, iframeKey]);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
@@ -228,6 +251,18 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
           position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', zIndex: 9999, background: '#000',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         } : { position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}
+      >
+      {/* Le player Fathom intégré ne remplit pas un cadre portrait extrême (ex.
+          390x844 en plein écran mobile) — il garde son propre ratio 16:9 interne et
+          laisse le reste de l'iframe vide en noir (confirmé par test réel, capture
+          d'écran mobile : vidéo minuscule collée en haut). On contraint donc l'iframe
+          elle-même à un ratio 16:9 centré dans l'overlay noir plutôt que de l'étirer
+          sur 100% de la hauteur — en desktop/paysage ça occupe déjà quasi tout
+          l'écran, en portrait mobile ça évite le vide noir sous une vidéo minuscule. */}
+      <div
+        style={fullscreen ? {
+          position: 'relative', width: '100%', maxHeight: '100%', aspectRatio: '16 / 9',
+        } : { display: 'contents' }}
       >
         {!embedRequested && (
           <button
@@ -262,6 +297,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
         )}
         {embedRequested && (
           <iframe
+            key={iframeKey}
             src={toEmbedUrl(shareUrl!)}
             title="Enregistrement de l'appel"
             allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
@@ -297,6 +333,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
             <Icon name={fullscreen ? 'x' : 'maximize'} size={16} style={{ color: '#fff' }} />
           </button>
         )}
+      </div>
       </div>
     );
   }

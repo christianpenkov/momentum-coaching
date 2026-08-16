@@ -2,7 +2,6 @@ import type { Metadata } from 'next';
 import { Inter, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './Providers';
-import FathomPreconnect from '@/components/FathomPreconnect';
 import AppBootstrap from '@/components/AppBootstrap';
 
 // display: 'swap' — le texte s'affiche immédiatement en police système puis bascule vers
@@ -59,7 +58,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body>
         <Providers>{children}</Providers>
-        <FathomPreconnect />
         <AppBootstrap />
       </body>
     </html>
