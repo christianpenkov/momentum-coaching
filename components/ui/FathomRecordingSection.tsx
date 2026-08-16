@@ -61,20 +61,20 @@ function toEmbedUrl(shareUrl: string): string {
 // lui-même (pas notre modal/CSS/Service Worker) via tests contrôlés : une
 // iframe légère (example.com) et YouTube dans le même contexte ne crashent
 // jamais ; aucune combinaison de paramètres d'URL Fathom (autoplay, preload,
-// share vs embed) n'évite le crash sans casser l'affichage. Le bug est
-// spécifique à WebKit/iOS — jamais reproduit sur desktop. Sur iOS on ouvre
-// donc le lien Fathom (shareUrl) dans le navigateur système plutôt que de
-// charger l'iframe cassée ; partout ailleurs (desktop, Android) l'iframe
-// s'affiche directement dans la page comme avant, sans ce détour.
-function isIOS(): boolean {
+// share vs embed) n'évite le crash sans casser l'affichage. Le bug n'a jamais
+// été reproduit sur desktop — par précaution on route tout mobile (Android
+// inclus, jamais testé, pas seulement iOS où le bug est confirmé) vers le
+// lien Fathom (shareUrl) ouvert dans le navigateur système plutôt que de
+// charger l'iframe ; sur desktop elle s'affiche directement dans la page.
+function isMobile(): boolean {
   if (typeof navigator === 'undefined') return false;
-  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  return /iPad|iPhone|iPod|Android/.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
 export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
   const [showTranscript, setShowTranscript] = useState(false);
-  const [onIOS] = useState(isIOS);
+  const [onMobile] = useState(isMobile);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
@@ -90,7 +90,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
       {shareUrl && (
         <div style={{ marginBottom: 16 }}>
-          {onIOS ? (
+          {onMobile ? (
             <a
               href={shareUrl}
               target="_blank"
