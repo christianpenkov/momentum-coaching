@@ -140,6 +140,12 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     const conn = (navigator as any).connection;
     logClient('mount', {
       shareUrl,
+      // Marqueur de build fixe (incrémenté manuellement à chaque déploiement de ce
+      // fichier) — pour vérifier si le 1er et le 2e essai tournent sur le même code
+      // déployé, ou si un cache navigateur/CDN sert une version JS différente
+      // (antérieure) au moment du crash.
+      buildMarker: 'fathom-debug-v2',
+      pageLoadedAt: typeof performance !== 'undefined' ? new Date(performance.timeOrigin).toISOString() : null,
       standalone: typeof window !== 'undefined' ? (window.navigator as any).standalone : null,
       displayModeStandalone: typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(display-mode: standalone)').matches : null,
       memory: mem ? { usedJSHeapSize: mem.usedJSHeapSize, jsHeapSizeLimit: mem.jsHeapSizeLimit } : null,
