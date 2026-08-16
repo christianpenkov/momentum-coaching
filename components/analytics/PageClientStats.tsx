@@ -336,20 +336,54 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   const { periodStart: ovPeriodStart, periodEnd: ovPeriodEnd } = getPeriodWindow(_ovPIdx, period === 7 ? 'week' : 'month');
   const cutoff = ovPeriodStart;
 
-  // Leads sur la période — remplace l'ancienne carte "Clics lien". Le total compte
-  // TOUTE interaction (via lmHistory, jamais écrasée — un même prospect qui revient
-  // plusieurs fois sur la période compte plusieurs fois), le sous-texte précise
-  // combien de CES interactions viennent d'un prospect jamais vu avant (igLeads,
-  // une ligne par personne). Donne à la fois le volume d'activité et le signal
-  // business "est-ce que je génère du neuf ?", sans dupliquer une 3e logique.
+  // Leads sur la période — remplace l'ancienne carte "Clics lien".
+  //
+  // RÈGLE UNIQUE pour le gros chiffre, dans TOUS les modes (semaine/mois/depuis
+  // connexion) : nombre de PERSONNES DISTINCTES ayant donné signe de vie dans la
+  // fenêtre (via lmHistory, dédupliqué par ig_user_id). Un même prospect actif
+  // plusieurs fois DANS LA MÊME fenêtre ne compte qu'une fois — mais un prospect
+  // inactif depuis longtemps qui redevient actif compte bien +1 dans la fenêtre où
+  // ça se passe (garde le signal business de réactivation). Conséquence assumée :
+  // la somme des fenêtres courtes (ex: 4 semaines) peut dépasser le total "depuis
+  // connexion" si une même personne est active sur plusieurs d'entre elles — chaque
+  // fenêtre est une vraie photo indépendante de l'activité, pas un sous-total d'un
+  // grand tout.
+  //
+  // Le badge, lui, change de RÔLE selon le mode (pas juste de fenêtre) :
+  // - Mode période : "+N nouveaux" = parmi les actifs de CETTE fenêtre, combien
+  //   n'avaient jamais donné signe de vie avant (signal "je génère du neuf cette
+  //   semaine/ce mois", complémentaire du gros chiffre qui inclut aussi les
+  //   réactivations).
+  // - Mode "Depuis connexion" : le gros chiffre est déjà le total de leads uniques
+  //   depuis toujours, donc "nouveaux depuis toujours" y serait quasi identique au
+  //   gros chiffre (inutile). Le badge répond ici à une question différente et plus
+  //   utile : "est-ce que je génère encore du neuf, là maintenant ?" — d'où "+N
+  //   nouveaux ce mois" calculé en nouveaux STRICTS (jamais vus nulle part avant),
+  //   PAS en actifs du mois (sinon il se rapprocherait du gros chiffre dès que la
+  //   plupart des leads interagissent régulièrement, perdant tout pouvoir
+  //   informatif).
   const isLeadInPeriod = (ts: string | null | undefined) => {
     if (sinceConnection) return !!ts;
     if (!ts) return false;
     const t = new Date(ts).getTime();
     return t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
   };
-  const leadsCount = (lmHistory ?? []).filter(h => isLeadInPeriod(h.detected_at)).length;
-  const newLeadsCount = (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length;
+  const { periodStart: currentMonthStart, periodEnd: currentMonthEnd } = getPeriodWindow(0, 'month');
+  const isNewThisMonth = (ts: string | null | undefined) => {
+    if (!ts) return false;
+    const t = new Date(ts).getTime();
+    return t >= currentMonthStart.getTime() && t <= currentMonthEnd.getTime();
+  };
+  const leadsCount = new Set(
+    (lmHistory ?? []).filter(h => isLeadInPeriod(h.detected_at)).map(h => h.ig_user_id)
+  ).size;
+  const newLeadsCount = sinceConnection
+    ? (leads ?? []).filter(l => isNewThisMonth(l.commentedAt)).length
+    : (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length;
+  const newLeadsBadgeLabel = sinceConnection ? 'ce mois' : 'nouveaux';
+  const newLeadsBadgeTitle = sinceConnection
+    ? 'Prospects jamais vus avant, détectés ce mois-ci (différent des leads actifs ce mois, qui incluraient aussi les anciens prospects réactivés)'
+    : 'Prospects jamais vus avant cette période';
 
   // ── Métriques business ─────────────────────────────────────────────────────
   // callsEff est déjà filtré par la DB en S-1+ → on filtre juste par status ici.
@@ -545,15 +579,15 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
               <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4 }}>
                 <div style={{ fontSize: 20, fontWeight: 800, color: BLUE, lineHeight: 1 }}>{fmt(leadsCount)}</div>
                 {newLeadsCount > 0 && (
-                  <span style={{
+                  <span title={newLeadsBadgeTitle} style={{
                     fontSize: 10, fontWeight: 700, color: GREEN, background: 'color-mix(in srgb, var(--green) 14%, transparent)',
                     borderRadius: 20, padding: '2px 7px', lineHeight: 1.4, whiteSpace: 'nowrap',
                   }}>
-                    +{fmt(newLeadsCount)} nouveaux
+                    +{fmt(newLeadsCount)} {newLeadsBadgeLabel}
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{period}j</div>
+              <div style={{ fontSize: 10, color: 'var(--faint)' }}>{sinceConnection ? 'total' : `${period}j`}</div>
             </div>
           );
           if (item === null) return (

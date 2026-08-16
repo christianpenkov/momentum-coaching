@@ -16,13 +16,13 @@ export async function GET() {
 
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-  // Récupère la date de connexion Calendly pour filtrer les vieux calls
+  // Récupère la date de première connexion Calendly pour filtrer les calls pré-Momentum
   const { data: integRow } = await supa.from('integrations')
-    .select('connected_at')
+    .select('first_connected_at')
     .eq('profile_id', user.id)
     .eq('provider', 'calendly')
     .maybeSingle();
-  const calendlyConnectedAt: string | null = integRow?.connected_at ?? null;
+  const calendlyFirstConnectedAt: string | null = integRow?.first_connected_at ?? null;
 
   let callsQuery = supa.from('calls')
     .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up')
@@ -31,9 +31,12 @@ export async function GET() {
     .neq('ignored', true)
     .order('scheduled_at', { ascending: false });
 
-  if (calendlyConnectedAt) {
-    const cutoff = new Date(new Date(calendlyConnectedAt).getTime() - 24 * 3600_000).toISOString();
-    callsQuery = callsQuery.gte('scheduled_at', cutoff);
+  if (calendlyFirstConnectedAt) {
+    // Un call réservé (booked_at) avant la première connexion Calendly n'a pas pu être
+    // généré par le pipeline Momentum — fallback sur scheduled_at si booked_at manque.
+    callsQuery = callsQuery.or(
+      `booked_at.gte.${calendlyFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${calendlyFirstConnectedAt})`
+    );
   }
 
   const [leadsRes, prospectsRes, nonIgProspectsRes, callsRes, overridesRes, clicksRes, eventsRes, lmHistoryRes] = await Promise.all([

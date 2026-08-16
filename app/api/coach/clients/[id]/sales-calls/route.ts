@@ -36,6 +36,19 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (clientRow.coach_id !== user.id) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
   if (!clientRow.profile_id) return NextResponse.json({ calls: [] });
 
+  // Cutoff aligné sur les autres vues (useClientAllCalls, PageClientCalls,
+  // useNotifications, pipeline/route.ts) : un call réservé (booked_at) avant la première
+  // connexion Calendly n'a pas pu être généré par le pipeline Momentum. Remplace
+  // l'ancien cutoff sur onboarding_completed_at, qui produisait des chiffres différents
+  // entre la vue coach et la vue élève pour le même élève.
+  const { data: integRow } = await serviceSupabase
+    .from('integrations')
+    .select('first_connected_at')
+    .eq('profile_id', clientRow.profile_id)
+    .eq('provider', 'calendly')
+    .maybeSingle();
+  const calendlyFirstConnectedAt: string | null = integRow?.first_connected_at ?? null;
+
   // .neq('ignored', true) : même filtre que app/api/client/pipeline/route.ts:31 et
   // PageClientStats.tsx:5766 — sans lui, les calls que le coach a "supprimés"
   // depuis le pipeline (marqués ignored=true plutôt qu'effacés physiquement)
@@ -48,8 +61,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .neq('ignored', true)
     .order('scheduled_at', { ascending: false });
 
-  if (clientRow.onboarding_completed_at) {
-    query = query.gte('scheduled_at', clientRow.onboarding_completed_at);
+  if (calendlyFirstConnectedAt) {
+    query = query.or(
+      `booked_at.gte.${calendlyFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${calendlyFirstConnectedAt})`
+    );
   }
 
   const { data, error } = await query;

@@ -86,7 +86,10 @@ async function syncCalendlyEleve(
     .eq('profile_id', profileId)
     .eq('provider', 'calendly');
 
-  const minStartTime = connectedAt;
+  // Marge de sécurité : le vrai tri "call généré par Momentum ou pas" se fait en aval sur
+  // booked_at vs first_connected_at, donc élargir la fenêtre d'ingestion ici ne coûte rien
+  // et évite de rater un call proche du cutoff.
+  const minStartTime = new Date(new Date(connectedAt).getTime() - 48 * 3600_000).toISOString();
   const maxStartTime = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
 
   // Fetch events actifs + annulés en parallèle

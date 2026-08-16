@@ -83,9 +83,11 @@ export async function syncCalendlyEleve(
     .eq('profile_id', profileId)
     .eq('provider', 'calendly');
 
-  // Pull uniquement les events depuis connected_at (filtre min_start_time)
-  // + les 6 prochains mois (events futurs déjà bookés)
-  const minStartTime = connectedAt;
+  // Pull les events depuis connected_at - 48h (filtre min_start_time) + les 6 prochains
+  // mois (events futurs déjà bookés). Marge de sécurité côté ingestion : le vrai tri
+  // "call généré par Momentum ou pas" se fait en aval sur booked_at vs first_connected_at,
+  // donc élargir la fenêtre ici ne coûte rien et évite de rater un call proche du cutoff.
+  const minStartTime = new Date(new Date(connectedAt).getTime() - 48 * 3600_000).toISOString();
   const maxStartTime = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
 
   const eventsRes = await fetch(

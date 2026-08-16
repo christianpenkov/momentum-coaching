@@ -120,22 +120,35 @@ export async function GET(request: Request) {
   // réclamée par la même personne en juillet (cas réel découvert en test).
   let callsBooked = 0, callsHonored = 0, dealsClosed = 0, revenue = 0;
   {
-    const { data: bySequence } = await serviceSupabase
+    // Exclut les calls réservés avant la première connexion Calendly — pas générés par
+    // le pipeline Momentum, même règle que partout ailleurs (voir first_connected_at).
+    const { data: integRow } = await serviceSupabase
+      .from('integrations').select('first_connected_at')
+      .eq('profile_id', targetProfileId).eq('provider', 'calendly').maybeSingle();
+    const firstConnectedAt: string | null = integRow?.first_connected_at ?? null;
+
+    let bySequenceQuery = serviceSupabase
       .from('calls')
-      .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, ig_lead_id')
+      .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome, ig_lead_id')
       .eq('coach_id', targetProfileId)
       .eq('utm_content', sequenceId)
       .neq('ignored', true);
-
-    const { data: byLead } = leadIds.length
-      ? await serviceSupabase
+    let byLeadQuery = leadIds.length
+      ? serviceSupabase
           .from('calls')
-          .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
+          .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome, utm_content')
           .eq('coach_id', targetProfileId)
           .in('ig_lead_id', leadIds)
           .is('utm_content', null)
           .neq('ignored', true)
-      : { data: [] };
+      : null;
+    if (firstConnectedAt) {
+      const clause = `booked_at.gte.${firstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${firstConnectedAt})`;
+      bySequenceQuery = bySequenceQuery.or(clause);
+      if (byLeadQuery) byLeadQuery = byLeadQuery.or(clause);
+    }
+    const { data: bySequence } = await bySequenceQuery;
+    const { data: byLead } = byLeadQuery ? await byLeadQuery : { data: [] };
     const byLeadFiltered = byLead || [];
 
     const seenCallIds = new Set<string>();
@@ -249,6 +262,16 @@ async function listSequenceFunnelRows(profileId: string) {
 
   const sequenceIds = sequences.map(s => s.id);
 
+  // Exclut les calls réservés avant la première connexion Calendly — pas générés par le
+  // pipeline Momentum, même règle que partout ailleurs (voir first_connected_at).
+  const { data: integRow } = await serviceSupabase
+    .from('integrations').select('first_connected_at')
+    .eq('profile_id', profileId).eq('provider', 'calendly').maybeSingle();
+  const firstConnectedAt: string | null = integRow?.first_connected_at ?? null;
+  const callsDateClause = firstConnectedAt
+    ? `booked_at.gte.${firstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${firstConnectedAt})`
+    : null;
+
   const { data: stories } = await serviceSupabase
     .from('ig_stories')
     .select('id, ig_story_id, sequence_id, storage_url, posted_at')
@@ -300,21 +323,27 @@ async function listSequenceFunnelRows(profileId: string) {
     // peine de double-compte avec le post d'origine. instagram_leads.media_id est un état
     // COURANT mutable écrasé à chaque interaction — non fiable comme pivot d'attribution,
     // contrairement à utm_content qui est figé au moment du clic).
-    const { data: bySequence } = await serviceSupabase
+    let bySequenceQuery = serviceSupabase
       .from('calls')
-      .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome')
+      .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome')
       .eq('coach_id', profileId)
       .eq('utm_content', seq.id)
       .neq('ignored', true);
-    const { data: byLead } = leadIds.length
-      ? await serviceSupabase
+    let byLeadQuery = leadIds.length
+      ? serviceSupabase
           .from('calls')
-          .select('id, status, scheduled_at, no_show, deal_closed, revenue, outcome, utm_content')
+          .select('id, status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome, utm_content')
           .eq('coach_id', profileId)
           .in('ig_lead_id', leadIds)
           .is('utm_content', null)
           .neq('ignored', true)
-      : { data: [] };
+      : null;
+    if (callsDateClause) {
+      bySequenceQuery = bySequenceQuery.or(callsDateClause);
+      if (byLeadQuery) byLeadQuery = byLeadQuery.or(callsDateClause);
+    }
+    const { data: bySequence } = await bySequenceQuery;
+    const { data: byLead } = byLeadQuery ? await byLeadQuery : { data: [] };
     const byLeadFiltered = byLead || [];
 
     // Deux compteurs séparés (Calendly via bySequence, LM/DM via byLeadFiltered) en plus

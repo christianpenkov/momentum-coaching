@@ -109,7 +109,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           ? supabase.from('profiles').select('id, avatar_url, full_name').in('id', profileIds)
           : { data: [], error: null },
         profileIds.length > 0
-          ? supabase.from('integrations').select('profile_id, provider').in('profile_id', profileIds)
+          ? supabase.from('integrations').select('profile_id, provider, first_connected_at').in('profile_id', profileIds)
           : { data: [], error: null },
         profileIds.length > 0
           ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds).gte('date', startOfMonth)
@@ -170,6 +170,14 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         if (cur.mrr == null && s.mrr != null) cur.mrr = s.mrr;
       });
 
+      // first_connected_at Calendly par élève — référence stable (jamais réécrite après
+      // la 1ère connexion, contrairement à connected_at) pour filtrer les calls générés
+      // par le pipeline Momentum, cohérent avec PageClientDetail.tsx (fiche élève).
+      const calendlyFirstConnectedByProfile: Record<string, string | null> = {};
+      (integrationsRes.data || []).forEach((i: any) => {
+        if (i.provider === 'calendly') calendlyFirstConnectedByProfile[i.profile_id] = i.first_connected_at ?? null;
+      });
+
       // Paiements triés asc par élève — sert au total all-time et à la sparkbar cumulative.
       const paymentsByProfile: Record<string, { amount: number; date: string }[]> = {};
       (clientPaymentsRes.data || []).forEach((p: any) => {
@@ -225,12 +233,18 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now2 = new Date();
       setClients((rawClients || []).map((c: any) => {
         const snap = c.profile_id ? latestSnapByProfile[c.profile_id] : null;
-        // Cash contracté depuis la création réelle du compte Momentum de l'élève
-        // (onboarding_completed_at), même référence temporelle que les 8 KPI de
-        // PageClientDetail.tsx — pas de connectedAt (connexion d'un provider externe).
+        // Cash contracté / closing rate calculés sur les calls générés par le pipeline
+        // Momentum uniquement : booked_at (date de réservation réelle) >= première
+        // connexion Calendly de l'élève — même règle que PageClientDetail.tsx (fiche
+        // élève), pour ne jamais afficher un chiffre différent entre la liste des
+        // élèves (cette carte) et sa fiche détaillée. Fallback sur scheduled_at si
+        // booked_at manque (anciens calls importés sans cette donnée).
         const allSalesCalls = c.profile_id ? (salesCallsByProfile[c.profile_id] || []) : [];
-        const salesCalls = c.onboarding_completed_at
-          ? allSalesCalls.filter((call: any) => call.scheduled_at >= c.onboarding_completed_at)
+        const calendlyFirstConnectedAt = c.profile_id ? calendlyFirstConnectedByProfile[c.profile_id] : null;
+        const salesCalls = calendlyFirstConnectedAt
+          ? allSalesCalls.filter((call: any) =>
+              call.call_type !== 'calendly'
+              || (call.booked_at ? call.booked_at >= calendlyFirstConnectedAt : call.scheduled_at >= calendlyFirstConnectedAt))
           : allSalesCalls;
         const currentStats = c.profile_id ? {
           followersIg: snap?.ig_followers ?? 0,

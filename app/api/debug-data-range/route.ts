@@ -184,10 +184,14 @@ export async function GET(req: NextRequest) {
 
   // ── Calendly (calls depuis Supabase) ─────────────────────────────────────────
   try {
+    // coach_id, pas client_id : pour les calls calendly, coach_id contient en réalité
+    // le profile_id de l'élève (nom hérité du sync Calendly) — client_id n'est presque
+    // jamais renseigné pour ce type de call. Voir docs/calls-coach-id-piege.md.
     const { data: calls, error } = await supabase
       .from('calls')
       .select('id, scheduled_at, status, no_show, deal_closed, revenue, source')
-      .eq('client_id', profile_id)
+      .eq('coach_id', profile_id)
+      .eq('call_type', 'calendly')
       .order('scheduled_at', { ascending: false })
       .limit(100);
 

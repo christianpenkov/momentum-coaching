@@ -75,6 +75,18 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  // first_connected_at ne doit jamais être réécrit après la toute première connexion —
+  // contrairement à connected_at, réécrit à chaque reconnexion OAuth. C'est la référence
+  // stable utilisée pour filtrer les calls générés par le pipeline Momentum.
+  const { data: existingIntegration } = await serviceSupabase
+    .from('integrations')
+    .select('first_connected_at')
+    .eq('profile_id', user.id)
+    .eq('provider', 'calendly')
+    .maybeSingle();
+
+  const now = new Date().toISOString();
+
   await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'calendly',
@@ -82,7 +94,8 @@ export async function GET(request: NextRequest) {
     refresh_token: tokenData.refresh_token || null,
     account_label: accountLabel,
     expires_at: expiresAt,
-    connected_at: new Date().toISOString(),
+    connected_at: now,
+    first_connected_at: existingIntegration?.first_connected_at || now,
   }, { onConflict: 'profile_id,provider' });
 
   const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();

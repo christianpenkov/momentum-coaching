@@ -215,14 +215,14 @@ export default function PageClientCalls() {
 
     const { data: integ } = await supabase
       .from('integrations')
-      .select('id, connected_at')
+      .select('id, first_connected_at')
       .eq('profile_id', user.id)
       .eq('provider', 'calendly')
       .single();
     setHasCalendly(!!integ);
 
-    // Date de connexion Calendly — les calls antérieurs sont ignorés partout
-    const calendlyConnectedAt: string | null = integ?.connected_at ?? null;
+    // Date de première connexion Calendly — les calls réservés avant sont ignorés partout
+    const calendlyFirstConnectedAt: string | null = integ?.first_connected_at ?? null;
 
     // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
     let calendlyQuery = supabase
@@ -233,11 +233,12 @@ export default function PageClientCalls() {
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false });
 
-    if (calendlyConnectedAt) {
-      // Marge de 24h avant connected_at pour éviter d'exclure des calls
-      // bookés légèrement avant la (re)connexion Calendly
-      const cutoff = new Date(new Date(calendlyConnectedAt).getTime() - 24 * 3600_000).toISOString();
-      calendlyQuery = calendlyQuery.gte('scheduled_at', cutoff);
+    if (calendlyFirstConnectedAt) {
+      // Un call réservé (booked_at) avant la première connexion Calendly n'a pas pu être
+      // généré par le pipeline Momentum — fallback sur scheduled_at si booked_at manque.
+      calendlyQuery = calendlyQuery.or(
+        `booked_at.gte.${calendlyFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${calendlyFirstConnectedAt})`
+      );
     }
 
     const { data: calendlyCalls } = await calendlyQuery;

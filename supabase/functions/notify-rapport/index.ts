@@ -20,23 +20,24 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
   }
 
-  // Map profileId → connected_at pour filtrer les vieux calls
+  // Map profileId → first_connected_at (référence stable, jamais réécrite après la 1ère
+  // connexion, contrairement à connected_at) pour filtrer les calls pré-Momentum.
   const { data: integrations } = await supabase
     .from('integrations')
-    .select('profile_id, connected_at')
+    .select('profile_id, first_connected_at')
     .eq('provider', 'calendly')
-    .not('connected_at', 'is', null);
+    .not('first_connected_at', 'is', null);
 
-  const connectedAtByProfile = new Map<string, string>();
+  const firstConnectedAtByProfile = new Map<string, string>();
   for (const row of integrations ?? []) {
-    if (row.profile_id && row.connected_at) {
-      connectedAtByProfile.set(row.profile_id, row.connected_at);
+    if (row.profile_id && row.first_connected_at) {
+      firstConnectedAtByProfile.set(row.profile_id, row.first_connected_at);
     }
   }
 
   const { data: calls, error } = await supabase
     .from('calls')
-    .select('id, coach_id, invitee_name, scheduled_at, duration')
+    .select('id, coach_id, invitee_name, scheduled_at, booked_at, duration')
     .eq('status', 'active')
     .is('no_show', null)
     .eq('rapport_notif_sent', false)
@@ -57,8 +58,11 @@ Deno.serve(async (req: Request) => {
   const now = Date.now();
 
   const eligibleCalls = calls.filter((call: any) => {
-    const connectedAt = connectedAtByProfile.get(call.coach_id);
-    if (connectedAt && new Date(call.scheduled_at) < new Date(new Date(connectedAt).getTime() - 24 * 3600_000)) return false;
+    const firstConnectedAt = firstConnectedAtByProfile.get(call.coach_id);
+    if (firstConnectedAt) {
+      const refDate = call.booked_at || call.scheduled_at;
+      if (new Date(refDate) < new Date(firstConnectedAt)) return false;
+    }
     const durationMin = parseDurationMinutes(call.duration);
     if (durationMin === null) return false;
     const triggerTime = new Date(call.scheduled_at).getTime() + durationMin * 60 * 1000;

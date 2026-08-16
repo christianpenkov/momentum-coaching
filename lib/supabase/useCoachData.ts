@@ -75,6 +75,16 @@ export function useClientSelfData() {
       const startOfTomorrow = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1).toISOString();
       const onboardingStart = clientRow.onboarding_completed_at;
 
+      // Cutoff des calls/leads Calendly : première connexion Calendly (jamais réécrite
+      // aux reconnexions ultérieures), pas onboarding_completed_at — un call réservé
+      // avant que l'élève ait connecté Calendly n'a pas pu être généré par le pipeline
+      // Momentum. Même logique que useClientAllCalls.ts / pipeline/route.ts.
+      const calendlyFirstConnectedAt: string | null = clientRow.profile_id
+        ? (await supabase.from('integrations').select('first_connected_at')
+            .eq('profile_id', clientRow.profile_id).eq('provider', 'calendly').maybeSingle()
+          ).data?.first_connected_at ?? null
+        : null;
+
       const [
         tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
         nextCallRes, callsTodayRes, salesCallsAllTimeRes, manualCallsAllTimeRes,
@@ -107,14 +117,16 @@ export function useClientSelfData() {
         // computeSalesCallStats() fait son propre filtrage de statut en interne.
         clientRow.profile_id
           ? (() => {
-              // scheduled_at (date réelle du call), pas created_at (date technique
-              // d'insertion en base) — un backfill/sync tardif peut créer une ligne
-              // pour un call déjà passé, avec created_at postérieur à scheduled_at
-              // (ou l'inverse), ce qui fausserait le filtre "depuis l'onboarding".
+              // booked_at (date de réservation réelle), pas scheduled_at (heure du call) :
+              // un call réservé avant la première connexion Calendly n'a pas pu être
+              // généré par le pipeline Momentum, même si son scheduled_at tombe après.
+              // Fallback sur scheduled_at si booked_at manque (anciens calls importés).
               let q = supabase.from('calls').select('*').eq('coach_id', clientRow.profile_id)
                 .eq('call_type', 'calendly')
                 .neq('ignored', true);
-              if (onboardingStart) q = q.gte('scheduled_at', onboardingStart);
+              if (calendlyFirstConnectedAt) {
+                q = q.or(`booked_at.gte.${calendlyFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${calendlyFirstConnectedAt})`);
+              }
               return q;
             })()
           : Promise.resolve({ data: [] }),
@@ -139,7 +151,7 @@ export function useClientSelfData() {
         clientRow.profile_id
           ? supabase.from('profiles').select('avatar_url').eq('id', clientRow.profile_id).maybeSingle()
           : Promise.resolve({ data: null }),
-        clientRow.profile_id ? fetchIgLeadsCount(supabase, clientRow.profile_id, onboardingStart) : Promise.resolve(0),
+        clientRow.profile_id ? fetchIgLeadsCount(supabase, clientRow.profile_id, calendlyFirstConnectedAt) : Promise.resolve(0),
         clientRow.profile_id ? fetchIgLeadsCount(supabase, clientRow.profile_id, startOfMonth) : Promise.resolve(0),
       ]);
 

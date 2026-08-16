@@ -190,6 +190,7 @@ export interface Integration {
   metadata: Record<string, unknown> | null;
   expires_at: string | null;
   connected_at: string;
+  first_connected_at: string | null;
 }
 
 export interface ShortioIntegrationMetadata {
