@@ -51,18 +51,30 @@ function parseTranscript(raw: string): TranscriptLine[] | null {
 // distinguer visuellement qui parle sans dépendre d'une correspondance email fragile.
 const SPEAKER_COLORS = ['var(--accent-brand)', 'var(--green)', '#8b5cf6', '#f59e0b'];
 
+function toEmbedUrl(shareUrl: string): string {
+  return shareUrl.replace('/share/', '/embed/');
+}
+
 // L'iframe Fathom embarquée (fathom.video/embed/{id}) déclenche un bug WebKit
 // reproductible sur iOS — crash/reload systématique de toute la page au 1er
 // chargement après cold start du navigateur. Confirmé isolé au player Fathom
 // lui-même (pas notre modal/CSS/Service Worker) via tests contrôlés : une
 // iframe légère (example.com) et YouTube dans le même contexte ne crashent
 // jamais ; aucune combinaison de paramètres d'URL Fathom (autoplay, preload,
-// share vs embed) n'évite le crash sans casser l'affichage. Plutôt que de
-// contourner un bug plateforme/tiers indéfiniment, on ouvre directement le
-// lien Fathom (shareUrl) dans le navigateur système — simple, fiable, jamais
-// de crash possible puisqu'on ne charge plus jamais l'iframe.
+// share vs embed) n'évite le crash sans casser l'affichage. Le bug est
+// spécifique à WebKit/iOS — jamais reproduit sur desktop. Sur iOS on ouvre
+// donc le lien Fathom (shareUrl) dans le navigateur système plutôt que de
+// charger l'iframe cassée ; partout ailleurs (desktop, Android) l'iframe
+// s'affiche directement dans la page comme avant, sans ce détour.
+function isIOS(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
   const [showTranscript, setShowTranscript] = useState(false);
+  const [onIOS] = useState(isIOS);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
@@ -78,15 +90,27 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
       {shareUrl && (
         <div style={{ marginBottom: 16 }}>
-          <a
-            href={shareUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="btn-primary-brand"
-            style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
-          >
-            <Icon name="video" size={15} /> Voir l'enregistrement
-          </a>
+          {onIOS ? (
+            <a
+              href={shareUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary-brand"
+              style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 8 }}
+            >
+              <Icon name="video" size={15} /> Voir l'enregistrement
+            </a>
+          ) : (
+            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
+              <iframe
+                src={toEmbedUrl(shareUrl)}
+                title="Enregistrement de l'appel"
+                allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+                allowFullScreen
+                style={{ width: '100%', height: '100%', border: 'none' }}
+              />
+            </div>
+          )}
         </div>
       )}
 
