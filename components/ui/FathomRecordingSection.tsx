@@ -68,20 +68,35 @@ function parseTranscript(raw: string): TranscriptLine[] | null {
 // distinguer visuellement qui parle sans dépendre d'une correspondance email fragile.
 const SPEAKER_COLORS = ['var(--accent-brand)', 'var(--green)', '#8b5cf6', '#f59e0b'];
 
+// Les modales (ModalShell) ont une animation d'entrée framer-motion (spring, ~300ms)
+// qui redimensionne encore la boîte au moment où ce composant est monté — sur mobile,
+// démarrer le chargement d'un iframe cross-origin pendant que son conteneur change
+// encore de taille produisait un rendu erratique (la vidéo semblait "planter"/recharger
+// la page au premier essai, correcte seulement en rouvrant la modale). On retarde donc
+// le montage réel de l'iframe jusqu'à la fin de cette animation.
+const MODAL_ANIMATION_SETTLE_MS = 350;
+
 export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
   const [embedFailed, setEmbedFailed] = useState(false);
   const [embedLoaded, setEmbedLoaded] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  const [readyToMount, setReadyToMount] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const t = setTimeout(() => setReadyToMount(true), MODAL_ANIMATION_SETTLE_MS);
+    return () => clearTimeout(t);
+  }, []);
 
   // Un seul timer par shareUrl — le nettoyage se fait via onLoad (clearTimeout direct),
   // pas via une dépendance embedLoaded qui reprogrammerait inutilement le timer à
-  // chaque changement d'état.
+  // chaque changement d'état. Démarre au montage réel de l'iframe (readyToMount), pas
+  // avant, sinon le délai d'attente de l'animation grignoterait le budget du timeout.
   useEffect(() => {
-    if (!shareUrl) return;
+    if (!shareUrl || !readyToMount) return;
     timeoutRef.current = setTimeout(() => setEmbedFailed(true), IFRAME_LOAD_TIMEOUT_MS);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [shareUrl]);
+  }, [shareUrl, readyToMount]);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
@@ -104,14 +119,22 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                   <InlineLoader />
                 </div>
               )}
-              <iframe
-                src={toEmbedUrl(shareUrl)}
-                title="Enregistrement de l'appel"
-                allow="fullscreen"
-                allowFullScreen
-                style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
-                onLoad={() => { setEmbedLoaded(true); if (timeoutRef.current) clearTimeout(timeoutRef.current); }}
-              />
+              {readyToMount && (
+                <iframe
+                  src={toEmbedUrl(shareUrl)}
+                  title="Enregistrement de l'appel"
+                  allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+                  allowFullScreen
+                  // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
+                  // ignorer silencieusement la demande fullscreen du player interne sans
+                  // eux, même avec allow="fullscreen" présent.
+                  // @ts-expect-error — attribut HTML legacy non typé par React/JSX
+                  webkitallowfullscreen="true"
+                  mozallowfullscreen="true"
+                  style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
+                  onLoad={() => { setEmbedLoaded(true); if (timeoutRef.current) clearTimeout(timeoutRef.current); }}
+                />
+              )}
             </div>
           ) : (
             <a
