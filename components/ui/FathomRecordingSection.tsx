@@ -115,10 +115,24 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   // ci-dessous) — un nouveau key force React à détruire/recréer le nœud DOM plutôt
   // que de réutiliser une iframe dont la requête réseau a été interrompue.
   const [iframeKey, setIframeKey] = useState(0);
+  // iOS bloque screen.orientation.lock() en PWA (aucune vraie rotation d'écran
+  // possible en JS, limitation plateforme confirmée) — en plein écran mobile
+  // portrait, on simule le paysage en tournant le cadre vidéo lui-même via CSS
+  // plutôt que de laisser une vidéo 16:9 minuscule au milieu d'un écran portrait.
+  const [isPortrait, setIsPortrait] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedAtRef = useRef<number>(0);
   const embedLoadedRef = useRef(false);
   const embedRequestedRef = useRef(false);
+
+  useEffect(() => {
+    function updateOrientation() {
+      setIsPortrait(window.innerHeight > window.innerWidth);
+    }
+    updateOrientation();
+    window.addEventListener('resize', updateOrientation);
+    return () => window.removeEventListener('resize', updateOrientation);
+  }, []);
 
   // Instrumentation temporaire — bug mobile "toute la page flashe/recharge" au
   // chargement de la vidéo, cause encore inconnue (pas résolu par délai de montage
@@ -283,9 +297,16 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
           sur 100% de la hauteur — en desktop/paysage ça occupe déjà quasi tout
           l'écran, en portrait mobile ça évite le vide noir sous une vidéo minuscule. */}
       <div
-        style={fullscreen ? {
-          position: 'relative', width: '100%', maxHeight: '100%', aspectRatio: '16 / 9',
-        } : { display: 'contents' }}
+        style={fullscreen
+          ? (isPortrait
+            // Rotation CSS pure — le wrapper échange largeur/hauteur (sa largeur
+            // tournée devient la hauteur d'écran, et vice versa) puis pivote de 90°
+            // autour de son centre pour occuper l'espace ainsi libéré. Résultat
+            // visuel équivalent à un vrai paysage sans jamais toucher à
+            // l'orientation réelle du téléphone (impossible sur iOS PWA).
+            ? { position: 'relative', width: '100dvh', maxHeight: '100vw', aspectRatio: '16 / 9', transform: 'rotate(90deg)' }
+            : { position: 'relative', width: '100%', maxHeight: '100%', aspectRatio: '16 / 9' })
+          : { display: 'contents' }}
       >
         {!embedRequested && (
           <button
