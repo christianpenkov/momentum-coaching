@@ -23,8 +23,12 @@ interface Props {
 // confirmé par test réel). On dérive donc toujours l'URL d'embed depuis share_url.
 const IFRAME_LOAD_TIMEOUT_MS = 15000;
 
+// autoplay=0/preload=none : tentative pour réduire la charge du player au tout
+// premier chargement après reprise d'app (piste crash Jetsam iOS) — Fathom accepte
+// ces paramètres sans erreur (200 OK confirmé), mais aucune garantie qu'ils soient
+// réellement honorés côté player (non documenté publiquement par Fathom).
 function toEmbedUrl(shareUrl: string): string {
-  return shareUrl.replace('/share/', '/embed/');
+  return `${shareUrl.replace('/share/', '/embed/')}?autoplay=0&preload=none`;
 }
 
 // Log de debug mobile — écrit dans webhook_debug_log via une route API (pas de
