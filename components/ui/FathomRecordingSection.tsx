@@ -83,8 +83,19 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   const [embedFailed, setEmbedFailed] = useState(false);
   const [embedLoaded, setEmbedLoaded] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
+  // La vraie Fullscreen API est bloquée/limitée sur iOS pour une vidéo à l'intérieur
+  // d'un iframe cross-origin (limitation documentée de la plateforme, pas un bug
+  // corrigeable côté code) — bouton plein écran maison à la place : agrandit le
+  // conteneur de la vidéo en overlay CSS plein écran, pas une vraie sortie
+  // fullscreen système, mais donne l'espace visuel attendu.
+  const [videoFullscreen, setVideoFullscreen] = useState(false);
+  // Remonter l'iframe avec une clé fraîche force un rechargement propre — utilisé
+  // en secours si le SW prend le contrôle de la page en plein chargement (voir
+  // useEffect controllerchange ci-dessous).
+  const [iframeKey, setIframeKey] = useState(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const mountedAtRef = useRef<number>(0);
+  const embedLoadedRef = useRef(false);
 
   // Instrumentation temporaire — bug mobile "toute la page flashe/recharge" au
   // chargement de la vidéo, cause encore inconnue (pas résolu par délai de montage
@@ -111,12 +122,19 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     function onPageShow(e: PageTransitionEvent) {
       logClient('pageshow', { persisted: e.persisted, msSinceMount: Date.now() - mountedAtRef.current });
     }
-    // Le Service Worker (public/sw.js) fait skipWaiting() + clients.claim() + vide
-    // tous les caches à chaque activation — controllerchange se déclenche quand un
-    // SW prend le contrôle de cette page, un candidat plausible pour le "flash/
-    // reload de toute la page" observé sur iOS PWA en chargeant l'iframe (lourde).
+    // Confirmé par les logs : iOS tue le Service Worker en arrière-plan quand la PWA
+    // est fermée, et le relance (install/activate/clients.claim) au tout premier
+    // chargement de page suivant une réouverture — pile le moment où cette section
+    // se monte pour la première fois. clients.claim() interrompt le chargement de
+    // l'iframe en cours (jamais d'iframe_onload observé dans ce cas), d'où le "flash/
+    // reload" — corrigé ici en relançant proprement l'iframe si ça arrive avant que
+    // la vidéo ait fini de charger, plutôt que de laisser un état cassé.
     function onControllerChange() {
-      logClient('sw_controllerchange', { msSinceMount: Date.now() - mountedAtRef.current });
+      logClient('sw_controllerchange', { msSinceMount: Date.now() - mountedAtRef.current, embedLoaded: embedLoadedRef.current });
+      if (!embedLoadedRef.current) {
+        logClient('iframe_reload_after_controllerchange', {});
+        setIframeKey(k => k + 1);
+      }
     }
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
@@ -169,13 +187,19 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       {shareUrl && (
         <div style={{ marginBottom: 16 }}>
           {!embedFailed ? (
-            <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
+            <div
+              style={videoFullscreen ? {
+                position: 'fixed', inset: 0, zIndex: 9999, background: '#000',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              } : { position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}
+            >
               {!embedLoaded && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                   <InlineLoader />
                 </div>
               )}
               <iframe
+                key={iframeKey}
                 src={toEmbedUrl(shareUrl)}
                 title="Enregistrement de l'appel"
                 allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
@@ -189,10 +213,25 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                 style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
                 onLoad={() => {
                   logClient('iframe_onload', { msSinceMount: Date.now() - mountedAtRef.current });
+                  embedLoadedRef.current = true;
                   setEmbedLoaded(true);
                   if (timeoutRef.current) clearTimeout(timeoutRef.current);
                 }}
               />
+              {embedLoaded && (
+                <button
+                  type="button"
+                  onClick={() => setVideoFullscreen(v => !v)}
+                  aria-label={videoFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+                  style={{
+                    position: 'absolute', bottom: 10, right: 10, width: 34, height: 34,
+                    borderRadius: 8, border: 'none', background: 'rgba(0,0,0,0.55)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
+                  }}
+                >
+                  <Icon name={videoFullscreen ? 'x' : 'maximize'} size={16} style={{ color: '#fff' }} />
+                </button>
+              )}
             </div>
           ) : (
             <a
