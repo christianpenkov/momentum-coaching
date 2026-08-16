@@ -13,10 +13,12 @@ export function useClientAllCalls(client: { id: string; profile_id: string } | n
 
     const load = async () => {
       setLoading(true);
-      // Calls Calendly : coach_id = profileId de l'élève
-      const { data: integ } = await supabase.from('integrations')
-        .select('first_connected_at').eq('profile_id', client.profile_id).eq('provider', 'calendly').maybeSingle();
-      const firstConnectedAt: string | null = integ?.first_connected_at ?? null;
+      // Calls Calendly : coach_id = profileId de l'élève. Référence stable "toutes les
+      // intégrations obligatoires connectées pour la 1ère fois" (trigger DB, jamais
+      // réécrite) — voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
+      const { data: clientRow } = await supabase.from('clients')
+        .select('integrations_ready_at').eq('profile_id', client.profile_id).maybeSingle();
+      const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
       let calendlyQuery = supabase.from('calls').select('*')
         .eq('coach_id', client.profile_id)
@@ -24,12 +26,12 @@ export function useClientAllCalls(client: { id: string; profile_id: string } | n
         .neq('status', 'cancelled')
         .neq('status', 'canceled')
         .order('scheduled_at', { ascending: true });
-      if (firstConnectedAt) {
-        // Un call réservé (booked_at) avant la première connexion Calendly n'a pas pu
-        // être généré par le pipeline Momentum — fallback sur scheduled_at si booked_at
-        // manque (anciens calls importés sans cette donnée).
+      if (integrationsReadyAt) {
+        // Un call réservé (booked_at) avant que toutes les intégrations obligatoires
+        // soient connectées n'a pas pu être généré par le pipeline Momentum — fallback
+        // sur scheduled_at si booked_at manque (anciens calls importés sans cette donnée).
         calendlyQuery = calendlyQuery.or(
-          `booked_at.gte.${firstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${firstConnectedAt})`
+          `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
         );
       }
       const { data: calendlyCalls } = await calendlyQuery;

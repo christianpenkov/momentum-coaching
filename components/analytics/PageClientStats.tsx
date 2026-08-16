@@ -326,7 +326,7 @@ type Period = 7 | 30;
 
 // ─── TAB "Vue générale (B)" — version épurée ─────────────────────────────────
 
-function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] }) {
+function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, period, periodIndex, leadIdToMediaId, prospectLinksData, linkClickedByLeadId, clicksByUrl, calendlyStaticClicsFromDb, igLive, ytLive, sinceConnection, leads, lmHistory, integrationsReadyAt }: { ig: IGStats | null; yt: YTStats | null; stripe: StripeStats | null; msgs: IGMessages | null; calls: CallRecord[]; callsAllTime?: CallRecord[]; shortio: ShortioStats | null; period: Period; periodIndex?: number; leadIdToMediaId: Map<string, string>; prospectLinksData?: any[]; linkClickedByLeadId?: Map<string, string>; clicksByUrl?: Map<string, number>; calendlyStaticClicsFromDb?: number; igLive?: IGStats | null; ytLive?: YTStats | null; sinceConnection?: boolean; leads?: MockLead[]; lmHistory?: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[]; integrationsReadyAt?: string | null }) {
   const [contentSort, setContentSort] = useState<ContentSortKey>('views');
   const [showAllContent, setShowAllContent] = useState(false);
   const _ovPIdx = periodIndex ?? 0;
@@ -363,8 +363,17 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   //   PAS en actifs du mois (sinon il se rapprocherait du gros chiffre dès que la
   //   plupart des leads interagissent régulièrement, perdant tout pouvoir
   //   informatif).
+  // "Depuis connexion" pour les leads = depuis integrations_ready_at (référence stable,
+  // toutes intégrations obligatoires connectées pour la 1ère fois), pas depuis la
+  // connexion d'une intégration spécifique — un lead détecté sur Instagram avant que
+  // Calendly soit connecté reste un vrai lead, il ne doit pas dépendre de quelle
+  // intégration a été branchée en dernier. Fallback sur "tout accepter" si
+  // integrations_ready_at n'est pas encore disponible (élève pas encore débloqué).
   const isLeadInPeriod = (ts: string | null | undefined) => {
-    if (sinceConnection) return !!ts;
+    if (sinceConnection) {
+      if (!ts) return false;
+      return integrationsReadyAt ? ts >= integrationsReadyAt : true;
+    }
     if (!ts) return false;
     const t = new Date(ts).getTime();
     return t >= ovPeriodStart.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
@@ -5678,9 +5687,15 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  // Lire onboarding_completed_at depuis clients — borne basse pour calls/leads
-  const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at').eq('profile_id', targetId).maybeSingle();
+  // Lire onboarding_completed_at (borne basse historique pour les calls de cette page)
+  // et integrations_ready_at (référence stable "toutes les intégrations obligatoires
+  // connectées pour la 1ère fois", utilisée pour les LEADS en mode Depuis connexion —
+  // voir docs/integrations-ready-at-vs-onboarding-completed-at.md. Un lead détecté sur
+  // Instagram avant que Calendly/une autre intégration soit connectée reste un vrai
+  // lead, il ne doit pas dépendre de la date de connexion d'une intégration précise).
+  const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at, integrations_ready_at').eq('profile_id', targetId).maybeSingle();
   const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
+  const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
   // ── shortioChartHistory* (BUG RÉSOLU 2026-07-21, à relire avant de toucher à ce
   // bloc ou à re-signaler "des clics manquent") ──
@@ -6041,7 +6056,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -6144,6 +6159,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
+  const integrationsReadyAt: string | null = supaData?.integrationsReadyAt ?? null;
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
   const prospectLinksData: any[] = supaData?.prospectLinksData ?? [];
   const altKwToLmId: Map<string, string> = supaData?.altKwToLmId ?? new Map();
@@ -6469,7 +6485,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
       {loading ? <InlineLoader /> : (
         <>
-          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} />}
+          {tab === 0 && <TabOverviewV2 ig={igEff} yt={ytEff} stripe={stripeEff} msgs={msgsEff} calls={callsEff} callsAllTime={calls} shortio={shortioEff} period={period} periodIndex={periodIndex} leadIdToMediaId={leadIdToMediaId} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} calendlyStaticClicsFromDb={calendlyStaticClicsFromDb} igLive={ig} ytLive={yt} sinceConnection={sinceConnection} leads={igLeads} lmHistory={lmHistory} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}

@@ -161,14 +161,15 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     const supabase = createClient();
     const now = new Date().toISOString();
 
-    // ── Date de première connexion Calendly — cutoff pour ignorer les calls pré-Momentum ──
-    const { data: integ } = await supabase
-      .from('integrations')
-      .select('first_connected_at')
+    // ── Référence stable "toutes les intégrations obligatoires connectées pour la 1ère
+    // fois" (trigger DB, jamais réécrite) — cutoff pour ignorer les calls pré-Momentum,
+    // voir docs/integrations-ready-at-vs-onboarding-completed-at.md. ──
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('integrations_ready_at')
       .eq('profile_id', profileId)
-      .eq('provider', 'calendly')
       .maybeSingle();
-    const calendlyFirstConnectedAt: string | null = integ?.first_connected_at ?? null;
+    const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
     // ── Rapports de call en attente ──
     let callsQuery = supabase
@@ -181,11 +182,12 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
       .eq('call_type', 'calendly')
       .lt('scheduled_at', now);
 
-    if (calendlyFirstConnectedAt) {
-      // Un call réservé (booked_at) avant la première connexion Calendly n'a pas pu être
-      // généré par le pipeline Momentum — fallback sur scheduled_at si booked_at manque.
+    if (integrationsReadyAt) {
+      // Un call réservé (booked_at) avant que toutes les intégrations obligatoires
+      // soient connectées n'a pas pu être généré par le pipeline Momentum — fallback sur
+      // scheduled_at si booked_at manque.
       callsQuery = callsQuery.or(
-        `booked_at.gte.${calendlyFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${calendlyFirstConnectedAt})`
+        `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
       );
     }
 

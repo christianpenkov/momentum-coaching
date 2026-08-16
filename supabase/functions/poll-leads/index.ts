@@ -1163,12 +1163,13 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     else errors.push(`yt_videos: ${ytVideosResult.reason?.message || 'unknown'}`);
   }
 
-  // Calls stats J-1 — exclut les calls réservés avant la première connexion Calendly,
-  // pas générés par le pipeline Momentum (même règle que partout ailleurs sur la
-  // plateforme, voir first_connected_at). Ces colonnes ne sont lues par aucun écran
-  // aujourd'hui, mais restent correctes pour le jour où un historique sera affiché.
-  const { data: callsIntegRow } = await supa.from('integrations').select('first_connected_at').eq('profile_id', profileId).eq('provider', 'calendly').maybeSingle();
-  const callsFirstConnectedAt: string | null = callsIntegRow?.first_connected_at ?? null;
+  // Calls stats J-1 — exclut les calls réservés avant que toutes les intégrations
+  // obligatoires soient connectées pour la 1ère fois, pas générés par le pipeline
+  // Momentum (même règle que partout ailleurs, voir integrations_ready_at). Ces
+  // colonnes ne sont lues par aucun écran aujourd'hui, mais restent correctes pour le
+  // jour où un historique sera affiché.
+  const { data: callsClientRow } = await supa.from('clients').select('integrations_ready_at').eq('profile_id', profileId).maybeSingle();
+  const callsFirstConnectedAt: string | null = callsClientRow?.integrations_ready_at ?? null;
   let callsQuery = supa.from('calls').select('status, scheduled_at, booked_at, no_show, deal_closed, revenue, outcome').eq('coach_id', profileId).eq('call_type', 'calendly').neq('ignored', true);
   if (callsFirstConnectedAt) {
     callsQuery = callsQuery.or(`booked_at.gte.${callsFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${callsFirstConnectedAt})`);

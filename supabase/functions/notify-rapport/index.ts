@@ -20,18 +20,18 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ error: 'Non autorisé' }), { status: 401 });
   }
 
-  // Map profileId → first_connected_at (référence stable, jamais réécrite après la 1ère
-  // connexion, contrairement à connected_at) pour filtrer les calls pré-Momentum.
-  const { data: integrations } = await supabase
-    .from('integrations')
-    .select('profile_id, first_connected_at')
-    .eq('provider', 'calendly')
-    .not('first_connected_at', 'is', null);
+  // Map profileId → integrations_ready_at (toutes les intégrations obligatoires
+  // connectées pour la 1ère fois, trigger DB, jamais réécrit ensuite) pour filtrer
+  // les calls pré-Momentum. Voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
+  const { data: clients } = await supabase
+    .from('clients')
+    .select('profile_id, integrations_ready_at')
+    .not('integrations_ready_at', 'is', null);
 
   const firstConnectedAtByProfile = new Map<string, string>();
-  for (const row of integrations ?? []) {
-    if (row.profile_id && row.first_connected_at) {
-      firstConnectedAtByProfile.set(row.profile_id, row.first_connected_at);
+  for (const row of clients ?? []) {
+    if (row.profile_id && row.integrations_ready_at) {
+      firstConnectedAtByProfile.set(row.profile_id, row.integrations_ready_at);
     }
   }
 

@@ -215,14 +215,21 @@ export default function PageClientCalls() {
 
     const { data: integ } = await supabase
       .from('integrations')
-      .select('id, first_connected_at')
+      .select('id')
       .eq('profile_id', user.id)
       .eq('provider', 'calendly')
       .single();
     setHasCalendly(!!integ);
 
-    // Date de première connexion Calendly — les calls réservés avant sont ignorés partout
-    const calendlyFirstConnectedAt: string | null = integ?.first_connected_at ?? null;
+    // Référence stable "toutes les intégrations obligatoires connectées pour la 1ère
+    // fois" (trigger DB, jamais réécrite) — les calls réservés avant sont ignorés
+    // partout, voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
+    const { data: clientRow } = await supabase
+      .from('clients')
+      .select('id, integrations_ready_at')
+      .eq('profile_id', user.id)
+      .maybeSingle();
+    const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
     // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
     let calendlyQuery = supabase
@@ -233,23 +240,18 @@ export default function PageClientCalls() {
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false });
 
-    if (calendlyFirstConnectedAt) {
-      // Un call réservé (booked_at) avant la première connexion Calendly n'a pas pu être
-      // généré par le pipeline Momentum — fallback sur scheduled_at si booked_at manque.
+    if (integrationsReadyAt) {
+      // Un call réservé (booked_at) avant que toutes les intégrations obligatoires
+      // soient connectées n'a pas pu être généré par le pipeline Momentum — fallback sur
+      // scheduled_at si booked_at manque.
       calendlyQuery = calendlyQuery.or(
-        `booked_at.gte.${calendlyFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${calendlyFirstConnectedAt})`
+        `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
       );
     }
 
     const { data: calendlyCalls } = await calendlyQuery;
 
     // Calls Google Calendar (coach ↔ élève) : client_id = clientRow.id
-    const { data: clientRow } = await supabase
-      .from('clients')
-      .select('id')
-      .eq('profile_id', user.id)
-      .single();
-
     let googleCalls: Call[] = [];
     if (clientRow) {
       const { data } = await supabase

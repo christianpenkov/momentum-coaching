@@ -28,7 +28,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
 
   const { data: clientRow, error: fetchErr } = await serviceSupabase
     .from('clients')
-    .select('id, coach_id, profile_id, onboarding_completed_at')
+    .select('id, coach_id, profile_id, onboarding_completed_at, integrations_ready_at')
     .eq('id', id)
     .single();
 
@@ -37,17 +37,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
   if (!clientRow.profile_id) return NextResponse.json({ calls: [] });
 
   // Cutoff aligné sur les autres vues (useClientAllCalls, PageClientCalls,
-  // useNotifications, pipeline/route.ts) : un call réservé (booked_at) avant la première
-  // connexion Calendly n'a pas pu être généré par le pipeline Momentum. Remplace
-  // l'ancien cutoff sur onboarding_completed_at, qui produisait des chiffres différents
-  // entre la vue coach et la vue élève pour le même élève.
-  const { data: integRow } = await serviceSupabase
-    .from('integrations')
-    .select('first_connected_at')
-    .eq('profile_id', clientRow.profile_id)
-    .eq('provider', 'calendly')
-    .maybeSingle();
-  const calendlyFirstConnectedAt: string | null = integRow?.first_connected_at ?? null;
+  // useNotifications, pipeline/route.ts) : un call réservé (booked_at) avant que toutes
+  // les intégrations obligatoires soient connectées pour la 1ère fois n'a pas pu être
+  // généré par le pipeline Momentum — voir
+  // docs/integrations-ready-at-vs-onboarding-completed-at.md.
+  const integrationsReadyAt: string | null = clientRow.integrations_ready_at ?? null;
 
   // .neq('ignored', true) : même filtre que app/api/client/pipeline/route.ts:31 et
   // PageClientStats.tsx:5766 — sans lui, les calls que le coach a "supprimés"
@@ -61,9 +55,9 @@ export async function GET(request: Request, { params }: { params: Promise<{ id: 
     .neq('ignored', true)
     .order('scheduled_at', { ascending: false });
 
-  if (calendlyFirstConnectedAt) {
+  if (integrationsReadyAt) {
     query = query.or(
-      `booked_at.gte.${calendlyFirstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${calendlyFirstConnectedAt})`
+      `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
     );
   }
 

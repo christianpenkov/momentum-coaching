@@ -120,12 +120,13 @@ export async function GET(request: Request) {
   // réclamée par la même personne en juillet (cas réel découvert en test).
   let callsBooked = 0, callsHonored = 0, dealsClosed = 0, revenue = 0;
   {
-    // Exclut les calls réservés avant la première connexion Calendly — pas générés par
-    // le pipeline Momentum, même règle que partout ailleurs (voir first_connected_at).
-    const { data: integRow } = await serviceSupabase
-      .from('integrations').select('first_connected_at')
-      .eq('profile_id', targetProfileId).eq('provider', 'calendly').maybeSingle();
-    const firstConnectedAt: string | null = integRow?.first_connected_at ?? null;
+    // Exclut les calls réservés avant que toutes les intégrations obligatoires soient
+    // connectées pour la 1ère fois — pas générés par le pipeline Momentum, même règle
+    // que partout ailleurs (voir integrations_ready_at).
+    const { data: clientRow } = await serviceSupabase
+      .from('clients').select('integrations_ready_at')
+      .eq('profile_id', targetProfileId).maybeSingle();
+    const firstConnectedAt: string | null = clientRow?.integrations_ready_at ?? null;
 
     let bySequenceQuery = serviceSupabase
       .from('calls')
@@ -262,12 +263,13 @@ async function listSequenceFunnelRows(profileId: string) {
 
   const sequenceIds = sequences.map(s => s.id);
 
-  // Exclut les calls réservés avant la première connexion Calendly — pas générés par le
-  // pipeline Momentum, même règle que partout ailleurs (voir first_connected_at).
-  const { data: integRow } = await serviceSupabase
-    .from('integrations').select('first_connected_at')
-    .eq('profile_id', profileId).eq('provider', 'calendly').maybeSingle();
-  const firstConnectedAt: string | null = integRow?.first_connected_at ?? null;
+  // Exclut les calls réservés avant que toutes les intégrations obligatoires soient
+  // connectées pour la 1ère fois — pas générés par le pipeline Momentum, même règle
+  // que partout ailleurs (voir integrations_ready_at).
+  const { data: clientRow } = await serviceSupabase
+    .from('clients').select('integrations_ready_at')
+    .eq('profile_id', profileId).maybeSingle();
+  const firstConnectedAt: string | null = clientRow?.integrations_ready_at ?? null;
   const callsDateClause = firstConnectedAt
     ? `booked_at.gte.${firstConnectedAt},and(booked_at.is.null,scheduled_at.gte.${firstConnectedAt})`
     : null;
