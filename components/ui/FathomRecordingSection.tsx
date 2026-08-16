@@ -176,14 +176,38 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     };
   }, [shareUrl]);
 
+  // Bug WebKit/PWA iOS documenté : le tout premier chargement d'un iframe cross-origin
+  // après reprise d'une PWA échoue silencieusement (jamais d'onload) et se corrige de
+  // lui-même au chargement suivant — confirmé en conditions réelles (network_probe_ok
+  // rapide les deux fois, donc pas un souci réseau ; sw_registration_state normal,
+  // donc pas le Service Worker non plus). Impossible à empêcher côté code (limitation
+  // de la plateforme), donc on le contourne : si l'iframe n'a pas chargé après
+  // AUTO_RETRY_MS, on la remonte automatiquement une fois (clé React fraîche) plutôt
+  // que de laisser l'utilisateur fermer/rouvrir la modale lui-même.
+  const AUTO_RETRY_MS = 3000;
+  const autoRetriedRef = useRef(false);
+
   useEffect(() => {
     if (!shareUrl) return;
+    autoRetriedRef.current = false;
     logClient('iframe_timer_start', { shareUrl, embedUrl: toEmbedUrl(shareUrl) });
+
+    const retryTimer = setTimeout(() => {
+      if (!embedLoadedRef.current && !autoRetriedRef.current) {
+        autoRetriedRef.current = true;
+        logClient('iframe_auto_retry', { shareUrl, msWaited: AUTO_RETRY_MS });
+        setIframeKey(k => k + 1);
+      }
+    }, AUTO_RETRY_MS);
+
     timeoutRef.current = setTimeout(() => {
       logClient('iframe_timeout_fallback', { shareUrl, msWaited: IFRAME_LOAD_TIMEOUT_MS });
       setEmbedFailed(true);
     }, IFRAME_LOAD_TIMEOUT_MS);
-    return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
+    return () => {
+      clearTimeout(retryTimer);
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    };
   }, [shareUrl]);
 
   const items = parseActionItems(actionItems);
