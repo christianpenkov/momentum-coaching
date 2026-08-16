@@ -68,35 +68,26 @@ function parseTranscript(raw: string): TranscriptLine[] | null {
 // distinguer visuellement qui parle sans dépendre d'une correspondance email fragile.
 const SPEAKER_COLORS = ['var(--accent-brand)', 'var(--green)', '#8b5cf6', '#f59e0b'];
 
-// Les modales (ModalShell) ont une animation d'entrée framer-motion (spring, ~300ms)
-// qui redimensionne encore la boîte au moment où ce composant est monté — sur mobile,
-// démarrer le chargement d'un iframe cross-origin pendant que son conteneur change
-// encore de taille produisait un rendu erratique (la vidéo semblait "planter"/recharger
-// la page au premier essai, correcte seulement en rouvrant la modale). On retarde donc
-// le montage réel de l'iframe jusqu'à la fin de cette animation.
-const MODAL_ANIMATION_SETTLE_MS = 350;
-
 export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
   const [embedFailed, setEmbedFailed] = useState(false);
   const [embedLoaded, setEmbedLoaded] = useState(false);
   const [showTranscript, setShowTranscript] = useState(false);
-  const [readyToMount, setReadyToMount] = useState(false);
+  // Click-to-load : l'iframe (page complète avec player, scripts tiers) ne se monte
+  // qu'après un clic explicite, jamais automatiquement à l'ouverture de la modale.
+  // Sur iOS en PWA (mode standalone), la limite mémoire est plus stricte qu'un onglet
+  // Safari classique — charger l'iframe dès l'ouverture pouvait faire tuer/relancer
+  // silencieusement toute la PWA par l'OS (observé en conditions réelles : la page
+  // entière semblait "flasher/recharger" au premier essai). Différer le chargement
+  // jusqu'à une intention claire de l'utilisateur réduit ce risque, et l'interaction
+  // fraîche du clic aide aussi la Fullscreen API du player à se déclencher ensuite.
+  const [playClicked, setPlayClicked] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    const t = setTimeout(() => setReadyToMount(true), MODAL_ANIMATION_SETTLE_MS);
-    return () => clearTimeout(t);
-  }, []);
-
-  // Un seul timer par shareUrl — le nettoyage se fait via onLoad (clearTimeout direct),
-  // pas via une dépendance embedLoaded qui reprogrammerait inutilement le timer à
-  // chaque changement d'état. Démarre au montage réel de l'iframe (readyToMount), pas
-  // avant, sinon le délai d'attente de l'animation grignoterait le budget du timeout.
-  useEffect(() => {
-    if (!shareUrl || !readyToMount) return;
+    if (!shareUrl || !playClicked) return;
     timeoutRef.current = setTimeout(() => setEmbedFailed(true), IFRAME_LOAD_TIMEOUT_MS);
     return () => { if (timeoutRef.current) clearTimeout(timeoutRef.current); };
-  }, [shareUrl, readyToMount]);
+  }, [shareUrl, playClicked]);
 
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
@@ -114,26 +105,39 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
         <div style={{ marginBottom: 16 }}>
           {!embedFailed ? (
             <div style={{ position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}>
-              {!embedLoaded && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  <InlineLoader />
-                </div>
-              )}
-              {readyToMount && (
-                <iframe
-                  src={toEmbedUrl(shareUrl)}
-                  title="Enregistrement de l'appel"
-                  allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
-                  allowFullScreen
-                  // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
-                  // ignorer silencieusement la demande fullscreen du player interne sans
-                  // eux, même avec allow="fullscreen" présent.
-                  // @ts-expect-error — attribut HTML legacy non typé par React/JSX
-                  webkitallowfullscreen="true"
-                  mozallowfullscreen="true"
-                  style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
-                  onLoad={() => { setEmbedLoaded(true); if (timeoutRef.current) clearTimeout(timeoutRef.current); }}
-                />
+              {!playClicked ? (
+                <button
+                  type="button"
+                  onClick={() => setPlayClicked(true)}
+                  style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none', background: 'var(--surface-2)', cursor: 'pointer' }}
+                  aria-label="Lire l'enregistrement"
+                >
+                  <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--accent-brand)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <Icon name="play" size={22} style={{ color: '#fff', marginLeft: 3 }} />
+                  </div>
+                </button>
+              ) : (
+                <>
+                  {!embedLoaded && (
+                    <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                      <InlineLoader />
+                    </div>
+                  )}
+                  <iframe
+                    src={toEmbedUrl(shareUrl)}
+                    title="Enregistrement de l'appel"
+                    allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                    // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
+                    // ignorer silencieusement la demande fullscreen du player interne sans
+                    // eux, même avec allow="fullscreen" présent.
+                    // @ts-expect-error — attribut HTML legacy non typé par React/JSX
+                    webkitallowfullscreen="true"
+                    mozallowfullscreen="true"
+                    style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
+                    onLoad={() => { setEmbedLoaded(true); if (timeoutRef.current) clearTimeout(timeoutRef.current); }}
+                  />
+                </>
               )}
             </div>
           ) : (
