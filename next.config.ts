@@ -36,6 +36,20 @@ const nextConfig: NextConfig = {
           { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, max-age=0' },
         ],
       },
+      {
+        // Pages HTML de l'app — iOS Safari sert une version en cache local
+        // MALGRÉ un Cache-Control "must-revalidate, max-age=0" (confirmé : iOS
+        // ignore silencieusement la revalidation, seul no-store empêche vraiment
+        // la mise en cache). Sans ça, un crash Jetsam qui force un reload peut
+        // resservir un ancien HTML pointant vers d'anciens chunks _next/static
+        // (eux immutable/max-age=1an par design Next.js, donc toujours servables) —
+        // observé en conditions réelles : un composant monté après un crash
+        // n'avait pas le dernier code déployé, malgré un déploiement récent.
+        source: '/((?!_next/static|_next/image|favicon|sw.js|manifest.json).*)',
+        headers: [
+          { key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate, proxy-revalidate, max-age=0' },
+        ],
+      },
     ];
   },
 };
