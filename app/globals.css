@@ -1326,6 +1326,10 @@ a { color: inherit; text-decoration: none; }
 .chat-input-bar {
   flex-shrink: 0;
 }
+/* .liens-root est un simple wrapper de scope CSS (:focus-within) autour de
+   .liens-shell — sans ces règles il reste display:block et casse la chaîne
+   flex/height:100% du parent, empêchant tout scroll interne (voir PageLiens.tsx). */
+.liens-root { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; }
 .liens-shell { display: flex; flex-direction: column; flex: 1; min-height: 0; height: 100%; overflow: hidden; }
 
 @media (max-width: 767px) {
@@ -1334,6 +1338,10 @@ a { color: inherit; text-decoration: none; }
     padding: 0 !important;
     overflow-y: auto;
     overflow-x: hidden;
+  }
+  .liens-root {
+    height: auto;
+    min-height: 0;
   }
   .liens-shell {
     height: auto;
