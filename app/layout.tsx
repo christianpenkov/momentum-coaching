@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Inter, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './Providers';
+import FathomPreconnect from '@/components/FathomPreconnect';
 
 // display: 'swap' — le texte s'affiche immédiatement en police système puis bascule vers
 // Inter quand elle charge. Ce swap agrandit le contenu de la messagerie APRÈS le premier
@@ -53,9 +54,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <meta name="apple-mobile-web-app-title" content="Momentum" />
         <meta name="theme-color" content="#fbfbf7" />
         <link rel="apple-touch-icon" href="/logo-momentum-apple.png" sizes="180x180" />
+        <link rel="preconnect" href="https://fathom.video" />
       </head>
       <body>
         <Providers>{children}</Providers>
+        <FathomPreconnect />
         <script dangerouslySetInnerHTML={{ __html: `
           // Zoom iOS — bloque pinch + double-tap
           document.addEventListener('touchstart', function(e) {
