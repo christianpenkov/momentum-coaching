@@ -111,6 +111,25 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     function onPageShow(e: PageTransitionEvent) {
       logClient('pageshow', { persisted: e.persisted, msSinceMount: Date.now() - mountedAtRef.current });
     }
+    // Le Service Worker (public/sw.js) fait skipWaiting() + clients.claim() + vide
+    // tous les caches à chaque activation — controllerchange se déclenche quand un
+    // SW prend le contrôle de cette page, un candidat plausible pour le "flash/
+    // reload de toute la page" observé sur iOS PWA en chargeant l'iframe (lourde).
+    function onControllerChange() {
+      logClient('sw_controllerchange', { msSinceMount: Date.now() - mountedAtRef.current });
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('controllerchange', onControllerChange);
+      navigator.serviceWorker.getRegistration().then(reg => {
+        logClient('sw_registration_state', {
+          active: !!reg?.active,
+          waiting: !!reg?.waiting,
+          installing: !!reg?.installing,
+          scope: reg?.scope ?? null,
+        });
+      }).catch(() => {});
+    }
+
     document.addEventListener('visibilitychange', onVisibilityChange);
     window.addEventListener('pagehide', onPageHide);
     window.addEventListener('pageshow', onPageShow);
@@ -119,6 +138,9 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('pagehide', onPageHide);
       window.removeEventListener('pageshow', onPageShow);
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.removeEventListener('controllerchange', onControllerChange);
+      }
     };
   }, [shareUrl]);
 

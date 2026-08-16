@@ -21,16 +21,19 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', 'SW v8-debug installing');
+  swLog('install', { msg: 'SW v8-debug installing', ts: Date.now() });
   e.waitUntil(self.skipWaiting());
 });
 
 self.addEventListener('activate', e => {
-  swLog('activate', 'SW v8-debug activating + claim');
+  swLog('activate', { msg: 'SW v8-debug activating + claim', ts: Date.now() });
   e.waitUntil(
-    self.clients.claim().then(() =>
-      caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))))
-    )
+    self.clients.claim().then(() => {
+      swLog('activate_claimed', { ts: Date.now() });
+      return caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+    }).then(() => {
+      swLog('activate_caches_cleared', { ts: Date.now() });
+    })
   );
 });
 
