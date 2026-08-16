@@ -33,10 +33,15 @@ function toEmbedUrl(shareUrl: string): string {
 
 // Log de debug mobile — écrit dans webhook_debug_log via une route API (pas de
 // console accessible sur mobile). Fire-and-forget, ne doit jamais bloquer l'UI.
+// keepalive:true — sans ça, un fetch en vol au moment où le processus est tué/
+// suspendu (crash Jetsam, navigation) est lui-même annulé avant d'atteindre le
+// serveur : on perdait potentiellement le dernier log juste avant un crash, le
+// signal le plus utile pour comprendre ce qui se passe à ce moment précis.
 function logClient(message: string, data: Record<string, unknown> = {}) {
   try {
     fetch('/api/client-log', {
       method: 'POST',
+      keepalive: true,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         message: `[FathomRecordingSection] ${message}`,
