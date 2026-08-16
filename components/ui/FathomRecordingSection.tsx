@@ -225,6 +225,29 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
     };
   }, [shareUrl, embedRequested, iframeKey]);
 
+  // Instrumentation temporaire — le crash "flash/reload" tue le process avant que
+  // tout hook JS (unmount, pagehide, controllerchange) ait la moindre chance de
+  // logger quoi que ce soit : les traces précédentes montrent un simple trou de
+  // silence entre le dernier log et le mount suivant, sans aucun signal de sortie.
+  // Un battement toutes les 500ms pendant le chargement de l'iframe (mémoire,
+  // presence du SW controller, visibilité) permet de voir dans quel état exact on
+  // était juste avant le dernier battement reçu — la dernière chose vue avant le
+  // silence est le meilleur indice disponible sur la cause réelle.
+  useEffect(() => {
+    if (!embedRequested || embedLoaded) return;
+    const startedAt = Date.now();
+    const interval = setInterval(() => {
+      const mem = (performance as any).memory;
+      logClient('heartbeat_while_loading', {
+        msSinceEmbedRequested: Date.now() - startedAt,
+        memory: mem ? { usedJSHeapSize: mem.usedJSHeapSize, jsHeapSizeLimit: mem.jsHeapSizeLimit } : null,
+        swController: !!navigator.serviceWorker?.controller,
+        visibilityState: document.visibilityState,
+      });
+    }, 500);
+    return () => clearInterval(interval);
+  }, [embedRequested, embedLoaded]);
+
   const items = parseActionItems(actionItems);
   const transcriptLines = transcript ? parseTranscript(transcript) : null;
   const speakerColor = new Map<string, string>();
