@@ -90,7 +90,8 @@ interface CallRecord {
   rescheduled?: boolean; source?: string; notes?: string;
   ig_lead_id?: string | null; outcome?: string | null;
   utm_content?: string | null; utm_medium?: string | null;
-  qualified?: boolean | null;
+  qualified?: boolean | null; booked_at?: string | null;
+  lead_deleted?: boolean | null; ignored?: boolean | null;
 }
 
 interface StripeStats {
@@ -374,12 +375,31 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     const t = new Date(ts).getTime();
     return t >= currentMonthStart.getTime() && t <= currentMonthEnd.getTime();
   };
+  // Calls directs (clic sur un lien Calendly en bio/description IG, sans jamais avoir
+  // commenté) — n'apparaissent jamais dans lmHistory puisqu'aucun mot-clé/lead magnet
+  // n'a été déclenché. Même 3e source que le Pipeline (docs/pipeline-leads-ig-sources.md)
+  // et fetchIgLeadsCount (lib/salesCallStats.ts) — sans eux, "Mes stats" sous-comptait de
+  // vrais prospects (dont certains déjà closés) par rapport au Pipeline.
+  const directIgCallsInPeriod = (callsAllTime ?? []).filter(c => {
+    if (c.ig_lead_id) return false;
+    if (c.lead_deleted) return false;
+    if (c.ignored) return false;
+    const src = c.source?.toLowerCase() ?? '';
+    if (src !== 'ig_description' && src !== 'ig_bio') return false;
+    return isLeadInPeriod(c.booked_at || c.scheduled_at);
+  });
   const leadsCount = new Set(
     (lmHistory ?? []).filter(h => isLeadInPeriod(h.detected_at)).map(h => h.ig_user_id)
-  ).size;
-  const newLeadsCount = sinceConnection
+  ).size + directIgCallsInPeriod.length;
+  // Les calls directs comptent aussi comme "nouveaux" dans le badge : par construction
+  // (ig_lead_id null), ils n'ont jamais été vus ailleurs avant ce call.
+  const directIgCallsNew = sinceConnection
+    ? directIgCallsInPeriod.filter(c => isNewThisMonth(c.booked_at || c.scheduled_at))
+    : directIgCallsInPeriod;
+  const newLeadsCount = (sinceConnection
     ? (leads ?? []).filter(l => isNewThisMonth(l.commentedAt)).length
-    : (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length;
+    : (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length
+  ) + directIgCallsNew.length;
   const newLeadsBadgeLabel = sinceConnection ? 'ce mois' : 'nouveaux';
   const newLeadsBadgeTitle = sinceConnection
     ? 'Prospects jamais vus avant, détectés ce mois-ci (différent des leads actifs ce mois, qui incluraient aussi les anciens prospects réactivés)'
