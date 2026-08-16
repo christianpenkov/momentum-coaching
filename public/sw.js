@@ -37,11 +37,20 @@ self.addEventListener('activate', e => {
   );
 });
 
-// Aucun listener 'fetch' — un handler no-op ajoute quand même un coût mesurable
-// (chaque requête réseau de la page doit transiter par le SW avant d'aboutir,
-// confirmé documentation Chromium) sans apporter aucun bénéfice puisqu'il ne
-// fait rien. Retiré pour alléger la charge, en particulier au moment critique
-// du chargement de l'iframe vidéo Fathom (piste crash Jetsam iOS).
+// Instrumentation temporaire — le SW tourne dans son propre processus,
+// indépendant du contexte de page. S'il survit au crash qui tue la page React,
+// ce listener peut révéler ce qui se passe réellement pendant la fenêtre de
+// silence observée côté client (aucune requête envoyée du tout ? une requête
+// fathom.video qui échoue silencieusement ? autre chose ?). Log uniquement les
+// requêtes de document HTML (navigation) et vers fathom.video — pas toutes les
+// requêtes, pour ne pas noyer les logs ni réintroduire le coût mesuré du fetch
+// listener sur tout le reste.
+self.addEventListener('fetch', e => {
+  const url = e.request.url;
+  if (e.request.mode === 'navigate' || url.includes('fathom.video')) {
+    swLog('fetch_observed', { url, mode: e.request.mode, destination: e.request.destination, ts: Date.now() });
+  }
+});
 
 self.addEventListener('push', e => {
   swLog('push_received', e.data ? 'has_data' : 'no_data');
