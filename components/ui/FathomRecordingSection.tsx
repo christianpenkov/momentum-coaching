@@ -26,8 +26,25 @@ const IFRAME_LOAD_TIMEOUT_MS = 15000;
 // Clé sessionStorage — mémorise "l'utilisateur a demandé cette vidéo" avant le
 // clic, survit au rechargement de page provoqué par le crash WebKit (contrairement
 // à l'état React), pour relancer automatiquement le chargement au retour sans
-// jamais imposer un second clic manuel.
+// jamais imposer un second clic manuel. Garde-fous contre une boucle de
+// rechargements ou une restauration hors contexte (retour naturel bien plus tard
+// sur la même session, pas un crash) : expiration courte + une seule tentative
+// automatique — au-delà, l'utilisateur retombe sur le bouton "Voir
+// l'enregistrement" comme avant plutôt que de subir des reloads en boucle.
 const SESSION_RETRY_KEY = 'fathom_embed_retry';
+const SESSION_RETRY_MAX_AGE_MS = 30000;
+
+interface RetryState {
+  shareUrl: string;
+  createdAt: number;
+  attempts: number;
+  // performance.timeOrigin au moment du clic — un simple remount React (même
+  // document, ex. l'utilisateur ferme puis rouvre le modal) garde le même
+  // timeOrigin ; seul un vrai crash/reload de page en change la valeur. Sans
+  // cette vérification, rouvrir le modal sur le même call dans les 30s relance
+  // la vidéo automatiquement sans clic, ce qui n'est pas le comportement voulu.
+  documentTimeOrigin: number;
+}
 
 // autoplay=0/preload=none : tentative pour réduire la charge du player au tout
 // premier chargement après reprise d'app (piste crash Jetsam iOS) — Fathom accepte
@@ -147,17 +164,33 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
   // avant le crash (posée juste avant le clic ci-dessous), on relance
   // automatiquement le chargement au remount plutôt que de laisser l'utilisateur
   // face à l'écran "Voir l'enregistrement" après un rechargement de page qu'il
-  // n'a pas provoqué lui-même.
+  // n'a pas provoqué lui-même. Une seule tentative auto (attempts >= 1 → on
+  // abandonne et efface l'état, l'utilisateur retombe sur le bouton normal) et
+  // expiration à 30s (au-delà, on considère que ce n'est plus un retour de crash
+  // mais une vraie nouvelle visite de session) — évite une boucle de reloads et
+  // une restauration hors contexte.
   useEffect(() => {
     if (!shareUrl) return;
-    let pending: string | null = null;
+    let state: RetryState | null = null;
     try {
-      pending = sessionStorage.getItem(SESSION_RETRY_KEY);
+      const raw = sessionStorage.getItem(SESSION_RETRY_KEY);
+      if (raw) state = JSON.parse(raw);
     } catch {}
-    if (pending === shareUrl) {
-      logClient('auto_retry_after_crash', { shareUrl });
-      setEmbedRequested(true);
+    if (!state || state.shareUrl !== shareUrl) return;
+
+    const age = Date.now() - state.createdAt;
+    const isNewDocument = state.documentTimeOrigin !== performance.timeOrigin;
+    if (age > SESSION_RETRY_MAX_AGE_MS || state.attempts >= 1 || !isNewDocument) {
+      logClient('auto_retry_abandoned', { shareUrl, age, attempts: state.attempts, isNewDocument });
+      try { sessionStorage.removeItem(SESSION_RETRY_KEY); } catch {}
+      return;
     }
+
+    logClient('auto_retry_after_crash', { shareUrl, age, attempts: state.attempts });
+    try {
+      sessionStorage.setItem(SESSION_RETRY_KEY, JSON.stringify({ ...state, attempts: state.attempts + 1 }));
+    } catch {}
+    setEmbedRequested(true);
   }, [shareUrl]);
 
   // Instrumentation temporaire — bug mobile "toute la page flashe/recharge" au
@@ -349,7 +382,10 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                 inAnchor: !!btn.closest('a'),
                 defaultPrevented: e.defaultPrevented,
               });
-              try { sessionStorage.setItem(SESSION_RETRY_KEY, shareUrl!); } catch {}
+              try {
+                const state: RetryState = { shareUrl: shareUrl!, createdAt: Date.now(), attempts: 0, documentTimeOrigin: performance.timeOrigin };
+                sessionStorage.setItem(SESSION_RETRY_KEY, JSON.stringify(state));
+              } catch {}
               setEmbedRequested(true);
             }}
             style={{
