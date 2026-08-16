@@ -189,8 +189,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
           {!embedFailed ? (
             <div
               style={videoFullscreen ? {
-                position: 'fixed', inset: 0, zIndex: 9999, background: '#000',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', zIndex: 9999, background: '#000',
               } : { position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}
             >
               {!embedLoaded && (
