@@ -37,7 +37,11 @@ self.addEventListener('activate', e => {
   );
 });
 
-self.addEventListener('fetch', () => {});
+// Aucun listener 'fetch' — un handler no-op ajoute quand même un coût mesurable
+// (chaque requête réseau de la page doit transiter par le SW avant d'aboutir,
+// confirmé documentation Chromium) sans apporter aucun bénéfice puisqu'il ne
+// fait rien. Retiré pour alléger la charge, en particulier au moment critique
+// du chargement de l'iframe vidéo Fathom (piste crash Jetsam iOS).
 
 self.addEventListener('push', e => {
   swLog('push_received', e.data ? 'has_data' : 'no_data');
