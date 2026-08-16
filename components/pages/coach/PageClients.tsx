@@ -244,10 +244,11 @@ export default function PageClients() {
 }
 
 const ONBOARDING_LABELS: Record<string, { label: string; color: string; bg: string }> = {
-  invited:         { label: 'Invité',              color: 'var(--muted)', bg: 'var(--surface-2)' },
-  account_created: { label: 'Compte créé',         color: 'var(--amber)', bg: 'var(--amber-soft)' },
-  integrating:      { label: 'Intégrations en cours', color: 'var(--amber)', bg: 'var(--amber-soft)' },
-  active:          { label: 'Actif',               color: 'var(--green)', bg: '#22c55e20' },
+  invited:           { label: 'Invité',               color: 'var(--muted)', bg: 'var(--surface-2)' },
+  account_created:   { label: 'Compte créé',          color: 'var(--amber)', bg: 'var(--amber-soft)' },
+  integrating:       { label: 'Intégrations en cours', color: 'var(--amber)', bg: 'var(--amber-soft)' },
+  reconnect_needed:  { label: 'Reconnexion requise',  color: 'var(--red)', bg: '#ef444420' },
+  active:            { label: 'Actif',                color: 'var(--green)', bg: '#22c55e20' },
 };
 
 function OnboardingBadge({ status }: { status?: string }) {

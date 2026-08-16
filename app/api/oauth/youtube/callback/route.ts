@@ -70,6 +70,13 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  // first_connected_at ne doit jamais être réécrit après la toute première connexion
+  // — contrairement à connected_at, réécrit à chaque reconnexion OAuth.
+  const { data: existingYt } = await serviceSupabase
+    .from('integrations').select('first_connected_at')
+    .eq('profile_id', user.id).eq('provider', 'youtube').maybeSingle();
+  const ytConnectedNow = new Date().toISOString();
+
   await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'youtube',
@@ -77,7 +84,8 @@ export async function GET(request: NextRequest) {
     refresh_token: tokenData.refresh_token || null,
     account_label: accountLabel,
     expires_at: expiresAt,
-    connected_at: new Date().toISOString(),
+    connected_at: ytConnectedNow,
+    first_connected_at: existingYt?.first_connected_at || ytConnectedNow,
   }, { onConflict: 'profile_id,provider' });
 
   // Crée automatiquement le job Reporting API pour le CTR (channel_reach_basic_a1)

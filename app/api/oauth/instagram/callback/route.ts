@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
   // ~/.claude/plans/ok-nous-ici-on-proud-rocket.md pour le contexte complet.
   const { data: existingInteg } = await serviceSupabase
     .from('integrations')
-    .select('metadata')
+    .select('metadata, first_connected_at')
     .eq('profile_id', user.id)
     .eq('provider', 'instagram')
     .maybeSingle();
@@ -129,6 +129,7 @@ export async function GET(request: NextRequest) {
     }
   }
 
+  const igConnectedNow = new Date().toISOString();
   await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'instagram',
@@ -136,7 +137,8 @@ export async function GET(request: NextRequest) {
     refresh_token: null,
     account_label: accountLabel,
     expires_at: expiresAt,
-    connected_at: new Date().toISOString(),
+    connected_at: igConnectedNow,
+    first_connected_at: existingInteg?.first_connected_at || igConnectedNow,
     metadata: igAccountId ? { ig_account_id: igAccountId } : null,
   }, { onConflict: 'profile_id,provider' });
 

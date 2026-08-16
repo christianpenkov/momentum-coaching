@@ -299,7 +299,6 @@ export default function PageClientDetail({ id }: Props) {
   const tasks = allTasks.filter(t => !t.resolved_by_coach);
   const resolvedTasks = allTasks.filter(t => t.resolved_by_coach);
   const [resolvedExpanded, setResolvedExpanded] = useState(false);
-  const [waivedSaving, setWaivedSaving] = useState(false);
   const [archiving, setArchiving] = useState(false);
   const [showArchiveModal, setShowArchiveModal] = useState(false);
   const [archiveConfirmed, setArchiveConfirmed] = useState(false);
@@ -488,6 +487,18 @@ export default function PageClientDetail({ id }: Props) {
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
+  // Statut des 7 intégrations obligatoires — lecture seule côté coach (plus de
+  // waiver possible, voir docs/integrations-ready-at-vs-onboarding-completed-at.md).
+  const { data: clientIntegrations } = useQuery({
+    queryKey: ['client-integrations-status', profileId],
+    queryFn: async () => {
+      const supabase = createSupabase();
+      const { data } = await supabase.from('integrations').select('provider, status').eq('profile_id', profileId!);
+      return data ?? [];
+    },
+    enabled: !!profileId,
+    staleTime: 60 * 1000,
+  });
 
   // Un seul flag pour les 8 KPI — tout le bloc apparaît d'un coup une fois prêt,
   // plutôt que carte par carte au fur et à mesure que chaque requête résout.
@@ -606,16 +617,6 @@ export default function PageClientDetail({ id }: Props) {
     if (error) { setNoteError(true); return; }
     setNoteSaved(true);
     setTimeout(() => setNoteSaved(false), 2000);
-  }
-
-  async function toggleWaivedIntegration(provider: string) {
-    setWaivedSaving(true);
-    const current: string[] = client?.integrations_waived ?? [];
-    const next = current.includes(provider) ? current.filter(p => p !== provider) : [...current, provider];
-    const supabase = createSupabase();
-    await supabase.from('clients').update({ integrations_waived: next }).eq('id', id);
-    setWaivedSaving(false);
-    refetchClient();
   }
 
   async function handleArchive() {
@@ -1368,14 +1369,15 @@ export default function PageClientDetail({ id }: Props) {
         )}
       </div>
 
-      {/* Intégrations requises — permet d'exempter manuellement un provider que cet
-          élève n'utilise pas (ex. pas de chaîne YouTube), pour qu'il ne reste pas
-          bloqué indéfiniment sur le statut "Intégrations en cours". */}
+      {/* Intégrations requises — les 7 sont obligatoires sans exception (plus de
+          waiver possible). Lecture seule : le coach voit l'état pour comprendre
+          pourquoi un élève est bloqué (gate) ou doit se reconnecter, sans pouvoir
+          le contourner. */}
       {client.profile_id && (
         <div className="card" style={{ marginTop: 24, padding: 20 }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 4 }}>Intégrations requises</div>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 14 }}>
-            Décoche un outil que cet élève n'a pas besoin de connecter — il ne comptera plus comme manquant.
+            Les 7 intégrations sont obligatoires pour débloquer la plateforme de cet élève.
           </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10 }}>
             {[
@@ -1383,23 +1385,24 @@ export default function PageClientDetail({ id }: Props) {
               { provider: 'calendly', label: 'Calendly' },
               { provider: 'youtube', label: 'YouTube' },
               { provider: 'stripe', label: 'Stripe' },
+              { provider: 'shortio', label: 'Short.io' },
+              { provider: 'google', label: 'Google' },
+              { provider: 'fathom', label: 'Fathom' },
             ].map(({ provider, label }) => {
-              const waived = ((client as any).integrations_waived ?? []).includes(provider);
+              const row = (clientIntegrations ?? []).find((i: any) => i.provider === provider);
+              const state: 'connected' | 'failed' | 'missing' = !row ? 'missing' : row.status === 'failed' ? 'failed' : 'connected';
+              const dotColor = state === 'connected' ? 'var(--green)' : state === 'failed' ? 'var(--red)' : 'var(--faint)';
+              const textColor = state === 'missing' ? 'var(--muted)' : 'var(--accent)';
               return (
-                <label key={provider} style={{
-                  display: 'flex', alignItems: 'center', gap: 8, cursor: waivedSaving ? 'default' : 'pointer',
+                <div key={provider} style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
                   padding: '8px 12px', borderRadius: 8, background: 'var(--surface-2)', border: '1px solid var(--border)',
-                  fontSize: 13, color: 'var(--accent)', opacity: waivedSaving ? 0.6 : 1,
+                  fontSize: 13, color: textColor,
                 }}>
-                  <input
-                    type="checkbox"
-                    checked={!waived}
-                    disabled={waivedSaving}
-                    onChange={() => toggleWaivedIntegration(provider)}
-                    style={{ width: 14, height: 14, cursor: 'pointer', accentColor: 'var(--accent-brand)' }}
-                  />
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: dotColor, flexShrink: 0 }} />
                   {label}
-                </label>
+                  {state === 'failed' && <span style={{ fontSize: 11, color: 'var(--red)' }}>(reconnexion requise)</span>}
+                </div>
               );
             })}
           </div>

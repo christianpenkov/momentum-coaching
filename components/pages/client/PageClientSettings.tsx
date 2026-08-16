@@ -169,11 +169,15 @@ export default function PageClientSettings() {
     const label = validation.label || null;
     const metadata = validation.meta || null;
 
-    const { data: existing } = await supabase.from('integrations').select('id').eq('profile_id', profileId).eq('provider', provider).single();
+    const { data: existing } = await supabase.from('integrations').select('id, first_connected_at').eq('profile_id', profileId).eq('provider', provider).single();
+    const connectedNow = new Date().toISOString();
     if (existing) {
-      await supabase.from('integrations').update({ api_key: key, account_label: label, metadata, connected_at: new Date().toISOString() }).eq('id', existing.id);
+      await supabase.from('integrations').update({
+        api_key: key, account_label: label, metadata, connected_at: connectedNow,
+        first_connected_at: existing.first_connected_at || connectedNow,
+      }).eq('id', existing.id);
     } else {
-      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata });
+      await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata, first_connected_at: connectedNow });
     }
 
     setIntegrations(prev => ({ ...prev, [provider]: true }));

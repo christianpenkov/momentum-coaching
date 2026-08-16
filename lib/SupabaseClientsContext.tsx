@@ -109,7 +109,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           ? supabase.from('profiles').select('id, avatar_url, full_name').in('id', profileIds)
           : { data: [], error: null },
         profileIds.length > 0
-          ? supabase.from('integrations').select('profile_id, provider, first_connected_at').in('profile_id', profileIds)
+          ? supabase.from('integrations').select('profile_id, provider, first_connected_at, status').in('profile_id', profileIds)
           : { data: [], error: null },
         profileIds.length > 0
           ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds).gte('date', startOfMonth)
@@ -220,15 +220,22 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         fullNameMap[p.id] = p.full_name;
       });
 
-      // profile_id → ensemble des providers connectés — sert au statut d'onboarding
-      // (élève invité / compte créé / intégrations en cours / actif) et, en dessous,
-      // à la détection Stripe déjà existante.
+      // profile_id → ensemble des providers connectés — sert à la détection Stripe
+      // déjà existante plus bas. Le statut d'onboarding lui-même (invité / compte créé
+      // / intégrations en cours / actif / reconnexion requise) se base désormais sur
+      // clients.integrations_ready_at (posé par un trigger DB dès que les 7 intégrations
+      // obligatoires sont connectées, jamais réécrit ensuite) plutôt que sur un calcul
+      // dynamique ici — voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
       const providersByProfile: Record<string, Set<string>> = {};
+      const failedProvidersByProfile: Record<string, Set<string>> = {};
       (integrationsRes.data || []).forEach((row: any) => {
         if (!providersByProfile[row.profile_id]) providersByProfile[row.profile_id] = new Set();
         providersByProfile[row.profile_id].add(row.provider);
+        if (row.status === 'failed') {
+          if (!failedProvidersByProfile[row.profile_id]) failedProvidersByProfile[row.profile_id] = new Set();
+          failedProvidersByProfile[row.profile_id].add(row.provider);
+        }
       });
-      const REQUIRED_PROVIDERS = ['instagram', 'calendly', 'youtube', 'stripe', 'shortio'];
 
       const now2 = new Date();
       setClients((rawClients || []).map((c: any) => {
@@ -262,13 +269,13 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           .sort((a: any, b: any) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''));
         let runningContracted = 0;
         const cashContractedTrend = dealsClosedSorted.map((call: any) => (runningContracted += call.revenue || 0));
-        const connectedProviders = c.profile_id ? (providersByProfile[c.profile_id] ?? new Set<string>()) : new Set<string>();
-        const waived: string[] = c.integrations_waived ?? [];
-        const onboardingStatus: 'invited' | 'account_created' | 'integrating' | 'active' =
+        const hasFailedIntegration = c.profile_id ? (failedProvidersByProfile[c.profile_id]?.size ?? 0) > 0 : false;
+        const onboardingStatus: 'invited' | 'account_created' | 'integrating' | 'reconnect_needed' | 'active' =
           !c.profile_id ? 'invited'
           : !c.onboarding_completed_at ? 'account_created'
-          : REQUIRED_PROVIDERS.every(p => connectedProviders.has(p) || waived.includes(p)) ? 'active'
-          : 'integrating';
+          : !c.integrations_ready_at ? 'integrating'
+          : hasFailedIntegration ? 'reconnect_needed'
+          : 'active';
         // profiles.full_name devient la seule source de vérité dès que l'élève a un
         // compte : clients.name (saisi par le coach à l'invitation) ne sert plus que
         // de repli tant que l'élève n'a pas encore renseigné/hérité d'un nom — sans

@@ -73,6 +73,11 @@ export async function GET(request: NextRequest) {
     ? new Date(Date.now() + tokenData.expires_in * 1000).toISOString()
     : null;
 
+  const { data: existingFathom } = await serviceSupabase
+    .from('integrations').select('first_connected_at')
+    .eq('profile_id', user.id).eq('provider', 'fathom').maybeSingle();
+  const fathomConnectedNow = new Date().toISOString();
+
   const { error: upsertError } = await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'fathom',
@@ -80,7 +85,8 @@ export async function GET(request: NextRequest) {
     refresh_token: tokenData.refresh_token || null,
     account_label: null,
     expires_at: expiresAt,
-    connected_at: new Date().toISOString(),
+    connected_at: fathomConnectedNow,
+    first_connected_at: existingFathom?.first_connected_at || fathomConnectedNow,
   }, { onConflict: 'profile_id,provider' });
 
   if (upsertError) {

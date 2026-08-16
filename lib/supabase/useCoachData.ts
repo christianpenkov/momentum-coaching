@@ -23,7 +23,7 @@ export interface ClientWithMetrics extends Client {
   lastCoachMessage: string | null;
   coachName: string | null;
   avatar_url: string | null;
-  onboardingStatus?: 'invited' | 'account_created' | 'integrating' | 'active';
+  onboardingStatus?: 'invited' | 'account_created' | 'integrating' | 'reconnect_needed' | 'active';
 }
 
 export interface ClientSelfBusinessData {

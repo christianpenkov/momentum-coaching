@@ -65,13 +65,19 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  const { data: existingStripe } = await serviceSupabase
+    .from('integrations').select('first_connected_at')
+    .eq('profile_id', user.id).eq('provider', 'stripe').maybeSingle();
+  const stripeConnectedNow = new Date().toISOString();
+
   const { error: upsertError } = await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'stripe',
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token || null,
     account_label: tokenData.stripe_user_id, // ex: acct_xxxxx
-    connected_at: new Date().toISOString(),
+    connected_at: stripeConnectedNow,
+    first_connected_at: existingStripe?.first_connected_at || stripeConnectedNow,
   }, { onConflict: 'profile_id,provider' });
 
   if (upsertError) {

@@ -68,6 +68,11 @@ export async function GET(request: NextRequest) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   );
 
+  const { data: existingGoogle } = await serviceSupabase
+    .from('integrations').select('first_connected_at')
+    .eq('profile_id', user.id).eq('provider', 'google').maybeSingle();
+  const googleConnectedNow = new Date().toISOString();
+
   await serviceSupabase.from('integrations').upsert({
     profile_id: user.id,
     provider: 'google',
@@ -75,7 +80,8 @@ export async function GET(request: NextRequest) {
     refresh_token: tokens.refresh_token || null,
     account_label: accountLabel,
     expires_at: expiresAt,
-    connected_at: new Date().toISOString(),
+    connected_at: googleConnectedNow,
+    first_connected_at: existingGoogle?.first_connected_at || googleConnectedNow,
   }, { onConflict: 'profile_id,provider' });
 
   return NextResponse.redirect(`${origin}/settings?connected=google`);
