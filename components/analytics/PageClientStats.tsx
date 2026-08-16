@@ -397,18 +397,33 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     if (src !== 'ig_description' && src !== 'ig_bio') return false;
     return isLeadInPeriod(c.booked_at || c.scheduled_at);
   });
+  // Calls YouTube bookés (source commençant par "yt") — même formule que
+  // useCoachData.ts (écran accueil) et PageClientDetail.tsx (fiche coach), pour un
+  // total "Leads" identique quel que soit l'écran. Sans eux, cette carte sous-comptait
+  // par rapport à l'accueil (7 au lieu de 9).
+  const ytBookedCallsInPeriod = (callsAllTime ?? []).filter(c => {
+    if (c.ignored) return false;
+    if (['cancelled', 'canceled', 'declined'].includes(c.status ?? '')) return false;
+    const src = c.source?.toLowerCase() ?? '';
+    if (!src.startsWith('yt')) return false;
+    return isLeadInPeriod(c.booked_at || c.scheduled_at);
+  });
   const leadsCount = new Set(
     (lmHistory ?? []).filter(h => isLeadInPeriod(h.detected_at)).map(h => h.ig_user_id)
-  ).size + directIgCallsInPeriod.length;
+  ).size + directIgCallsInPeriod.length + ytBookedCallsInPeriod.length;
   // Les calls directs comptent aussi comme "nouveaux" dans le badge : par construction
-  // (ig_lead_id null), ils n'ont jamais été vus ailleurs avant ce call.
+  // (ig_lead_id null), ils n'ont jamais été vus ailleurs avant ce call. Idem pour les
+  // calls YouTube bookés — pas de notion de "lead" préalable pour cette source.
   const directIgCallsNew = sinceConnection
     ? directIgCallsInPeriod.filter(c => isNewThisMonth(c.booked_at || c.scheduled_at))
     : directIgCallsInPeriod;
+  const ytBookedCallsNew = sinceConnection
+    ? ytBookedCallsInPeriod.filter(c => isNewThisMonth(c.booked_at || c.scheduled_at))
+    : ytBookedCallsInPeriod;
   const newLeadsCount = (sinceConnection
     ? (leads ?? []).filter(l => isNewThisMonth(l.commentedAt)).length
     : (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length
-  ) + directIgCallsNew.length;
+  ) + directIgCallsNew.length + ytBookedCallsNew.length;
   const newLeadsBadgeLabel = sinceConnection ? 'ce mois' : 'nouveaux';
   const newLeadsBadgeTitle = sinceConnection
     ? 'Prospects jamais vus avant, détectés ce mois-ci (différent des leads actifs ce mois, qui incluraient aussi les anciens prospects réactivés)'
