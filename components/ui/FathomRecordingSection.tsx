@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 
@@ -246,61 +247,80 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
 
   if (!shareUrl && !summary && !items.length && !transcript) return null;
 
+  // Rendu du bloc vidéo — factorisé pour être appelé soit inline (position normale
+  // dans la modale), soit via un portal vers document.body (plein écran). Un
+  // ancêtre avec transform (l'animation framer-motion de ModalShell) casse
+  // position:fixed pour tout descendant — un fixed en profondeur devient relatif à
+  // cet ancêtre au lieu du viewport (règle CSS standard, confirmée). D'où le
+  // portal : seule façon de garantir un vrai plein écran couvrant l'écran entier.
+  // Contrepartie acceptée : l'iframe se remonte (recharge ~2-3s) au passage en
+  // plein écran, car le portal crée un nouveau nœud DOM plutôt que de déplacer
+  // l'existant.
+  function renderVideoBox(fullscreen: boolean) {
+    return (
+      <div
+        style={fullscreen ? {
+          position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', zIndex: 9999, background: '#000',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        } : { position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}
+      >
+        {!embedLoaded && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+            <InlineLoader />
+            {waitingForSafety && (
+              <span style={{ fontSize: 12, color: fullscreen ? '#fff' : 'var(--muted)' }}>Un instant…</span>
+            )}
+          </div>
+        )}
+        {!waitingForSafety && (
+          <iframe
+            key={`${iframeKey}-${fullscreen ? 'fs' : 'normal'}`}
+            src={toEmbedUrl(shareUrl!)}
+            title="Enregistrement de l'appel"
+            allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
+            allowFullScreen
+            // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
+            // ignorer silencieusement la demande fullscreen du player interne sans
+            // eux, même avec allow="fullscreen" présent.
+            // @ts-expect-error — attribut HTML legacy non typé par React/JSX
+            webkitallowfullscreen="true"
+            mozallowfullscreen="true"
+            style={fullscreen
+              ? { width: '100%', height: '100%', border: 'none' }
+              : { width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
+            onLoad={() => {
+              logClient('iframe_onload', { msSinceMount: Date.now() - mountedAtRef.current, fullscreen });
+              embedLoadedRef.current = true;
+              setEmbedLoaded(true);
+              if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            }}
+          />
+        )}
+        <button
+          type="button"
+          onClick={() => setVideoFullscreen(v => !v)}
+          aria-label={fullscreen ? 'Quitter le plein écran' : 'Plein écran'}
+          style={{
+            position: 'absolute', bottom: 10, right: 10, width: 34, height: 34,
+            borderRadius: 8, border: 'none', background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', zIndex: 1,
+          }}
+        >
+          <Icon name={fullscreen ? 'x' : 'maximize'} size={16} style={{ color: '#fff' }} />
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
       {shareUrl && (
         <div style={{ marginBottom: 16 }}>
           {!embedFailed ? (
-            <div
-              style={videoFullscreen ? {
-                position: 'fixed', top: 0, left: 0, width: '100vw', height: '100dvh', zIndex: 9999, background: '#000',
-              } : { position: 'relative', width: '100%', aspectRatio: '16 / 9', borderRadius: 10, overflow: 'hidden', background: 'var(--surface-2)' }}
-            >
-              {!embedLoaded && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                  <InlineLoader />
-                  {waitingForSafety && (
-                    <span style={{ fontSize: 12, color: 'var(--muted)' }}>Un instant…</span>
-                  )}
-                </div>
-              )}
-              {!waitingForSafety && (
-                <iframe
-                  key={iframeKey}
-                  src={toEmbedUrl(shareUrl)}
-                  title="Enregistrement de l'appel"
-                  allow="fullscreen; autoplay; encrypted-media; picture-in-picture"
-                  allowFullScreen
-                  // Attributs préfixés legacy : Safari iOS/mobile en particulier peut
-                  // ignorer silencieusement la demande fullscreen du player interne sans
-                  // eux, même avec allow="fullscreen" présent.
-                  // @ts-expect-error — attribut HTML legacy non typé par React/JSX
-                  webkitallowfullscreen="true"
-                  mozallowfullscreen="true"
-                  style={{ width: '100%', height: '100%', border: 'none', opacity: embedLoaded ? 1 : 0, transition: 'opacity 0.2s' }}
-                  onLoad={() => {
-                    logClient('iframe_onload', { msSinceMount: Date.now() - mountedAtRef.current });
-                    embedLoadedRef.current = true;
-                    setEmbedLoaded(true);
-                    if (timeoutRef.current) clearTimeout(timeoutRef.current);
-                  }}
-                />
-              )}
-              {embedLoaded && (
-                <button
-                  type="button"
-                  onClick={() => setVideoFullscreen(v => !v)}
-                  aria-label={videoFullscreen ? 'Quitter le plein écran' : 'Plein écran'}
-                  style={{
-                    position: 'absolute', bottom: 10, right: 10, width: 34, height: 34,
-                    borderRadius: 8, border: 'none', background: 'rgba(0,0,0,0.55)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer',
-                  }}
-                >
-                  <Icon name={videoFullscreen ? 'x' : 'maximize'} size={16} style={{ color: '#fff' }} />
-                </button>
-              )}
-            </div>
+            <>
+              {renderVideoBox(false)}
+              {videoFullscreen && typeof document !== 'undefined' && createPortal(renderVideoBox(true), document.body)}
+            </>
           ) : (
             <a
               href={shareUrl}
