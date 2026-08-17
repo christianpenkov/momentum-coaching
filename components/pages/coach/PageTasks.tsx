@@ -268,9 +268,6 @@ function PageTasksInner() {
     });
   }, [groups]);
 
-  const totalActive = tasks.filter(t => !t.done).length;
-  const studentCount = groups.length;
-
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
   return (
@@ -278,9 +275,6 @@ function PageTasksInner() {
       <div className="page-header">
         <div>
           <h1 className="page-title">Tâches</h1>
-          <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
-            {studentCount} élève{studentCount !== 1 ? 's' : ''} · {totalActive} tâche{totalActive !== 1 ? 's' : ''} en cours
-          </div>
         </div>
         <button type="button" className="btn-primary-brand" onClick={() => setModalState({ mode: 'create' })} style={{ fontSize: 13 }}>
           <Icon name="plus" size={13} /> Assigner une tâche
