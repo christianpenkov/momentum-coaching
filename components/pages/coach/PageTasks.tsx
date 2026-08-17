@@ -256,17 +256,8 @@ function PageTasksInner() {
     return overdueOnly ? list.filter(g => g.tasks.some(t => isTaskOverdue(t))) : list;
   }, [tasks, overdueOnly, allClients]);
 
-  // Déplié par défaut : au premier chargement de chaque élève rencontré.
-  useEffect(() => {
-    setExpanded(prev => {
-      const next = { ...prev };
-      let changed = false;
-      for (const g of groups) {
-        if (!(g.client.id in next)) { next[g.client.id] = true; changed = true; }
-      }
-      return changed ? next : prev;
-    });
-  }, [groups]);
+  // Plié par défaut : `expanded[id]` reste absent tant que l'élève n'a pas été
+  // cliqué manuellement — `isOpen` (plus bas) traite l'absence de clé comme fermé.
 
   if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
 
