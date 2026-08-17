@@ -770,10 +770,6 @@ export default function PageClientCalls() {
             </div>
           </div>
         </div>
-      ) : hasCalendly ? (
-        <div className="card" style={{ padding: '32px 24px', textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun call planifié pour le moment.</div>
-        </div>
       ) : null}
 
       {/* Onglets de filtrage — À venir/Historique mélangent tous les types, Prospects/Coachings
