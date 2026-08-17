@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import ModalShell from '@/components/ui/ModalShell';
@@ -279,88 +280,90 @@ function SectionFolderCard({ section, count, subCount, unseen, onClick }: {
   );
 }
 
+async function fetchClientResourcesData(): Promise<{ resources: ResourceWithSeen[]; sections: ResourceSection[]; coachName: string | null; userId: string | null }> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { resources: [], sections: [], coachName: null, userId: null };
+
+  const { data: clientRow } = await supabase
+    .from('clients')
+    .select('coach_id')
+    .eq('profile_id', user.id)
+    .single();
+
+  if (!clientRow) return { resources: [], sections: [], coachName: null, userId: user.id };
+
+  const { data: coachProfile } = await supabase
+    .from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle();
+  const coachName = coachProfile?.full_name ? coachProfile.full_name.split(' ')[0] : null;
+
+  const { data: sectionsData } = await supabase
+    .from('resource_sections')
+    .select('*')
+    .eq('coach_id', clientRow.coach_id)
+    .order('position');
+
+  const { data: accessData } = await supabase
+    .from('resource_access')
+    .select('resource_id, seen_at')
+    .eq('client_id', user.id)
+    .eq('unlocked', true);
+
+  const unlockedIds = (accessData || []).map((a: { resource_id: string; seen_at: string | null }) => a.resource_id);
+  const seenMap: Record<string, string | null> = {};
+  for (const a of accessData || []) seenMap[a.resource_id] = a.seen_at;
+
+  if (unlockedIds.length === 0) {
+    return { resources: [] as ResourceWithSeen[], sections: (sectionsData || []) as ResourceSection[], coachName, userId: user.id };
+  }
+
+  const { data: resourcesData } = await supabase
+    .from('resources')
+    .select('*')
+    .in('id', unlockedIds)
+    .order('position');
+
+  const merged: ResourceWithSeen[] = (resourcesData || []).map(r => ({
+    ...r,
+    seen_at: seenMap[r.id] ?? null,
+  }));
+
+  return { resources: merged, sections: (sectionsData || []) as ResourceSection[], coachName, userId: user.id };
+}
+
+type ClientResourcesData = Awaited<ReturnType<typeof fetchClientResourcesData>>;
+
 export default function PageClientResources() {
-  const [resources, setResources] = useState<ResourceWithSeen[]>([]);
-  const [sections, setSections] = useState<ResourceSection[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const queryKey = ['client-resources-page'];
+  const { data, isLoading } = useQuery({ queryKey, queryFn: fetchClientResourcesData });
+
+  const resources = data?.resources ?? [];
+  const sections = data?.sections ?? [];
+  const coachName = data?.coachName ?? null;
+  const userId = data?.userId ?? null;
+  const loading = isLoading && !data;
+
   const [search, setSearch] = useState('');
   const [previewResource, setPreviewResource] = useState<ResourceWithSeen | null>(null);
-  const [userId, setUserId] = useState<string | null>(null);
-  const [coachName, setCoachName] = useState<string | null>(null);
   const [activeSectionId, setActiveSectionId] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
-
-  useEffect(() => {
-    async function load() {
-      const supabase = createClient();
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
-      setUserId(user.id);
-
-      const { data: clientRow } = await supabase
-        .from('clients')
-        .select('coach_id')
-        .eq('profile_id', user.id)
-        .single();
-
-      if (!clientRow) { setLoading(false); return; }
-
-      const { data: coachProfile } = await supabase
-        .from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle();
-      if (coachProfile?.full_name) setCoachName(coachProfile.full_name.split(' ')[0]);
-
-      const { data: sectionsData } = await supabase
-        .from('resource_sections')
-        .select('*')
-        .eq('coach_id', clientRow.coach_id)
-        .order('position');
-      setSections(sectionsData || []);
-
-      const { data: accessData } = await supabase
-        .from('resource_access')
-        .select('resource_id, seen_at')
-        .eq('client_id', user.id)
-        .eq('unlocked', true);
-
-      const unlockedIds = (accessData || []).map((a: { resource_id: string; seen_at: string | null }) => a.resource_id);
-      const seenMap: Record<string, string | null> = {};
-      for (const a of accessData || []) seenMap[a.resource_id] = a.seen_at;
-
-      if (unlockedIds.length === 0) {
-        setResources([]);
-        setLoading(false);
-        return;
-      }
-
-      const { data: resourcesData } = await supabase
-        .from('resources')
-        .select('*')
-        .in('id', unlockedIds)
-        .order('position');
-
-      const merged: ResourceWithSeen[] = (resourcesData || []).map(r => ({
-        ...r,
-        seen_at: seenMap[r.id] ?? null,
-      }));
-
-      setResources(merged);
-      setLoading(false);
-    }
-    load();
-  }, []);
 
   const markSeen = useCallback(async (resourceId: string) => {
     if (!userId) return;
     const now = new Date().toISOString();
-    // MAJ optimiste
-    setResources(prev => prev.map(r => r.id === resourceId ? { ...r, seen_at: now } : r));
+    // MAJ optimiste, écrite dans le cache partagé.
+    queryClient.setQueryData<ClientResourcesData>(queryKey, prev => prev && {
+      ...prev,
+      resources: prev.resources.map(r => r.id === resourceId ? { ...r, seen_at: now } : r),
+    });
     const supabase = createClient();
     await supabase
       .from('resource_access')
       .update({ seen_at: now })
       .eq('resource_id', resourceId)
       .eq('client_id', userId);
-  }, [userId]);
+  }, [userId, queryClient]);
 
   function handleOpen(resource: ResourceWithSeen) {
     if (resource.seen_at === null) markSeen(resource.id);

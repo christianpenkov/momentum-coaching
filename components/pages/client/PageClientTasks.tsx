@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useReducedMotion } from 'framer-motion';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
@@ -324,21 +325,28 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
 
 export default function PageClientTasks() {
   const reducedMotion = useReducedMotion();
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const tasksQueryKey = ['client-tasks'];
+  const { data: tasksData, isLoading: tasksLoading } = useQuery({
+    queryKey: tasksQueryKey,
+    queryFn: async () => {
+      const res = await fetch('/api/tasks');
+      return res.ok ? ((await res.json()).tasks || []) as Task[] : [];
+    },
+  });
+  const tasks = tasksData ?? [];
+  const loading = tasksLoading && !tasksData;
+
+  const setTasks = (updater: (prev: Task[]) => Task[]) => {
+    queryClient.setQueryData<Task[]>(tasksQueryKey, prev => updater(prev ?? []));
+  };
+  const refetchTasks = () => queryClient.invalidateQueries({ queryKey: tasksQueryKey });
+
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [newLabel, setNewLabel] = useState('');
   const [adding, setAdding] = useState(false);
   const [tab, setTab] = useState<'coach' | 'mine'>('coach');
   const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
-
-  const load = useCallback(async () => {
-    const res = await fetch('/api/tasks');
-    if (res.ok) setTasks((await res.json()).tasks || []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   async function toggle(taskId: string, done: boolean) {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, done } : t));
@@ -358,7 +366,7 @@ export default function PageClientTasks() {
       body: JSON.stringify({ label: newLabel.trim() }),
     });
     setAdding(false);
-    if (res.ok) { setNewLabel(''); load(); }
+    if (res.ok) { setNewLabel(''); refetchTasks(); }
   }
 
   async function saveTask(taskId: string, patch: { deadline: string | null; priority: 'high' | 'medium' | 'low' }) {

@@ -3,6 +3,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import RapportModal from '@/components/ui/RapportModal';
 import CallInfosModal from '@/components/ui/CallInfosModal';
@@ -161,13 +162,109 @@ function MyCallNotes({ callId, initialNotes, initialDismissed }: { callId: strin
   );
 }
 
+type SessionReportInfo = { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null };
+
+async function fetchClientCallsData(): Promise<{
+  calls: Call[];
+  hasCalendly: boolean;
+  sessionReportsByCall: Record<string, SessionReportInfo>;
+  userId: string | null;
+}> {
+  const supabase = createClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return { calls: [], hasCalendly: false, sessionReportsByCall: {}, userId: null };
+
+  const { data: integ } = await supabase
+    .from('integrations')
+    .select('id')
+    .eq('profile_id', user.id)
+    .eq('provider', 'calendly')
+    .single();
+  const hasCalendly = !!integ;
+
+  // Référence stable "toutes les intégrations obligatoires connectées pour la 1ère
+  // fois" (trigger DB, jamais réécrite) — les calls réservés avant sont ignorés
+  // partout, voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
+  const { data: clientRow } = await supabase
+    .from('clients')
+    .select('id, integrations_ready_at')
+    .eq('profile_id', user.id)
+    .maybeSingle();
+  const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
+
+  // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
+  let calendlyQuery = supabase
+    .from('calls')
+    .select('*')
+    .eq('coach_id', user.id)
+    .eq('call_type', 'calendly')
+    .neq('ignored', true)
+    .order('scheduled_at', { ascending: false });
+
+  if (integrationsReadyAt) {
+    // Un call réservé (booked_at) avant que toutes les intégrations obligatoires
+    // soient connectées n'a pas pu être généré par le pipeline Momentum — fallback sur
+    // scheduled_at si booked_at manque.
+    calendlyQuery = calendlyQuery.or(
+      `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
+    );
+  }
+
+  const { data: calendlyCalls } = await calendlyQuery;
+
+  // Calls Google Calendar (coach ↔ élève) : client_id = clientRow.id
+  let googleCalls: Call[] = [];
+  let sessionReportsByCall: Record<string, SessionReportInfo> = {};
+  if (clientRow) {
+    const { data } = await supabase
+      .from('calls')
+      .select('*')
+      .eq('client_id', clientRow.id)
+      .neq('call_type', 'calendly')
+      .neq('ignored', true)
+      .order('scheduled_at', { ascending: false });
+    googleCalls = (data as Call[]) || [];
+
+    const { data: reports } = await supabase
+      .from('session_reports')
+      .select('call_id, student_notes, student_notes_dismissed, attended')
+      .eq('client_id', clientRow.id);
+    const reportsMap: Record<string, SessionReportInfo> = {};
+    for (const r of reports || []) reportsMap[r.call_id] = { student_notes: r.student_notes, student_notes_dismissed: r.student_notes_dismissed, attended: r.attended };
+    sessionReportsByCall = reportsMap;
+  }
+
+  const allCalls = [...(calendlyCalls as Call[] || []), ...googleCalls];
+  // Déduplique par id
+  const seen = new Set<string>();
+  const calls = allCalls.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
+
+  return { calls, hasCalendly, sessionReportsByCall, userId: user.id };
+}
+
+type ClientCallsData = Awaited<ReturnType<typeof fetchClientCallsData>>;
+
 export default function PageClientCalls() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { data: client } = useClientSelfData();
-  const [calls, setCalls] = useState<Call[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [hasCalendly, setHasCalendly] = useState<boolean | null>(null);
+  const queryClient = useQueryClient();
+  const callsQueryKey = ['client-calls-page'];
+  const { data: callsData, isLoading: callsLoading } = useQuery({
+    queryKey: callsQueryKey,
+    queryFn: fetchClientCallsData,
+  });
+  const calls = callsData?.calls ?? [];
+  const hasCalendly = callsData?.hasCalendly ?? null;
+  const sessionReportsByCall = callsData?.sessionReportsByCall ?? {};
+  const userId = callsData?.userId ?? null;
+  const loading = callsLoading && !callsData;
+
+  const setCalls = (updater: (prev: Call[]) => Call[]) => {
+    queryClient.setQueryData<ClientCallsData>(callsQueryKey, prev => prev && { ...prev, calls: updater(prev.calls) });
+  };
+  const refetchCalls = () => queryClient.invalidateQueries({ queryKey: callsQueryKey });
+
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [respondingId, setRespondingId] = useState<string | null>(null);
@@ -175,7 +272,6 @@ export default function PageClientCalls() {
   const [confirmDismissId, setConfirmDismissId] = useState<string | null>(null);
   const [declineModal, setDeclineModal] = useState<{ callId: string; topic: string; scheduledAt: string } | null>(null);
   const [proposedAt, setProposedAt] = useState('');
-  const [userId, setUserId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('upcoming');
 
   // Force un recalcul du split upcoming/historique chaque minute, pour que la
@@ -200,91 +296,17 @@ export default function PageClientCalls() {
   // Historique : 4 derniers affichés par défaut, "Voir plus" affiche le reste
   const [historyLimited, setHistoryLimited] = useState(true);
 
-  // Notes personnelles + statut du rapport coach, par call_id (calls Google coach-élève)
-  const [sessionReportsByCall, setSessionReportsByCall] = useState<Record<string, { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null }>>({});
-
-  const load = useCallback(async () => {
-    const supabase = createClient();
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-    setUserId(user.id);
-
-    const { data: integ } = await supabase
-      .from('integrations')
-      .select('id')
-      .eq('profile_id', user.id)
-      .eq('provider', 'calendly')
-      .single();
-    setHasCalendly(!!integ);
-
-    // Référence stable "toutes les intégrations obligatoires connectées pour la 1ère
-    // fois" (trigger DB, jamais réécrite) — les calls réservés avant sont ignorés
-    // partout, voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
-    const { data: clientRow } = await supabase
-      .from('clients')
-      .select('id, integrations_ready_at')
-      .eq('profile_id', user.id)
-      .maybeSingle();
-    const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
-
-    // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
-    let calendlyQuery = supabase
-      .from('calls')
-      .select('*')
-      .eq('coach_id', user.id)
-      .eq('call_type', 'calendly')
-      .neq('ignored', true)
-      .order('scheduled_at', { ascending: false });
-
-    if (integrationsReadyAt) {
-      // Un call réservé (booked_at) avant que toutes les intégrations obligatoires
-      // soient connectées n'a pas pu être généré par le pipeline Momentum — fallback sur
-      // scheduled_at si booked_at manque.
-      calendlyQuery = calendlyQuery.or(
-        `booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`
-      );
-    }
-
-    const { data: calendlyCalls } = await calendlyQuery;
-
-    // Calls Google Calendar (coach ↔ élève) : client_id = clientRow.id
-    let googleCalls: Call[] = [];
-    if (clientRow) {
-      const { data } = await supabase
-        .from('calls')
-        .select('*')
-        .eq('client_id', clientRow.id)
-        .neq('call_type', 'calendly')
-        .neq('ignored', true)
-        .order('scheduled_at', { ascending: false });
-      googleCalls = (data as Call[]) || [];
-
-      const { data: reports } = await supabase
-        .from('session_reports')
-        .select('call_id, student_notes, student_notes_dismissed, attended')
-        .eq('client_id', clientRow.id);
-      const reportsMap: Record<string, { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null }> = {};
-      for (const r of reports || []) reportsMap[r.call_id] = { student_notes: r.student_notes, student_notes_dismissed: r.student_notes_dismissed, attended: r.attended };
-      setSessionReportsByCall(reportsMap);
-    }
-
-    const allCalls = [...(calendlyCalls as Call[] || []), ...googleCalls];
-    // Déduplique par id
-    const seen = new Set<string>();
-    const unique = allCalls.filter(c => { if (seen.has(c.id)) return false; seen.add(c.id); return true; });
-    setCalls(unique);
-    setLoading(false);
-  }, []);
-
+  // Realtime : un changement sur `calls` invalide le cache, qui refetch tout
+  // (même comportement qu'avant, juste redirigé vers React Query au lieu d'un
+  // useState local — le refetch complet reste nécessaire ici, pas de mutation fine).
   useEffect(() => {
-    load();
     const supabase = createClient();
     const channel = supabase
       .channel('calls-client')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => { load(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => { refetchCalls(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [load]);
+  }, []);
 
   // Deep link : ?rapport=<call_id> → ouvre la modal une seule fois (depuis push notif)
   const deepLinkHandled = useRef(false);
@@ -303,7 +325,7 @@ export default function PageClientCalls() {
     const url = new URL(window.location.href);
     url.searchParams.delete('rapport');
     router.replace(url.pathname + url.search, { scroll: false });
-    load();
+    refetchCalls();
   }
 
   const pendingCalls = calls.filter(c => c.status === 'pending_acceptance' && c.call_type !== 'calendly');
@@ -384,7 +406,7 @@ export default function PageClientCalls() {
       const data = await res.json();
       if (data.ok) {
         setSyncMsg(data.synced > 0 ? `${data.synced} call${data.synced > 1 ? 's' : ''} synchronisé${data.synced > 1 ? 's' : ''}` : 'Aucun nouveau call trouvé');
-        await load();
+        await refetchCalls();
       } else {
         setSyncMsg(data.error || 'Erreur lors de la synchronisation');
       }
