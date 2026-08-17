@@ -19,6 +19,10 @@ export interface CoachBusinessData {
   closingRateThisMonth: number;
   leadsAllTimeCount: number;
   leadsThisMonthCount: number;
+  /** Cash collecté par TOUS les élèves (Stripe, cumulé) — distinct du cash
+   * perso du coach ci-dessus. null si aucun élève n'a Stripe connecté. */
+  studentsCashCollectedAllTime: number | null;
+  studentsCashCollectedThisMonth: number | null;
 }
 
 interface SupabaseClientsContextValue {
@@ -47,6 +51,8 @@ const EMPTY_BUSINESS: CoachBusinessData = {
   closingRateThisMonth: 0,
   leadsAllTimeCount: 0,
   leadsThisMonthCount: 0,
+  studentsCashCollectedAllTime: null,
+  studentsCashCollectedThisMonth: null,
 };
 
 const SupabaseClientsContext = createContext<SupabaseClientsContextValue | null>(null);
@@ -85,7 +91,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now = new Date();
       const startOfMonth = getPeriodWindow(0, 'month').periodStart.toISOString();
 
-      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, salesCallsRes, manualCallsRes, coachSalesCallsRes, coachLeadsAllTime, coachLeadsThisMonth] = await Promise.all([
+      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, salesCallsRes, manualCallsRes, coachSalesCallsRes, coachLeadsAllTime, coachLeadsThisMonth, coachIntegrationsRes, coachStripePaymentsAllTimeRes] = await Promise.all([
         // Dernier snapshot par élève pour followers IG/YT + MRR actuels — remplace
         // weekly_metrics (jamais écrite par aucun cron, table morte). Fenêtre de 3
         // jours glissants pour tolérer un jour de cron manqué ; on garde ensuite le
@@ -143,6 +149,11 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           .eq('call_type', 'calendly').neq('ignored', true),
         fetchIgLeadsCount(supabase, user.id, null),
         fetchIgLeadsCount(supabase, user.id, startOfMonth),
+        // Intégrations et paiements Stripe PERSO du coach (profile_id = user.id, pas
+        // les élèves) — manquaient jusqu'ici, business.cashCollected lisait par erreur
+        // stripePaymentsRes (scopé profileIds élèves, cf. plus haut).
+        supabase.from('integrations').select('provider').eq('profile_id', user.id),
+        supabase.from('stripe_payments').select('amount, date').eq('profile_id', user.id).order('date', { ascending: true }),
       ]);
 
       if (snapshotsRes.error) throw snapshotsRes.error;
@@ -154,6 +165,8 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (stripePaymentsRes.error) throw stripePaymentsRes.error;
       if (stripePaymentsAllTimeRes.error) throw stripePaymentsAllTimeRes.error;
       if (clientPaymentsRes.error) throw clientPaymentsRes.error;
+      if (coachIntegrationsRes.error) throw coachIntegrationsRes.error;
+      if (coachStripePaymentsAllTimeRes.error) throw coachStripePaymentsAllTimeRes.error;
       if (coachSalesCallsRes.error) throw coachSalesCallsRes.error;
       if (salesCallsRes.error) throw salesCallsRes.error;
       if (manualCallsRes.error) throw manualCallsRes.error;
@@ -300,12 +313,23 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const coachYtBookedAllTime = coachSalesCalls.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
       const coachYtBookedThisMonth = coachCallsThisMonth.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
 
-      const stripeConnected = (integrationsRes.data || []).some((row: any) => row.provider === 'stripe');
-      const cashCollected = stripeConnected
-        ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+      // Cash PERSO du coach — Stripe connecté sur SON profil (profile_id = user.id).
+      const coachStripeConnected = (coachIntegrationsRes.data || []).some((row: any) => row.provider === 'stripe');
+      const coachPayments = coachStripePaymentsAllTimeRes.data || [];
+      const cashCollectedAllTime = coachStripeConnected
+        ? coachPayments.reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
         : null;
-      const cashCollectedAllTime = stripeConnected
+      const cashCollected = coachStripeConnected
+        ? coachPayments.filter((p: any) => (p.date ?? '') >= startOfMonth).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        : null;
+
+      // Cash collecté par TOUS LES ÉLÈVES — Stripe connecté sur au moins un profil élève.
+      const studentsStripeConnected = (integrationsRes.data || []).some((row: any) => row.provider === 'stripe');
+      const studentsCashCollectedAllTime = studentsStripeConnected
         ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        : null;
+      const studentsCashCollectedThisMonth = studentsStripeConnected
+        ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
         : null;
 
       setBusiness({
@@ -314,6 +338,8 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         cashCollected,
         cashCollectedAllTime,
         cashCollectedThisMonth: cashCollected,
+        studentsCashCollectedAllTime,
+        studentsCashCollectedThisMonth,
         prospectCallsBooked: coachAllTimeStats.callsBookedCount,
         prospectCallsBookedThisMonth: coachThisMonthStats.callsBookedCount,
         closingRate: coachAllTimeStats.closingRate,

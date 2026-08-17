@@ -86,12 +86,11 @@ export default function PageToday() {
 
   const kpisTop = [
     {
-      label: 'Total cash collecté', sub: 'ton activité perso, all-time', value: business.cashCollectedAllTime ?? 0,
-      formatter: (n: number) => business.cashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
+      label: 'Total cash collecté', sub: 'Caisse collecté de tous tes élèves, All Time', value: business.studentsCashCollectedAllTime ?? 0,
+      formatter: (n: number) => business.studentsCashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
       color: 'var(--green)',
-      href: '/mes-stats',
-      viz: business.cashCollectedAllTime !== null && (
-        <TrendBadge value={business.cashCollectedThisMonth ?? 0} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />
+      viz: business.studentsCashCollectedAllTime !== null && (
+        <TrendBadge value={business.studentsCashCollectedThisMonth ?? 0} label="ce mois" format={(n) => `${n.toLocaleString('fr-FR')} €`} />
       ),
     },
     {
