@@ -293,21 +293,15 @@ async function fetchClientResourcesData(): Promise<{ resources: ResourceWithSeen
 
   if (!clientRow) return { resources: [], sections: [], coachName: null, userId: user.id };
 
-  const { data: coachProfile } = await supabase
-    .from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle();
+  // Ces 3 requêtes ne dépendent que de clientRow, pas les unes des autres —
+  // parallélisées au lieu d'enchaînées (c'était la cause du chargement plus lent
+  // que côté coach : 4 aller-retours réseau séquentiels au lieu de 2).
+  const [{ data: coachProfile }, { data: sectionsData }, { data: accessData }] = await Promise.all([
+    supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle(),
+    supabase.from('resource_sections').select('*').eq('coach_id', clientRow.coach_id).order('position'),
+    supabase.from('resource_access').select('resource_id, seen_at').eq('client_id', user.id).eq('unlocked', true),
+  ]);
   const coachName = coachProfile?.full_name ? coachProfile.full_name.split(' ')[0] : null;
-
-  const { data: sectionsData } = await supabase
-    .from('resource_sections')
-    .select('*')
-    .eq('coach_id', clientRow.coach_id)
-    .order('position');
-
-  const { data: accessData } = await supabase
-    .from('resource_access')
-    .select('resource_id, seen_at')
-    .eq('client_id', user.id)
-    .eq('unlocked', true);
 
   const unlockedIds = (accessData || []).map((a: { resource_id: string; seen_at: string | null }) => a.resource_id);
   const seenMap: Record<string, string | null> = {};
