@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo, Suspense } from 'react';
+import { useState, useEffect, useMemo, Suspense } from 'react';
 import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -169,8 +170,23 @@ function PageTasksInner() {
   // Liste complète des élèves (même à 0 tâche) — /api/tasks ne renvoie que des lignes
   // de tasks, un élève sans aucune tâche n'y apparaîtrait jamais.
   const { clients: allClients } = useSupabaseClients();
-  const [tasks, setTasks] = useState<TaskWithClient[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+  const tasksQueryKey = ['coach-tasks'];
+  const { data: tasksData, isLoading: tasksLoading } = useQuery({
+    queryKey: tasksQueryKey,
+    queryFn: async () => {
+      const res = await fetch('/api/tasks');
+      return res.ok ? ((await res.json()).tasks || []) as TaskWithClient[] : [];
+    },
+  });
+  const tasks = tasksData ?? [];
+  const loading = tasksLoading && !tasksData;
+
+  const setTasks = (updater: (prev: TaskWithClient[]) => TaskWithClient[]) => {
+    queryClient.setQueryData<TaskWithClient[]>(tasksQueryKey, prev => updater(prev ?? []));
+  };
+  const refetchTasks = () => queryClient.invalidateQueries({ queryKey: tasksQueryKey });
+
   const [overdueOnly, setOverdueOnly] = useState(initialOverdueOnly);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
@@ -178,14 +194,6 @@ function PageTasksInner() {
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [attachmentCounts, setAttachmentCounts] = useState<Record<string, number>>({});
   const [modalState, setModalState] = useState<{ mode: 'create' | 'edit'; clientId?: string; task?: Task } | null>(null);
-
-  const load = useCallback(async () => {
-    const res = await fetch('/api/tasks');
-    if (res.ok) setTasks((await res.json()).tasks || []);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
 
   async function toggle(taskId: string, done: boolean) {
     setTasks(prev => prev.map(t => t.id === taskId ? { ...t, done } : t));
@@ -286,7 +294,7 @@ function PageTasksInner() {
             clientId={modalState.clientId}
             task={modalState.task}
             onClose={() => setModalState(null)}
-            onCreated={load}
+            onCreated={refetchTasks}
           />
         )}
       </AnimatePresence>

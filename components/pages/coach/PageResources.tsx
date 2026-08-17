@@ -1,12 +1,14 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
 import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
+import { useUser } from '@/lib/UserContext';
 import { sectionHasChildren } from '@/lib/resourceHelpers';
 import ResourceModal, { type Resource } from './ResourceModal';
 import ResourceCardCoach from './ResourceCardCoach';
@@ -63,14 +65,60 @@ function SectionFolderCard({ section, count, subCount, onClick }: {
   );
 }
 
+// Un seul aller-retour réseau pour les 3 tables — même Promise.all qu'avant,
+// juste porté en queryFn pour bénéficier du cache partagé entre navigations.
+async function fetchResourcesData(supabase: ReturnType<typeof createClient>, coachId: string) {
+  const [resourcesRes, accessRes, sectionsRes] = await Promise.all([
+    supabase.from('resources').select('*').eq('coach_id', coachId).order('created_at', { ascending: false }),
+    supabase.from('resource_access').select('resource_id, client_id').eq('unlocked', true),
+    supabase.from('resource_sections').select('*').eq('coach_id', coachId).order('position'),
+  ]);
+
+  const accessMap: Record<string, string[]> = {};
+  for (const row of accessRes.data || []) {
+    if (!accessMap[row.resource_id]) accessMap[row.resource_id] = [];
+    accessMap[row.resource_id].push(row.client_id);
+  }
+
+  return {
+    resources: (resourcesRes.data || []) as Resource[],
+    sections: (sectionsRes.data || []) as ResourceSection[],
+    accessMap,
+  };
+}
+
+type ResourcesData = Awaited<ReturnType<typeof fetchResourcesData>>;
+
 export default function PageResources() {
   const { clients } = useSupabaseClients();
+  const { user } = useUser();
+  const coachId = user?.id;
   const supabase = createClient();
+  const queryClient = useQueryClient();
 
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [sections, setSections] = useState<ResourceSection[]>([]);
-  const [accessMap, setAccessMap] = useState<Record<string, string[]>>({});
-  const [loading, setLoading] = useState(true);
+  const queryKey = ['resources-page', coachId];
+  const { data, isLoading } = useQuery({
+    queryKey,
+    queryFn: () => fetchResourcesData(supabase, coachId!),
+    enabled: !!coachId,
+  });
+
+  const resources = data?.resources ?? [];
+  const sections = data?.sections ?? [];
+  const accessMap = data?.accessMap ?? {};
+  const loading = isLoading && !data;
+
+  // Toutes les mutations ci-dessous écrivaient directement sur des useState locaux ;
+  // elles écrivent maintenant sur le cache React Query (setQueryData), pour que le
+  // résultat reste visible instantanément à la prochaine visite de la page.
+  const setResources = useCallback((updater: (prev: Resource[]) => Resource[]) => {
+    queryClient.setQueryData<ResourcesData>(queryKey, prev => prev && { ...prev, resources: updater(prev.resources) });
+  }, [queryClient, coachId]);
+
+  const setSections = useCallback((updater: (prev: ResourceSection[]) => ResourceSection[]) => {
+    queryClient.setQueryData<ResourcesData>(queryKey, prev => prev && { ...prev, sections: updater(prev.sections) });
+  }, [queryClient, coachId]);
+
   const [search, setSearch] = useState('');
   const [activeSectionId, setActiveSectionId] = useState<SectionSelection>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -82,43 +130,14 @@ export default function PageResources() {
   const [previewResource, setPreviewResource] = useState<Resource | null>(null);
 
   const refreshAccessMap = useCallback(async () => {
-    const { data } = await supabase.from('resource_access').select('resource_id, client_id').eq('unlocked', true);
+    const { data: accessData } = await supabase.from('resource_access').select('resource_id, client_id').eq('unlocked', true);
     const map: Record<string, string[]> = {};
-    for (const row of data || []) {
+    for (const row of accessData || []) {
       if (!map[row.resource_id]) map[row.resource_id] = [];
       map[row.resource_id].push(row.client_id);
     }
-    setAccessMap(map);
-  }, []);
-
-  const load = useCallback(async () => {
-    let { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      await new Promise(r => setTimeout(r, 400));
-      const retry = await supabase.auth.getUser();
-      user = retry.data.user;
-    }
-    if (!user) return;
-
-    const [resourcesRes, accessRes, sectionsRes] = await Promise.all([
-      supabase.from('resources').select('*').eq('coach_id', user.id).order('created_at', { ascending: false }),
-      supabase.from('resource_access').select('resource_id, client_id').eq('unlocked', true),
-      supabase.from('resource_sections').select('*').eq('coach_id', user.id).order('position'),
-    ]);
-
-    setResources(resourcesRes.data || []);
-    setSections(sectionsRes.data || []);
-
-    const map: Record<string, string[]> = {};
-    for (const row of accessRes.data || []) {
-      if (!map[row.resource_id]) map[row.resource_id] = [];
-      map[row.resource_id].push(row.client_id);
-    }
-    setAccessMap(map);
-    setLoading(false);
-  }, []);
-
-  useEffect(() => { load(); }, [load]);
+    queryClient.setQueryData<ResourcesData>(queryKey, prev => prev && { ...prev, accessMap: map });
+  }, [queryClient, coachId]);
 
   function getAccessClients(resourceId: string): ClientWithMetrics[] {
     const profileIds = accessMap[resourceId] || [];
