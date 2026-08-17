@@ -586,14 +586,14 @@ export default function PageClientCalls() {
             </span>
           )}
           <button
-            className="btn-ghost"
+            className="btn-ghost call-action-sync"
             type="button"
             onClick={syncCalendly}
             disabled={syncing}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
             <Icon name="refresh-cw" size={13} />
-            {syncing ? 'Sync…' : 'Synchroniser'}
+            {syncing ? 'Sync…' : 'Sync calls'}
           </button>
         </div>
       </div>
