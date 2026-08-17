@@ -16,7 +16,7 @@ interface Props {
    * seulement, pas d'ombre portée classique. */
   variant?: 'centered' | 'sheet';
   /** 'sheet' uniquement — bascule vers un mode plein écran (pas de marge, pas de
-   * coins arrondis). Utilisé par RapportModal à l'étape 'revenue'. */
+   * coins arrondis). Utilisé par RapportModal aux étapes 'revenue' et 'comment'. */
   fullScreen?: boolean;
   /** Remplace le comportement par défaut au clic sur l'overlay (ferme directement).
    * Utile pour intercepter la fermeture avec une confirmation (ex. RapportModal

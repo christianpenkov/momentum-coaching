@@ -401,7 +401,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           onClose={onClose}
           onOverlayClick={requestClose}
           variant="sheet"
-          fullScreen={step === 'revenue'}
+          fullScreen={step === 'revenue' || step === 'comment'}
           width={520}
         >
         <div style={{ padding: '48px 24px 32px', overflowY: 'auto' }}>
