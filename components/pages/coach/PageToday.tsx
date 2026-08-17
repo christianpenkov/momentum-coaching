@@ -86,7 +86,7 @@ export default function PageToday() {
 
   const kpisTop = [
     {
-      label: 'Total cash collecté', sub: 'Caisse collecté de tous tes élèves, All Time', value: business.studentsCashCollectedAllTime ?? 0,
+      label: 'Total cash collecté', sub: 'Tous tes élèves, All Time', value: business.studentsCashCollectedAllTime ?? 0,
       formatter: (n: number) => business.studentsCashCollectedAllTime === null ? '—' : `${n.toLocaleString('fr-FR')} €`,
       color: 'var(--green)',
       viz: business.studentsCashCollectedAllTime !== null && (
