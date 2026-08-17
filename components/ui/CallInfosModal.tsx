@@ -82,7 +82,7 @@ export default function CallInfosModal({
             {notes && (
               <div style={{ marginBottom: 14 }}>
                 <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6, display: 'flex', alignItems: 'center', gap: 5 }}>
-                  <Icon name="lock" size={10} /> Notes coach
+                  <Icon name="lock" size={10} /> Notes privées
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{notes}</div>
               </div>

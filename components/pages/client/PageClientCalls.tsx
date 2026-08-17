@@ -586,14 +586,14 @@ export default function PageClientCalls() {
             </span>
           )}
           <button
-            className="btn-ghost"
+            className="btn-ghost call-action-sync"
             type="button"
             onClick={syncCalendly}
             disabled={syncing}
             style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
           >
             <Icon name="refresh-cw" size={13} />
-            {syncing ? 'Sync…' : 'Synchroniser'}
+            {syncing ? 'Sync…' : 'Sync calls'}
           </button>
         </div>
       </div>
@@ -769,10 +769,6 @@ export default function PageClientCalls() {
               })()}
             </div>
           </div>
-        </div>
-      ) : hasCalendly ? (
-        <div className="card" style={{ padding: '32px 24px', textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun call planifié pour le moment.</div>
         </div>
       ) : null}
 
