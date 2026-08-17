@@ -1326,6 +1326,24 @@ a { color: inherit; text-decoration: none; }
 .chat-input-bar {
   flex-shrink: 0;
 }
+/* Header page Ressources coach : titre + 4 actions (dossiers, créer dossier,
+   recherche, créer ressource) — trop riche pour la règle générique .page-header
+   nowrap mobile (pensée pour un seul bouton), donc layout dédié. */
+.resources-header {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 16px; flex-wrap: wrap; margin-bottom: 22px;
+}
+.resources-header-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.resources-header-search { width: 170px; flex-shrink: 0; }
+
+@media (max-width: 767px) {
+  .resources-header { flex-direction: column; align-items: stretch; gap: 12px; }
+  .resources-header-actions { width: 100%; }
+  .resources-header-actions > .btn-ghost { flex: 1 1 auto; justify-content: center; }
+  .resources-header-search { width: 100%; order: 3; flex-basis: 100%; }
+  .resources-header-create { width: 100%; order: 4; flex-basis: 100%; }
+}
+
 /* .liens-root est un simple wrapper de scope CSS (:focus-within) autour de
    .liens-shell — sans ces règles il reste display:block et casse la chaîne
    flex/height:100% du parent, empêchant tout scroll interne (voir PageLiens.tsx). */

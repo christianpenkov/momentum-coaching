@@ -265,14 +265,14 @@ export default function PageResources() {
       </div>
 
       {/* Header */}
-      <div className="page-header">
-        <div>
+      <div className="resources-header">
+        <div className="resources-header-title">
           <h1 className="page-title">Ressources</h1>
           <p className="page-sub">
             {resources.length} ressource{resources.length !== 1 ? 's' : ''}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <div className="resources-header-actions">
           <button
             type="button"
             onClick={() => setActiveSectionId('folders')}
@@ -290,7 +290,7 @@ export default function PageResources() {
             <Icon name="plus" size={14} /> Dossier
           </button>
           {resources.length > 0 && (
-            <div style={{ position: 'relative' }}>
+            <div className="resources-header-search" style={{ position: 'relative' }}>
               <Icon name="search" size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)', pointerEvents: 'none' }} />
               <input
                 value={search}
@@ -300,16 +300,16 @@ export default function PageResources() {
                   paddingLeft: 30, paddingRight: 12, paddingTop: 8, paddingBottom: 8,
                   border: '1px solid var(--border)', borderRadius: 8,
                   background: 'var(--surface-2)', fontSize: 13, color: 'var(--ink)',
-                  outline: 'none', width: 170,
+                  outline: 'none', width: '100%', boxSizing: 'border-box',
                 }}
               />
             </div>
           )}
           <button
             type="button"
-            className="btn-primary-brand"
+            className="btn-primary-brand resources-header-create"
             onClick={openCreate}
-            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            style={{ fontSize: 13, display: 'inline-flex', alignItems: 'center', gap: 6, justifyContent: 'center' }}
           >
             <Icon name="plus" size={14} /> Nouvelle ressource
           </button>
