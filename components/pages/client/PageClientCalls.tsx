@@ -87,7 +87,8 @@ function formatTime(dateStr: string) {
 // Notes personnelles de l'élève sur un call de coaching (Google Meet), indépendantes
 // du rapport du coach — toujours affichées et éditables, peu importe si le coach a
 // déjà rapporté ce call ou non (voir lib/sessionRapport.ts / route student-notes).
-function MyCallNotes({ callId, initialNotes, initialDismissed, coachHasReported }: { callId: string; initialNotes: string; initialDismissed: boolean; coachHasReported: boolean }) {
+// Le statut du rapport coach reste un détail de gestion interne, jamais exposé à l'élève.
+function MyCallNotes({ callId, initialNotes, initialDismissed }: { callId: string; initialNotes: string; initialDismissed: boolean }) {
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState(initialNotes);
   const [dismissed, setDismissed] = useState(initialDismissed);
@@ -136,11 +137,6 @@ function MyCallNotes({ callId, initialNotes, initialDismissed, coachHasReported 
       </button>
       {open && (
         <div style={{ marginTop: 8 }}>
-          {!coachHasReported && (
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 6 }}>
-              Ton coach n'a pas encore rapporté ce call.
-            </div>
-          )}
           <textarea
             value={value}
             onChange={e => setValue(e.target.value)}
@@ -503,7 +499,6 @@ export default function PageClientCalls() {
                   callId={call.id}
                   initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
                   initialDismissed={sessionReportsByCall[call.id]?.student_notes_dismissed || false}
-                  coachHasReported={sessionReportsByCall[call.id]?.attended != null}
                 />
               )}
             </div>
