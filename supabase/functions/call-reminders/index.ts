@@ -2,7 +2,7 @@
 // de call (24h/15min), confirmé le 2026-07-25 après une longue recherche : il existe
 // AUSSI une route Next.js app/api/calls/reminders/route.ts qui fait la même chose
 // mais dont le déclencheur réel reste introuvable (probablement morte/jamais
-// appelée). Voir docs/heure-paris.md pour l'historique complet et l'explication de
+// appelée). Voir docs/fuseaux-horaires.md pour l'historique complet et l'explication de
 // pourquoi il faut vérifier les DEUX si un bug de rappel/heure réapparaît.
 // Déploiement séparé du reste du code (git push ne suffit pas) :
 //   npx supabase functions deploy call-reminders --no-verify-jwt

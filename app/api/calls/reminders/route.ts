@@ -11,7 +11,7 @@ import { formatTimeIn, formatDateIn, isValidTimeZone, DEFAULT_TIME_ZONE } from '
 // ⚠️ Il existe une DEUXIÈME implémentation du même rappel, indépendante de celle-ci :
 // supabase/functions/call-reminders/index.ts (Edge Function Supabase, confirmée
 // active en pratique le 2026-07-25, contrairement à cette route). Voir
-// docs/heure-paris.md pour l'historique complet et ne pas oublier de vérifier les
+// docs/fuseaux-horaires.md pour l'historique complet et ne pas oublier de vérifier les
 // deux si un bug d'heure/rappel réapparaît.
 export async function GET(request: NextRequest) {
   const auth = request.headers.get('authorization');
