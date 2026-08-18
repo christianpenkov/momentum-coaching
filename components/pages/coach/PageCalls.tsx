@@ -198,15 +198,15 @@ export default function PageCalls() {
     return (
       <>
         {coaching && pendingSessionRapportIds.has(call.id) && (
-          <button type="button" className="btn-primary-brand" style={{ fontSize: 12 }}
+          <button type="button" className="btn-ghost call-action-rapport"
             onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}>
-            Rapport
+            <span className="call-rapport-dot" />Rapport
           </button>
         )}
         {!coaching && call.coach_id === userId && call.outcome == null && (
-          <button type="button" className="btn-primary-brand" style={{ fontSize: 12 }}
+          <button type="button" className="btn-ghost call-action-rapport"
             onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: call.is_follow_up === true })}>
-            Rapport
+            <span className="call-rapport-dot" />Rapport
           </button>
         )}
         {showInfos && (
@@ -262,7 +262,7 @@ export default function PageCalls() {
       <div>
         {shown.map(group => (
           <div key={group.key}>
-            <div className="call-period-sep">{group.label}</div>
+            <div className="call-period-sep"><span>{group.label}</span></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
               {group.calls.map(call => {
                 const cp = getCounterpart(call);

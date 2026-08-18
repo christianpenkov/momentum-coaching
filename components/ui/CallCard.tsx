@@ -77,7 +77,9 @@ export default function CallCard({
         <div className="call-card-day">{day}</div>
         <div className="call-card-month">{month}</div>
         <div className="call-card-hour">{time}</div>
-        <Avatar initials={initials} avatarUrl={avatarUrl} size={34} seed={seed} className="call-card-avatar" />
+        {/* Avatar du rail : visible en mobile seulement, où il complète la bande
+            horizontale. En desktop c'est celui du corps qui sert (à côté du nom). */}
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={30} seed={seed} className="call-card-avatar-rail" />
       </div>
 
       {/* Colonne à droite du rail : la ligne d'infos, puis les blocs libres en
@@ -85,6 +87,9 @@ export default function CallCard({
           dans le flex horizontal et écrasait la colonne du nom. */}
       <div className="call-card-col">
       <div className="call-card-body">
+        {/* Avatar du corps : celui de la maquette D2, juste avant le nom. Masqué en
+            mobile, où le rail porte déjà le sien. */}
+        <Avatar initials={initials} avatarUrl={avatarUrl} size={34} seed={seed} className="call-card-avatar-body" />
         <div className="call-card-main">
           <div className="call-card-headline">
             <span className="call-card-name">{displayName}</span>

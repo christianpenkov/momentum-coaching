@@ -1271,10 +1271,14 @@ a { color: inherit; text-decoration: none; }
    corps qui passe en colonne. Aucune largeur figée : à 984px (laptop 1280 moins
    sidebar et paddings) des colonnes fixes faisaient sortir le dernier bouton
    hors du cadre. */
+/* !important sur le padding : une règle `.card { padding: 14px }` du bloc mobile
+   (plus bas dans le fichier, donc gagnante à spécificité égale) réintroduisait une
+   marge blanche autour du rail — celui-ci flottait au lieu de toucher le bord
+   arrondi de la carte. */
 .call-card {
   display: flex;
   align-items: stretch;
-  padding: 0;
+  padding: 0 !important;
   overflow: hidden;
 }
 .call-card-canceled .call-card-main { opacity: 0.6; }
@@ -1320,7 +1324,10 @@ a { color: inherit; text-decoration: none; }
 }
 /* !important obligatoire : Avatar.tsx pose display:block / inline-flex en style
    inline, qui bat une simple classe (même pattern que .next-call-banner-avatar). */
-.call-card .call-card-avatar { display: none !important; }
+/* Deux avatars dans le DOM, un seul visible par breakpoint : desktop = celui du
+   corps (à côté du nom, comme la maquette), mobile = celui du rail. */
+.call-card .call-card-avatar-rail { display: none !important; }
+.call-card .call-card-avatar-body { display: inline-flex !important; flex-shrink: 0; }
 
 /* Colonne empilant la ligne d'infos et les blocs libres, à droite du rail. */
 .call-card-col {
@@ -1329,12 +1336,15 @@ a { color: inherit; text-decoration: none; }
   display: flex;
   flex-direction: column;
 }
+/* flex:1 + align-items:center = le contenu reste centré verticalement quelle que
+   soit la hauteur de la carte, comme sur la maquette validée. */
 .call-card-body {
+  flex: 1;
   min-width: 0;
   padding: 13px 18px;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 12px;
   flex-wrap: wrap;
 }
 .call-card-main { flex: 1; min-width: 0; }
@@ -1393,6 +1403,20 @@ a { color: inherit; text-decoration: none; }
   text-decoration: none;
   white-space: nowrap;
 }
+/* Gabarit unique pour toute la rangée d'actions — boutons et pastilles partagent
+   hauteur, rayon et taille de texte, sinon Rejoindre écrasait Annuler et Infos. */
+.call-card-tail .btn-ghost,
+.call-card-tail .btn-primary-brand,
+.call-card-tail .call-card-join,
+.call-card-tail .pill {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+}
 .call-card-extra {
   padding: 0 18px 14px 18px;
   min-width: 0;
@@ -1420,8 +1444,9 @@ a { color: inherit; text-decoration: none; }
   .call-card-hour { display: block; margin-top: 0; margin-left: 2px; }
   .call-card-time,
   .call-card-time-sep { display: none; }
-  /* Avatar poussé à droite de la bande, aligné avec le bord de la carte. */
-  .call-card .call-card-avatar { display: inline-flex !important; margin-left: auto; }
+  /* Bascule des avatars : celui du rail apparaît, celui du corps disparaît. */
+  .call-card .call-card-avatar-rail { display: inline-flex !important; margin-left: auto; }
+  .call-card .call-card-avatar-body { display: none !important; }
 
   .call-card-body {
     padding: 12px 14px;
@@ -1452,15 +1477,13 @@ a { color: inherit; text-decoration: none; }
     display: inline-flex;
     align-items: center;
   }
-  /* Rejoindre garde ses 44px : c'est l'action urgente, et il est seul sur sa ligne. */
-  .call-card-tail .call-card-join { min-height: 44px; }
-  /* Rejoindre est l'action la plus urgente de la page : pleine largeur et 44px de
-     haut pour être touchable sans viser. */
-  .call-card-join {
-    width: 100%;
-    justify-content: center;
-    min-height: 44px;
-    font-size: 13px;
+  /* Rejoindre suit le même gabarit que ses voisins : pleine largeur et 44px, il
+     écrasait Annuler et Infos placés juste à côté. */
+  .call-card-tail .call-card-join {
+    min-height: 34px;
+    width: auto;
+    font-size: 12px;
+    padding: 0 12px;
   }
   .call-card-extra { padding: 0 15px 13px 15px; }
 }
@@ -1472,19 +1495,45 @@ a { color: inherit; text-decoration: none; }
   .call-confirm-btn { min-height: 44px; min-width: 60px; }
 }
 
+/* Bouton "Rapport" : un rapport non rempli est une ALERTE, pas une navigation.
+   En bleu plein il ressemblait à l'action principale de la carte et écrasait
+   Infos juste à côté. Contour neutre + point ambre = même poids visuel que ses
+   voisins, mais repérable au scan grâce à la couleur d'attente du projet. */
+.call-action-rapport {
+  color: var(--ink-2);
+  border: 1px solid var(--border);
+  gap: 7px;
+}
+.call-action-rapport:hover { border-color: var(--amber); color: var(--amber); }
+.call-rapport-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--amber);
+  flex-shrink: 0;
+}
+
 /* ── Séparateurs de période dans les listes de calls ──
    Collants en haut du scroll pour que le mois en cours de lecture reste visible
    sur un long historique. Fond opaque obligatoire : sans lui les cartes défilent
    visiblement sous le texte. */
+/* Le fond opaque (nécessaire au sticky, sinon les cartes défilent visiblement
+   sous le texte) est limité à la largeur du texte : en pleine largeur, il
+   dessinait une bande traversant tout l'écran. */
 .call-period-sep {
   position: sticky;
   top: 0;
   z-index: 3;
-  background: var(--bg);
-  padding: 10px 2px 8px;
+  margin: 10px 0 8px;
   font-size: 12px;
   font-weight: 620;
   color: var(--ink-2);
+}
+.call-period-sep span {
+  display: inline-block;
+  background: var(--bg);
+  padding: 4px 10px 4px 0;
+  border-radius: var(--r-sm);
 }
 
 /* ── Bandeau "Prochain call" (accueil élève, calendrier) — responsive ── */

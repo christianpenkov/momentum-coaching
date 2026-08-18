@@ -1,5 +1,6 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
 import FathomRecordingSection from '@/components/ui/FathomRecordingSection';
@@ -23,6 +24,10 @@ interface Props {
   topicCustom?: string | null;
   notes?: string | null;
   studentNotes?: string | null;
+  /** Commentaire que l'élève a laissé sur son propre call de vente. */
+  leadComment?: string | null;
+  /** Bloc éditable rendu en pied de modale (notes perso de l'élève sur un coaching). */
+  editableNotes?: ReactNode;
   fathomData: FathomData;
   onClose: () => void;
 }
@@ -35,11 +40,13 @@ function formatDate(dateStr: string) {
 // ce qui existe déjà (rapport rempli + infos Fathom) sans jamais réutiliser
 // SessionRapportModal/RapportModal, qui sont des flux de saisie, pas de lecture.
 export default function CallInfosModal({
-  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, fathomData, onClose,
+  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, editableNotes, fathomData, onClose,
 }: Props) {
   const { user } = useUser();
   const topicLabel = topic === 'autre' ? topicCustom : SESSION_TOPICS.find(t => t.value === topic)?.label;
   const hasReport = attended !== undefined && attended !== null;
+  const hasAnything = hasReport || !!leadComment || !!editableNotes
+    || !!fathomData.shareUrl || !!fathomData.summary || !!fathomData.transcript;
 
   return (
     <ModalShell onClose={onClose} width={520}>
@@ -96,7 +103,22 @@ export default function CallInfosModal({
           </div>
         )}
 
-        {!hasReport && !fathomData.shareUrl && !fathomData.summary && !fathomData.transcript && (
+        {/* Hors du bloc hasReport : sur un call de VENTE il n'y a jamais de rapport
+            de session, donc le commentaire serait resté invisible. */}
+        {leadComment && (
+          <div style={{ marginTop: hasReport ? 16 : 0 }}>
+            <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Ton commentaire perso</div>
+            <div style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{leadComment}</div>
+          </div>
+        )}
+
+        {editableNotes && (
+          <div style={{ marginTop: hasReport || leadComment ? 18 : 0, paddingTop: hasReport || leadComment ? 18 : 0, borderTop: hasReport || leadComment ? '1px solid var(--border)' : 'none' }}>
+            {editableNotes}
+          </div>
+        )}
+
+        {!hasAnything && (
           <div style={{ fontSize: 13, color: 'var(--muted)', textAlign: 'center', padding: '20px 0' }}>
             Aucune information disponible pour ce call.
           </div>

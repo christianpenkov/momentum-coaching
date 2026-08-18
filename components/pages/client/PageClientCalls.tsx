@@ -418,23 +418,23 @@ export default function PageClientCalls() {
   // c'est le coach qui le remplit, l'élève ne fait qu'annoter (MyCallNotes).
   function renderActions(call: Call, variant: 'upcoming' | 'history' | 'canceled') {
     const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
-    // Le commentaire perso et les notes du coach n'étant plus sur la carte, la
-    // modale devient leur seul point d'accès : le bouton doit donc s'afficher dès
-    // qu'il y a quelque chose à lire, pas seulement quand un rapport est rempli.
+    // La modale est devenue le seul point d'accès aux notes et commentaires, et
+    // le seul endroit où l'élève peut SAISIR ses notes perso : le bouton s'affiche
+    // donc sur tout call de coaching, et sur tout call de vente ayant du contenu.
     const showInfos = variant === 'history'
-      && (call.fathom_status === 'matched' || sessionReportsByCall[call.id]?.attended != null
+      && (isCoachingCall(call) || call.fathom_status === 'matched'
+        || sessionReportsByCall[call.id]?.attended != null
         || call.outcome != null || !!call.notes || !!call.lead_rapport_comment);
 
     return (
       <>
         {variant === 'history' && rapportPending && (
           <button
-            className="btn-primary-brand"
+            className="btn-ghost call-action-rapport"
             type="button"
-            style={{ fontSize: 12 }}
             onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
           >
-            Rapport
+            <span className="call-rapport-dot" />Rapport
           </button>
         )}
         {showInfos && (
@@ -498,20 +498,10 @@ export default function PageClientCalls() {
   // Blocs rendus SOUS la carte : notes du coach, commentaire perso de l'élève sur
   // un call de vente, et accordéon de notes personnelles sur un coaching.
   function renderExtra(call: Call) {
-    // Les notes du coach et le commentaire perso ne sont plus rendus sur la carte :
-    // un texte libre de longueur imprévisible étirait la carte et, avec elle, la
-    // bande du rail, qui devenait une colonne vide de 150px. Ils sont consultables
-    // dans la modale Infos, qui sait déjà les afficher. Seul l'accordéon de notes
-    // reste ici parce qu'il est éditable, pas seulement consultable.
-    const hasMyNotes = call.call_type !== 'calendly';
-    if (!hasMyNotes) return null;
-    return (
-      <MyCallNotes
-        callId={call.id}
-        initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
-        initialDismissed={sessionReportsByCall[call.id]?.student_notes_dismissed || false}
-      />
-    );
+    // Plus rien sous la carte : notes du coach, commentaire perso et accordéon de
+    // notes vivent désormais dans la modale Infos. Un texte libre de longueur
+    // imprévisible dans une liste étirait la carte et déséquilibrait le rail.
+    return null;
   }
 
   // Liste de cartes groupées par période, avec séparateurs collants. Structure
@@ -537,7 +527,7 @@ export default function PageClientCalls() {
       <div>
         {shown.map(group => (
           <div key={group.key}>
-            <div className="call-period-sep">{group.label}</div>
+            <div className="call-period-sep"><span>{group.label}</span></div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
               {group.calls.map(call => {
                 const cp = getCallCounterpart(call);
@@ -843,8 +833,16 @@ export default function PageClientCalls() {
           attended={sessionReportsByCall[infosModalCall.id]?.attended ?? (infosModalCall.outcome != null ? infosModalCall.outcome !== 'no_show' : undefined)}
           topic={(sessionReportsByCall[infosModalCall.id]?.topic ?? null) as never}
           topicCustom={sessionReportsByCall[infosModalCall.id]?.topic_custom ?? null}
-          notes={infosModalCall.notes ?? infosModalCall.lead_rapport_comment ?? null}
-          studentNotes={sessionReportsByCall[infosModalCall.id]?.student_notes ?? null}
+          notes={infosModalCall.notes ?? null}
+          leadComment={infosModalCall.call_type === 'calendly' ? infosModalCall.lead_rapport_comment : null}
+          editableNotes={infosModalCall.call_type !== 'calendly' ? (
+            <MyCallNotes
+              callId={infosModalCall.id}
+              initialNotes={sessionReportsByCall[infosModalCall.id]?.student_notes || ''}
+              initialDismissed={sessionReportsByCall[infosModalCall.id]?.student_notes_dismissed || false}
+            />
+          ) : undefined}
+          studentNotes={null}
           fathomData={{
             shareUrl: infosModalCall.fathom_share_url ?? null,
             summary: infosModalCall.fathom_summary ?? null,
