@@ -3321,7 +3321,14 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const dmClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
   const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
   const lmEnvoyes = leadsInPeriod.filter(l => l.leadMagnetSent).length;
-  const hookReplies = leadsInPeriod.filter(l => l.hookReplied).length;
+  // Numérateur strictement inclus dans le dénominateur : cette carte mesure la
+  // performance du lead magnet ("parmi ceux à qui j'ai envoyé un LM, combien ont
+  // répondu ?"), donc seule une réponse d'un lead AYANT reçu un LM la concerne.
+  // Sans le `&& l.leadMagnetSent`, un cold DM (démarché à la main, jamais de LM
+  // envoyé) comptait au numérateur sans jamais pouvoir compter au dénominateur —
+  // observé à 133 % (4 réponses / 3 LM envoyés). Les cold DM restent comptés dans
+  // la carte Leads et dans le Pipeline, ils sortent seulement de CE ratio.
+  const hookReplies = leadsInPeriod.filter(l => l.hookReplied && l.leadMagnetSent).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
   // Liens Calendly envoyés DM — source de vérité : DB uniquement
   // Fallback sur created_at si calendly_link_sent_at est null (anciens liens)
@@ -3687,10 +3694,18 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" />
         {(() => {
           // Clics LM réels : même logique que le pipeline — prospect_events.lm_clicked postérieur à detected_at
-          const lmClics = leadsInPeriod.filter((l: MockLead) => l.id && lmClickedByLeadId?.has(l.id)).length;
-          const calendlyClics = leadsInPeriod.filter((l: MockLead) => l.id && linkClickedByLeadId?.has(l.id)).length;
+          // `&& l.leadMagnetSent` : le dénominateur est lmEnvoyes, donc le numérateur ne
+          // doit contenir que des leads ayant effectivement reçu un LM (un clic sur un
+          // lien LM sans envoi enregistré sortirait le ratio au-dessus de 100 %).
+          const lmClics = leadsInPeriod.filter((l: MockLead) => l.id && l.leadMagnetSent && lmClickedByLeadId?.has(l.id)).length;
           const tauxLmClic = lmEnvoyes > 0 ? Math.round((lmClics / lmEnvoyes) * 100) : 0;
-          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyClics / lmCalendlyLinks) * 100) : 0;
+          // calendlyActivatedDb (et non un recomptage par lead) : compte les first_click_at
+          // PARMI calendlyLinksSent, donc exactement la population du dénominateur
+          // lmCalendlyLinks. L'ancien calcul comptait les leads porteurs d'un événement
+          // link_clicked, une population différente : un lead ayant cliqué alors que sa
+          // ligne prospect_links n'était pas marquée calendly_link_sent comptait au
+          // numérateur sans être au dénominateur — observé à 150 % (3 clics / 2 liens).
+          const tauxCalendlyClic = lmCalendlyLinks > 0 ? Math.round((calendlyActivatedDb / lmCalendlyLinks) * 100) : 0;
           const tauxActColor = tauxCalendlyClic >= 50 ? GREEN : tauxCalendlyClic >= 25 ? AMBER : RED;
           const tauxLmColor = tauxLmClic >= 50 ? GREEN : tauxLmClic >= 25 ? AMBER : RED;
 
@@ -5765,10 +5780,18 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   const [leadsRows, lmRes, calendlyRes, overridesRes, lmHistoryRows, prospectLinksRows, contentLinksRes, lmClickedEvents, linkClickedEvents] = await Promise.all([
     // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, trop facile à
     // atteindre sur le mode "Depuis connexion" (jusqu'à ~1 an) pour un profil actif.
+    // not_a_lead / archived_at : mêmes filtres que lib/salesCallStats.ts (fetchIgLeadsCount)
+    // et app/api/client/pipeline/route.ts. Sans eux, un prospect que le coach a
+    // explicitement marqué "Non, pas un lead" depuis le Pipeline continuait d'être compté
+    // dans toutes les cartes de Mes Stats — observé sur un cold DM marqué "pas un lead"
+    // qui gonflait "Réponses accroche LM DM" à 133 % (4 réponses / 3 LM envoyés).
     fetchAllPages<any>(() =>
       supabase.from('instagram_leads')
         .select('id, ig_user_id, ig_username, media_id, media_permalink, keyword_matched, lead_magnet_sent, hook_replied, hook_replied_at, tracking_link, detected_at, source')
-        .eq('profile_id', targetId).order('detected_at', { ascending: false })
+        .eq('profile_id', targetId)
+        .is('archived_at', null)
+        .eq('not_a_lead', false)
+        .order('detected_at', { ascending: false })
     ),
     supabase.from('lead_magnets')
       .select('id, name, keyword, url').eq('profile_id', targetId).order('created_at', { ascending: true }),
