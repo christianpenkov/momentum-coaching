@@ -28,12 +28,23 @@ export async function GET(request: Request) {
     targetId = profileId;
   }
 
-  const { data, error } = await supa
+  // Deux usages opposés de cette même route (voir docs/tracking-prospect.md) :
+  //   - Gérer mes liens veut la liste des liens ACTIFS → ?activeOnly=1
+  //   - Mes Stats veut l'HISTORIQUE complet, y compris les liens retirés, sinon le
+  //     parcours d'un prospect disparaît de l'attribution dès qu'on supprime son lien
+  // Défaut = historique complet : une lecture qui oublie le paramètre voit trop de
+  // liens (visible, corrigeable) plutôt que trop peu (silencieux, fausse les stats).
+  const activeOnly = searchParams.get('activeOnly') === '1';
+
+  let query = supa
     .from('prospect_links')
     .select('*')
     .eq('profile_id', targetId)
     .order('created_at', { ascending: false })
     .limit(500);
+  if (activeOnly) query = query.is('deleted_at', null);
+
+  const { data, error } = await query;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ links: data ?? [] });
@@ -68,11 +79,33 @@ export async function POST(request: Request) {
   const keyword_matched = leadRow?.keyword_matched ?? null;
   const source_at_creation = leadRow?.source ?? null;
 
-  const { data, error } = await supa
+  // Régénérer un lien pour un prospect dont le lien avait été retiré doit RÉACTIVER sa
+  // ligne, pas en créer une seconde : sinon l'historique commercial (calendly_link_sent,
+  // first_click_at, min_stage_reached) reste sur l'ancienne ligne masquée pendant que
+  // la nouvelle repart vierge — exactement le symptôme observé sur rdjdkzjd avant la
+  // suppression non destructive. Voir docs/tracking-prospect.md.
+  const { data: retired } = await supa
     .from('prospect_links')
-    .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null, ig_lead_id, keyword_matched, source_at_creation })
-    .select()
-    .single();
+    .select('id')
+    .eq('profile_id', user.id)
+    .eq('ig_username', ig_username)
+    .not('deleted_at', 'is', null)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const { data, error } = retired
+    ? await supa
+        .from('prospect_links')
+        .update({ short_url, content_id: content_id || null, ig_lead_id, keyword_matched, source_at_creation, deleted_at: null })
+        .eq('id', retired.id)
+        .select()
+        .single()
+    : await supa
+        .from('prospect_links')
+        .insert({ profile_id: user.id, ig_username, short_url, content_id: content_id || null, ig_lead_id, keyword_matched, source_at_creation })
+        .select()
+        .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
@@ -83,6 +116,17 @@ export async function POST(request: Request) {
   return NextResponse.json({ link: data });
 }
 
+// Suppression NON destructive — voir docs/tracking-prospect.md
+//
+// Une ligne prospect_links porte l'URL du lien ET l'historique commercial du prospect
+// (calendly_link_sent, calendly_link_sent_at, first_click_at, min_stage_reached). Un
+// DELETE effaçait donc le parcours du prospect en même temps que son lien : le call
+// tombait en « Autre / non catégorisé » et le prospect sortait du dénominateur du taux
+// d'activation (cas rdjdkzjd, 2026-08-18).
+//
+// On marque désormais deleted_at. Le lien disparaît de Gérer mes liens (la lecture des
+// liens actifs filtre deleted_at IS NULL), mais les stats, le pipeline et l'attribution
+// continuent de voir le parcours complet.
 export async function DELETE(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -94,7 +138,7 @@ export async function DELETE(request: Request) {
 
   const { error } = await supa
     .from('prospect_links')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', id)
     .eq('profile_id', user.id);
 

@@ -1875,9 +1875,12 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
   const [deleteTarget, setDeleteTarget] = useState<{ id: string; ig_username: string } | null>(null);
   const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
 
-  // Charge l'historique des liens générés
+  // Charge les liens ACTIFS uniquement — activeOnly=1 exclut ceux retirés via le bouton
+  // Supprimer. Ces lignes restent en base (suppression non destructive) pour que les
+  // stats et le pipeline gardent le parcours du prospect, mais elles n'ont plus à
+  // apparaître ici. Voir docs/tracking-prospect.md.
   useEffect(() => {
-    fetch('/api/client/prospect-links')
+    fetch('/api/client/prospect-links?activeOnly=1')
       .then(r => r.json())
       .then(d => setHistory(d.links || []))
       .catch(() => {});
