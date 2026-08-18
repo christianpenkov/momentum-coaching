@@ -212,6 +212,15 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
 
     const { data: reports } = await supabase
       .from('session_reports')
+      // Visibilité des 3 champs du rapport de session, décidée côté saisie :
+      //  - notes   : "Privé, visible coach uniquement" (SessionRapportModal l.202)
+      //              → JAMAIS sélectionné ici, ne doit pas atteindre le client.
+      //  - topic   : "Visible par l'élève" (SessionRapportModal l.159) → partagé,
+      //              le coach voit la mention au moment où il le remplit.
+      //  - attended: aucune mention côté saisie, mais partage confirmé comme
+      //              voulu (2026-08-18). Ne pas "corriger" en le masquant.
+      // Le champ `notes` affiché à l'élève dans CallInfosModal vient de
+      // calls.notes, qui est une colonne distincte de session_reports.notes.
       .select('call_id, student_notes, student_notes_dismissed, attended, topic, topic_custom')
       .eq('client_id', clientRow.id);
     const reportsMap: Record<string, SessionReportInfo> = {};
@@ -836,10 +845,14 @@ export default function PageClientCalls() {
         <CallInfosModal
           counterpartName={infosModalCall.invitee_name}
           scheduledAt={infosModalCall.scheduled_at}
+          // Présence et thème sont partagés avec l'élève (la modale du coach le lui
+          // indique au moment de la saisie). Les notes du rapport de session, elles,
+          // sont marquées "Privé, visible coach uniquement" et ne sont donc ni
+          // chargées ni passées ici — `notes` reste null quoi qu'il arrive.
           attended={sessionReportsByCall[infosModalCall.id]?.attended ?? (infosModalCall.outcome != null ? infosModalCall.outcome !== 'no_show' : undefined)}
           topic={(sessionReportsByCall[infosModalCall.id]?.topic ?? null) as never}
           topicCustom={sessionReportsByCall[infosModalCall.id]?.topic_custom ?? null}
-          notes={infosModalCall.notes ?? null}
+          notes={null}
           leadComment={infosModalCall.call_type === 'calendly' ? infosModalCall.lead_rapport_comment : null}
           editableNotes={infosModalCall.call_type !== 'calendly' ? (
             <MyCallNotes
