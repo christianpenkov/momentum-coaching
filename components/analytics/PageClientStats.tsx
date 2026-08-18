@@ -147,6 +147,48 @@ const isYTCall = (c: { source?: string | null }) => {
 
 function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0; }
 
+// « Ce lien Calendly a-t-il été envoyé au prospect ? » — source unique pour toutes les
+// cartes qui comptent des liens envoyés (voir docs/tracking-prospect.md).
+//
+// prospect_links.calendly_link_sent est posé par le webhook Instagram, mais SEULEMENT
+// s'il reçoit l'echo Meta du DM contenant l'URL Short.io. Quand cet echo n'arrive pas
+// (cas observé sur rdjdkzjd, 2026-08-18), le lien reste marqué non envoyé alors que le
+// prospect l'a bel et bien reçu — il a clique dessus et booké un call.
+//
+// D'où la déduction : un clic prouve l'envoi. Personne ne peut cliquer un lien qu'il n'a
+// jamais reçu. first_click_at (ou un call rattaché au lien) vaut donc preuve d'envoi,
+// même sans marquage explicite. Sans cette règle, ces prospects sortent du dénominateur
+// des taux d'activation et leurs calls tombent en « Autre / non catégorisé ».
+//
+// Ne JAMAIS remplacer par un simple `pl.calendly_link_sent` : le test doit rester
+// identique partout, sinon deux cartes comptent des populations différentes — la classe
+// de bug qui a produit les taux à 133 % et 150 %.
+//
+// linkClickedByLeadId (optionnel) : map ig_lead_id → date du clic, construite depuis
+// prospect_events. À passer dès qu'elle est disponible, car les événements SURVIVENT à
+// la suppression d'un lien (clé étrangère en SET NULL) alors que first_click_at part
+// avec la ligne. Cas réel : le lien de rdjdkzjd a été supprimé puis régénéré, la
+// nouvelle ligne est vierge, mais l'événement link_clicked du 8 juillet existe toujours.
+const wasCalendlyLinkSent = (
+  pl: { calendly_link_sent?: boolean | null; first_click_at?: string | null; ig_lead_id?: string | null },
+  linkClickedByLeadId?: Map<string, string>,
+) =>
+  !!pl.calendly_link_sent
+  || pl.first_click_at != null
+  || (!!pl.ig_lead_id && !!linkClickedByLeadId?.has(pl.ig_lead_id));
+
+// Date à laquelle le lien est considéré envoyé. calendly_link_sent_at quand le webhook
+// l'a posé ; sinon la date du clic (le clic prouve que l'envoi lui est antérieur), via
+// first_click_at ou l'événement survivant ; sinon created_at pour les liens anciens.
+const calendlySentAt = (
+  pl: { calendly_link_sent_at?: string | null; first_click_at?: string | null; created_at: string; ig_lead_id?: string | null },
+  linkClickedByLeadId?: Map<string, string>,
+) =>
+  pl.calendly_link_sent_at
+  ?? pl.first_click_at
+  ?? (pl.ig_lead_id ? linkClickedByLeadId?.get(pl.ig_lead_id) : null)
+  ?? pl.created_at;
+
 // Format axe X : "13 févr." — pas d'année, espacé uniformément
 const fmtAxisDate = (iso: string) => {
   const d = new Date(iso);
@@ -2418,16 +2460,16 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
     };
     // DM clics (non-LM)
     const dmClics = prospectLinksData.filter((pl: any) => {
-      if (!pl.calendly_link_sent) return false;
-      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+      if (!wasCalendlyLinkSent(pl, linkClickedByLeadId)) return false;
+      const ts = calendlySentAt(pl, linkClickedByLeadId);
       if (!ts || !isTsInFunnelWindow(ts)) return false;
       if (isLMPl(pl)) return false;
       return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
     }).length;
     // LM clics
     const lmClics = prospectLinksData.filter((pl: any) => {
-      if (!pl.calendly_link_sent) return false;
-      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+      if (!wasCalendlyLinkSent(pl, linkClickedByLeadId)) return false;
+      const ts = calendlySentAt(pl, linkClickedByLeadId);
       if (!ts || !isTsInFunnelWindow(ts)) return false;
       if (!isLMPl(pl)) return false;
       return pl.ig_lead_id && linkClickedByLeadId.has(pl.ig_lead_id);
@@ -3127,7 +3169,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const { periodStart, periodEnd } = getPeriodWindow(_pIdx, sPeriod === 7 ? 'week' : 'month');
 
   // Rechargé à chaque montage de l'onglet — source de vérité pour les stats Calendly DM
-  const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string; calendly_link_sent: boolean | null; calendly_link_sent_at: string | null; first_click_at: string | null }[]>([]);
+  // ig_lead_id est nécessaire à wasCalendlyLinkSent/calendlySentAt pour retrouver
+  // l'événement link_clicked survivant quand la ligne du lien a été supprimée puis
+  // régénérée (la route renvoie déjà toutes les colonnes, seul le type l'omettait).
+  const [prospectLinksDb, setProspectLinksDb] = useState<{ id: string; created_at: string; calendly_link_sent: boolean | null; calendly_link_sent_at: string | null; first_click_at: string | null; ig_lead_id: string | null }[]>([]);
   useEffect(() => {
     const url = profileId ? `/api/client/prospect-links?profileId=${profileId}` : '/api/client/prospect-links';
     fetch(url).then(r => r.ok ? r.json() : null).then(d => { if (d?.links) setProspectLinksDb(d.links); }).catch(() => {});
@@ -3300,10 +3345,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const hookReplies = leadsInPeriod.filter(l => l.hookReplied && l.leadMagnetSent).length;
   const tauxHookReply = lmEnvoyes > 0 ? Math.round((hookReplies / lmEnvoyes) * 100) : 0;
   // Liens Calendly envoyés DM — source de vérité : DB uniquement
-  // Fallback sur created_at si calendly_link_sent_at est null (anciens liens)
   const calendlyLinksSent = prospectLinksDb.filter(l => {
-    if (!l.calendly_link_sent) return false;
-    return isInPeriod(l.calendly_link_sent_at ?? l.created_at);
+    if (!wasCalendlyLinkSent(l, linkClickedByLeadId)) return false;
+    return isInPeriod(calendlySentAt(l, linkClickedByLeadId));
   });
   const lmCalendlyLinks = calendlyLinksSent.length;
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
@@ -3493,8 +3537,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // S-1+ et peut louper des liens). Même pattern déjà validé pour Performance LM (supaProspects, ligne 4273).
     const dmProspects = (prospectLinksData ?? []).filter((pl: any) => {
       if (pl.post_id !== postId) return false;
-      if (!pl.calendly_link_sent) return false;
-      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+      if (!wasCalendlyLinkSent(pl, linkClickedByLeadId)) return false;
+      const ts = calendlySentAt(pl, linkClickedByLeadId);
       return ts ? isInPeriod(ts) : false;
     });
     const postLeads = leads.filter(lead => lead.postId === postId);
@@ -3990,8 +4034,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // par défaut en Cold DM faute de mieux — même choix par défaut que l'ancien champ
           // dmType, jamais peuplé.
           const dmLinkSentInPeriod = (l: any) => {
-            if (!l.calendly_link_sent) return false;
-            return isInPeriod(l.calendly_link_sent_at ?? l.created_at);
+            if (!wasCalendlyLinkSent(l, linkClickedByLeadId)) return false;
+            return isInPeriod(calendlySentAt(l, linkClickedByLeadId));
           };
           // Priorité à source_at_creation (figée au moment de la création du lien, cf.
           // migration 20260726010000) — fallback sur l'état courant du lead pour les liens
@@ -4060,8 +4104,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           const lmProspectLinksDb = (prospectLinksData ?? []).filter((pl: any) => {
             const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
             if (!lead?.leadMagnetSent) return false;
-            if (!pl.calendly_link_sent) return false;
-            return isInPeriod(pl.calendly_link_sent_at ?? pl.created_at);
+            if (!wasCalendlyLinkSent(pl, linkClickedByLeadId)) return false;
+            return isInPeriod(calendlySentAt(pl, linkClickedByLeadId));
           });
           // Scopé sur lmProspectLinksDb (déjà filtré par période), pas tout
           // prospectLinksData — sinon un lead ayant reçu un LM à n'importe quel moment
@@ -4643,8 +4687,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
         // sur la période sélectionnée comme le reste du modal (calendly_link_sent_at ?? created_at).
         const linkedProspects = (prospectLinksData ?? []).filter((l: any) => {
           if (l.post_id !== row.postId) return false;
-          if (!l.calendly_link_sent) return false;
-          const ts = l.calendly_link_sent_at ?? l.created_at;
+          if (!wasCalendlyLinkSent(l, linkClickedByLeadId)) return false;
+          const ts = calendlySentAt(l, linkClickedByLeadId);
           return ts ? isInPeriod(ts) : false;
         });
         const statusMap2: Record<string, string> = { closed: 'Closé', booked: 'Call booké', pending: 'En attente', noshow: 'No-show' };
@@ -4984,8 +5028,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                     // Même logique que Business Micro : calendly_link_sent + filtre période [periodStart, periodEnd]
                     const supaProspects = (prospectLinksData ?? []).filter((pl: any) => {
                       if (!altKws.has((pl.keyword_matched || '').toLowerCase())) return false;
-                      if (!pl.calendly_link_sent) return false;
-                      const ts = pl.calendly_link_sent_at ?? pl.created_at;
+                      if (!wasCalendlyLinkSent(pl, linkClickedByLeadId)) return false;
+                      const ts = calendlySentAt(pl, linkClickedByLeadId);
                       if (!ts) return false;
                       const iso = new Date(ts).toISOString();
                       return iso >= periodStartDate && (!periodEndDate || iso <= periodEndDate);
