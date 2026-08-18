@@ -274,14 +274,18 @@ export function useBlobMediaCache() {
     for (const m of imageMsgs) {
       const full = records.get(keyFor(m.id, 'full'));
       const thumb = records.get(keyFor(m.id, 'thumb'));
-      if (full) {
+      // Un blob de taille 0 déjà en cache (téléchargement tronqué avant ce fix) ne doit
+      // jamais être servi — on le traite comme absent pour forcer un nouveau téléchargement
+      // au lieu de figer l'image cassée indéfiniment.
+      if (full && full.blob.size > 0) {
         fromCache[m.id] = {
           url: acquireObjectUrl(keyFor(m.id, 'full'), full.blob),
-          thumbnailUrl: thumb ? acquireObjectUrl(keyFor(m.id, 'thumb'), thumb.blob) : null,
+          thumbnailUrl: (thumb && thumb.blob.size > 0) ? acquireObjectUrl(keyFor(m.id, 'thumb'), thumb.blob) : null,
         };
         touchRecord(db, full);
-        if (thumb) touchRecord(db, thumb);
+        if (thumb && thumb.blob.size > 0) touchRecord(db, thumb);
       } else {
+        if (full) deleteByMessageId(db, m.id);
         toFetch.push(m);
       }
     }
@@ -298,10 +302,18 @@ export function useBlobMediaCache() {
         let finalThumbUrl = u.thumbnailUrl;
         try {
           const res = await fetch(u.url);
+          // res.ok=200 ne garantit pas un blob valide : sur mobile (réseau instable,
+          // requête interrompue en arrière-plan) le body peut arriver tronqué/vide.
+          // Un blob de taille 0 mis en cache IndexedDB restait cassé pour toujours
+          // (jamais re-téléchargé ensuite) — d'où l'icône image cassée qui persistait
+          // même après un refresh, uniquement sur les appareils où le 1er téléchargement
+          // avait échoué de cette façon silencieuse.
           if (res.ok) {
             const blob = await res.blob();
-            const ok = await putBlob(db, id, 'full', blob);
-            if (ok) finalUrl = acquireObjectUrl(keyFor(id, 'full'), blob);
+            if (blob.size > 0) {
+              const ok = await putBlob(db, id, 'full', blob);
+              if (ok) finalUrl = acquireObjectUrl(keyFor(id, 'full'), blob);
+            }
           }
         } catch {
           // Échec du fetch/cache — on garde l'URL signée brute, l'image reste affichable.
@@ -311,8 +323,10 @@ export function useBlobMediaCache() {
             const resThumb = await fetch(u.thumbnailUrl);
             if (resThumb.ok) {
               const blobThumb = await resThumb.blob();
-              const ok = await putBlob(db, id, 'thumb', blobThumb);
-              if (ok) finalThumbUrl = acquireObjectUrl(keyFor(id, 'thumb'), blobThumb);
+              if (blobThumb.size > 0) {
+                const ok = await putBlob(db, id, 'thumb', blobThumb);
+                if (ok) finalThumbUrl = acquireObjectUrl(keyFor(id, 'thumb'), blobThumb);
+              }
             }
           } catch {
             // idem — repli sur l'URL signée du thumbnail.

@@ -37,14 +37,36 @@ export async function POST(req: NextRequest) {
   const maxSize = isImage ? MAX_IMAGE_SIZE : MAX_DOC_SIZE;
   if (file.size > maxSize) return NextResponse.json({ error: 'Fichier trop volumineux' }, { status: 400 });
 
-  const ext = file.name.split('.').pop() || 'bin';
   const baseName = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const path = `${clientId}/${baseName}.${ext}`;
 
   const bytes = await file.arrayBuffer();
+  let uploadBytes: ArrayBuffer | Buffer = bytes;
+  let uploadContentType = file.type;
+  let ext = file.name.split('.').pop() || 'bin';
+
+  // Normalise toute image en JPEG avant stockage (peu importe le format d'origine,
+  // HEIC/PNG/etc.) — mesure préventive : un format exotique mal décodé par le
+  // navigateur du destinataire (Safari/WebView mobile en particulier) se traduirait
+  // par une icône image cassée dans le lightbox plein écran, alors que la miniature
+  // (toujours re-générée en webp par sharp, voir plus bas) resterait correcte. Sharp
+  // décode HEIC/HEIF sans problème côté serveur, donc autant uniformiser ici plutôt
+  // que de dépendre du décodeur de chaque appareil client.
+  if (isImage) {
+    try {
+      uploadBytes = await sharp(Buffer.from(bytes)).jpeg({ quality: 90 }).toBuffer();
+      uploadContentType = 'image/jpeg';
+      ext = 'jpg';
+    } catch {
+      // Format non supporté par sharp (rare) — on retente l'upload tel quel plutôt
+      // que de bloquer l'envoi ; le fallback thumbnail (ligne ~85) gère déjà ce cas.
+    }
+  }
+
+  const path = `${clientId}/${baseName}.${ext}`;
+
   const { error: uploadErr } = await supabase.storage
     .from('chat-medias')
-    .upload(path, bytes, { contentType: file.type });
+    .upload(path, uploadBytes, { contentType: uploadContentType });
   if (uploadErr) return NextResponse.json({ error: uploadErr.message }, { status: 500 });
 
   const { data: { publicUrl } } = supabase.storage.from('chat-medias').getPublicUrl(path);
