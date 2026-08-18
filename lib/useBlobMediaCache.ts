@@ -2,246 +2,48 @@
 import { useCallback } from 'react';
 import { useSignedMediaUrls } from '@/lib/useSignedMediaUrls';
 
-// Cache local des OCTETS d'image (pas juste l'URL signée) via IndexedDB — une fois une image
-// affichée sur cet appareil, elle n'est plus jamais re-téléchargée, même après expiration du
-// TTL de l'URL signée (1h) ou des semaines plus tard. Complète useSignedMediaUrls.ts (gardé
-// intact) qui reste le chemin de repli réseau pour le tout premier affichage et pour les
-// documents/audio (non mis en cache ici — voir plan ok-nous-ici-on-proud-rocket.md).
+// Cache local des OCTETS d'image (pas juste l'URL signée) via la Cache Storage API du
+// navigateur — une fois une image affichée sur cet appareil, elle n'est plus jamais
+// re-téléchargée, même après expiration du TTL de l'URL signée (1h) ou des semaines plus
+// tard. Complète useSignedMediaUrls.ts (gardé intact) qui reste le chemin de repli réseau
+// pour le tout premier affichage et pour les documents/audio (non mis en cache ici — voir
+// plan ok-nous-ici-on-proud-rocket.md).
 //
-// Désactivé sur iOS (Safari ET tout autre navigateur — Apple impose le moteur WebKit
-// à tous les navigateurs iOS, donc Chrome/Firefox sur iPhone ont le même bug) : le
-// stockage de Blob dans IndexedDB y est connu pour être non fiable (bug documenté de
-// longue date côté WebKit, jamais complètement résolu — cf. webkit.org/b/198278,
-// github.com/dfahlander/Dexie.js/issues/1227) — un Blob écrit avec succès peut ressortir
-// illisible à la lecture, ce qui provoquait l'icône image cassée en plein écran (confirmé
-// en prod : "WebkitBlobRessource error 1"). Desktop et Android n'ont jamais montré ce
-// problème, donc le cache y reste actif.
-function detectBlobCacheSupport(): boolean {
-  if (typeof navigator === 'undefined') return true;
-  const ua = navigator.userAgent;
-  const isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.includes('Macintosh') && navigator.maxTouchPoints > 1);
-  return !isIOS;
-}
-const USE_BLOB_CACHE = detectBlobCacheSupport();
-
-const DB_NAME = 'orbit-media-cache-v1';
-const DB_VERSION = 1;
-const STORE_BLOBS = 'blobs';
-const STORE_META = 'meta';
-const MAX_BYTES = 150 * 1024 * 1024;
+// Anciennement implémenté via IndexedDB (stockage de Blob) — abandonné après un bug
+// confirmé en prod sur iOS ("WebkitBlobRessource error 1", image cassée en plein écran) :
+// le stockage de Blob dans IndexedDB est un point faible documenté de longue date de
+// WebKit (webkit.org/b/198278, github.com/dfahlander/Dexie.js/issues/1227) — un Blob
+// écrit avec succès peut ressortir illisible à la lecture, de façon non déterministe.
+// La Cache Storage API est l'outil natif du navigateur pour ce cas précis (stocker des
+// réponses réseau comme des images), le même mécanisme qu'utilisent les service workers —
+// fiable sur Safari iOS là où IndexedDB+Blob ne l'était pas.
+const CACHE_NAME = 'orbit-media-cache-v2';
 const MAX_ENTRIES = 400;
 
 type Kind = 'full' | 'thumb';
-
-interface BlobRecord {
-  key: string;
-  messageId: string;
-  kind: Kind;
-  blob: Blob;
-  sizeBytes: number;
-  storedAt: number;
-  lastAccessedAt: number;
-}
-
-interface MetaRecord {
-  key: 'stats';
-  totalBytes: number;
-  count: number;
-}
 
 export interface BlobResolvedUpdate {
   url: string;
   thumbnailUrl: string | null;
 }
 
-function keyFor(messageId: string, kind: Kind) {
-  return `${messageId}:${kind}`;
+function cacheKeyFor(messageId: string, kind: Kind): string {
+  // URL synthétique (jamais fetchée réellement) servant de clé dans le Cache Storage —
+  // la Cache API indexe par Request, une chaîne same-origin est la façon la plus simple
+  // d'obtenir une clé stable et lisible pour le debug (voir cache.keys() en DevTools).
+  return `https://orbit-media-cache.local/${messageId}/${kind}`;
 }
 
-let dbPromise: Promise<IDBDatabase | null> | null = null;
-
-function openDb(): Promise<IDBDatabase | null> {
-  if (typeof window === 'undefined' || !window.indexedDB) return Promise.resolve(null);
-  if (dbPromise) return dbPromise;
-  dbPromise = new Promise((resolve) => {
-    try {
-      const req = window.indexedDB.open(DB_NAME, DB_VERSION);
-      req.onupgradeneeded = () => {
-        const db = req.result;
-        if (!db.objectStoreNames.contains(STORE_BLOBS)) {
-          const store = db.createObjectStore(STORE_BLOBS, { keyPath: 'key' });
-          store.createIndex('by_lastAccessedAt', 'lastAccessedAt');
-          store.createIndex('by_messageId', 'messageId');
-        }
-        if (!db.objectStoreNames.contains(STORE_META)) {
-          db.createObjectStore(STORE_META, { keyPath: 'key' });
-        }
-      };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-  return dbPromise;
+function cacheSupported(): boolean {
+  return typeof window !== 'undefined' && 'caches' in window;
 }
 
-async function getMeta(db: IDBDatabase): Promise<MetaRecord> {
-  return new Promise((resolve) => {
-    const tx = db.transaction(STORE_META, 'readonly');
-    const req = tx.objectStore(STORE_META).get('stats');
-    req.onsuccess = () => resolve(req.result || { key: 'stats', totalBytes: 0, count: 0 });
-    req.onerror = () => resolve({ key: 'stats', totalBytes: 0, count: 0 });
-  });
-}
-
-function putMeta(db: IDBDatabase, meta: MetaRecord) {
-  try {
-    const tx = db.transaction(STORE_META, 'readwrite');
-    tx.objectStore(STORE_META).put(meta);
-  } catch {
-    // Échec silencieux — les stats redeviendront cohérentes à la prochaine éviction complète.
-  }
-}
-
-async function getRecords(db: IDBDatabase, keys: string[]): Promise<Map<string, BlobRecord>> {
-  return new Promise((resolve) => {
-    const result = new Map<string, BlobRecord>();
-    if (keys.length === 0) return resolve(result);
-    const tx = db.transaction(STORE_BLOBS, 'readonly');
-    const store = tx.objectStore(STORE_BLOBS);
-    let remaining = keys.length;
-    for (const key of keys) {
-      const req = store.get(key);
-      req.onsuccess = () => {
-        if (req.result) result.set(key, req.result as BlobRecord);
-        remaining--;
-        if (remaining === 0) resolve(result);
-      };
-      req.onerror = () => {
-        remaining--;
-        if (remaining === 0) resolve(result);
-      };
-    }
-  });
-}
-
-async function touchRecord(db: IDBDatabase, record: BlobRecord) {
-  try {
-    const tx = db.transaction(STORE_BLOBS, 'readwrite');
-    tx.objectStore(STORE_BLOBS).put({ ...record, lastAccessedAt: Date.now() });
-  } catch {
-    // Non bloquant — juste un rafraîchissement LRU manqué.
-  }
-}
-
-async function putBlob(db: IDBDatabase, messageId: string, kind: Kind, blob: Blob): Promise<boolean> {
-  const record: BlobRecord = {
-    key: keyFor(messageId, kind), messageId, kind, blob,
-    sizeBytes: blob.size, storedAt: Date.now(), lastAccessedAt: Date.now(),
-  };
-  try {
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(STORE_BLOBS, 'readwrite');
-      tx.objectStore(STORE_BLOBS).put(record);
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-      tx.onabort = () => reject(tx.error);
-    });
-    const meta = await getMeta(db);
-    putMeta(db, { key: 'stats', totalBytes: meta.totalBytes + blob.size, count: meta.count + 1 });
-    await evictIfNeeded(db);
-    return true;
-  } catch {
-    // Quota dépassé ou autre échec d'écriture — une passe d'éviction puis un seul retry.
-    try {
-      await evictOldest(db, Math.max(20, Math.floor((await getMeta(db)).count * 0.2)));
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(STORE_BLOBS, 'readwrite');
-        tx.objectStore(STORE_BLOBS).put(record);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-      const meta = await getMeta(db);
-      putMeta(db, { key: 'stats', totalBytes: meta.totalBytes + blob.size, count: meta.count + 1 });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-
-async function evictIfNeeded(db: IDBDatabase) {
-  const meta = await getMeta(db);
-  if (meta.totalBytes <= MAX_BYTES && meta.count <= MAX_ENTRIES) return;
-  await evictOldest(db, Math.max(10, meta.count - MAX_ENTRIES > 0 ? meta.count - MAX_ENTRIES : Math.ceil(meta.count * 0.1)));
-}
-
-async function evictOldest(db: IDBDatabase, atLeastN: number) {
-  return new Promise<void>((resolve) => {
-    let freed = 0;
-    let deleted = 0;
-    const tx = db.transaction([STORE_BLOBS, STORE_META], 'readwrite');
-    const store = tx.objectStore(STORE_BLOBS);
-    const idx = store.index('by_lastAccessedAt');
-    const cursorReq = idx.openCursor();
-    cursorReq.onsuccess = () => {
-      const cursor = cursorReq.result;
-      if (!cursor || deleted >= atLeastN) {
-        const metaReq = tx.objectStore(STORE_META).get('stats');
-        metaReq.onsuccess = () => {
-          const meta: MetaRecord = metaReq.result || { key: 'stats', totalBytes: 0, count: 0 };
-          tx.objectStore(STORE_META).put({
-            key: 'stats',
-            totalBytes: Math.max(0, meta.totalBytes - freed),
-            count: Math.max(0, meta.count - deleted),
-          });
-        };
-        return;
-      }
-      const rec = cursor.value as BlobRecord;
-      freed += rec.sizeBytes;
-      deleted++;
-      cursor.delete();
-      cursor.continue();
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
-  });
-}
-
-async function deleteByMessageId(db: IDBDatabase, messageId: string) {
-  return new Promise<void>((resolve) => {
-    let freed = 0;
-    let deleted = 0;
-    const tx = db.transaction([STORE_BLOBS, STORE_META], 'readwrite');
-    const store = tx.objectStore(STORE_BLOBS);
-    const idx = store.index('by_messageId');
-    const cursorReq = idx.openCursor(IDBKeyRange.only(messageId));
-    cursorReq.onsuccess = () => {
-      const cursor = cursorReq.result;
-      if (!cursor) {
-        const metaReq = tx.objectStore(STORE_META).get('stats');
-        metaReq.onsuccess = () => {
-          const meta: MetaRecord = metaReq.result || { key: 'stats', totalBytes: 0, count: 0 };
-          tx.objectStore(STORE_META).put({
-            key: 'stats',
-            totalBytes: Math.max(0, meta.totalBytes - freed),
-            count: Math.max(0, meta.count - deleted),
-          });
-        };
-        return;
-      }
-      const rec = cursor.value as BlobRecord;
-      freed += rec.sizeBytes;
-      deleted++;
-      cursor.delete();
-      cursor.continue();
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
-  });
+let cachePromise: Promise<Cache | null> | null = null;
+function openCache(): Promise<Cache | null> {
+  if (!cacheSupported()) return Promise.resolve(null);
+  if (cachePromise) return cachePromise;
+  cachePromise = caches.open(CACHE_NAME).catch(() => null);
+  return cachePromise;
 }
 
 // Registre des object URLs actuellement affichées, avec comptage de références — évite de
@@ -260,6 +62,55 @@ function acquireObjectUrl(key: string, blob: Blob): string {
   return url;
 }
 
+async function getCachedBlob(cache: Cache, messageId: string, kind: Kind): Promise<Blob | null> {
+  try {
+    const res = await cache.match(cacheKeyFor(messageId, kind));
+    if (!res) return null;
+    const blob = await res.blob();
+    // Une réponse en cache avec un corps vide/tronqué ne doit jamais être servie —
+    // mêmes conséquences qu'un fichier corrompu, on la traite comme absente.
+    if (blob.size === 0) { await cache.delete(cacheKeyFor(messageId, kind)); return null; }
+    return blob;
+  } catch {
+    return null;
+  }
+}
+
+async function putCachedBlob(cache: Cache, messageId: string, kind: Kind, blob: Blob) {
+  if (blob.size === 0) return;
+  try {
+    await cache.put(cacheKeyFor(messageId, kind), new Response(blob));
+    await evictIfNeeded(cache);
+  } catch {
+    // Quota dépassé ou autre échec d'écriture — l'image reste affichable via l'URL
+    // signée brute, juste pas mise en cache pour la prochaine fois.
+  }
+}
+
+// La Cache API n'expose pas de "dernier accès" natif (pas d'équivalent LRU intégré) —
+// éviction simple par ordre d'insertion une fois MAX_ENTRIES dépassé, suffisant pour
+// borner la taille sans la complexité d'un index séparé.
+async function evictIfNeeded(cache: Cache) {
+  try {
+    const keys = await cache.keys();
+    if (keys.length <= MAX_ENTRIES) return;
+    const excess = keys.length - MAX_ENTRIES;
+    await Promise.all(keys.slice(0, excess).map(req => cache.delete(req)));
+  } catch {
+    // Non bloquant — le quota du navigateur reste le filet de sécurité ultime.
+  }
+}
+
+async function deleteByMessageId(cache: Cache, messageId: string) {
+  try {
+    await Promise.all(
+      (['full', 'thumb'] as Kind[]).map(kind => cache.delete(cacheKeyFor(messageId, kind)))
+    );
+  } catch {
+    // Non bloquant.
+  }
+}
+
 export function useBlobMediaCache() {
   const signedResolve = useSignedMediaUrls();
 
@@ -267,40 +118,26 @@ export function useBlobMediaCache() {
     messages: Array<{ id: string; type?: string }>,
     apply: (updates: Record<string, BlobResolvedUpdate>) => void,
   ) => {
-    if (!USE_BLOB_CACHE) return signedResolve(messages, apply);
-
     const imageMsgs = messages.filter(m => m.type === 'image');
     const otherMsgs = messages.filter(m => m.type !== 'image');
 
     if (otherMsgs.length > 0) signedResolve(otherMsgs, apply);
     if (imageMsgs.length === 0) return;
 
-    const db = await openDb();
-    if (!db) { await signedResolve(imageMsgs, apply); return; }
-
-    const keys = imageMsgs.flatMap(m => [keyFor(m.id, 'full'), keyFor(m.id, 'thumb')]);
-    const records = await getRecords(db, keys);
+    const cache = await openCache();
+    if (!cache) { await signedResolve(imageMsgs, apply); return; }
 
     const fromCache: Record<string, BlobResolvedUpdate> = {};
     const toFetch: Array<{ id: string; type?: string }> = [];
-    for (const m of imageMsgs) {
-      const full = records.get(keyFor(m.id, 'full'));
-      const thumb = records.get(keyFor(m.id, 'thumb'));
-      // Un blob de taille 0 déjà en cache (téléchargement tronqué avant ce fix) ne doit
-      // jamais être servi — on le traite comme absent pour forcer un nouveau téléchargement
-      // au lieu de figer l'image cassée indéfiniment.
-      if (full && full.blob.size > 0) {
-        fromCache[m.id] = {
-          url: acquireObjectUrl(keyFor(m.id, 'full'), full.blob),
-          thumbnailUrl: (thumb && thumb.blob.size > 0) ? acquireObjectUrl(keyFor(m.id, 'thumb'), thumb.blob) : null,
-        };
-        touchRecord(db, full);
-        if (thumb && thumb.blob.size > 0) touchRecord(db, thumb);
-      } else {
-        if (full) deleteByMessageId(db, m.id);
-        toFetch.push(m);
-      }
-    }
+    await Promise.all(imageMsgs.map(async (m) => {
+      const full = await getCachedBlob(cache, m.id, 'full');
+      if (!full) { toFetch.push(m); return; }
+      const thumb = await getCachedBlob(cache, m.id, 'thumb');
+      fromCache[m.id] = {
+        url: acquireObjectUrl(cacheKeyFor(m.id, 'full'), full),
+        thumbnailUrl: thumb ? acquireObjectUrl(cacheKeyFor(m.id, 'thumb'), thumb) : null,
+      };
+    }));
     if (Object.keys(fromCache).length > 0) apply(fromCache);
     if (toFetch.length === 0) return;
 
@@ -314,17 +151,15 @@ export function useBlobMediaCache() {
         let finalThumbUrl = u.thumbnailUrl;
         try {
           const res = await fetch(u.url);
-          // res.ok=200 ne garantit pas un blob valide : sur mobile (réseau instable,
-          // requête interrompue en arrière-plan) le body peut arriver tronqué/vide.
-          // Un blob de taille 0 mis en cache IndexedDB restait cassé pour toujours
-          // (jamais re-téléchargé ensuite) — d'où l'icône image cassée qui persistait
-          // même après un refresh, uniquement sur les appareils où le 1er téléchargement
-          // avait échoué de cette façon silencieuse.
+          // res.ok=200 ne garantit pas un corps valide : sur mobile (réseau instable,
+          // requête interrompue en arrière-plan) le body peut arriver tronqué/vide —
+          // putCachedBlob rejette déjà les blobs de taille 0, mais on vérifie ici aussi
+          // pour ne pas remplacer une URL signée fonctionnelle par un objet vide.
           if (res.ok) {
             const blob = await res.blob();
             if (blob.size > 0) {
-              const ok = await putBlob(db, id, 'full', blob);
-              if (ok) finalUrl = acquireObjectUrl(keyFor(id, 'full'), blob);
+              await putCachedBlob(cache, id, 'full', blob);
+              finalUrl = acquireObjectUrl(cacheKeyFor(id, 'full'), blob);
             }
           }
         } catch {
@@ -336,8 +171,8 @@ export function useBlobMediaCache() {
             if (resThumb.ok) {
               const blobThumb = await resThumb.blob();
               if (blobThumb.size > 0) {
-                const ok = await putBlob(db, id, 'thumb', blobThumb);
-                if (ok) finalThumbUrl = acquireObjectUrl(keyFor(id, 'thumb'), blobThumb);
+                await putCachedBlob(cache, id, 'thumb', blobThumb);
+                finalThumbUrl = acquireObjectUrl(cacheKeyFor(id, 'thumb'), blobThumb);
               }
             }
           } catch {
@@ -353,7 +188,7 @@ export function useBlobMediaCache() {
   const release = useCallback((messageIds: string[]) => {
     for (const id of messageIds) {
       for (const kind of ['full', 'thumb'] as Kind[]) {
-        const key = keyFor(id, kind);
+        const key = cacheKeyFor(id, kind);
         const entry = objectUrlRegistry.get(key);
         if (!entry) continue;
         entry.refCount--;
@@ -367,14 +202,14 @@ export function useBlobMediaCache() {
 
   const evictMessage = useCallback((messageId: string) => {
     for (const kind of ['full', 'thumb'] as Kind[]) {
-      const key = keyFor(messageId, kind);
+      const key = cacheKeyFor(messageId, kind);
       const entry = objectUrlRegistry.get(key);
       if (entry) {
         URL.revokeObjectURL(entry.url);
         objectUrlRegistry.delete(key);
       }
     }
-    if (USE_BLOB_CACHE) openDb().then(db => { if (db) deleteByMessageId(db, messageId); });
+    openCache().then(cache => { if (cache) deleteByMessageId(cache, messageId); });
   }, []);
 
   return { resolve, release, evictMessage };
