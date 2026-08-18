@@ -747,6 +747,7 @@ export default function PageClientCalls() {
               avatarUrl={getCallCounterpart(nextCall).avatar_url}
               size={52}
               seed={getCallCounterpart(nextCall).id}
+              className="next-call-banner-avatar"
             />
             <div className="next-call-banner-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>

@@ -11,39 +11,17 @@ import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { createClient } from '@/lib/supabase/client';
-import { getPendingSessionRapports, isCallReallyOver, isCallMissingRecording, isCallJoinable, isCallInProgress } from '@/lib/sessionRapport';
+import { getPendingSessionRapports, isCallReallyOver, isCallJoinable, isCallCanceled, isCoachingCall, pickDisplayedCall } from '@/lib/sessionRapport';
+import CallCard from '@/components/ui/CallCard';
+import { CallTypeBadge } from '@/components/ui/CallBadges';
+import { formatCallLongDate, formatCallTime, groupCallsByPeriod } from '@/lib/callFormat';
 import type { Call } from '@/lib/supabase/types';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled' | 'unmatched';
 
-// Badge Coaching/Prospect — même style que la carte "Prochain call", réutilisé
-// partout dans la page pour que l'œil apprenne un seul pattern visuel.
-function CallTypeBadge({ isGoogle }: { isGoogle: boolean }) {
-  return (
-    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isGoogle ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isGoogle ? 'var(--accent)' : 'var(--accent-brand)', whiteSpace: 'nowrap' }}>
-      {isGoogle ? 'Coaching' : 'Prospect'}
-    </span>
-  );
-}
-
-// Info neutre, pas une alerte — un call sans replay Fathom n'est pas un
-// problème (bot pas rejoint, appel hors visio, etc.). Fond transparent + bordure
-// (pas var(--surface-2) plein) pour rester visuellement distinct de CallTypeBadge.
-function FathomMissingBadge() {
-  return (
-    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink-2)', whiteSpace: 'nowrap' }}>
-      Pas de replay
-    </span>
-  );
-}
-
-function FathomAvailableBadge() {
-  return (
-    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)', whiteSpace: 'nowrap' }}>
-      Replay dispo
-    </span>
-  );
-}
+// Nombre de périodes (semaine/mois) affichées avant le bouton "Voir plus". Remplace
+// l'ancien découpage à N calls, qui coupait au milieu d'un mois.
+const VISIBLE_PERIODS = 2;
 
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
@@ -74,7 +52,11 @@ export default function PageCalls() {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
-  const [openSalesRapportCall, setOpenSalesRapportCall] = useState<{ callId: string; inviteeName: string | null; scheduledAt: string | null } | null>(null);
+  const [openSalesRapportCall, setOpenSalesRapportCall] = useState<{ callId: string; inviteeName: string | null; scheduledAt: string | null; isFollowUp: boolean } | null>(null);
+
+  // Historique paginé par période — les 2 premières (semaine/mois courant) sont
+  // affichées, le reste derrière un bouton.
+  const [historyExpanded, setHistoryExpanded] = useState(false);
 
   // Force un recalcul du split upcoming/historique chaque minute, pour que la
   // bascule se fasse en temps réel sans dépendre uniquement des changements
@@ -170,241 +152,173 @@ export default function PageCalls() {
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
   const upcomingActive = upcoming.filter(c => c.status === 'active');
 
-  // Widget "Prochain call" — liste candidate séparée de `upcoming` (qui inclut la
-  // grâce) : bascule vers le call suivant dès que le call affiché est réellement
-  // terminé (isCallReallyOver), peu importe le délai avant le suivant.
-  function pickDisplayedCall(list: Call[], now: number): Call | null {
-    if (list.length === 0) return null;
-    const current = list[0];
-    const next = list[1];
-    if (!next) return current;
-    return isCallReallyOver(current, now) ? next : current;
-  }
   const nextCall = pickDisplayedCall(upcomingActive, nowTick);
   const pending = calls.filter(c => c.status === 'pending_acceptance');
 
-  // Onglets Prospects / Coachings / Annulés — chacun affiche ses propres sections
+  // Onglets Ventes / Coachings / Annulés — chacun affiche ses propres sections
   // "À venir" puis "Historique" en dessous, indépendamment de l'onglet À venir/Historique
   // principal (qui, lui, mélange tous les types sans filtre).
-  const isGoogleCall = (c: Call) => (c as { call_type?: string }).call_type === 'google';
-  const isCanceledCall = (c: Call) => ['canceled', 'declined'].includes(c.status || '');
+  const salesUpcoming = upcoming.filter(c => !isCoachingCall(c) && !isCallCanceled(c));
+  const salesHistory = history.filter(c => !isCoachingCall(c));
+  const coachingUpcoming = upcoming.filter(c => isCoachingCall(c) && !isCallCanceled(c));
+  const coachingHistory = history.filter(c => isCoachingCall(c));
+  const canceledUpcoming = upcoming.filter(isCallCanceled);
+  const canceledHistory = history.filter(isCallCanceled);
 
-  const prospectUpcoming = upcoming.filter(c => !isGoogleCall(c) && !isCanceledCall(c));
-  const prospectHistory = history.filter(c => !isGoogleCall(c));
-  const coachingUpcoming = upcoming.filter(c => isGoogleCall(c) && !isCanceledCall(c));
-  const coachingHistory = history.filter(c => isGoogleCall(c));
-  const canceledUpcoming = upcoming.filter(isCanceledCall);
-  const canceledHistory = history.filter(isCanceledCall);
+  // Le coach n'a de calls de vente que s'il a connecté son PROPRE Calendly (ses
+  // calls, pas ceux de ses élèves — cf. docs/calls-coach-id-piege.md). Sans ça
+  // l'onglet est vide sans explication.
+  const hasOwnSalesCalls = salesUpcoming.length + salesHistory.length > 0;
 
   function getClient(clientId: string) {
     return clients.find(c => c.id === clientId);
   }
 
-  // Rendu carte "à venir" — réutilisé par l'onglet À venir principal et les sections
-  // "À venir" des onglets Prospects/Coachings/Annulés (même liste de calls, filtrée en amont).
-  function renderUpcomingList(list: Call[], emptyMsg: string) {
-    if (list.length === 0) return (
-      <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', fontSize: 13 }}>
-        {emptyMsg}
-      </div>
-    );
+  // Identité de l'interlocuteur — le client lié pour un coaching, l'invité Calendly
+  // pour un call de vente.
+  function getCounterpart(call: Call) {
+    const cl = getClient(call.client_id || '');
+    return {
+      displayName: cl?.name || call.invitee_name || call.invitee_email || '—',
+      initials: cl?.initials || getInitials(call.invitee_name),
+      avatarUrl: cl?.avatar_url ?? null,
+      seed: cl?.id,
+      client: cl,
+    };
+  }
+
+  // Boutons propres au coach : Annuler/Retirer sur les coachings, Rapport quand il
+  // en reste un à remplir, Infos quand il y a quelque chose à consulter.
+  function renderActions(call: Call, variant: 'upcoming' | 'history' | 'canceled') {
+    const cl = getClient(call.client_id || '');
+    const coaching = isCoachingCall(call);
+    const canceled = isCallCanceled(call);
+    const showInfos = variant === 'history' && (call.fathom_status === 'matched' || call.session_completed || call.session_no_show || call.outcome != null);
+
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-        {list.map(call => {
-          const cl = getClient(call.client_id || '');
-          const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
-          const initials = cl?.initials || getInitials(call.invitee_name);
-          const d = new Date(call.scheduled_at!);
-          const isGoogle = (call as { call_type?: string }).call_type === 'google';
-          return (
-            <div key={call.id} className="card call-row" style={{ display: 'flex', alignItems: 'center', gap: 16, padding: '16px 20px' }}>
-              <div style={{ minWidth: 80, textAlign: 'center', opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
-                <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)', textDecoration: ['canceled','declined'].includes(call.status || '') ? 'line-through' : 'none' }}>
-                  {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                  {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                </div>
-              </div>
-              <div style={{ width: 1, height: 40, background: 'var(--border)', opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }} />
-              <div style={{ flexShrink: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
-                <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={40} seed={cl?.id} />
-              </div>
-              <div style={{ flex: 1, minWidth: 0, opacity: ['canceled','declined'].includes(call.status || '') ? 0.55 : 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--ink)' }}>
-                  {displayName}
-                  {call.topic && <span style={{ fontWeight: 400, color: 'var(--ink)', marginLeft: 6 }}>· {call.topic}</span>}
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginTop: 4 }}>
-                  <CallTypeBadge isGoogle={isGoogle} />
-                  {isGoogle && <span style={{ fontSize: 11, color: 'var(--muted)' }}>Google Meet</span>}
-                  {isCallInProgress(call, nowTick) && (
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)' }}>
-                      En cours
-                    </span>
-                  )}
-                </div>
-              </div>
-              {call.join_url && isCallJoinable(call, nowTick) && (
-                <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
-                  style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>
-                  <Icon name="video" size={13} /> Rejoindre
-                </a>
-              )}
-              {isGoogle && (
-                confirmDeleteId === call.id ? (
-                  <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                    <span style={{ fontSize: 11, color: 'var(--muted)' }}>Retirer ?</span>
-                    <button className="btn-ghost" type="button" onClick={() => handleDeleteCall(call.id)} disabled={deletingId === call.id}
-                      style={{ fontSize: 11, color: 'var(--red)', border: '1px solid #fca5a5', borderRadius: 8, padding: '4px 10px' }}>{deletingId === call.id ? '…' : 'Oui'}</button>
-                    <button className="btn-ghost" type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px' }}>Non</button>
-                  </div>
-                ) : (
-                  <button className="btn-ghost call-action-cancel" type="button"
-                    onClick={() => ['canceled','declined'].includes(call.status || '') ? setConfirmDeleteId(call.id) : setConfirmCancelId(call.id)}
-                    disabled={cancelingId === call.id}
-                    style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)', border: '1px solid #fca5a5', borderRadius: 8, padding: '4px 10px' }}>
-                    <Icon name={['canceled','declined'].includes(call.status || '') ? 'trash' : 'x'} size={13} />
-                    {cancelingId === call.id ? '…' : ['canceled','declined'].includes(call.status || '') ? 'Retirer' : 'Annuler'}
-                  </button>
-                )
-              )}
-              {isGoogle && pendingSessionRapportIds.has(call.id) && (
-                <button
-                  type="button"
-                  className="btn-primary-brand"
-                  style={{ fontSize: 11, background: 'var(--accent-brand)', flexShrink: 0 }}
-                  onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}
-                >
-                  Rapport
-                </button>
-              )}
-              {!isGoogle && call.coach_id === userId && call.outcome == null && (
-                <button
-                  type="button"
-                  className="btn-primary-brand"
-                  style={{ fontSize: 11, background: 'var(--accent-brand)', flexShrink: 0 }}
-                  onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
-                >
-                  Rapport
-                </button>
-              )}
-              {call.status === 'canceled' ? (
-                <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Annulé</span>
-              ) : call.status === 'declined' ? (
-                <span className="pill" style={{ fontSize: 11, background: '#fee2e2', color: '#991b1b', border: '1px solid #fca5a5' }}>Refusé</span>
-              ) : isGoogle && call.status === 'active' ? (
-                <span className="pill pill-green" style={{ fontSize: 11 }}>Accepté</span>
-              ) : null}
+      <>
+        {coaching && pendingSessionRapportIds.has(call.id) && (
+          <button type="button" className="btn-primary-brand" style={{ fontSize: 12 }}
+            onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}>
+            Rapport
+          </button>
+        )}
+        {!coaching && call.coach_id === userId && call.outcome == null && (
+          <button type="button" className="btn-primary-brand" style={{ fontSize: 12 }}
+            onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: call.is_follow_up === true })}>
+            Rapport
+          </button>
+        )}
+        {showInfos && (
+          <button type="button" className="btn-ghost" style={{ fontSize: 12, border: '1px solid var(--border)' }}
+            onClick={() => setInfosModalCall({ call, clientName: cl?.name ?? null })}>
+            Infos
+          </button>
+        )}
+        {coaching && variant !== 'history' && (
+          confirmDeleteId === call.id ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Retirer ?</span>
+              <button className="btn-ghost call-confirm-btn" type="button" onClick={() => handleDeleteCall(call.id)} disabled={deletingId === call.id}
+                style={{ fontSize: 12, color: 'var(--red)', border: '1px solid var(--red)' }}>{deletingId === call.id ? '…' : 'Oui'}</button>
+              <button className="btn-ghost call-confirm-btn" type="button" onClick={() => setConfirmDeleteId(null)}
+                style={{ fontSize: 12, border: '1px solid var(--border)' }}>Non</button>
             </div>
-          );
-        })}
-      </div>
+          ) : (
+            <button className="btn-ghost call-action-cancel" type="button"
+              onClick={() => canceled ? setConfirmDeleteId(call.id) : setConfirmCancelId(call.id)}
+              disabled={cancelingId === call.id}
+              style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5, color: 'var(--red)', border: '1px solid var(--red)' }}>
+              <Icon name={canceled ? 'trash' : 'x'} size={13} />
+              {cancelingId === call.id ? '…' : canceled ? 'Retirer' : 'Annuler'}
+            </button>
+          )
+        )}
+      </>
     );
   }
 
-  // Rendu tableau "historique" — réutilisé par l'onglet Historique principal et les
-  // sections "Historique" des onglets Prospects/Coachings/Annulés.
-  function renderHistoryTable(list: Call[], emptyMsg: string) {
+  // Liste de cartes groupées par période, avec séparateurs collants. Une seule
+  // fonction pour tous les onglets : la variante ne change que les badges et les
+  // actions, jamais la structure.
+  function renderCallList(
+    list: Call[],
+    variant: 'upcoming' | 'history' | 'canceled',
+    emptyMsg: string,
+    opts?: { paginate?: boolean }
+  ) {
     if (list.length === 0) return (
       <div className="card" style={{ textAlign: 'center', padding: '48px 20px', color: 'var(--muted)', fontSize: 13 }}>
         {emptyMsg}
       </div>
     );
+
+    const groups = groupCallsByPeriod(list, nowTick);
+    const paginate = opts?.paginate && !historyExpanded;
+    const shown = paginate ? groups.slice(0, VISIBLE_PERIODS) : groups;
+    const hiddenCount = groups.slice(VISIBLE_PERIODS).reduce((n, g) => n + g.calls.length, 0);
+
     return (
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Client</th>
-              <th>Sujet</th>
-              <th>Notes</th>
-            </tr>
-          </thead>
-          <tbody>
-            {list.map(call => {
-              const cl = getClient(call.client_id || '');
-              const displayName = cl?.name || call.invitee_name || call.invitee_email || '—';
-              const initials = cl?.initials || getInitials(call.invitee_name);
-              const d = new Date(call.scheduled_at!);
-              const isGoogle = (call as { call_type?: string }).call_type === 'google';
-              return (
-                <tr key={call.id}>
-                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                    {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </td>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={28} seed={cl?.id} />
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</div>
-                        <div style={{ marginTop: 2, display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                          <CallTypeBadge isGoogle={isGoogle} />
-                          {call.fathom_status === 'matched' ? (
-                            <FathomAvailableBadge />
-                          ) : isCallMissingRecording(call, nowTick) ? (
-                            <FathomMissingBadge />
-                          ) : null}
-                        </div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ fontSize: 12 }}>{call.topic || '—'}</td>
-                  <td style={{ fontSize: 12, color: 'var(--muted)', maxWidth: 200 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6, justifyContent: 'flex-end' }}>
-                      {pendingSessionRapportIds.has(call.id) ? (
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
-                          onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}
-                        >
-                          Rapport
-                        </button>
-                      ) : (!isGoogle && call.coach_id === userId && call.outcome == null) ? (
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
-                          onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
-                        >
-                          Rapport
-                        </button>
-                      ) : (call.notes || '—')}
-                      {(call.fathom_status === 'matched' || call.session_completed || call.session_no_show || call.outcome != null) && (
-                        <button
-                          type="button"
-                          className="btn-ghost"
-                          style={{ fontSize: 11, flexShrink: 0, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
-                          onClick={() => setInfosModalCall({ call, clientName: cl?.name ?? null })}
-                        >
-                          Infos
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div>
+        {shown.map(group => (
+          <div key={group.key}>
+            <div className="call-period-sep">{group.label}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+              {group.calls.map(call => {
+                const cp = getCounterpart(call);
+                return (
+                  <CallCard
+                    key={call.id}
+                    call={call}
+                    variant={variant}
+                    displayName={cp.displayName}
+                    initials={cp.initials}
+                    avatarUrl={cp.avatarUrl}
+                    seed={cp.seed}
+                    now={nowTick}
+                    actions={renderActions(call, variant)}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {paginate && hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setHistoryExpanded(true)}
+            className="card"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '100%', padding: '16px 20px', fontSize: 14, fontWeight: 600,
+              color: 'var(--accent)', cursor: 'pointer', border: '1px dashed var(--border)',
+            }}
+          >
+            Voir les périodes précédentes ({hiddenCount} call{hiddenCount > 1 ? 's' : ''})
+          </button>
+        )}
       </div>
     );
   }
 
   // Sections "À venir" + "Historique" empilées, utilisées par les onglets
-  // Prospects/Coachings/Annulés — même pattern, juste des listes/messages différents.
-  function renderStackedSections(upcomingList: Call[], historyList: Call[], upcomingEmptyMsg: string, historyEmptyMsg: string) {
+  // Ventes/Coachings/Annulés — même pattern, juste des listes/messages différents.
+  function renderStackedSections(
+    upcomingList: Call[],
+    historyList: Call[],
+    upcomingEmptyMsg: string,
+    historyEmptyMsg: string,
+    canceledVariant = false
+  ) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
         <div>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>À venir</div>
-          {renderUpcomingList(upcomingList, upcomingEmptyMsg)}
+          {renderCallList(upcomingList, canceledVariant ? 'canceled' : 'upcoming', upcomingEmptyMsg)}
         </div>
         <div>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>Historique</div>
-          {renderHistoryTable(historyList, historyEmptyMsg)}
+          {renderCallList(historyList, canceledVariant ? 'canceled' : 'history', historyEmptyMsg)}
         </div>
       </div>
     );
@@ -447,37 +361,39 @@ export default function PageCalls() {
         </div>
       </div>
 
-      {/* Prochain call — même bandeau que côté élève, agrégé tous élèves */}
+      {/* Prochain call — mêmes classes .next-call-banner-* que côté élève, qui
+          portent tout le responsive (avatar masqué, compteur réduit, bouton pleine
+          largeur). Le bandeau coach n'en avait aucune : il gardait son compteur de
+          110px et son texte de 28px sur 375px. */}
       {nextCall?.scheduled_at && (() => {
-        const cl = getClient(nextCall.client_id || '');
-        const displayName = cl?.name || nextCall.invitee_name || '—';
-        const isGoogle = (nextCall as { call_type?: string }).call_type === 'google';
+        const cp = getCounterpart(nextCall);
         return (
-          <div className="card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '24px 24px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 20, flexWrap: 'wrap' }}>
-              <div style={{ flex: 1 }}>
+          <div className="next-call-banner card" style={{ marginBottom: 20, borderLeft: '3px solid var(--accent-brand)', padding: '24px 24px' }}>
+            <div className="next-call-banner-top">
+              <Avatar initials={cp.initials} avatarUrl={cp.avatarUrl} size={52} seed={cp.seed} className="next-call-banner-avatar" />
+              <div className="next-call-banner-info">
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                   <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
-                  <CallTypeBadge isGoogle={isGoogle} />
+                  <CallTypeBadge call={nextCall} />
                 </div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
-                  {new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
+                  {formatCallLongDate(nextCall.scheduled_at)}
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)', marginTop: 2 }}>
-                  {new Date(nextCall.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                  {formatCallTime(nextCall.scheduled_at)}
                   {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-                  {displayName}{nextCall.topic ? ` · ${nextCall.topic}` : ''}
+                  {cp.displayName}{nextCall.topic ? ` · ${nextCall.topic}` : ''}
                 </div>
                 {nextCall.join_url && isCallJoinable(nextCall, nowTick) && (
-                  <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
-                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, textDecoration: 'none', marginTop: 12, padding: '8px 16px', border: '1px solid var(--border)', borderRadius: 8 }}>
-                    <Icon name="video" size={14} /> Rejoindre
+                  <a href={nextCall.join_url} target="_blank" rel="noopener noreferrer" className="btn-primary-brand next-call-banner-join"
+                    style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 13, textDecoration: 'none', marginTop: 16, padding: '8px 16px' }}>
+                    <Icon name="video" size={14} /> Rejoindre le call
                   </a>
                 )}
               </div>
-              <div style={{ padding: '16px 20px', background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center', minWidth: 110 }}>
+              <div className="next-call-banner-countdown" style={{ background: 'var(--surface-2)', borderRadius: 12, textAlign: 'center' }}>
                 {(() => {
                   const diffMs = new Date(nextCall.scheduled_at).getTime() - nowTick;
                   const days = Math.ceil(diffMs / 86_400_000);
@@ -487,7 +403,7 @@ export default function PageCalls() {
                         {days <= 0 ? 'Auj.' : `J-${days}`}
                       </div>
                       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                        {days <= 0 ? "aujourd'hui" : days === 1 ? 'demain' : `dans ${days}j`}
+                        {days <= 0 ? "C'est aujourd'hui !" : days === 1 ? 'Demain' : `dans ${days} jours`}
                       </div>
                     </>
                   );
@@ -504,51 +420,41 @@ export default function PageCalls() {
           <div className="eyebrow-lg" style={{ color: '#f59e0b', marginBottom: 10 }}>
             En attente d'acceptation ({pending.length})
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {pending.map(call => {
-              const cl = getClient(call.client_id || '');
-              const displayName = cl?.name || call.invitee_name || '—';
-              const initials = cl?.initials || getInitials(displayName !== '—' ? displayName : null);
-              const d = new Date(call.scheduled_at!);
+              const cp = getCounterpart(call);
               return (
-                <div key={call.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px', borderLeft: '3px solid var(--amber)' }}>
-                  <div style={{ minWidth: 70, textAlign: 'center' }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--font-mono)' }}>
-                      {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                    </div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                      {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                    </div>
-                  </div>
-                  <Avatar initials={initials} avatarUrl={cl?.avatar_url} size={34} seed={cl?.id} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--ink)' }}>
-                      {displayName}
-                      {call.topic && <span style={{ fontWeight: 400, color: 'var(--ink)', marginLeft: 6 }}>· {call.topic}</span>}
-                    </div>
-                  </div>
-                  <span style={{ fontSize: 10, padding: '3px 8px', background: '#fef3c7', color: '#92400e', borderRadius: 20, fontWeight: 700, border: '1px solid #fde68a', whiteSpace: 'nowrap' }}>
-                    Réponse en attente
-                  </span>
-                  {confirmDeleteId === call.id ? (
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>Retirer ?</span>
-                      <button className="btn-ghost" type="button" onClick={() => handleDeleteCall(call.id)} disabled={deletingId === call.id}
-                        style={{ fontSize: 11, color: 'var(--red)' }}>
-                        {deletingId === call.id ? '…' : 'Oui'}
+                <CallCard
+                  key={call.id}
+                  call={call}
+                  variant="pending"
+                  displayName={cp.displayName}
+                  initials={cp.initials}
+                  avatarUrl={cp.avatarUrl}
+                  seed={cp.seed}
+                  now={nowTick}
+                  actions={
+                    confirmDeleteId === call.id ? (
+                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span style={{ fontSize: 12, color: 'var(--muted)' }}>Retirer ?</span>
+                        <button className="btn-ghost call-confirm-btn" type="button" onClick={() => handleDeleteCall(call.id)} disabled={deletingId === call.id}
+                          style={{ fontSize: 12, color: 'var(--red)', border: '1px solid var(--red)' }}>
+                          {deletingId === call.id ? '…' : 'Oui'}
+                        </button>
+                        <button className="btn-ghost call-confirm-btn" type="button" onClick={() => setConfirmDeleteId(null)}
+                          style={{ fontSize: 12, border: '1px solid var(--border)' }}>Non</button>
+                      </div>
+                    ) : (
+                      <button className="btn-ghost call-action-cancel" type="button"
+                        onClick={() => isCallCanceled(call) ? setConfirmDeleteId(call.id) : handleCancelCall(call.id)}
+                        disabled={cancelingId === call.id}
+                        style={{ fontSize: 12, color: 'var(--red)', border: '1px solid var(--red)', display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                        <Icon name={isCallCanceled(call) ? 'trash' : 'x'} size={13} />
+                        {cancelingId === call.id ? '…' : isCallCanceled(call) ? 'Retirer' : 'Annuler'}
                       </button>
-                      <button className="btn-ghost" type="button" onClick={() => setConfirmDeleteId(null)} style={{ fontSize: 11 }}>Non</button>
-                    </div>
-                  ) : (
-                    <button className="btn-ghost" type="button"
-                      onClick={() => call.status === 'canceled' ? setConfirmDeleteId(call.id) : handleCancelCall(call.id)}
-                      disabled={cancelingId === call.id}
-                      style={{ fontSize: 11, color: 'var(--red)', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
-                      <Icon name={call.status === 'canceled' ? 'trash' : 'x'} size={12} />
-                      {cancelingId === call.id ? '…' : call.status === 'canceled' ? 'Retirer' : 'Annuler'}
-                    </button>
-                  )}
-                </div>
+                    )
+                  }
+                />
               );
             })}
           </div>
@@ -557,13 +463,13 @@ export default function PageCalls() {
 
       <div className="chip-scroll" style={{ display: 'flex', gap: 6, marginBottom: 20, overflowX: 'auto' }}>
         <button className={`chip${tab === 'upcoming' ? ' chip-active' : ''}`} onClick={() => setTab('upcoming')} type="button">
-          À venir ({upcomingActive.length})
+          À venir ({upcoming.length})
         </button>
         <button className={`chip${tab === 'history' ? ' chip-active' : ''}`} onClick={() => setTab('history')} type="button">
           Historique ({history.length})
         </button>
         <button className={`chip${tab === 'prospects' ? ' chip-active' : ''}`} onClick={() => setTab('prospects')} type="button">
-          Prospects ({prospectUpcoming.length + prospectHistory.length})
+          Ventes ({salesUpcoming.length + salesHistory.length})
         </button>
         <button className={`chip${tab === 'coachings' ? ' chip-active' : ''}`} onClick={() => setTab('coachings')} type="button">
           Coachings ({coachingUpcoming.length + coachingHistory.length})
@@ -584,13 +490,29 @@ export default function PageCalls() {
         />
       )}
 
-      {tab === 'upcoming' && renderUpcomingList(upcoming, 'Aucun call planifié pour le moment.')}
+      {tab === 'upcoming' && renderCallList(upcoming, 'upcoming', 'Aucun call planifié pour le moment.')}
 
-      {tab === 'history' && renderHistoryTable(history, "Aucun call dans l'historique.")}
+      {tab === 'history' && renderCallList(history, 'history', "Aucun call dans l'historique.", { paginate: true })}
 
-      {tab === 'prospects' && renderStackedSections(
-        prospectUpcoming, prospectHistory,
-        'Aucun call prospect à venir.', "Aucun call prospect dans l'historique."
+      {tab === 'prospects' && (
+        hasOwnSalesCalls ? renderStackedSections(
+          salesUpcoming, salesHistory,
+          'Aucun call de vente à venir.', "Aucun call de vente dans l'historique."
+        ) : (
+          // Le coach n'a pas connecté son propre Calendly : sans ce message, l'onglet
+          // est simplement vide et rien n'explique pourquoi.
+          <div className="card" style={{ padding: '32px 24px', textAlign: 'center' }}>
+            <div style={{ fontSize: 28, marginBottom: 10 }}>📅</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Aucun call de vente</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.6 }}>
+              Connecte ton propre Calendly pour suivre ici les calls avec tes prospects.
+              Les calls de vente de tes élèves restent sur leurs fiches.
+            </div>
+            <a href="/settings" className="btn-primary-brand" style={{ fontSize: 13, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+              <Icon name="link" size={13} /> Connecter Calendly
+            </a>
+          </div>
+        )
       )}
 
       {tab === 'coachings' && renderStackedSections(
@@ -600,7 +522,8 @@ export default function PageCalls() {
 
       {tab === 'canceled' && renderStackedSections(
         canceledUpcoming, canceledHistory,
-        'Aucun call annulé à venir.', "Aucun call annulé dans l'historique."
+        'Aucun call annulé à venir.', "Aucun call annulé dans l'historique.",
+        true
       )}
 
       <CreateCallModal
@@ -657,6 +580,7 @@ export default function PageCalls() {
           callId={openSalesRapportCall.callId}
           inviteeName={openSalesRapportCall.inviteeName}
           scheduledAt={openSalesRapportCall.scheduledAt}
+          isFollowUp={openSalesRapportCall.isFollowUp}
           onClose={() => { setOpenSalesRapportCall(null); refetch(); }}
         />
       )}

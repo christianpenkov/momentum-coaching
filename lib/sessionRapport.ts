@@ -80,6 +80,39 @@ const FATHOM_GRACE_PERIOD_MS = 2 * 60 * 60_000;
 
 export function isCallMissingRecording(call: Call, now: number = Date.now()): boolean {
   if (call.fathom_status === 'matched') return false;
-  if (call.status === 'canceled' || call.no_show === true || call.session_no_show === true) return false;
+  if (isCallCanceled(call) || call.no_show === true || call.session_no_show === true) return false;
   return callEndTime(call) + FATHOM_GRACE_PERIOD_MS < now;
+}
+
+// Les deux orthographes de "annulé" coexistent en base ('canceled' US posé par les
+// routes API, 'cancelled' UK présent sur d'anciennes lignes). Un filtre qui n'en
+// connaissait qu'une faisait disparaître le call de TOUS les onglets — visible pour
+// l'élève, invisible pour le coach. Source unique désormais.
+const CANCELED_STATUSES = ['canceled', 'cancelled', 'declined'];
+
+export function isCallCanceled(call: { status?: string | null }): boolean {
+  return CANCELED_STATUSES.includes(call.status || '');
+}
+
+// Un call de coaching est un call Google Meet coach ↔ élève. Tout le reste
+// (calendly, manual) est un call de vente avec un prospect. Le même prédicat
+// existait sous deux noms opposés — isGoogleCall côté coach, isCoachingCall côté
+// élève — ce qui obligeait à retraduire mentalement à chaque lecture.
+export function isCoachingCall(call: { call_type?: string | null }): boolean {
+  return call.call_type === 'google';
+}
+
+export function isSalesCall(call: { call_type?: string | null }): boolean {
+  return !isCoachingCall(call);
+}
+
+// Widget "Prochain call" — bascule vers le call suivant dès que celui affiché est
+// réellement terminé, peu importe le délai avant le suivant. Un call encore dans son
+// créneau normal n'est jamais remplacé, même si le suivant approche.
+export function pickDisplayedCall<T extends Call>(list: T[], now: number = Date.now()): T | null {
+  if (list.length === 0) return null;
+  const current = list[0];
+  const next = list[1];
+  if (!next) return current;
+  return isCallReallyOver(current, now) ? next : current;
 }

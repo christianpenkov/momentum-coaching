@@ -1,0 +1,90 @@
+// Formatage et regroupement des dates de call — source unique pour les pages Calls
+// coach et élève. Avant centralisation, la même donnée était formatée de 6 façons
+// différentes selon l'endroit (avec/sans année, avec/sans heure, avec/sans
+// capitalize, jour court vs long), ce qui rendait impossible de reconnaître un
+// même call d'un écran à l'autre.
+
+// Jour + mois court pour le rail latéral de la carte : { day: '14', month: 'juin' }.
+// Séparé en deux champs (et non une chaîne) parce que le rail les empile sur deux
+// lignes avec des tailles différentes.
+export function formatCallDay(dateStr: string): { day: string; month: string } {
+  const d = new Date(dateStr);
+  return {
+    day: d.toLocaleDateString('fr-FR', { day: '2-digit' }),
+    month: d.toLocaleDateString('fr-FR', { month: 'short' }).replace('.', ''),
+  };
+}
+
+// "14:30" — toujours sur 2 chiffres, aligné en tabular-nums côté CSS.
+export function formatCallTime(dateStr: string): string {
+  return new Date(dateStr).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// "lundi 14 juin" — utilisé par le bandeau "Prochain call" et les demandes en
+// attente, jamais sur les cartes de liste (trop long). Le capitalize est appliqué
+// ici plutôt qu'en CSS pour être cohérent partout : textTransform était présent à
+// certains endroits et absent à d'autres pour la même chaîne.
+export function formatCallLongDate(dateStr: string): string {
+  const s = new Date(dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+export type CallPeriod = {
+  key: string;
+  label: string;
+};
+
+// Regroupement d'un call en période, pour les séparateurs collants de la liste.
+// Les bornes sont calendaires (lundi 00:00, 1er du mois 00:00) et non glissantes :
+// "cette semaine" doit vouloir dire la semaine en cours, pas les 7 derniers jours —
+// sinon un même call change de groupe d'une heure à l'autre.
+export function getCallPeriod(dateStr: string, now: number = Date.now()): CallPeriod {
+  const d = new Date(dateStr);
+  const ref = new Date(now);
+
+  // Lundi 00:00 de la semaine en cours (getDay: 0 = dimanche → on ramène à 6).
+  const startOfWeek = new Date(ref);
+  const dayOfWeek = (ref.getDay() + 6) % 7;
+  startOfWeek.setDate(ref.getDate() - dayOfWeek);
+  startOfWeek.setHours(0, 0, 0, 0);
+
+  const startOfMonth = new Date(ref.getFullYear(), ref.getMonth(), 1);
+
+  if (d.getTime() >= startOfWeek.getTime()) {
+    return { key: 'this-week', label: 'Cette semaine' };
+  }
+  if (d.getTime() >= startOfMonth.getTime()) {
+    return { key: 'this-month', label: 'Ce mois-ci' };
+  }
+
+  const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const monthLabel = d.toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+  return { key, label: monthLabel.charAt(0).toUpperCase() + monthLabel.slice(1) };
+}
+
+export type CallGroup<T> = {
+  key: string;
+  label: string;
+  calls: T[];
+};
+
+// Regroupe une liste DÉJÀ TRIÉE en périodes consécutives. Ne trie pas lui-même :
+// l'ordre diffère selon l'usage (ascendant pour "à venir", descendant pour
+// l'historique) et c'est l'appelant qui le sait.
+export function groupCallsByPeriod<T extends { scheduled_at: string | null }>(
+  calls: T[],
+  now: number = Date.now()
+): CallGroup<T>[] {
+  const groups: CallGroup<T>[] = [];
+  for (const call of calls) {
+    if (!call.scheduled_at) continue;
+    const period = getCallPeriod(call.scheduled_at, now);
+    const last = groups[groups.length - 1];
+    if (last && last.key === period.key) {
+      last.calls.push(call);
+    } else {
+      groups.push({ key: period.key, label: period.label, calls: [call] });
+    }
+  }
+  return groups;
+}

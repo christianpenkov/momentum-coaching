@@ -1264,6 +1264,168 @@ a { color: inherit; text-decoration: none; }
   .mini-month-cell-num { width: 22px; height: 22px; font-size: 12px; }
 }
 
+/* ── Carte de call (pages Calls coach + élève) ──────────────────────
+   Une seule structure DOM pour les deux breakpoints : desktop = rail date à
+   gauche puis flux horizontal libre (identité, badges, ressort, résultat,
+   actions) ; mobile = rail compact avec l'avatar empilé sous la date, et le
+   corps qui passe en colonne. Aucune largeur figée : à 984px (laptop 1280 moins
+   sidebar et paddings) des colonnes fixes faisaient sortir le dernier bouton
+   hors du cadre. */
+.call-card {
+  display: flex;
+  align-items: stretch;
+  padding: 0;
+  overflow: hidden;
+}
+.call-card-canceled .call-card-main { opacity: 0.6; }
+.call-card-canceled .call-card-name { text-decoration: line-through; color: var(--muted); }
+
+.call-card-rail {
+  flex-shrink: 0;
+  width: 78px;
+  padding: 14px 0;
+  background: var(--surface-2);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0;
+}
+.call-card-day {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.call-card-month {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-top: 2px;
+}
+/* L'heure vit dans le rail sur desktop, et dans la ligne d'infos sur mobile —
+   jamais aux deux endroits (voir .call-card-time plus bas). */
+.call-card-hour {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+}
+.call-card .call-card-avatar { display: none; }
+
+.call-card-body {
+  flex: 1;
+  min-width: 0;
+  padding: 13px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.call-card-main { flex: 1; min-width: 0; }
+.call-card-headline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.call-card-name {
+  font-size: 14px;
+  font-weight: 620;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+.call-card-meta {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 3px;
+  font-variant-numeric: tabular-nums;
+}
+/* Doublon volontaire de l'heure : masquée ici sur desktop (elle est dans le rail),
+   affichée sur mobile où le rail n'a plus la place. */
+.call-card-time { display: none; font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+.call-card-duration { font-family: var(--font-mono); }
+
+/* Le ressort qui pousse résultat et actions contre le bord droit. */
+.call-card-tail {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+.call-card-join {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.call-card-extra {
+  flex-basis: 100%;
+  padding: 0 18px 14px 18px;
+}
+
+@media (max-width: 767px) {
+  .call-card-rail {
+    width: 62px;
+    padding: 12px 0;
+    gap: 8px;
+  }
+  .call-card-day { font-size: 19px; }
+  .call-card-month { font-size: 9.5px; }
+  /* L'heure descend dans la ligne d'infos pour laisser la place à l'avatar. */
+  .call-card-hour { display: none; }
+  .call-card .call-card-avatar { display: inline-flex; }
+  .call-card-time { display: inline; }
+
+  .call-card-body {
+    padding: 13px 15px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .call-card-main { width: 100%; }
+  .call-card-tail {
+    margin-left: 0;
+    width: 100%;
+    gap: 8px;
+  }
+  /* Rejoindre est l'action la plus urgente de la page : pleine largeur et 44px de
+     haut pour être touchable sans viser. */
+  .call-card-join {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+    font-size: 13px;
+  }
+  .call-card-extra { padding: 0 15px 13px 15px; }
+}
+
+/* ── Séparateurs de période dans les listes de calls ──
+   Collants en haut du scroll pour que le mois en cours de lecture reste visible
+   sur un long historique. Fond opaque obligatoire : sans lui les cartes défilent
+   visiblement sous le texte. */
+.call-period-sep {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: var(--bg);
+  padding: 10px 2px 8px;
+  font-size: 12px;
+  font-weight: 620;
+  color: var(--ink-2);
+}
+
 /* ── Bandeau "Prochain call" (accueil élève, calendrier) — responsive ── */
 .next-call-banner-top {
   display: flex;
@@ -1272,6 +1434,8 @@ a { color: inherit; text-decoration: none; }
 }
 .next-call-banner-info { flex: 1; min-width: 0; }
 .next-call-banner-countdown { padding: 16px 20px; min-width: 110px; flex-shrink: 0; text-align: center; }
+/* Variante du bouton Rejoindre réservée au mobile (PageClientView) : masquée sur
+   desktop, où un second bouton pleine largeur ferait doublon. */
 .next-call-banner-join-mobile { display: none; }
 @media (max-width: 640px) {
   .next-call-banner-top { align-items: flex-start; gap: 14px; }
@@ -1279,7 +1443,11 @@ a { color: inherit; text-decoration: none; }
   .next-call-banner-countdown { padding: 8px 14px; min-width: 0; }
   .next-call-banner-countdown > div:first-child { font-size: 16px !important; }
   .next-call-banner-countdown > div:last-child { display: none; }
+  /* Les deux classes coexistent : `-join-mobile` sur l'accueil élève
+     (PageClientView), `-join` sur la page Calls — cette dernière n'était couverte
+     par aucune règle, donc son bouton restait étroit sur mobile. */
   .next-call-banner-join-mobile { display: flex !important; width: 100%; justify-content: center; }
+  .next-call-banner-join { display: flex !important; width: 100%; justify-content: center; min-height: 44px; }
 }
 .main-content {
   display: flex;
