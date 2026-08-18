@@ -42,6 +42,13 @@ interface Msg {
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const DELETE_WINDOW_MS = 60 * 60 * 1000;
 
+// Taille de page de l'historique — voir le pendant coach dans PageChat.tsx.
+const MESSAGES_PAGE_SIZE = 60;
+
+// Colonnes chargées pour un message — constante partagée entre le chargement
+// initial et la pagination, pour qu'ils ne puissent jamais diverger.
+const MSG_COLUMNS = 'id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url';
+
 // ─── Audio context — un seul player actif à la fois ──────────────────────────
 
 interface AudioCtx {
@@ -1124,6 +1131,9 @@ export default function PageClientMessages() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState('');
   const [clientId, setClientId] = useState<string | null>(null);
+  // Pagination de l'historique : une page au chargement, les précédentes en remontant.
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [coachName, setCoachName] = useState('Coach');
   const [coachInitials, setCoachInitials] = useState('CO');
   const [coachAvatarUrl, setCoachAvatarUrl] = useState<string | null>(null);
@@ -1239,14 +1249,21 @@ export default function PageClientMessages() {
       }
       setCoachAvatarUrl(coachProfile?.avatar_url || null);
 
+      // Page la plus récente uniquement — voir MESSAGES_PAGE_SIZE. Avant : toute la
+      // conversation, ce qui la faisait TRONQUER SANS ERREUR au-delà de 1000 messages
+      // (plafond PostgREST), atteint en ~2 mois sur une relation active.
+      // desc + reverse : pour les N DERNIERS messages, il faut trier par le plus
+      // récent puis remettre dans l'ordre de lecture.
       const { data, error } = await supabase
         .from('messages')
-        .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url')
+        .select(MSG_COLUMNS)
         .eq('client_id', clientRow.id)
-        .order('created_at', { ascending: true });
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PAGE_SIZE);
       if (error) console.error('messages fetch error:', error.message);
-      const msgs = (data as Msg[]) || [];
+      const msgs = ((data as Msg[]) || []).slice().reverse();
       setMessages(msgs);
+      setHasMoreMessages((data?.length ?? 0) === MESSAGES_PAGE_SIZE);
       setLoading(false);
       // Le marquage lu se fait maintenant uniquement via onEnterViewport (IntersectionObserver
       // par bulle) — un message trop haut dans l'historique, jamais scrollé jusqu'à lui, ne
@@ -1269,6 +1286,45 @@ export default function PageClientMessages() {
       return { ...m, audio_url: u.url, thumbnail_url: u.thumbnailUrl || m.thumbnail_url };
     }));
   }), [resolveMedia]);
+
+  // Charge la page précédente (messages plus anciens) — pendant exact du coach.
+  //
+  // En column-reverse, ces messages sont ajoutés en FIN de tableau côté DOM : le
+  // navigateur préserve nativement la position de scroll, sans compensation
+  // manuelle de scrollHeight. C'est ce qui rend l'infinite scroll sûr ici, et ce
+  // qui évite de rouvrir le bug de scroll corrigé par la refonte column-reverse.
+  const loadingMoreRef = useRef(false);
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMoreMessages || !clientId) return;
+    const oldest = messages[0];
+    if (!oldest) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const { data } = await supabase.from('messages')
+        .select(MSG_COLUMNS)
+        .eq('client_id', clientId)
+        .lt('created_at', oldest.created_at)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PAGE_SIZE);
+      const older = ((data as Msg[]) || []).slice().reverse();
+      if (older.length) {
+        // Dédoublonnage : deux messages peuvent partager created_at à la milliseconde
+        // près, et `lt` les exclurait ou les reprendrait selon l'ordre d'insertion.
+        setMessages(prev => {
+          const known = new Set(prev.map(m => m.id));
+          return [...older.filter(m => !known.has(m.id)), ...prev];
+        });
+        await resolveMediaUrls(older);
+      }
+      setHasMoreMessages((data?.length ?? 0) === MESSAGES_PAGE_SIZE);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+    // resolveMediaUrls est stable (useCallback sur resolveMedia)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, supabase, hasMoreMessages, messages]);
 
   // Filet de sécurité : libère les object URLs (blob:) créées pour cette conversation quand le
   // composant est démonté (navigation hors de la page messagerie).
@@ -1783,6 +1839,12 @@ export default function PageClientMessages() {
     const el = e.currentTarget;
     const distanceFromBottom = Math.abs(el.scrollTop);
     setShowScrollArrow(distanceFromBottom > 120);
+
+    // Infinite scroll vers le haut. En column-reverse, le HAUT visuel est atteint
+    // quand on s'est éloigné du bas de (scrollHeight - clientHeight). Déclenché
+    // 400px avant le bord pour que la page suivante arrive avant d'y parvenir.
+    const distanceFromTop = el.scrollHeight - el.clientHeight - distanceFromBottom;
+    if (distanceFromTop < 400) loadOlderMessages();
   }
   function scrollToBottom() {
     chatZoneRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1940,6 +2002,14 @@ export default function PageClientMessages() {
               </div>
             </div>
           ))}
+
+          {/* Chargement de l'historique — DERNIER enfant DOM, donc visuellement tout
+              en haut grâce à column-reverse. */}
+          {loadingMore && (
+            <div style={{ textAlign: 'center', padding: '10px 0', fontSize: 12, color: 'var(--muted)' }}>
+              Chargement des messages précédents…
+            </div>
+          )}
         </div>
 
         {/* ── Flèche scroll bas ── */}

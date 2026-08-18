@@ -48,6 +48,15 @@ interface Msg {
 const EDIT_WINDOW_MS = 15 * 60 * 1000;
 const DELETE_WINDOW_MS = 60 * 60 * 1000;
 
+// Taille de page de l'historique. 60 couvre largement un écran, même en desktop,
+// et reste très en deçà du plafond PostgREST de 1000 lignes qui tronquait
+// silencieusement les conversations actives au-delà de ~2 mois.
+const MESSAGES_PAGE_SIZE = 60;
+
+// Colonnes chargées pour un message — extraites en constante pour que le
+// chargement initial et la pagination ne puissent jamais diverger.
+const MSG_COLUMNS = 'id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url';
+
 // ─── Audio context — un seul player actif à la fois ──────────────────────────
 
 interface AudioCtx { activeId: string | null; setActive: (id: string | null) => void; }
@@ -1021,6 +1030,9 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
   const myAvatarUrl = user?.avatar_url ?? null;
   const myInitials = user?.initials ?? '?';
   const [messages, setMessages] = useState<Msg[]>([]);
+  // Pagination de l'historique : une page au chargement, les précédentes en remontant.
+  const [hasMoreMessages, setHasMoreMessages] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(true);
   const [clientTyping, setClientTyping] = useState(false);
@@ -1091,24 +1103,77 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     return () => clearInterval(t);
   }, []);
 
-  // Charge messages
+  // Charge messages — PAGE la plus récente uniquement.
+  //
+  // Avant : toute la conversation, sans limite. Deux problèmes qui empirent avec le
+  // temps (pas avec le nombre d'élèves) : le volume transféré et monté dans le DOM,
+  // et surtout le plafond PostgREST de 1000 lignes — au-delà, l'historique était
+  // TRONQUÉ SANS ERREUR. À ~20 messages/jour, c'est atteint en deux mois.
+  //
+  // Les plus anciens se chargent en remontant (infinite scroll, voir onScroll).
   useEffect(() => {
     setLoading(true);
     setMessages([]);
+    setHasMoreMessages(false);
     supabase.from('messages')
-      .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url')
+      .select(MSG_COLUMNS)
       .eq('client_id', clientId)
-      .order('created_at', { ascending: true })
+      // desc + reverse : pour prendre les N DERNIERS, il faut trier par le plus
+      // récent puis remettre dans l'ordre de lecture. Un `asc` + limit prendrait
+      // les N plus ANCIENS.
+      .order('created_at', { ascending: false })
+      .limit(MESSAGES_PAGE_SIZE)
       .then(async ({ data }) => {
-        const msgs = (data as Msg[]) || [];
-        setMessages(msgs);
+        const page = ((data as Msg[]) || []).slice().reverse();
+        setMessages(page);
+        setHasMoreMessages((data?.length ?? 0) === MESSAGES_PAGE_SIZE);
         setLoading(false);
         // Le marquage lu se fait maintenant uniquement via onEnterViewport (IntersectionObserver
         // par bulle) — un message trop haut dans l'historique, jamais scrollé jusqu'à lui, ne
         // doit pas être marqué lu juste parce que la conversation est ouverte.
-        await resolveMediaUrls(msgs);
+        await resolveMediaUrls(page);
       });
   }, [clientId, userId, supabase]);
+
+  // Charge la page précédente (messages plus anciens).
+  //
+  // En column-reverse, ces messages sont ajoutés en FIN de tableau côté DOM : le
+  // navigateur préserve alors nativement la position de scroll, sans compensation
+  // manuelle de scrollHeight. C'est précisément ce qui rend l'infinite scroll sûr
+  // ici, et ce que recommande la littérature sur le sujet — l'architecture posée
+  // pour corriger le bug de scroll (commit dec462c) sert directement.
+  const loadingMoreRef = useRef(false);
+  const loadOlderMessages = useCallback(async () => {
+    if (loadingMoreRef.current || !hasMoreMessages) return;
+    const oldest = messages[0];
+    if (!oldest) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const { data } = await supabase.from('messages')
+        .select(MSG_COLUMNS)
+        .eq('client_id', clientId)
+        .lt('created_at', oldest.created_at)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGES_PAGE_SIZE);
+      const older = ((data as Msg[]) || []).slice().reverse();
+      if (older.length) {
+        // Dédoublonnage : deux messages peuvent partager created_at à la milliseconde
+        // près, et `lt` les exclurait ou les reprendrait selon l'ordre d'insertion.
+        setMessages(prev => {
+          const known = new Set(prev.map(m => m.id));
+          return [...older.filter(m => !known.has(m.id)), ...prev];
+        });
+        await resolveMediaUrls(older);
+      }
+      setHasMoreMessages((data?.length ?? 0) === MESSAGES_PAGE_SIZE);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+    // resolveMediaUrls est stable (useCallback sur resolveMedia)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clientId, supabase, hasMoreMessages, messages]);
 
   // Résout les URLs (images en cache local IndexedDB une fois vues — plus jamais de requête
   // réseau ensuite, y compris des semaines plus tard ; documents/audio via URL signée avec
@@ -1532,6 +1597,13 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     const el = e.currentTarget;
     const distanceFromBottom = Math.abs(el.scrollTop);
     setShowScrollArrow(distanceFromBottom > 120);
+
+    // Infinite scroll vers le haut. En column-reverse, le HAUT visuel est atteint
+    // quand on s'est éloigné du bas de (scrollHeight - clientHeight). On déclenche
+    // 400px avant pour que la page suivante soit là avant d'arriver au bord —
+    // l'utilisateur ne voit jamais de vide.
+    const distanceFromTop = el.scrollHeight - el.clientHeight - distanceFromBottom;
+    if (distanceFromTop < 400) loadOlderMessages();
   }
   function scrollToBottom() {
     chatZoneRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1687,6 +1759,16 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
               </div>
             </div>
           ))}
+
+          {/* Chargement de l'historique — DERNIER enfant DOM, donc visuellement tout
+              en haut grâce à column-reverse. N'apparaît que pendant la requête : le
+              déclenchement se fait 400px avant le bord, donc la page arrive en
+              général avant que l'utilisateur ne voie cet indicateur. */}
+          {loadingMore && (
+            <div style={{ textAlign: 'center', padding: '10px 0', fontSize: 12, color: 'var(--muted)' }}>
+              Chargement des messages précédents…
+            </div>
+          )}
         </div>
 
         {/* Flèche scroll bas */}
