@@ -68,18 +68,19 @@ async function getCalendlyToken(profileId: string): Promise<string | null> {
 
 async function syncCalendlyEleve(
   profileId: string,
-  connectedAt: string
-): Promise<{ synced: number; errors: string[] }> {
+  connectedAt: string,
+  lastSyncedAt: string | null
+): Promise<{ synced: number; skipped: number; errors: string[] }> {
   const errors: string[] = [];
   const accessToken = await getCalendlyToken(profileId);
-  if (!accessToken) return { synced: 0, errors: ['no_token'] };
+  if (!accessToken) return { synced: 0, skipped: 0, errors: ['no_token'] };
 
   const meRes = await fetch('https://api.calendly.com/users/me', {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
   const meData = await meRes.json();
   const userUri = meData?.resource?.uri;
-  if (!userUri) return { synced: 0, errors: ['user_uri_not_found'] };
+  if (!userUri) return { synced: 0, skipped: 0, errors: ['user_uri_not_found'] };
 
   await supabase.from('integrations')
     .update({ metadata: { ...meData?.resource, user_uri: userUri } })
@@ -89,8 +90,25 @@ async function syncCalendlyEleve(
   // Marge de sécurité : le vrai tri "call généré par Momentum ou pas" se fait en aval sur
   // booked_at vs first_connected_at, donc élargir la fenêtre d'ingestion ici ne coûte rien
   // et évite de rater un call proche du cutoff.
-  const minStartTime = new Date(new Date(connectedAt).getTime() - 48 * 3600_000).toISOString();
-  const maxStartTime = new Date(Date.now() + 180 * 24 * 60 * 60 * 1000).toISOString();
+  //
+  // Fenêtre INCRÉMENTALE (2026-08-19) : sans elle, on repartait de connectedAt à chaque
+  // exécution — soit tout l'historique, toutes les minutes (4 076 s de compute/jour
+  // mesurés à 4 élèves, ~141 % d'une journée projeté à 30). On repart désormais de la
+  // dernière synchro réussie, en conservant la marge de 48 h par-dessus
+  // (cf. feedback_connected_at_margin : un call booké juste avant une reconnexion de
+  // token ne doit jamais être exclu).
+  //
+  // Le borne basse ne remonte JAMAIS au-delà de connectedAt - 48 h : si last_synced_at
+  // était antérieur (impossible en pratique, mais défensif), on garde connectedAt.
+  const connectedFloor = new Date(connectedAt).getTime() - 48 * 3600_000;
+  const incrementalFloor = lastSyncedAt
+    ? new Date(lastSyncedAt).getTime() - 48 * 3600_000
+    : connectedFloor;
+  const minStartTime = new Date(Math.max(connectedFloor, incrementalFloor)).toISOString();
+
+  // +60 jours au lieu de +180 : personne ne réserve à 6 mois, et un call planifié
+  // au-delà entrera dans la fenêtre bien avant sa date. Réversible si un cas réel apparaît.
+  const maxStartTime = new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString();
 
   // Fetch events actifs + annulés en parallèle
   const [eventsRes, canceledRes] = await Promise.all([
@@ -111,10 +129,43 @@ async function syncCalendlyEleve(
     ...(canceledData?.collection || []),
   ];
 
+  // Skip des events en état TERMINAL : un call annulé et déjà enregistré comme tel
+  // ne changera plus jamais côté Calendly. Sans ce filtre, on refaisait un fetch
+  // /invitees pour chacun d'eux à chaque exécution — c'est là que se concentrait
+  // l'essentiel du gaspillage (1 appel réseau + 3 à 8 requêtes Supabase par event).
+  //
+  // On ne skippe QUE les annulés déjà connus. Les events actifs sont toujours
+  // retraités : leur invitee peut changer (reprogrammation, no-show, réponses au
+  // questionnaire), et l'upsert est idempotent donc rejouer ne coûte que du temps.
+  const uuidsInPage = allEvents
+    .map((e: any) => e.uri?.split('/').pop())
+    .filter(Boolean) as string[];
+
+  const terminalUuids = new Set<string>();
+  if (uuidsInPage.length) {
+    const { data: knownRows } = await supabase
+      .from('calls')
+      .select('calendly_event_uuid')
+      .eq('coach_id', profileId)
+      .eq('status', 'canceled')
+      .in('calendly_event_uuid', uuidsInPage);
+    for (const row of knownRows || []) {
+      if (row.calendly_event_uuid) terminalUuids.add(row.calendly_event_uuid);
+    }
+  }
+
+  let skipped = 0;
+
   // Parallélise tous les appels invitees — critique pour ne pas dépasser 150s
   const results = await Promise.allSettled(allEvents.map(async (event: any) => {
     const eventUuid = event.uri?.split('/').pop() || '';
     if (!eventUuid) return false;
+
+    // Déjà annulé en base ET toujours annulé côté Calendly → rien ne peut changer.
+    if (event.status === 'canceled' && terminalUuids.has(eventUuid)) {
+      skipped++;
+      return false;
+    }
 
     const scheduledAt = event.start_time || null;
     const endTime = event.end_time || null;
@@ -366,7 +417,7 @@ async function syncCalendlyEleve(
     if (r.status === 'rejected') errors.push(`event_error: ${r.reason?.message || 'unknown'}`);
   });
 
-  return { synced, errors };
+  return { synced, skipped, errors };
 }
 
 Deno.serve(async (req: Request) => {
@@ -377,7 +428,7 @@ Deno.serve(async (req: Request) => {
 
   const { data: integrations } = await supabase
     .from('integrations')
-    .select('profile_id, connected_at, profiles!inner(role)')
+    .select('profile_id, connected_at, last_synced_at, profiles!inner(role)')
     .eq('provider', 'calendly')
     .eq('profiles.role', 'client');
 
@@ -385,15 +436,32 @@ Deno.serve(async (req: Request) => {
     return new Response(JSON.stringify({ ok: true, synced: 0, profiles: 0 }), { status: 200 });
   }
 
+  // Borne haute de la fenêtre, figée AVANT le traitement : tout event arrivant pendant
+  // l'exécution sera repris au cycle suivant (la marge de 48 h le garantit).
+  const runStartedAt = new Date().toISOString();
+
   // Tous les profils en parallèle — 150s de timeout = largement suffisant pour 20 élèves
   const results = await Promise.all(
     integrations.map((integ: any) => {
       const connectedAt = integ.connected_at || new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-      return syncCalendlyEleve(integ.profile_id, connectedAt)
+      return syncCalendlyEleve(integ.profile_id, connectedAt, integ.last_synced_at ?? null)
         .then(r => ({ profile_id: integ.profile_id, ...r }))
-        .catch((e: any) => ({ profile_id: integ.profile_id, synced: 0, errors: [e?.message || 'unknown'] }));
+        .catch((e: any) => ({ profile_id: integ.profile_id, synced: 0, skipped: 0, errors: [e?.message || 'unknown'] }));
     })
   );
+
+  // Avancer last_synced_at UNIQUEMENT pour les profils sans erreur. Un profil en échec
+  // garde son ancienne borne et rattrapera la fenêtre complète au cycle suivant — c'est
+  // ce qui rend l'incrémental sûr : en cas de doute, on retraite trop, jamais trop peu.
+  const okProfileIds = results.filter(r => !r.errors.length).map(r => r.profile_id);
+  if (okProfileIds.length) {
+    const { error: stampErr } = await supabase
+      .from('integrations')
+      .update({ last_synced_at: runStartedAt })
+      .eq('provider', 'calendly')
+      .in('profile_id', okProfileIds);
+    if (stampErr) console.error('[sync-calendly] last_synced_at:', stampErr.message);
+  }
 
   const totalSynced = results.reduce((acc, r) => acc + r.synced, 0);
   const allErrors: Record<string, string[]> = {};
@@ -404,6 +472,7 @@ Deno.serve(async (req: Request) => {
   return new Response(JSON.stringify({
     ok: true,
     synced: totalSynced,
+    skipped: results.reduce((acc, r) => acc + (r.skipped || 0), 0),
     profiles: integrations.length,
     errors: allErrors,
   }), { status: 200 });
