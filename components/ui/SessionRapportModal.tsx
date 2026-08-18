@@ -148,9 +148,17 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
           {step === 'topic_notes' && (
             <div>
-              <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 10 }}>
-                Sujet principal du call
-              </label>
+              {/* Mention de visibilité obligatoire : les notes juste en dessous
+                  portent déjà "Privé, visible coach uniquement", donc sans contrepartie
+                  ici le coach pouvait croire que TOUT le rapport était privé. */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' }}>
+                <label className="eyebrow-sm" style={{ color: 'var(--muted)' }}>
+                  Sujet principal du call
+                </label>
+                <span style={{ display: 'flex', alignItems: 'center', gap: 3, fontSize: 10, color: 'var(--muted)' }}>
+                  <Icon name="eye" size={10} /> Visible par l'élève
+                </span>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: topic === 'autre' ? 12 : 24 }}>
                 {SESSION_TOPICS.map(t => (
                   <button
