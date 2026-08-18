@@ -9,6 +9,7 @@ import Icon from '@/components/ui/Icon';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Call } from '@/lib/supabase/types';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
 type ViewMode = 'month' | 'week';
 
@@ -56,7 +57,7 @@ export default function PageCalendar() {
         clientInitials: client?.initials || getInitials(call.invitee_name),
         clientAvatarUrl: client?.avatar_url,
         clientId: call.client_id || '',
-        time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        time: formatParisTime(d),
         status: call.status,
         callType: call.call_type,
       });
@@ -311,7 +312,7 @@ export default function PageCalendar() {
               <div>
                 <div className="card-title">
                   {selectedDay
-                    ? new Date(selectedDay + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+                    ? formatParisDate(new Date(selectedDay + 'T12:00:00'))
                     : 'Sélectionne un jour'}
                 </div>
                 <div className="card-sub">{selectedEvents.length} événement{selectedEvents.length !== 1 ? 's' : ''}</div>
@@ -339,7 +340,7 @@ export default function PageCalendar() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{client?.name || '—'}</div>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                          {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à {d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                          {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à {formatParisTime(d)}
                         </div>
                       </div>
                       {call.status === 'pending_acceptance' && (
@@ -372,7 +373,7 @@ export default function PageCalendar() {
               <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
             </div>
             <div className="card-title" style={{ marginBottom: 4, textTransform: 'capitalize' }}>
-              {new Date(selectedDay + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {formatParisDate(new Date(selectedDay + 'T12:00:00'))}
             </div>
             <DayEventsList events={selectedEvents} />
           </div>

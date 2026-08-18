@@ -5,6 +5,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
 import { isCallReallyOver } from '@/lib/sessionRapport';
 import type { Call } from '@/lib/supabase/types';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
 interface ClientLite {
   id: string;
@@ -59,7 +60,7 @@ export default function CallStack({ calls, getClient, showJoinButton }: Props) {
         const isActive = i === activeIndex;
         const client = getClient(call);
         const time = call.scheduled_at
-          ? new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })
+          ? formatParisTime(new Date(call.scheduled_at))
           : '—';
         return (
           <div key={call.id} style={{

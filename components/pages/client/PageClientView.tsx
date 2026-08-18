@@ -18,6 +18,7 @@ import CallStack from '@/components/ui/CallStack';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import type { Call } from '@/lib/supabase/types';
 import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -168,10 +169,10 @@ export default function PageClientView() {
                 </span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
-                {new Date(nextCall.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                {formatParisDate(new Date(nextCall.scheduled_at))}
               </div>
               <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)', marginTop: 2 }}>
-                {new Date(nextCall.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                {formatParisTime(new Date(nextCall.scheduled_at))}
                 {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
               </div>
               {isCoachingCall(nextCall) && nextCall.topic && (
@@ -227,9 +228,9 @@ export default function PageClientView() {
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
                   {notif.scheduledAt && (
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                      {formatParisDate(new Date(notif.scheduledAt))}
                       {' · '}
-                      {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                      {formatParisTime(new Date(notif.scheduledAt))}
                       {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
                     </div>
                   )}
@@ -274,9 +275,9 @@ export default function PageClientView() {
                       </div>
                       {notif.scheduledAt && (
                         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                          {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+                          {formatParisDate(new Date(notif.scheduledAt))}
                           {' · '}
-                          {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                          {formatParisTime(new Date(notif.scheduledAt))}
                           {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
                         </div>
                       )}

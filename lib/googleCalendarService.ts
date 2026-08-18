@@ -272,9 +272,13 @@ export async function updateGoogleCall(params: {
     const coachFirstName = coachProfileRes.data?.full_name ? coachProfileRes.data.full_name.split(' ')[0] : null;
 
     if (clientRes.data?.profile_id) {
+      // formatParisDate/Time et non toLocale*({timeZone:'Europe/Paris'}) : l'option
+      // est ignorée sans erreur sur un runtime serverless sans données ICU
+      // complètes, et l'heure sort en UTC. Le reste du fichier (l. 203) utilisait
+      // déjà les helpers — seul ce chemin "call déplacé" était resté en arrière.
       const d = new Date(params.startTime);
-      const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Paris' });
-      const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' });
+      const dateStr = formatParisDate(d);
+      const timeStr = formatParisTime(d);
       await sendPushToProfile(
         clientRes.data.profile_id,
         `Call déplacé — ${coachFirstName || 'ton coach'}`,

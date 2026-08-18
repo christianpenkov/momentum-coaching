@@ -6,6 +6,7 @@ import ModalShell from '@/components/ui/ModalShell';
 import FathomRecordingSection from '@/components/ui/FathomRecordingSection';
 import { SESSION_TOPICS, type SessionTopic } from '@/lib/sessionRapport';
 import { useUser } from '@/lib/UserContext';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
 interface FathomData {
   shareUrl: string | null;
@@ -33,7 +34,7 @@ interface Props {
 }
 
 function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+  return formatParisDate(new Date(dateStr));
 }
 
 // Modale de consultation pure — jamais de formulaire, jamais de soumission. Affiche

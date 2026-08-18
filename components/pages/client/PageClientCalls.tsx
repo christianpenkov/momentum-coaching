@@ -15,6 +15,7 @@ import { isCallReallyOver, isCallJoinable, isCallCanceled, isCoachingCall, pickD
 import CallCard from '@/components/ui/CallCard';
 import { CallTypeBadge } from '@/components/ui/CallBadges';
 import { formatCallLongDate, formatCallTime, groupCallsByPeriod } from '@/lib/callFormat';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled';
 
@@ -669,8 +670,8 @@ export default function PageClientCalls() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {pendingCalls.map(call => {
               const d = new Date(call.scheduled_at!);
-              const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-              const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+              const dateStr = formatParisDate(d);
+              const timeStr = formatParisTime(d);
               return (
                 <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -867,7 +868,7 @@ export default function PageClientCalls() {
           <div className="card" style={{ width: '100%', maxWidth: 400, padding: 24, margin: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>Refuser ce call</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              {declineModal.topic} · {new Date(declineModal.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {declineModal.topic} · {formatParisDate(new Date(declineModal.scheduledAt))}
             </div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
               Proposer un autre créneau (optionnel)

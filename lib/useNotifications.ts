@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { setAppBadge } from '@/lib/pwaBadge';
 import { getPendingSessionRapports } from '@/lib/sessionRapport';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 import type { Call } from '@/lib/supabase/types';
 
 let instanceCounter = 0;
@@ -73,8 +74,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         const isAccepted = row.type === 'call_accepted';
         const topic = row.payload?.topic || 'Call coaching';
         const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;
-        const dateStr = d ? d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
-        const timeStr = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+        const dateStr = d ? formatParisDate(d) : '';
+        const timeStr = d ? formatParisTime(d) : '';
         const proposedSuffix = row.payload?.proposed_at ? ` — propose : ${row.payload.proposed_at}` : '';
         const clientName = row.call_id ? coachClientNameByCallId[row.call_id] : undefined;
         const nameSuffix = clientName ? ` — ${clientName}` : '';
@@ -250,8 +251,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
 
     const callRescheduledNotifs: AppNotif[] = (rescheduledRows ?? []).map(row => {
       const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;
-      const dateStr = d ? d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }) : '';
-      const timeStr = d ? d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }) : '';
+      const dateStr = d ? formatParisDate(d) : '';
+      const timeStr = d ? formatParisTime(d) : '';
       return {
         id: `call_rescheduled_${row.id}`,
         type: 'call_rescheduled' as NotifType,

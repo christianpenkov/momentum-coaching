@@ -9,6 +9,7 @@ import { useClientAllCalls } from '@/lib/supabase/useClientAllCalls';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { toDateKey, DAYS_FR, MONTHS_FR, monthDays as computeMonthDays } from '@/lib/calendarGrid';
 import type { Call } from '@/lib/supabase/types';
+import { formatParisTime, formatParisDate } from '@/lib/parisTime';
 
 function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
   return call?.call_type === 'google';
@@ -70,7 +71,7 @@ export default function PageClientCalendar() {
         date: toDateKey(d),
         type: 'call',
         label: call.topic || 'Call coaching',
-        time: d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' }),
+        time: formatParisTime(d),
         ready: call.ready,
         call,
       });
@@ -134,8 +135,8 @@ export default function PageClientCalendar() {
           </div>
           {pendingCalls.map(call => {
             const d = new Date(call.scheduled_at!);
-            const dateStr = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
-            const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+            const dateStr = formatParisDate(d);
+            const timeStr = formatParisTime(d);
             return (
               <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '16px 18px', marginBottom: 8 }}>
                 <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 6 }}>
@@ -190,9 +191,9 @@ export default function PageClientCalendar() {
           <div style={{ flex: 1, minWidth: 200 }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>Prochain call</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-              {new Date(nextCall.scheduled_at!).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {formatParisDate(new Date(nextCall.scheduled_at!))}
               {' à '}
-              {new Date(nextCall.scheduled_at!).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+              {formatParisTime(new Date(nextCall.scheduled_at!))}
               {nextCall.topic ? ` · ${nextCall.topic}` : ''}
             </div>
           </div>
@@ -228,7 +229,7 @@ export default function PageClientCalendar() {
               const d = new Date(date + 'T12:00:00');
               const isToday = date === todayKey;
               const isTomorrow = date === (() => { const t = new Date(); t.setDate(t.getDate() + 1); return toDateKey(t); })();
-              const label = isToday ? "Aujourd'hui" : isTomorrow ? 'Demain' : d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+              const label = isToday ? "Aujourd'hui" : isTomorrow ? 'Demain' : formatParisDate(d);
               return (
                 <div key={date}>
                   <div className="eyebrow-lg" style={{ color: isToday ? 'var(--accent)' : 'var(--muted)', marginBottom: 6, paddingLeft: 2 }}>
@@ -334,7 +335,7 @@ export default function PageClientCalendar() {
             <div>
               <div className="card-title">
                 {selectedDay
-                  ? new Date(selectedDay + 'T12:00:00').toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })
+                  ? formatParisDate(new Date(selectedDay + 'T12:00:00'))
                   : 'Sélectionne un jour'}
               </div>
               <div className="card-sub">{selectedEvents.length} événement{selectedEvents.length !== 1 ? 's' : ''}</div>
@@ -403,7 +404,7 @@ export default function PageClientCalendar() {
           <div className="card" style={{ width: '100%', maxWidth: 380, padding: 22 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 6 }}>Refuser ce call</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 14, lineHeight: 1.5 }}>
-              {declineModal.topic} · {new Date(declineModal.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              {declineModal.topic} · {formatParisDate(new Date(declineModal.scheduledAt))}
             </div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
               Proposer un autre créneau (optionnel)

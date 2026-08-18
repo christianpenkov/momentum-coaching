@@ -38,6 +38,17 @@ function parisOffsetHours(utcDate: Date): number {
   return t >= dstStart && t < dstEnd ? 2 : 1;
 }
 
+// Heure murale de Paris pour les notifications push. Ne JAMAIS utiliser
+// toLocaleTimeString({timeZone:'Europe/Paris'}) ici : sur les runtimes serverless
+// sans données ICU complètes, l'option est ignorée sans erreur et l'heure sort en
+// UTC (bug du 2026-07-24, voir docs/heure-paris.md et lib/parisTime.ts). Fonction
+// dupliquée ici parce qu'une Edge Function Deno ne peut pas importer depuis lib/ —
+// même duplication assumée que dans call-reminders/index.ts.
+function formatParisTime(utcDate: Date): string {
+  const wall = new Date(utcDate.getTime() + parisOffsetHours(utcDate) * 3600_000);
+  return `${String(wall.getUTCHours()).padStart(2, '0')}:${String(wall.getUTCMinutes()).padStart(2, '0')}`;
+}
+
 // Date calendrier Paris (pas UTC) — "aujourd'hui moins daysAgo jours", en heure de Paris.
 function isoDate(daysAgo: number): string {
   const now = new Date();
@@ -1303,7 +1314,7 @@ Deno.serve(async (req: Request) => {
         coachFirstName = coachProfile?.full_name ? String(coachProfile.full_name).split(' ')[0] : null;
       }
 
-      const timeStr = scheduledAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      const timeStr = formatParisTime(scheduledAt);
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);
