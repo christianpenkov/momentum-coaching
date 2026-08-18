@@ -627,7 +627,11 @@ export default function PageCalls() {
               shareUrl: call.fathom_share_url ?? null,
               summary: call.fathom_summary ?? null,
               actionItems: call.fathom_action_items ?? null,
-              transcript: call.fathom_transcript ?? null,
+              // Transcript chargé à la demande au clic (~40 Ko/call, sinon
+              // transféré sur chaque page coach). Voir CALL_COLUMNS.
+              transcript: null,
+              callId: call.id,
+              hasTranscript: (call as { has_fathom_transcript?: boolean }).has_fathom_transcript === true,
             }}
             onClose={() => setInfosModalCall(null)}
           />

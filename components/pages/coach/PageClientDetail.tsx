@@ -21,6 +21,7 @@ import { isTaskOverdue } from '@/lib/clientSignals';
 import { computeSalesCallStats, isNotCanceled, fetchAllLeadsCount } from '@/lib/salesCallStats';
 import { getClientWeek } from '@/lib/clientWeek';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
+import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task, SessionReport, Call, Client } from '@/lib/supabase/types';
 
 interface ClientDetailData extends Client {
@@ -242,7 +243,7 @@ export default function PageClientDetail({ id }: Props) {
     queryKey: ['client-detail-calls', id],
     queryFn: async () => {
       const supabase = createSupabase();
-      const { data } = await supabase.from('calls').select('*').eq('client_id', id).order('scheduled_at', { ascending: false });
+      const { data } = await supabase.from('calls').select(CALL_COLUMNS).eq('client_id', id).order('scheduled_at', { ascending: false });
       return data || [];
     },
     staleTime: 60 * 1000,
@@ -864,7 +865,10 @@ export default function PageClientDetail({ id }: Props) {
               shareUrl: call?.fathom_share_url ?? null,
               summary: call?.fathom_summary ?? null,
               actionItems: call?.fathom_action_items ?? null,
-              transcript: call?.fathom_transcript ?? null,
+              // Transcript chargé à la demande au clic — voir CALL_COLUMNS.
+              transcript: null,
+              callId: call?.id ?? null,
+              hasTranscript: (call as { has_fathom_transcript?: boolean } | undefined)?.has_fathom_transcript === true,
             }}
             onClose={() => setInfosModalReport(null)}
           />
@@ -879,7 +883,10 @@ export default function PageClientDetail({ id }: Props) {
             shareUrl: infosModalCall.fathom_share_url ?? null,
             summary: infosModalCall.fathom_summary ?? null,
             actionItems: infosModalCall.fathom_action_items ?? null,
-            transcript: infosModalCall.fathom_transcript ?? null,
+            // Transcript chargé à la demande au clic — voir CALL_COLUMNS.
+            transcript: null,
+            callId: infosModalCall.id,
+            hasTranscript: (infosModalCall as { has_fathom_transcript?: boolean }).has_fathom_transcript === true,
           }}
           onClose={() => setInfosModalCall(null)}
         />

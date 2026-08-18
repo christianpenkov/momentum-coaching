@@ -2,6 +2,7 @@
 
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { createClient } from '@/lib/supabase/client';
+import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task } from '@/lib/supabase/types';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
 import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled } from '@/lib/salesCallStats';
@@ -114,7 +115,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         // élèves × ~3 coachings/semaine) et faisait alors disparaître silencieusement
         // les calls les plus anciens de l'historique. La page Calls pagine par
         // période, donc rien n'est rendu d'un coup.
-        supabase.from('calls').select('*').eq('coach_id', user.id)
+        supabase.from('calls').select(CALL_COLUMNS).eq('coach_id', user.id)
           .neq('ignored', true)
           .order('scheduled_at', { ascending: false }).limit(2000),
         profileIds.length > 0
@@ -139,19 +140,19 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         // (business = stats PERSONNELLES du coach, cf. requêtes coachSalesCallsRes
         // ci-dessous — le coach vend son propre coaching, distinct de ses élèves).
         profileIds.length > 0
-          ? supabase.from('calls').select('*').in('coach_id', profileIds).eq('call_type', 'calendly').neq('ignored', true)
+          ? supabase.from('calls').select(CALL_COLUMNS).in('coach_id', profileIds).eq('call_type', 'calendly').neq('ignored', true)
           : { data: [], error: null },
         // Calls manuels par élève (créés via le pipeline élève, drag vers "Call
         // booké") — même remarque, sert à currentStats par-élève uniquement.
         ids.length > 0
-          ? supabase.from('calls').select('*').in('client_id', ids).eq('call_type', 'manual').neq('ignored', true)
+          ? supabase.from('calls').select(CALL_COLUMNS).in('client_id', ids).eq('call_type', 'manual').neq('ignored', true)
           : { data: [], error: null },
         // Stats PERSONNELLES du coach (son propre profile_id) : leads/calls/cash
         // de SON activité de vente à lui, distincte de celle de ses élèves. Le
         // tracking coach (connexion Calendly/Instagram perso) reste à mettre en
         // place — ces requêtes renverront 0 tant que rien n'est connecté, mais
         // fonctionneront automatiquement une fois l'infra branchée.
-        supabase.from('calls').select('*').eq('coach_id', user.id)
+        supabase.from('calls').select(CALL_COLUMNS).eq('coach_id', user.id)
           .eq('call_type', 'calendly').neq('ignored', true),
         fetchIgLeadsCount(supabase, user.id, null),
         fetchIgLeadsCount(supabase, user.id, startOfMonth),
@@ -368,10 +369,18 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
     const supabase = createClient();
     const channel = supabase
       .channel(`calls-realtime-${userId}`)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => {
-        supabase.from('calls').select('*').eq('coach_id', userId)
+      // filter serveur : sans lui, l'abonnement portait sur TOUTE la table `calls`
+      // — chaque coach était réveillé par les changements des autres coachs et par
+      // les écritures des crons, pour un refetch dont le résultat était identique.
+      // Aucune fuite de données (le refetch est scopé, RLS actif), mais du travail
+      // pur perte qui croît avec l'activité globale. Même pattern qu'useNotifications.ts:286.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', filter: `coach_id=eq.${userId}` }, () => {
+        // limit alignée sur le chargement initial (2000). Avant : 100 — le premier
+        // event realtime tronquait donc silencieusement l'historique de 2000 à 100
+        // lignes, faisant disparaître les calls anciens de la page Calls.
+        supabase.from('calls').select(CALL_COLUMNS).eq('coach_id', userId)
           .neq('ignored', true)
-          .order('scheduled_at', { ascending: false }).limit(100)
+          .order('scheduled_at', { ascending: false }).limit(2000)
           .then(({ data, error }) => {
             if (error) { console.error('[SupabaseClientsContext] refresh calls realtime:', error.message); return; }
             if (data) setCalls(data);

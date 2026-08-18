@@ -13,7 +13,14 @@ interface FathomData {
   shareUrl: string | null;
   summary: string | null;
   actionItems: unknown;
+  /**
+   * Transcript déjà en mémoire. Laisser à null et renseigner `callId` +
+   * `hasTranscript` pour un chargement à la demande (le transcript n'est plus
+   * embarqué dans le contexte coach : ~40 Ko par call, sur chaque page).
+   */
   transcript: string | null;
+  callId?: string | null;
+  hasTranscript?: boolean;
 }
 
 interface Props {
@@ -84,6 +91,8 @@ export default function CallInfosModal({
           summary={fathomData.summary}
           actionItems={fathomData.actionItems}
           transcript={fathomData.transcript}
+          callId={fathomData.callId ?? null}
+          hasTranscript={fathomData.hasTranscript}
           currentUserEmail={user?.email ?? null}
         />
 

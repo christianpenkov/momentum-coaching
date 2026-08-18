@@ -160,7 +160,34 @@ export interface Call {
   fathom_transcript?: string | null;
   fathom_status?: 'pending' | 'matched' | 'unmatched' | 'not_recorded' | null;
   fathom_matched_at?: string | null;
+  /**
+   * Colonne GÉNÉRÉE en base (true si fathom_transcript IS NOT NULL) : présence
+   * d'une transcription sans son contenu. Le contenu se charge à la demande via
+   * GET /api/calls/[id]/transcript.
+   */
+  has_fathom_transcript?: boolean;
 }
+
+/**
+ * Toutes les colonnes de `calls` SAUF `fathom_transcript`, remplacée par un
+ * booléen de présence.
+ *
+ * Pourquoi : Fathom enregistre tous les calls, et un transcript de call de
+ * 30 min pèse ~40 Ko. Un `select('*')` sur `calls` embarquait donc l'intégralité
+ * des transcriptions — ~56 Mo projetés à 30 élèves × 12 mois, ~375 Mo à 40 élèves
+ * × 5 ans — alors qu'elles ne sont affichées que dans FathomRecordingSection,
+ * après un clic explicite. Le contexte coach étant monté dans (coach)/layout.tsx,
+ * ce transfert partait sur CHAQUE page coach.
+ *
+ * La donnée reste intacte en base : seule sa lecture est différée.
+ *
+ * MAINTENANCE : toute nouvelle colonne ajoutée à `calls` doit être ajoutée ici,
+ * sinon elle sera absente des pages qui utilisent cette constante. PostgREST ne
+ * supporte ni l'exclusion de colonnes (`*,col.exclude()`) ni les expressions
+ * calculées (`alias:col.not.is(null)`) — les deux renvoient PGRST100 — d'où
+ * l'énumération explicite et la colonne générée `has_fathom_transcript`.
+ */
+export const CALL_COLUMNS = 'id, client_id, topic, scheduled_at, duration, ready, notes, calendly_uri, reminder_sent, created_at, join_url, calendly_event_uuid, status, invitee_email, coach_id, invitee_name, calendly_qa, source, no_show, deal_closed, revenue, ig_lead_id, short_link_path, utm_campaign, utm_medium, utm_content, google_event_id, meet_link, call_type, reminder_24h_sent, reminder_15min_sent, rapport_notif_sent, outcome, prospect_link_id, no_show_at, rescheduled, rescheduled_at, manual_override, cancellation_reason, next_rescheduled_uri, prospect_id, lead_deleted, booked_at, is_follow_up, ignored, qualified, session_completed, session_no_show, session_rapport_reminder_sent, lead_rapport_comment, invite_reminder_24h_sent, invite_reminder_2h_sent, fathom_recording_id, fathom_share_url, fathom_summary, fathom_action_items, fathom_status, fathom_matched_at, has_fathom_transcript' as const;
 
 export interface SessionReport {
   id: string;

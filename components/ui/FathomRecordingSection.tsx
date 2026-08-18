@@ -7,10 +7,18 @@ interface Props {
   shareUrl: string | null;
   summary: string | null;
   actionItems: unknown;
+  // Transcript déjà en mémoire. Laisser à null et fournir `callId` pour un
+  // chargement à la demande (voir hasTranscript ci-dessous).
   transcript: string | null;
   // Email de l'utilisateur qui consulte — sert à marquer "(Vous)" dans le
   // transcript sur les lignes dont matched_calendar_invitee_email correspond.
   currentUserEmail?: string | null;
+  // Chargement à la demande : le transcript n'est plus embarqué dans le
+  // `calls.select('*')` du contexte coach (~40 Ko par call, sur chaque page).
+  // `hasTranscript` dit s'il en existe un — sans transporter son contenu — pour
+  // décider d'afficher le bouton ; `callId` sert à aller le chercher au clic.
+  callId?: string | null;
+  hasTranscript?: boolean;
 }
 
 function parseActionItems(raw: unknown): string[] {
@@ -72,19 +80,48 @@ function isMobile(): boolean {
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 }
 
-export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail }: Props) {
+export default function FathomRecordingSection({ shareUrl, summary, actionItems, transcript, currentUserEmail, callId, hasTranscript }: Props) {
   const [showTranscript, setShowTranscript] = useState(false);
   const [onMobile] = useState(isMobile);
+  // Transcript récupéré à la demande. `transcript` (prop) reste prioritaire pour
+  // les appelants qui l'ont déjà en mémoire — aucun changement de comportement
+  // pour eux.
+  const [fetchedTranscript, setFetchedTranscript] = useState<string | null>(null);
+  const [loadingTranscript, setLoadingTranscript] = useState(false);
+  const [transcriptError, setTranscriptError] = useState(false);
 
   const items = parseActionItems(actionItems);
-  const transcriptLines = transcript ? parseTranscript(transcript) : null;
+  const effectiveTranscript = transcript ?? fetchedTranscript;
+  // Un transcript existe soit parce qu'on l'a déjà, soit parce que l'appelant
+  // signale sa présence sans en transporter le contenu.
+  const transcriptAvailable = !!transcript || !!hasTranscript;
+  const transcriptLines = effectiveTranscript ? parseTranscript(effectiveTranscript) : null;
   const speakerColor = new Map<string, string>();
   function colorFor(name: string) {
     if (!speakerColor.has(name)) speakerColor.set(name, SPEAKER_COLORS[speakerColor.size % SPEAKER_COLORS.length]);
     return speakerColor.get(name)!;
   }
 
-  if (!shareUrl && !summary && !items.length && !transcript) return null;
+  async function toggleTranscript() {
+    if (showTranscript) { setShowTranscript(false); return; }
+    setShowTranscript(true);
+    // Déjà chargé (ou fourni par l'appelant) : rien à faire.
+    if (effectiveTranscript || !callId) return;
+    setLoadingTranscript(true);
+    setTranscriptError(false);
+    try {
+      const res = await fetch(`/api/calls/${callId}/transcript`);
+      if (!res.ok) throw new Error('fetch_failed');
+      const data = await res.json();
+      setFetchedTranscript(data.transcript ?? null);
+    } catch {
+      setTranscriptError(true);
+    } finally {
+      setLoadingTranscript(false);
+    }
+  }
+
+  if (!shareUrl && !summary && !items.length && !transcriptAvailable) return null;
 
   return (
     <div style={{ marginBottom: 20, paddingBottom: 20, borderBottom: '1px solid var(--border)' }}>
@@ -130,20 +167,40 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
         </div>
       )}
 
-      {transcript && (
+      {transcriptAvailable && (
         <div style={{ marginTop: 10 }}>
           <button
             type="button"
             className="btn-ghost"
             style={{ fontSize: 13, fontWeight: 600, padding: '8px 14px', border: '1px solid var(--border)', borderRadius: 8, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-            onClick={() => setShowTranscript(v => !v)}
+            onClick={toggleTranscript}
+            disabled={loadingTranscript}
           >
             <Icon name={showTranscript ? 'chevron-up' : 'chevron-down'} size={14} />
             {showTranscript ? 'Masquer la transcription' : 'Voir la transcription complète'}
           </button>
           {showTranscript && (
             <div style={{ marginTop: 10, maxHeight: 320, overflowY: 'auto', padding: 14, background: 'var(--surface-2)', borderRadius: 8 }}>
-              {transcriptLines ? (
+              {loadingTranscript ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
+                  Chargement de la transcription…
+                </div>
+              ) : transcriptError ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
+                  Impossible de charger la transcription.{' '}
+                  <button
+                    type="button"
+                    onClick={() => { setFetchedTranscript(null); setShowTranscript(false); toggleTranscript(); }}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--accent-brand)', fontSize: 12, fontWeight: 600, cursor: 'pointer', textDecoration: 'underline' }}
+                  >
+                    Réessayer
+                  </button>
+                </div>
+              ) : !effectiveTranscript ? (
+                <div style={{ fontSize: 12, color: 'var(--muted)', padding: '8px 0' }}>
+                  Transcription indisponible.
+                </div>
+              ) : transcriptLines ? (
                 <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
                   {transcriptLines.map((line, i) => {
                     const isYou = !!currentUserEmail && !!line.speakerEmail && line.speakerEmail.toLowerCase() === currentUserEmail.toLowerCase();
@@ -161,7 +218,7 @@ export default function FathomRecordingSection({ shareUrl, summary, actionItems,
                   })}
                 </div>
               ) : (
-                <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{transcript}</div>
+                <div style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>{effectiveTranscript}</div>
               )}
             </div>
           )}
