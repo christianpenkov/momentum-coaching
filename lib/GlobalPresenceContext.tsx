@@ -147,8 +147,22 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
   useEffect(() => {
     if (!user) return;
     supabase.from('clients').select('id').eq('coach_id', user.id)
-      .then(({ data }) => setClientIds((data ?? []).map(c => c.id)));
+      .then(({ data }) => {
+        const next = (data ?? []).map(c => c.id);
+        // Ne réécrit l'état que si la LISTE a réellement changé : sans ce garde,
+        // chaque exécution posait un nouveau tableau, donc une nouvelle référence,
+        // qui relançait l'effet de souscription ci-dessous.
+        setClientIds(prev =>
+          prev.length === next.length && prev.every((id, i) => id === next[i]) ? prev : next
+        );
+      });
   }, [user, supabase]);
+
+  // Clé stable dérivée du CONTENU de clientIds. React compare les dépendances par
+  // référence : un tableau recréé à l'identique compte comme "changé", ce qui
+  // réabonnait tous les canaux Supabase en boucle jusqu'au "Maximum update depth
+  // exceeded" (18 176 occurrences relevées dans les logs de dev).
+  const clientIdsKey = clientIds.join(',');
 
   useEffect(() => {
     const onOnline = () => setRetryKey(k => k + 1);
@@ -193,7 +207,13 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
           setChannelMap(prev => ({ ...prev, [clientId]: ch }));
         } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') {
           isSubscribedRef.current = false;
-          setChannelMap(prev => { const next = { ...prev }; delete next[clientId]; return next; });
+          // Renvoie prev tel quel si la clé est déjà absente : sinon un canal qui
+          // échoue en boucle produisait un objet neuf à chaque tentative, donc un
+          // rendu à chaque tentative.
+          setChannelMap(prev => {
+            if (!(clientId in prev)) return prev;
+            const next = { ...prev }; delete next[clientId]; return next;
+          });
           if (retryTimer) clearTimeout(retryTimer);
           const attempt = retryAttemptRef.current;
           const delay = Math.min(1000 * 2 ** attempt, 30_000);
@@ -229,7 +249,10 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
 
       cleanups.push(() => {
         isSubscribedRef.current = false;
-        setChannelMap(prev => { const next = { ...prev }; delete next[clientId]; return next; });
+        setChannelMap(prev => {
+          if (!(clientId in prev)) return prev;
+          const next = { ...prev }; delete next[clientId]; return next;
+        });
         clearInterval(heartbeatId);
         clearInterval(staleCheckId);
         if (retryTimer) clearTimeout(retryTimer);
@@ -239,7 +262,11 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
     }
 
     return () => cleanups.forEach(fn => fn());
-  }, [user, clientIds, supabase, retryKey]);
+    // clientIdsKey (chaîne) et non clientIds (tableau) : voir le commentaire sur sa
+    // définition. Le provider élève ne boucle pas parce qu'il dépend d'un clientId
+    // unique, une chaîne, donc déjà comparée par valeur.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user, clientIdsKey, supabase, retryKey]);
 
   const isClientOnline = (clientId: string) => !!onlineMap[clientId];
   const getChannel = (clientId: string) => channelMap[clientId] ?? null;
