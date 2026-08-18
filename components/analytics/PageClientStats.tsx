@@ -4058,20 +4058,47 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // événement amont. Un lien envoyé avant le début de la période mais dont le call
           // est bookés/closé dans la période doit compter ici, même si "liens envoyés"
           // (basé sur calendly_link_sent_at) ne le compte pas dans cette même période.
-          const callByLeadInWindow = new Map<string, typeof callsInWindow[number]>();
+          // TOUS les calls de chaque prospect, pas seulement le premier. Un prospect qui
+          // reprend rendez-vous (relance, 2ᵉ call après un premier sans suite) a
+          // plusieurs calls : n'en garder qu'un faisait disparaître les autres de toutes
+          // les catégories, et ils retombaient en « Autre / non catégorisé ». Observé sur
+          // incogniton.734, qui a booké le 15/06 puis le 15/08.
+          //
+          // Le dédoublonnage reste nécessaire mais porte sur le bon axe : on part des
+          // LIENS (coldDMLinks.flatMap ci-dessous), et un même prospect peut avoir
+          // plusieurs liens (régénération). Sans dédup, ses calls seraient comptés une
+          // fois par lien. On déduplique donc par call.id au moment de l'agrégation,
+          // jamais en amont par prospect.
+          const callsByLeadInWindow = new Map<string, typeof callsInWindow>();
           for (const c of callsInWindow) {
-            if (c.ig_lead_id && !callByLeadInWindow.has(c.ig_lead_id)) callByLeadInWindow.set(c.ig_lead_id, c);
+            if (!c.ig_lead_id) continue;
+            const list = callsByLeadInWindow.get(c.ig_lead_id);
+            if (list) list.push(c);
+            else callsByLeadInWindow.set(c.ig_lead_id, [c]);
           }
-          const callForLink = (l: any) => l.ig_lead_id ? callByLeadInWindow.get(l.ig_lead_id) : undefined;
+          // Renvoie les calls d'une liste de liens, dédupliqués par call.id.
+          const callsForLinks = (links: any[]) => {
+            const seen = new Set<string>();
+            const out: typeof callsInWindow = [];
+            for (const l of links) {
+              if (!l.ig_lead_id) continue;
+              for (const c of callsByLeadInWindow.get(l.ig_lead_id) ?? []) {
+                if (seen.has(c.id)) continue;
+                seen.add(c.id);
+                out.push(c);
+              }
+            }
+            return out;
+          };
 
-          const coldCalls = coldDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
+          const coldCalls = callsForLinks(coldDMLinks);
           const coldBooked = coldCalls.filter(c => c.status === 'active').length;
           const coldHonored = coldCalls.filter(c => isCallHonored(c, now)).length;
           const coldClosed = coldCalls.filter(c => c.deal_closed === true).length;
           const coldRevenue = coldCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const coldClics = coldDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
-          const organicCalls = organicDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
+          const organicCalls = callsForLinks(organicDMLinks);
           const organicBooked = organicCalls.filter(c => c.status === 'active').length;
           const organicHonored = organicCalls.filter(c => isCallHonored(c, now)).length;
           const organicClosed = organicCalls.filter(c => c.deal_closed === true).length;
@@ -4081,7 +4108,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // "Story - Lead Magnet" : calls dont le lead vient d'un reply à une story
           // (source='story_reply') — pivot toujours story_sequence_id en amont, jamais
           // ig_story_id seul (cf. principe d'attribution du chantier Stories).
-          const storyLmCalls = storyReplyDMLinks.map(callForLink).filter((c): c is NonNullable<typeof c> => !!c);
+          const storyLmCalls = callsForLinks(storyReplyDMLinks);
           const storyLmBooked = storyLmCalls.filter(c => c.status === 'active').length;
           const storyLmHonored = storyLmCalls.filter(c => isCallHonored(c, now)).length;
           const storyLmClosed = storyLmCalls.filter(c => c.deal_closed === true).length;
@@ -4112,9 +4139,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // (même hors période) faisait fuiter ses calls dans le compte de cette période,
           // créant des incohérences du type "1 lien Calendly mais 2 calls bookés".
           const lmLeadIds = new Set(lmProspectLinksDb.map((pl: any) => pl.ig_lead_id));
-          const lmCalls = [...callByLeadInWindow.entries()]
+          const lmCalls = [...callsByLeadInWindow.entries()]
             .filter(([leadId]) => lmLeadIds.has(leadId))
-            .map(([, c]) => c);
+            .flatMap(([, cs]) => cs);
           const lmBooked = lmCalls.filter(c => c.status === 'active').length;
           const lmHonored = lmCalls.filter(c => isCallHonored(c, now)).length;
           const lmClosed = lmCalls.filter(c => c.deal_closed === true).length;
