@@ -1,5 +1,6 @@
 import Stripe from 'stripe';
 import { getStripeAccess, type StripeAccess } from '@/lib/stripe-account';
+import { shortenUrl } from '@/lib/shortio-create';
 
 /**
  * Création des liens de paiement Stripe, et bornage des plans en N fois.
@@ -44,11 +45,19 @@ export interface DealLinkInput {
   installments?: { count: number; interval: 'month' | 'week' } | null;
   /** Mode manuel : ce lien ne couvre qu'une échéance. */
   installmentId?: string | null;
+  /** Contenu à l'origine du lead — pose utm_content pour les stats de clics. */
+  contentId?: string | null;
+  /** Pseudo du prospect — pose utm_term. */
+  prospectHandle?: string | null;
 }
 
 export interface CreatedLink {
   paymentLinkId: string;
+  /** URL à envoyer au prospect : Short.io si disponible, sinon Stripe directement. */
   url: string;
+  /** URL Stripe brute, toujours présente — sert de repli et de référence. */
+  stripeUrl: string;
+  shortioId: string | null;
 }
 
 /** Stripe raisonne en centimes. Arrondi explicite : 0.1 + 0.2 ne fait pas 0.3. */
@@ -102,7 +111,34 @@ export async function createDealPaymentLink(
     } : {}),
   }, opts);
 
-  return { paymentLinkId: link.id, url: link.url };
+  // ── Couche Short.io : le tracking du clic ─────────────────────────────────
+  // Elle ne participe PAS au rattachement du paiement — ce sont les metadata
+  // ci-dessus qui le portent, et elles vivent sur l'objet Stripe. Le lien court
+  // sert à savoir si le prospect a OUVERT le lien sans payer, ce qui distingue
+  // « jamais ouvert » (renvoyer le lien suffit) de « ouvert, pas payé »
+  // (objection : un message personnel vaut mieux qu'un rappel).
+  //
+  // Échec silencieux assumé : sans Short.io connecté, on renvoie l'URL Stripe.
+  // On perd le tracking du clic, jamais la capacité d'encaisser.
+  const short = await shortenUrl(input.profileId, link.url, {
+    title: input.productName,
+    utms: {
+      source: 'ig',
+      medium: 'payment',
+      campaign: `deal-${input.dealId.slice(0, 8)}`,
+      // utm_content n'accepte qu'un vrai ID de contenu (contrat de lib/contentId.ts) :
+      // y mettre un pseudo casserait « Performance par contenu ».
+      ...(input.contentId ? { content: input.contentId } : {}),
+      ...(input.prospectHandle ? { term: input.prospectHandle } : {}),
+    },
+  });
+
+  return {
+    paymentLinkId: link.id,
+    url: short?.shortUrl ?? link.url,
+    stripeUrl: link.url,
+    shortioId: short?.id ?? null,
+  };
 }
 
 /**
