@@ -1998,11 +1998,19 @@ export default function PageClientMessages() {
               })}
 
               {/* Séparateur date — dernier enfant DOM du groupe = visuellement au-dessus
-                  grâce à column-reverse (reste au-dessus du groupe comme avant). */}
-              <div style={{ display: 'flex', justifyContent: 'center', margin: '10px 0 6px' }}>
+                  grâce à column-reverse (reste au-dessus du groupe comme avant).
+
+                  STICKY : reste affiché en haut pendant qu'on parcourt les messages
+                  du jour, puis se fait pousser par la date précédente. En
+                  column-reverse, l'axe est inversé : c'est `bottom: 0` qui colle en
+                  HAUT de l'écran (et non `top: 0`, qui collerait en bas). */}
+              <div style={{
+                display: 'flex', justifyContent: 'center', margin: '10px 0 6px',
+                position: 'sticky', bottom: 0, zIndex: 2, pointerEvents: 'none',
+              }}>
                 <span style={{
-                  fontSize: 11, color: 'var(--muted)',
-                  background: 'var(--surface-2)', padding: '3px 10px',
+                  fontSize: 13, fontWeight: 600, color: 'var(--ink)',
+                  background: 'var(--surface-2)', padding: '5px 14px',
                   borderRadius: 20, border: '1px solid var(--border-soft)',
                 }}>
                   {group.dateLabel}
