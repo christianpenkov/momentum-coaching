@@ -140,11 +140,20 @@ export function useClientSelfData() {
         clientRow.profile_id
           ? supabase.from('integrations').select('id').eq('profile_id', clientRow.profile_id).eq('provider', 'stripe').maybeSingle()
           : Promise.resolve({ data: null }),
+        // Cash collecté = paiements rattachés à un deal, pas l'encaissé Stripe brut
+        // (même règle que SupabaseClientsContext — décision du 19/08/2026).
         clientRow.profile_id
-          ? supabase.from('stripe_payments').select('amount').eq('profile_id', clientRow.profile_id).gte('date', startOfMonth)
+          ? supabase.from('deal_payments')
+              .select('amount, deals!inner(profile_id)')
+              .eq('deals.profile_id', clientRow.profile_id)
+              .eq('status', 'succeeded')
+              .gte('paid_at', startOfMonth)
           : Promise.resolve({ data: [] }),
         clientRow.profile_id
-          ? supabase.from('stripe_payments').select('amount').eq('profile_id', clientRow.profile_id)
+          ? supabase.from('deal_payments')
+              .select('amount, deals!inner(profile_id)')
+              .eq('deals.profile_id', clientRow.profile_id)
+              .eq('status', 'succeeded')
           : Promise.resolve({ data: [] }),
         clientRow.profile_id
           ? supabase.from('profiles').select('avatar_url').eq('id', clientRow.profile_id).maybeSingle()
@@ -185,11 +194,12 @@ export function useClientSelfData() {
       // identique entre les 3 écrans.
 
       const stripeConnected = !!(stripeIntegRes as { data: { id: string } | null }).data;
+      // Number() explicite : Postgres renvoie les numeric en chaîne.
       const cashCollectedAllTime = stripeConnected
-        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
         : null;
       const cashCollectedThisMonth = stripeConnected
-        ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        ? (stripePaymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
         : null;
 
       setData({

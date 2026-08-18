@@ -2973,8 +2973,13 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   const dealsClosed = callsInPeriod.filter(c => c.deal_closed);
   const cashContracte = dealsClosed.reduce((s, c) => s + (c.revenue || 0), 0);
 
-  const cashCollecte = succeeded.reduce((s, p) => s + p.amount, 0);
-  const avgBasket = succeeded.length > 0 ? cashCollecte / succeeded.length : 0;
+  // Number() explicite : les numeric Postgres arrivent en chaîne, et une
+  // concaténation silencieuse ("10" + "20" = "1020") passerait le typage.
+  const cashCollecte = succeeded.reduce((s, p) => s + Number(p.amount || 0), 0);
+  // Panier moyen = ce que vaut une VENTE, donc sur le contracté et le nombre de
+  // deals — pas sur le collecté divisé par le nombre de paiements, qui ferait
+  // chuter la moyenne dès qu'un deal est payé en 3× (3 paiements pour 1 vente).
+  const avgBasket = dealsClosed.length > 0 ? cashContracte / dealsClosed.length : 0;
   const cashCollectePct = cashContracte > 0 ? Math.round((cashCollecte / cashContracte) * 100) : 0;
 
   // Nombre réel de jours dans la période (7 pour une semaine, 28-31 pour un mois
@@ -3018,7 +3023,7 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Panier moyen</div>
           <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--ink)', lineHeight: 1 }}>{fmtEur(Math.round(avgBasket))}</div>
-          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>par paiement réussi</div>
+          <div style={{ fontSize: 10, color: 'var(--faint)', marginTop: 4 }}>{dealsClosed.length > 0 ? `sur ${dealsClosed.length} deal${dealsClosed.length > 1 ? 's' : ''}` : 'aucun deal'}</div>
         </div>
         <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '12px 14px' }}>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>Taux de cash collecté</div>
@@ -5318,13 +5323,17 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       .eq('call_type', 'calendly')
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false }),
+    // Cash collecté = paiements rattachés à un deal, pas l'encaissé Stripe brut :
+    // un élève peut encaisser hors Momentum, et compter ces paiements rendrait le
+    // taux collecté/contracté supérieur à 100 % (décision du 19/08/2026).
+    // `date` est conservé en alias de paid_at pour ne pas toucher aux consommateurs.
     supabase
-      .from('stripe_payments')
-      .select('*')
-      .eq('profile_id', targetId)
-      .gte('date', periodStart.toISOString())
-      .lte('date', periodEnd.toISOString())
-      .order('date', { ascending: false }),
+      .from('deal_payments')
+      .select('amount, status, date:paid_at, deals!inner(profile_id)')
+      .eq('deals.profile_id', targetId)
+      .gte('paid_at', periodStart.toISOString())
+      .lte('paid_at', periodEnd.toISOString())
+      .order('paid_at', { ascending: false }),
     fetch(`/api/shortio/snapshots?profileId=${encodeURIComponent(targetId)}&startDate=${startDateStr}&endDate=${endDateStr}`)
       .then(r => r.ok ? r.json() : null)
       .catch(() => null),
