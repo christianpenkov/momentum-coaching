@@ -8,7 +8,19 @@ const WEBHOOK_SECRET = process.env.STRIPE_CONNECT_WEBHOOK_SECRET!;
 
 // Instance sans compte connecté : sert uniquement à vérifier la signature et à
 // désérialiser l'événement. Les appels API passent par getStripeAccess().
-const stripePlatform = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-04-22.dahlia' });
+//
+// Instanciation PARESSEUSE (et non au niveau du module) : `next build` évalue les
+// modules des routes pour collecter leurs métadonnées, sans les variables
+// d'environnement d'exécution. Un `new Stripe(...)` au chargement échouait donc à
+// la compilation — « Neither apiKey nor config.authenticator provided », build en
+// erreur, déploiement Vercel bloqué. Même pattern que getServiceSupabase ci-dessous.
+let _stripePlatform: Stripe | null = null;
+function stripePlatform(): Stripe {
+  if (!_stripePlatform) {
+    _stripePlatform = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2026-04-22.dahlia' });
+  }
+  return _stripePlatform;
+}
 
 function getServiceSupabase() {
   return createClient(
@@ -363,7 +375,7 @@ export async function POST(request: NextRequest) {
   // a une longueur inattendue — deux défauts de l'implémentation précédente.
   let event: Stripe.Event;
   try {
-    event = stripePlatform.webhooks.constructEvent(payload, signature, WEBHOOK_SECRET);
+    event = stripePlatform().webhooks.constructEvent(payload, signature, WEBHOOK_SECRET);
   } catch (err) {
     console.error('[stripe] signature invalide', err);
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 });
