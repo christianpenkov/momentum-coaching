@@ -8,9 +8,21 @@ import { useSignedMediaUrls } from '@/lib/useSignedMediaUrls';
 // intact) qui reste le chemin de repli réseau pour le tout premier affichage et pour les
 // documents/audio (non mis en cache ici — voir plan ok-nous-ici-on-proud-rocket.md).
 //
-// Peut être désactivé instantanément sans revert de code via cette constante, si un souci
-// Safari/iOS apparaît en prod (coupe-circuit).
-const USE_BLOB_CACHE = true;
+// Désactivé sur iOS (Safari ET tout autre navigateur — Apple impose le moteur WebKit
+// à tous les navigateurs iOS, donc Chrome/Firefox sur iPhone ont le même bug) : le
+// stockage de Blob dans IndexedDB y est connu pour être non fiable (bug documenté de
+// longue date côté WebKit, jamais complètement résolu — cf. webkit.org/b/198278,
+// github.com/dfahlander/Dexie.js/issues/1227) — un Blob écrit avec succès peut ressortir
+// illisible à la lecture, ce qui provoquait l'icône image cassée en plein écran (confirmé
+// en prod : "WebkitBlobRessource error 1"). Desktop et Android n'ont jamais montré ce
+// problème, donc le cache y reste actif.
+function detectBlobCacheSupport(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (ua.includes('Macintosh') && navigator.maxTouchPoints > 1);
+  return !isIOS;
+}
+const USE_BLOB_CACHE = detectBlobCacheSupport();
 
 const DB_NAME = 'orbit-media-cache-v1';
 const DB_VERSION = 1;
@@ -362,7 +374,7 @@ export function useBlobMediaCache() {
         objectUrlRegistry.delete(key);
       }
     }
-    openDb().then(db => { if (db) deleteByMessageId(db, messageId); });
+    if (USE_BLOB_CACHE) openDb().then(db => { if (db) deleteByMessageId(db, messageId); });
   }, []);
 
   return { resolve, release, evictMessage };
