@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr';
 import { createClient } from '@supabase/supabase-js';
 import { cookies } from 'next/headers';
 import { sendPushToProfile, getAuthClientForProfile } from '@/lib/googleCalendarService';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { formatTimeIn, formatDateIn, isValidTimeZone, DEFAULT_TIME_ZONE } from '@/lib/timezone';
 import { google } from 'googleapis';
 
 // POST /api/calls/[id]/respond — l'élève accepte ou refuse un call
@@ -84,10 +84,18 @@ export async function POST(
     } catch {}
   }
 
-  // Notif push au coach
+  // Notif push au coach — donc fuseau DU COACH, pas de l'élève qui vient de
+  // répondre. C'est l'erreur la plus tentante de tout ce chantier : le code tourne
+  // dans la requête de l'élève, mais la notification s'affiche chez le coach.
+  // sb (service role) et non supabase (session de l'élève) : la RLS empêcherait un
+  // élève de lire le profil de son coach.
+  const { data: coachProfile } = await sb
+    .from('profiles').select('timezone').eq('id', call.coach_id).maybeSingle();
+  const coachTz = isValidTimeZone(coachProfile?.timezone) ? coachProfile.timezone : DEFAULT_TIME_ZONE;
+
   const d = new Date(call.scheduled_at);
-  const dateStr = formatParisDate(d);
-  const timeStr = formatParisTime(d);
+  const dateStr = formatDateIn(d, coachTz);
+  const timeStr = formatTimeIn(d, coachTz);
   const topic = call.topic || 'Call coaching';
 
   const suffix = proposedAt ? ` — propose : ${proposedAt}` : '';

@@ -1,7 +1,18 @@
 import { google } from 'googleapis';
 import { createClient } from '@supabase/supabase-js';
 import webpush from 'web-push';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { formatTimeIn, formatDateIn, isValidTimeZone, DEFAULT_TIME_ZONE } from '@/lib/timezone';
+
+// Fuseau du destinataire d'une notification, replié sur Paris. Toute notification
+// contenant une heure de call DOIT passer par là : l'erreur naturelle est d'utiliser
+// le fuseau de celui qui déclenche l'action (le coach) alors que la notification
+// s'affiche chez quelqu'un d'autre (l'élève).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function recipientTimeZone(sb: any, profileId: string): Promise<string> {
+  const { data } = await sb.from('profiles').select('timezone').eq('id', profileId).maybeSingle();
+  const tz = (data as { timezone?: string | null } | null)?.timezone;
+  return isValidTimeZone(tz) ? tz : DEFAULT_TIME_ZONE;
+}
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -199,9 +210,12 @@ export async function createGoogleCall(params: {
   const coachFirstName = coachProfileRes.data?.full_name ? coachProfileRes.data.full_name.split(' ')[0] : null;
 
   if (clientRes.data?.profile_id) {
+    // Fuseau du DESTINATAIRE (l'élève), jamais celui du coach qui crée le call :
+    // c'est sur le téléphone de l'élève que la notification s'affiche.
+    const tz = await recipientTimeZone(sb, clientRes.data.profile_id);
     const d = new Date(params.startTime);
-    const dateStr = formatParisDate(d);
-    const timeStr = formatParisTime(d);
+    const dateStr = formatDateIn(d, tz);
+    const timeStr = formatTimeIn(d, tz);
     await sendPushToProfile(
       clientRes.data.profile_id,
       `Demande de call — ${coachFirstName || 'ton coach'}`,
@@ -272,13 +286,11 @@ export async function updateGoogleCall(params: {
     const coachFirstName = coachProfileRes.data?.full_name ? coachProfileRes.data.full_name.split(' ')[0] : null;
 
     if (clientRes.data?.profile_id) {
-      // formatParisDate/Time et non toLocale*({timeZone:'Europe/Paris'}) : l'option
-      // est ignorée sans erreur sur un runtime serverless sans données ICU
-      // complètes, et l'heure sort en UTC. Le reste du fichier (l. 203) utilisait
-      // déjà les helpers — seul ce chemin "call déplacé" était resté en arrière.
+      // Fuseau du destinataire, comme pour la notification de création plus haut.
+      const tz = await recipientTimeZone(sb, clientRes.data.profile_id);
       const d = new Date(params.startTime);
-      const dateStr = formatParisDate(d);
-      const timeStr = formatParisTime(d);
+      const dateStr = formatDateIn(d, tz);
+      const timeStr = formatTimeIn(d, tz);
       await sendPushToProfile(
         clientRes.data.profile_id,
         `Call déplacé — ${coachFirstName || 'ton coach'}`,

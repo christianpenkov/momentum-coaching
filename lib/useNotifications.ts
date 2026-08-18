@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { setAppBadge } from '@/lib/pwaBadge';
 import { getPendingSessionRapports } from '@/lib/sessionRapport';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { formatTimeIn, formatDateIn } from '@/lib/timezone';
+import { useViewerTimeZone } from '@/lib/UserContext';
 import type { Call } from '@/lib/supabase/types';
 
 let instanceCounter = 0;
@@ -25,6 +26,9 @@ export interface AppNotif {
 }
 
 export function useNotifications(profileId: string | null, isClient: boolean) {
+  // Rendu CLIENT : le fuseau du lecteur s'applique normalement, contrairement aux
+  // notifications serveur qui doivent lire profiles.timezone du destinataire.
+  const viewerTz = useViewerTimeZone();
   const [notifs, setNotifs] = useState<AppNotif[]>([]);
   const coachNameRef = useRef<string | null>(null);
   const instanceId = useRef(`${++instanceCounter}`);
@@ -74,8 +78,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
         const isAccepted = row.type === 'call_accepted';
         const topic = row.payload?.topic || 'Call coaching';
         const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;
-        const dateStr = d ? formatParisDate(d) : '';
-        const timeStr = d ? formatParisTime(d) : '';
+        const dateStr = d ? formatDateIn(d, viewerTz) : '';
+        const timeStr = d ? formatTimeIn(d, viewerTz) : '';
         const proposedSuffix = row.payload?.proposed_at ? ` — propose : ${row.payload.proposed_at}` : '';
         const clientName = row.call_id ? coachClientNameByCallId[row.call_id] : undefined;
         const nameSuffix = clientName ? ` — ${clientName}` : '';
@@ -251,8 +255,8 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
 
     const callRescheduledNotifs: AppNotif[] = (rescheduledRows ?? []).map(row => {
       const d = row.payload?.scheduled_at ? new Date(row.payload.scheduled_at) : null;
-      const dateStr = d ? formatParisDate(d) : '';
-      const timeStr = d ? formatParisTime(d) : '';
+      const dateStr = d ? formatDateIn(d, viewerTz) : '';
+      const timeStr = d ? formatTimeIn(d, viewerTz) : '';
       return {
         id: `call_rescheduled_${row.id}`,
         type: 'call_rescheduled' as NotifType,
@@ -267,7 +271,9 @@ export function useNotifications(profileId: string | null, isClient: boolean) {
     const allNotifs = [...rapportNotifs, ...callRequestNotifs, ...callCanceledNotifs, ...callRescheduledNotifs];
     setNotifs(allNotifs);
     setAppBadge(allNotifs.length);
-  }, [profileId, isClient]);
+    // viewerTz dans les dépendances : sans lui, les libellés d'heure des notifs
+    // resteraient figés sur l'ancien fuseau après un changement de pays.
+  }, [profileId, isClient, viewerTz]);
 
   const refreshRef = useRef(refresh);
   useEffect(() => { refreshRef.current = refresh; }, [refresh]);

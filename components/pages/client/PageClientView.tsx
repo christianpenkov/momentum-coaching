@@ -18,7 +18,8 @@ import CallStack from '@/components/ui/CallStack';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import type { Call } from '@/lib/supabase/types';
 import { isCallReallyOver, isCallJoinable } from '@/lib/sessionRapport';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { useViewerTimeZone } from '@/lib/UserContext';
+import { formatTimeIn, formatDateIn } from '@/lib/timezone';
 
 const PRIORITY_CONFIG = {
   high:   { label: 'Haute',   color: 'var(--red)',   bg: '#ef444420' },
@@ -83,6 +84,7 @@ function pickAccueilCall(list: Call[], now: number): Call | null {
 }
 
 export default function PageClientView() {
+  const viewerTz = useViewerTimeZone();
   const { data: client, loading } = useClientSelfData();
   const [taskOverrides, setTaskOverrides] = useState<Record<string, boolean>>({});
   const supabase = useRef(createClient()).current;
@@ -169,10 +171,10 @@ export default function PageClientView() {
                 </span>
               </div>
               <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
-                {formatParisDate(new Date(nextCall.scheduled_at))}
+                {formatDateIn(new Date(nextCall.scheduled_at), viewerTz)}
               </div>
               <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)', marginTop: 2 }}>
-                {formatParisTime(new Date(nextCall.scheduled_at))}
+                {formatTimeIn(new Date(nextCall.scheduled_at), viewerTz)}
                 {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
               </div>
               {isCoachingCall(nextCall) && nextCall.topic && (
@@ -228,9 +230,9 @@ export default function PageClientView() {
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
                   {notif.scheduledAt && (
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                      {formatParisDate(new Date(notif.scheduledAt))}
+                      {formatDateIn(new Date(notif.scheduledAt), viewerTz)}
                       {' · '}
-                      {formatParisTime(new Date(notif.scheduledAt))}
+                      {formatTimeIn(new Date(notif.scheduledAt), viewerTz)}
                       {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
                     </div>
                   )}
@@ -275,9 +277,9 @@ export default function PageClientView() {
                       </div>
                       {notif.scheduledAt && (
                         <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                          {formatParisDate(new Date(notif.scheduledAt))}
+                          {formatDateIn(new Date(notif.scheduledAt), viewerTz)}
                           {' · '}
-                          {formatParisTime(new Date(notif.scheduledAt))}
+                          {formatTimeIn(new Date(notif.scheduledAt), viewerTz)}
                           {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
                         </div>
                       )}

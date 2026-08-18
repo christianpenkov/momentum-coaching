@@ -12,58 +12,17 @@ import { createClient } from 'jsr:@supabase/supabase-js@2';
 
 // web-push via npm (Deno)
 import webpush from 'npm:web-push';
+import { formatTimeIn, formatDateIn, safeZone } from '../_shared/timezone.ts';
 
 const sb = createClient(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
 );
 
-// Offset Paris (+1h hiver / +2h été) — règle UE : dernier dimanche de mars 1h UTC
-// (passage à +2h) → dernier dimanche d'octobre 1h UTC (retour à +1h). Dupliqué ici
-// (pas d'import cross-runtime possible entre cette Edge Function Deno et
-// lib/parisTime.ts côté Next.js) — même logique que poll-leads/index.ts.
-// Remplace toLocaleTimeString/toLocaleDateString(timeZone:'Europe/Paris'), qui sur
-// cette Edge Function retombait silencieusement sur UTC (aucun support ICU/Intl des
-// fuseaux nommés dans ce runtime Deno) — cette fonction est la vraie cause du bug
-// "call à 17:35 affiché comme 15:35" : elle tourne indépendamment de
-// app/api/calls/reminders/route.ts (jamais identifiée avant faute de logs), avec sa
-// propre copie du code jamais mise à jour lors des fixes précédents.
-function lastSundayOfMonth(year: number, month: number): number {
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const lastDate = new Date(Date.UTC(year, month, lastDay));
-  return lastDay - lastDate.getUTCDay();
-}
-
-function parisOffsetHours(utcDate: Date): number {
-  const year = utcDate.getUTCFullYear();
-  const dstStart = Date.UTC(year, 2, lastSundayOfMonth(year, 2), 1, 0, 0);
-  const dstEnd = Date.UTC(year, 9, lastSundayOfMonth(year, 9), 1, 0, 0);
-  const t = utcDate.getTime();
-  return t >= dstStart && t < dstEnd ? 2 : 1;
-}
-
-function toParisWallClock(utcDate: Date): Date {
-  const offset = parisOffsetHours(utcDate);
-  return new Date(utcDate.getTime() + offset * 3600_000);
-}
-
-const DAYS_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
-const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-
-function formatParisTime(utcDate: Date): string {
-  const wall = toParisWallClock(utcDate);
-  const h = String(wall.getUTCHours()).padStart(2, '0');
-  const m = String(wall.getUTCMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
-}
-
-function formatParisDate(utcDate: Date): string {
-  const wall = toParisWallClock(utcDate);
-  const day = DAYS_FR[wall.getUTCDay()];
-  const date = wall.getUTCDate();
-  const month = MONTHS_FR[wall.getUTCMonth()];
-  return `${day} ${date} ${month}`;
-}
+// Formatage des heures : importé de _shared/timezone.ts, partagé avec poll-leads.
+// Remplace une copie locale du calcul manuel d'offset Paris, qui n'avait plus lieu
+// d'être — chaque notification s'affiche désormais dans le fuseau de son
+// destinataire, ce qu'aucune formule manuelle ne peut couvrir (base IANA).
 
 async function sendPushToProfile(
   profileId: string,
@@ -169,10 +128,22 @@ Deno.serve(async (req: Request) => {
 
     if (!clientRow?.profile_id) continue;
 
+    // Fuseau du DESTINATAIRE (l'élève), jamais celui de l'émetteur ni Paris : la
+    // notification atterrit sur SON écran verrouillé, elle doit donner SON heure.
+    // profiles.timezone est écrit par lib/UserContext.tsx à chaque ouverture de
+    // l'app ; il peut être en retard si l'élève a voyagé sans rouvrir Momentum —
+    // limite connue, documentée dans docs/fuseaux-horaires.md.
+    const { data: recipient } = await sb
+      .from('profiles')
+      .select('timezone')
+      .eq('id', clientRow.profile_id)
+      .single();
+    const tz = safeZone(recipient?.timezone);
+
     const scheduledAt = new Date(call.scheduled_at);
     const topic = call.topic || 'Call coaching';
-    const timeStr = formatParisTime(scheduledAt);
-    const dateStr = formatParisDate(scheduledAt);
+    const timeStr = formatTimeIn(scheduledAt, tz);
+    const dateStr = formatDateIn(scheduledAt, tz);
     const url = call.join_url || '/client/calls';
 
     // Rappel 24h avant — idempotent via reminder_24h_sent

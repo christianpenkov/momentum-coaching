@@ -9,7 +9,8 @@ import Icon from '@/components/ui/Icon';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import type { Call } from '@/lib/supabase/types';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { useViewerTimeZone } from '@/lib/UserContext';
+import { formatTimeIn, formatDateIn, formatDayPartsIn, dateKeyIn, formatDateKey } from '@/lib/timezone';
 
 type ViewMode = 'month' | 'week';
 
@@ -34,6 +35,7 @@ const DAYS_FR = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 const MONTHS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 
 export default function PageCalendar() {
+  const viewerTz = useViewerTimeZone();
   const { clients, calls, loading, refetch } = useSupabaseClients();
   const [view, setView] = useState<ViewMode>('month');
   const [cursor, setCursor] = useState(new Date());
@@ -50,14 +52,14 @@ export default function PageCalendar() {
       const d = new Date(call.scheduled_at);
       const client = clients.find(c => c.id === call.client_id);
       evs.push({
-        date: toDateKey(d),
+        date: dateKeyIn(d, viewerTz),
         type: 'call',
         label: call.topic || 'Call coaching',
         clientName: client?.name || call.invitee_name || '—',
         clientInitials: client?.initials || getInitials(call.invitee_name),
         clientAvatarUrl: client?.avatar_url,
         clientId: call.client_id || '',
-        time: formatParisTime(d),
+        time: formatTimeIn(d, viewerTz),
         status: call.status,
         callType: call.call_type,
       });
@@ -312,7 +314,7 @@ export default function PageCalendar() {
               <div>
                 <div className="card-title">
                   {selectedDay
-                    ? formatParisDate(new Date(selectedDay + 'T12:00:00'))
+                    ? formatDateKey(selectedDay)
                     : 'Sélectionne un jour'}
                 </div>
                 <div className="card-sub">{selectedEvents.length} événement{selectedEvents.length !== 1 ? 's' : ''}</div>
@@ -340,7 +342,7 @@ export default function PageCalendar() {
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>{client?.name || '—'}</div>
                         <div style={{ fontSize: 11, color: 'var(--muted)' }}>
-                          {d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })} à {formatParisTime(d)}
+                          {formatDayPartsIn(d, viewerTz).day} {formatDayPartsIn(d, viewerTz).monthShort} à {formatTimeIn(d, viewerTz)}
                         </div>
                       </div>
                       {call.status === 'pending_acceptance' && (
@@ -373,7 +375,7 @@ export default function PageCalendar() {
               <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
             </div>
             <div className="card-title" style={{ marginBottom: 4, textTransform: 'capitalize' }}>
-              {formatParisDate(new Date(selectedDay + 'T12:00:00'))}
+              {formatDateKey(selectedDay)}
             </div>
             <DayEventsList events={selectedEvents} />
           </div>

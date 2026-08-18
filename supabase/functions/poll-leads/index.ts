@@ -5,6 +5,7 @@
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { snapshotIgPosts } from '../_shared/ig-posts.ts';
+import { formatTimeIn, safeZone } from '../_shared/timezone.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -36,17 +37,6 @@ function parisOffsetHours(utcDate: Date): number {
   const dstEnd = Date.UTC(year, 9, lastSundayOfMonth(year, 9), 1, 0, 0);
   const t = utcDate.getTime();
   return t >= dstStart && t < dstEnd ? 2 : 1;
-}
-
-// Heure murale de Paris pour les notifications push. Ne JAMAIS utiliser
-// toLocaleTimeString({timeZone:'Europe/Paris'}) ici : sur les runtimes serverless
-// sans données ICU complètes, l'option est ignorée sans erreur et l'heure sort en
-// UTC (bug du 2026-07-24, voir docs/heure-paris.md et lib/parisTime.ts). Fonction
-// dupliquée ici parce qu'une Edge Function Deno ne peut pas importer depuis lib/ —
-// même duplication assumée que dans call-reminders/index.ts.
-function formatParisTime(utcDate: Date): string {
-  const wall = new Date(utcDate.getTime() + parisOffsetHours(utcDate) * 3600_000);
-  return `${String(wall.getUTCHours()).padStart(2, '0')}:${String(wall.getUTCMinutes()).padStart(2, '0')}`;
 }
 
 // Date calendrier Paris (pas UTC) — "aujourd'hui moins daysAgo jours", en heure de Paris.
@@ -1314,7 +1304,14 @@ Deno.serve(async (req: Request) => {
         coachFirstName = coachProfile?.full_name ? String(coachProfile.full_name).split(' ')[0] : null;
       }
 
-      const timeStr = formatParisTime(scheduledAt);
+      // Fuseau du DESTINATAIRE (l'élève), pas celui du coach qui envoie : la
+      // notification s'affiche sur SON téléphone, elle doit donner SON heure.
+      const { data: recipient } = await supa
+        .from('profiles')
+        .select('timezone')
+        .eq('id', clientRow.profile_id)
+        .single();
+      const timeStr = formatTimeIn(scheduledAt, safeZone(recipient?.timezone));
       try {
         const controller = new AbortController();
         const timeout = setTimeout(() => controller.abort(), 8000);

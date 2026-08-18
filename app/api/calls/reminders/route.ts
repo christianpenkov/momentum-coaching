@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { sendPushToProfile } from '@/lib/googleCalendarService';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { formatTimeIn, formatDateIn, isValidTimeZone, DEFAULT_TIME_ZONE } from '@/lib/timezone';
 
 // GET /api/calls/reminders — déclencheur exact non identifié avec certitude (aucun
 // des crons connus ne l'appelle d'après investigation) ; logs de traçabilité ajoutés
@@ -70,10 +70,18 @@ export async function GET(request: NextRequest) {
 
     if (!clientRow?.profile_id) continue;
 
+    // Fuseau du destinataire (l'élève). Ce fichier fait DOUBLON avec
+    // supabase/functions/call-reminders/index.ts : seule l'Edge Function tourne
+    // réellement, mais les deux sont maintenues à l'identique — une divergence
+    // entre elles est exactement ce qui a causé le bug d'heure de juillet 2026.
+    const { data: recipient } = await sb
+      .from('profiles').select('timezone').eq('id', clientRow.profile_id).maybeSingle();
+    const tz = isValidTimeZone(recipient?.timezone) ? recipient.timezone : DEFAULT_TIME_ZONE;
+
     const scheduledAt = new Date(call.scheduled_at);
     const topic = call.topic || 'Call coaching';
-    const timeStr = formatParisTime(scheduledAt);
-    const dateStr = formatParisDate(scheduledAt);
+    const timeStr = formatTimeIn(scheduledAt, tz);
+    const dateStr = formatDateIn(scheduledAt, tz);
     const url = call.join_url || '/client/calls';
 
     // Rappel 24h avant
