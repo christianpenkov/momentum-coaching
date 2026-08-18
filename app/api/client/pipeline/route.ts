@@ -26,7 +26,7 @@ export async function GET() {
   const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
   let callsQuery = supa.from('calls')
-    .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up')
+    .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up, lead_rapport_comment')
     .eq('coach_id', user.id)
     .eq('call_type', 'calendly')
     .neq('ignored', true)
@@ -208,6 +208,46 @@ export async function DELETE(request: Request) {
   try { body = await request.json(); } catch { return NextResponse.json({ error: 'JSON invalide' }, { status: 400 }); }
 
   const { ig_username, prospect_id, call_id, platform } = body;
+
+  // ── Garde-fou : jamais de suppression quand un deal est signé ────────────────
+  // Supprimer un prospect marque ses calls ignored=true, et toutes les lectures de
+  // stats filtrent .neq('ignored', true) : le chiffre d'affaires disparaît donc de
+  // Revenue, Deals closés, Closing, Rev/call et Top contenus. Personne ne le remarque,
+  // ni l'élève qui supprime ni le coach qui suit ses chiffres.
+  //
+  // « Ce n'est pas un lead » et « cette personne m'a payé » sont contradictoires : si
+  // les deux sont vrais, il y a une erreur de saisie. On refuse donc la suppression et
+  // on renvoie vers la correction du rapport de vente, désormais possible depuis le
+  // pipeline et la modale Infos (voir docs/tracking-prospect.md).
+  //
+  // Le geste « Pas un lead » (PATCH not_a_lead) reste disponible et non destructif pour
+  // écarter un faux positif sans rien perdre.
+  const dealGuard = supa.from('calls')
+    .select('id, invitee_name, revenue')
+    .eq('coach_id', user.id)
+    .eq('deal_closed', true)
+    .neq('ignored', true)
+    .limit(1);
+
+  if (call_id && !prospect_id && platform !== 'ig') dealGuard.eq('id', call_id);
+  else if (prospect_id && platform !== 'ig') dealGuard.eq('prospect_id', prospect_id);
+  else if (ig_username) {
+    const { data: guardLeads } = await supa.from('instagram_leads')
+      .select('id').eq('profile_id', user.id).eq('ig_username', ig_username);
+    const guardLeadIds = (guardLeads ?? []).map((l: any) => l.id);
+    if (guardLeadIds.length === 0) dealGuard.eq('id', '00000000-0000-0000-0000-000000000000');
+    else dealGuard.in('ig_lead_id', guardLeadIds);
+  }
+
+  const { data: signedDeals } = await dealGuard;
+  if (signedDeals && signedDeals.length > 0) {
+    const deal = signedDeals[0];
+    const montant = deal.revenue ? `${Math.round(Number(deal.revenue))} €` : 'un montant enregistré';
+    return NextResponse.json({
+      error: `Ce prospect a un deal signé (${montant}). Corrige d'abord son rapport de vente si tu veux vraiment le supprimer — sinon son chiffre d'affaires disparaîtrait de tes statistiques.`,
+      code: 'deal_signed',
+    }, { status: 409 });
+  }
 
   // ── Suppression YT / Autre — cas fallback : card.key = call.id (pas de prospect) ──
   if (call_id && !prospect_id && platform !== 'ig') {

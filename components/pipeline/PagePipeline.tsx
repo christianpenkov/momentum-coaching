@@ -68,6 +68,9 @@ interface Call {
   cancellation_reason: string | null;
   lead_deleted: boolean;
   is_follow_up: boolean | null;
+  // Commentaire libre saisi dans le rapport de vente — sert à pré-remplir la modale
+  // quand on rouvre le rapport pour le corriger.
+  lead_rapport_comment: string | null;
 }
 
 interface NonIgProspect {
@@ -340,6 +343,10 @@ interface CardData {
   callScheduledAt?: string;
   callStatus?: string;
   callOutcome?: string | null;
+  // Valeurs du rapport déjà enregistré — servent à pré-remplir la modale quand on
+  // rouvre le rapport pour le corriger (voir prop `existing` de RapportModal).
+  callRevenue?: number | null;
+  callComment?: string | null;
   callIsFollowUp?: boolean;
   naturalKey: string; // stage naturel avant override — pour natural_at_override
   hasProspectLink: boolean; // true si prospect_links.short_url est renseigné
@@ -358,7 +365,7 @@ function PipelineCard({
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
-  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: { revenue?: number | null; comment?: string | null } | null) => void;
   onCardClick?: (cardKey: string) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
 }) {
@@ -374,10 +381,15 @@ function PipelineCard({
   // Bouton "Remplir le rapport d'appel" : visible dès le début du call, caché si rapport déjà rempli
   // Accepte aussi status=cancelled sans outcome — fenêtre de transition Calendly entre reschedule et nouveau call
   const now = Date.now();
+  // Le bouton reste affiché APRÈS qu'un rapport a été rempli : il devient « Modifier le
+  // rapport ». Avant, la condition `!card.callOutcome` le faisait disparaître dès la
+  // première saisie, et il n'existait alors AUCUN moyen de corriger un montant mal saisi
+  // ou un deal enregistré sur la mauvaise personne (même verrou côté page Calls, via
+  // rapportPending). Voir docs/tracking-prospect.md.
+  const hasRapport = !!card.callOutcome;
   const showRapport = card.callId && card.callScheduledAt
-    && (card.callStatus === 'active' || (['cancelled', 'canceled'].includes(card.callStatus ?? '') && !card.callOutcome))
+    && (card.callStatus === 'active' || ['cancelled', 'canceled'].includes(card.callStatus ?? ''))
     && new Date(card.callScheduledAt).getTime() <= now
-    && !card.callOutcome
     && POST_CALL_STAGES.has(card.stageKey);
 
   return (
@@ -501,19 +513,22 @@ function PipelineCard({
           onMouseDown={e => e.stopPropagation()}
           onClick={e => {
             e.stopPropagation();
-            onRapportClick?.(card.callId!, card.name, card.callScheduledAt!, card.callIsFollowUp ?? false);
+            onRapportClick?.(card.callId!, card.name, card.callScheduledAt!, card.callIsFollowUp ?? false, hasRapport ? { revenue: card.callRevenue, comment: card.callComment } : null);
           }}
+          // Rapport à remplir = action attendue, en bleu. Rapport déjà rempli = simple
+          // correction possible, en gris discret pour ne pas réclamer l'attention.
           style={{
             display: 'block', width: '100%', textAlign: 'center', fontSize: 10, fontWeight: 600,
             padding: '5px 8px', borderRadius: 6,
-            background: '#EFF6FF', color: '#2563EB',
-            border: '1px solid #BFDBFE',
+            background: hasRapport ? 'var(--surface-2)' : '#EFF6FF',
+            color: hasRapport ? 'var(--muted)' : '#2563EB',
+            border: `1px solid ${hasRapport ? 'var(--border)' : '#BFDBFE'}`,
             cursor: 'pointer', transition: 'all .12s',
           }}
-          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = '#2563EB'; (e.currentTarget as HTMLElement).style.color = '#fff'; }}
-          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = '#EFF6FF'; (e.currentTarget as HTMLElement).style.color = '#2563EB'; }}
+          onMouseEnter={e => { (e.currentTarget as HTMLElement).style.background = hasRapport ? 'var(--border)' : '#2563EB'; (e.currentTarget as HTMLElement).style.color = hasRapport ? 'var(--ink)' : '#fff'; }}
+          onMouseLeave={e => { (e.currentTarget as HTMLElement).style.background = hasRapport ? 'var(--surface-2)' : '#EFF6FF'; (e.currentTarget as HTMLElement).style.color = hasRapport ? 'var(--muted)' : '#2563EB'; }}
         >
-          Remplir le rapport d'appel
+          {hasRapport ? 'Modifier le rapport' : "Remplir le rapport d'appel"}
         </button>
       )}
 
@@ -698,7 +713,7 @@ function KanbanColumn({
   onConfirmLead?: (key: string) => void;
   onDismissLead?: (key: string) => void;
   onDeleteLead?: (key: string, callId?: string | null) => void;
-  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean) => void;
+  onRapportClick?: (callId: string, inviteeName: string, scheduledAt: string, isFollowUp: boolean, existing?: { revenue?: number | null; comment?: string | null } | null) => void;
   onCardClick?: (cardKey: string) => void;
   onNotALead?: (key: string, callId?: string | null) => void;
 }) {
@@ -1155,7 +1170,13 @@ export default function PagePipeline() {
     inviteeName: string;
     scheduledAt: string;
     isFollowUp?: boolean;
+    // Renseigné uniquement quand on rouvre un rapport déjà rempli, pour pré-remplir la
+    // modale au lieu de faire ressaisir les valeurs de mémoire.
+    existing?: { revenue?: number | null; comment?: string | null } | null;
   } | null>(null);
+
+  // Message renvoyé par le serveur quand une suppression est refusée (deal signé).
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Modal détail prospect (timeline) ouvert au clic sur une card
   const [detailModal, setDetailModal] = useState<{ cardKey: string; platform: 'ig' | 'yt' | 'other' } | null>(null);
@@ -1343,6 +1364,8 @@ export default function PagePipeline() {
         callScheduledAt: call?.scheduled_at ?? undefined,
         callStatus: call?.status ?? undefined,
         callOutcome: call?.outcome ?? null,
+        callRevenue: call?.revenue ?? null,
+        callComment: call?.lead_rapport_comment ?? null,
         callIsFollowUp: call?.is_follow_up ?? false,
         naturalKey: natural,
         hasProspectLink: !!(prospect?.short_url),
@@ -1395,6 +1418,8 @@ export default function PagePipeline() {
         callScheduledAt: call.scheduled_at,
         callStatus: call.status,
         callOutcome: call.outcome ?? null,
+        callRevenue: call.revenue ?? null,
+        callComment: call.lead_rapport_comment ?? null,
         callIsFollowUp: call.is_follow_up ?? false,
         naturalKey: natural,
         hasProspectLink: false,
@@ -1474,6 +1499,8 @@ export default function PagePipeline() {
         callScheduledAt: latestCall.scheduled_at,
         callStatus: latestCall.status,
         callOutcome: latestCall.outcome ?? null,
+        callRevenue: latestCall.revenue ?? null,
+        callComment: latestCall.lead_rapport_comment ?? null,
         naturalKey: natural,
         hasProspectLink: false,
         avatarUrl: null,
@@ -1530,11 +1557,18 @@ export default function PagePipeline() {
       // YT/Autre normal : cardKey = prospect_id, callId = call.id
       body = { prospect_id: cardKey, call_id: callId ?? null, platform: tab };
     }
-    await fetch('/api/client/pipeline', {
+    // La réponse était ignorée : un refus du serveur (ex: prospect avec un deal signé,
+    // renvoyé en 409) passait inaperçu et la carte semblait simplement ne pas partir.
+    const res = await fetch('/api/client/pipeline', {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    if (!res.ok) {
+      const payload = await res.json().catch(() => null);
+      setDeleteError(payload?.error ?? "La suppression a échoué. Réessaie dans un instant.");
+      return;
+    }
     await refetch();
   }, [refetch, tab]);
 
@@ -1864,7 +1898,7 @@ export default function PagePipeline() {
                   onDismissLead={key => { setDismissedKeys(prev => new Set([...prev, key])); saveOverride(key, platform, 'dismissed'); }}
                   onDeleteLead={handleDeleteLead}
                   onNotALead={handleNotALead}
-                  onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp })}
+                  onRapportClick={(callId, inviteeName, scheduledAt, isFollowUp, existing) => setRapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing })}
                   onCardClick={cardKey => setDetailModal({ cardKey, platform })}
                 />
               );
@@ -1911,6 +1945,30 @@ export default function PagePipeline() {
         />
       )}
 
+      {/* Suppression refusée par le serveur (prospect avec un deal signé) */}
+      {deleteError && createPortal(
+        <>
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', zIndex: 10001 }} onMouseDown={() => setDeleteError(null)} />
+          <div style={{
+            position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%,-50%)',
+            zIndex: 10002, background: 'var(--surface)', border: '1px solid var(--border)',
+            borderRadius: 12, padding: '24px 28px', maxWidth: 420, boxShadow: '0 8px 32px rgba(0,0,0,.18)',
+          }}>
+            <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 8 }}>Suppression impossible</div>
+            <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.55 }}>{deleteError}</div>
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                onMouseDown={() => setDeleteError(null)}
+                style={{ padding: '7px 16px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: 'none', background: '#2563EB', color: '#fff', cursor: 'pointer' }}
+              >
+                J&apos;ai compris
+              </button>
+            </div>
+          </div>
+        </>,
+        document.body
+      )}
+
       {/* Rapport modal ouvert directement depuis le pipeline */}
       {rapportModal && (
         <RapportModal
@@ -1918,6 +1976,7 @@ export default function PagePipeline() {
           inviteeName={rapportModal.inviteeName}
           scheduledAt={rapportModal.scheduledAt}
           isFollowUp={rapportModal.isFollowUp}
+          existing={rapportModal.existing}
           onClose={() => { setRapportModal(null); refetch(); }}
         />
       )}

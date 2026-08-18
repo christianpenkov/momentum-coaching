@@ -54,7 +54,8 @@ export default function PageCalls() {
     const supabase = createClient();
     supabase.auth.getUser().then(({ data }) => setUserId(data.user?.id ?? null));
   }, []);
-  const [openSalesRapportCall, setOpenSalesRapportCall] = useState<{ callId: string; inviteeName: string | null; scheduledAt: string | null; isFollowUp: boolean } | null>(null);
+  // `existing` renseigné uniquement en mode correction (rapport déjà rempli qu'on rouvre).
+  const [openSalesRapportCall, setOpenSalesRapportCall] = useState<{ callId: string; inviteeName: string | null; scheduledAt: string | null; isFollowUp: boolean; existing?: { revenue?: number | null; comment?: string | null } | null } | null>(null);
 
   // Historique paginé par période — les 2 premières (semaine/mois courant) sont
   // affichées, le reste derrière un bouton.
@@ -583,6 +584,7 @@ export default function PageCalls() {
           inviteeName={openSalesRapportCall.inviteeName}
           scheduledAt={openSalesRapportCall.scheduledAt}
           isFollowUp={openSalesRapportCall.isFollowUp}
+          existing={openSalesRapportCall.existing}
           onClose={() => { setOpenSalesRapportCall(null); refetch(); }}
         />
       )}
@@ -601,6 +603,19 @@ export default function PageCalls() {
             topicCustom={report?.topic_custom ?? null}
             notes={report?.notes ?? call.lead_rapport_comment ?? null}
             studentNotes={report?.student_notes ?? null}
+            // Calls de vente déjà rapportés : permet de corriger un montant mal saisi ou
+            // un deal enregistré sur la mauvaise personne. Même accès que côté élève —
+            // chacun corrige ses propres calls (voir docs/tracking-prospect.md).
+            onEditRapport={call.call_type === 'calendly' && call.outcome != null ? () => {
+              setInfosModalCall(null);
+              setOpenSalesRapportCall({
+                callId: call.id,
+                inviteeName: infosModalCall.clientName,
+                scheduledAt: call.scheduled_at,
+                isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true,
+                existing: { revenue: call.revenue ?? null, comment: call.lead_rapport_comment ?? null },
+              });
+            } : undefined}
             fathomData={{
               shareUrl: call.fathom_share_url ?? null,
               summary: call.fathom_summary ?? null,

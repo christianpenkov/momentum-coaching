@@ -30,6 +30,16 @@ interface Props {
   leadComment?: string | null;
   /** Bloc éditable rendu en pied de modale (notes perso de l'élève sur un coaching). */
   editableNotes?: ReactNode;
+  /**
+   * Calls de vente uniquement : ouvre RapportModal en mode correction. Renseigné quand
+   * un rapport existe déjà, pour permettre de corriger un montant mal saisi ou un deal
+   * enregistré sur la mauvaise personne — sans ce chemin, un rapport rempli était
+   * définitif (voir docs/tracking-prospect.md).
+   *
+   * La modale reste un flux de LECTURE : elle n'affiche pas de formulaire, elle se
+   * contente d'ouvrir celui qui existe déjà.
+   */
+  onEditRapport?: () => void;
   fathomData: FathomData;
   onClose: () => void;
 }
@@ -42,13 +52,13 @@ function formatDate(dateStr: string, tz: string) {
 // ce qui existe déjà (rapport rempli + infos Fathom) sans jamais réutiliser
 // SessionRapportModal/RapportModal, qui sont des flux de saisie, pas de lecture.
 export default function CallInfosModal({
-  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, editableNotes, fathomData, onClose,
+  counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, editableNotes, onEditRapport, fathomData, onClose,
 }: Props) {
   const { user } = useUser();
   const viewerTz = useViewerTimeZone();
   const topicLabel = topic === 'autre' ? topicCustom : SESSION_TOPICS.find(t => t.value === topic)?.label;
   const hasReport = attended !== undefined && attended !== null;
-  const hasAnything = hasReport || !!leadComment || !!editableNotes
+  const hasAnything = hasReport || !!leadComment || !!editableNotes || !!onEditRapport
     || !!fathomData.shareUrl || !!fathomData.summary || !!fathomData.transcript;
 
   return (
@@ -128,7 +138,12 @@ export default function CallInfosModal({
         )}
       </div>
 
-      <div style={{ padding: '0 30px 26px', display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ padding: '0 30px 26px', display: 'flex', justifyContent: onEditRapport ? 'space-between' : 'flex-end', alignItems: 'center', gap: 12 }}>
+        {onEditRapport && (
+          <button onClick={onEditRapport} className="btn-ghost" type="button" style={{ fontSize: 13 }}>
+            Corriger le rapport
+          </button>
+        )}
         <button onClick={onClose} className="btn-primary-brand" type="button" style={{ fontSize: 14 }}>Fermer</button>
       </div>
     </ModalShell>

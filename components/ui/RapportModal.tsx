@@ -50,6 +50,20 @@ interface Props {
   inviteeName: string | null;
   scheduledAt: string | null;
   isFollowUp?: boolean;
+  /**
+   * Rapport déjà enregistré — passé uniquement en mode CORRECTION, quand l'utilisateur
+   * rouvre un rapport pour le modifier (montant mal saisi, deal enregistré sur la
+   * mauvaise personne). Absent en saisie initiale, où la modale démarre vierge.
+   *
+   * Le parcours reste identique : on repart de l'étape show_up et le nouveau rapport
+   * écrase l'ancien (pas d'historique des corrections, décision assumée). Les valeurs
+   * existantes servent à pré-remplir les champs pour que l'utilisateur voie ce qu'il
+   * corrige au lieu de tout ressaisir de mémoire.
+   */
+  existing?: {
+    revenue?: number | null;
+    comment?: string | null;
+  } | null;
   onClose: () => void;
 }
 
@@ -81,10 +95,12 @@ function CelebrationOverlay({ onDone }: { onDone: () => void }) {
   );
 }
 
-export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, onClose }: Props) {
+export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing, onClose }: Props) {
   const viewerTz = useViewerTimeZone();
+  const isCorrection = !!existing;
   const [step, setStep] = useState<RapportStep>('show_up');
-  const [revenue, setRevenue] = useState('');
+  // Pré-rempli en mode correction (voir la prop `existing`), vide en saisie initiale.
+  const [revenue, setRevenue] = useState(existing?.revenue != null ? String(existing.revenue) : '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
@@ -94,7 +110,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   // (pas closé, closé, 2ème call). afterComment indique où aller une fois cette étape
   // passée : 'close' ferme la modale, 'celebration' joue l'animation puis ferme,
   // 'second_call_done' affiche l'écran de confirmation existant (fermeture manuelle).
-  const [comment, setComment] = useState('');
+  const [comment, setComment] = useState(existing?.comment ?? '');
   const [afterComment, setAfterComment] = useState<'close' | 'celebration' | 'second_call_done'>('close');
 
   // Données trouvées automatiquement (refresh Calendly)
@@ -425,7 +441,9 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           {/* En-tête */}
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
-              <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 4 }}>Rapport de call</div>
+              <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 4 }}>
+                {isCorrection ? 'Corriger le rapport' : 'Rapport de call'}
+              </div>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>
                 {inviteeName ? `Appel avec ${inviteeName}` : 'Appel découverte'}
               </div>

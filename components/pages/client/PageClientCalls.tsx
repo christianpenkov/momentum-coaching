@@ -56,6 +56,8 @@ interface RapportModal {
   inviteeName: string | null;
   scheduledAt: string | null;
   isFollowUp?: boolean;
+  // Renseigné uniquement en mode correction (rapport déjà rempli qu'on rouvre).
+  existing?: { revenue?: number | null; comment?: string | null } | null;
   fathomShareUrl?: string | null;
   fathomSummary?: string | null;
   fathomActionItems?: unknown;
@@ -839,6 +841,8 @@ export default function PageClientCalls() {
           callId={rapportModal.callId}
           inviteeName={rapportModal.inviteeName}
           scheduledAt={rapportModal.scheduledAt}
+          isFollowUp={rapportModal.isFollowUp}
+          existing={rapportModal.existing}
           onClose={closeRapportModal}
         />
       )}
@@ -856,6 +860,25 @@ export default function PageClientCalls() {
           topicCustom={sessionReportsByCall[infosModalCall.id]?.topic_custom ?? null}
           notes={null}
           leadComment={infosModalCall.call_type === 'calendly' ? infosModalCall.lead_rapport_comment : null}
+          // Calls de vente déjà rapportés : permet de corriger un montant mal saisi ou un
+          // deal enregistré sur la mauvaise personne. Sans ce chemin, un rapport rempli
+          // était définitif (voir docs/tracking-prospect.md). Ferme la modale de lecture
+          // et rouvre RapportModal pré-rempli.
+          onEditRapport={infosModalCall.call_type === 'calendly' && infosModalCall.outcome != null ? () => {
+            const call = infosModalCall;
+            setInfosModalCall(null);
+            setRapportModal({
+              callId: call.id,
+              inviteeName: call.invitee_name,
+              scheduledAt: call.scheduled_at,
+              isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true,
+              existing: { revenue: call.revenue ?? null, comment: call.lead_rapport_comment ?? null },
+              fathomShareUrl: call.fathom_share_url,
+              fathomSummary: call.fathom_summary,
+              fathomActionItems: call.fathom_action_items,
+              fathomTranscript: call.fathom_transcript,
+            });
+          } : undefined}
           editableNotes={infosModalCall.call_type !== 'calendly' ? (
             <MyCallNotes
               callId={infosModalCall.id}
