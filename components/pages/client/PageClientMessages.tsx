@@ -809,7 +809,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
   onOpenCtxMenu: (bubbleEl: HTMLDivElement, msg: Msg, opts?: { menuOnly?: boolean; reactionDetail?: boolean }) => void;
-  onOpenLightbox: (url: string) => void;
+  onOpenLightbox: (messageId: string, url: string) => void;
   onDoubleTapReact: (msg: Msg) => void;
   isMenuTarget?: boolean;
   liftPx?: number;
@@ -1011,7 +1011,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
         ) : isImage && msg.audio_url ? (
           <div style={{ maxWidth: 260 }}>
             <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%', cursor: 'pointer' }}
-              onClick={() => onOpenLightbox(msg.audio_url!)}
+              onClick={() => onOpenLightbox(msg.id, msg.audio_url!)}
             >
               <img
                 src={msg.thumbnail_url || msg.audio_url} alt=""
@@ -1139,7 +1139,32 @@ export default function PageClientMessages() {
   const [activeAudioId, setActiveAudioId] = useState<string | null>(null);
   const [showScrollArrow, setShowScrollArrow] = useState(false);
   const [pendingFile, setPendingFile] = useState<{ file: File; previewUrl?: string; type: 'image' | 'document' } | null>(null);
-  const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ messageId: string; url: string } | null>(null);
+  const [lightboxOpenUrl, setLightboxOpenUrl] = useState<string | null>(null);
+  const lightboxUrl = lightbox?.url ?? null;
+
+  // L'image affichée dans la lightbox (<img src>) peut être un blob: du cache local
+  // (lib/useBlobMediaCache.ts) — valide pour l'affichage in-page, mais un blob: est
+  // scopé au document qui l'a créé : l'ouvrir dans un NOUVEL onglet (target="_blank")
+  // échoue toujours ("blob resource error"), peu importe l'appareil. On résout donc
+  // une vraie URL signée réseau, dédiée au bouton "Ouvrir", dès que la lightbox s'ouvre.
+  useEffect(() => {
+    if (!lightbox) { setLightboxOpenUrl(null); return; }
+    let cancelled = false;
+    fetch('/api/messages/media-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ messageIds: [lightbox.messageId] }),
+    })
+      .then(res => res.ok ? res.json() : null)
+      .then(json => {
+        if (cancelled || !json) return;
+        const resolved = json.urls?.[lightbox.messageId]?.url;
+        setLightboxOpenUrl(resolved || lightbox.url);
+      })
+      .catch(() => { if (!cancelled) setLightboxOpenUrl(lightbox.url); });
+    return () => { cancelled = true; };
+  }, [lightbox]);
   const [isSendingFile, setIsSendingFile] = useState(false);
   const [ctxMenu, setCtxMenu] = useState<{ rect: DOMRect; msgId: string; lift: number; menuOnly: boolean; reactionDetail: boolean; bubbleHtml: string } | null>(null);
   const [replyingTo, setReplyingTo] = useState<Msg | null>(null);
@@ -1870,7 +1895,7 @@ export default function PageClientMessages() {
                       canEdit={canEditMsg(msg)}
                       canDelete={canDeleteMsg(msg)}
                       onOpenCtxMenu={(bubbleEl, m, opts) => openMenu(bubbleEl, m, opts)}
-                      onOpenLightbox={setLightboxUrl}
+                      onOpenLightbox={(messageId, url) => setLightbox({ messageId, url })}
                       onDoubleTapReact={m => handleReact(m, '👍')}
                       isMenuTarget={ctxMenu?.msgId === msg.id}
                       liftPx={ctxMenu?.msgId === msg.id ? ctxMenu.lift : 0}
@@ -2217,7 +2242,7 @@ export default function PageClientMessages() {
       {/* ── Lightbox image ── */}
       {lightboxUrl && typeof document !== 'undefined' && createPortal(
         <div
-          onClick={() => setLightboxUrl(null)}
+          onClick={() => setLightbox(null)}
           style={{
             position: 'fixed', inset: 0, zIndex: 9999,
             background: 'rgba(0,0,0,0.88)',
@@ -2237,7 +2262,7 @@ export default function PageClientMessages() {
             }}
           />
           <button
-            onClick={() => setLightboxUrl(null)}
+            onClick={() => setLightbox(null)}
             style={{
               position: 'absolute', top: 16, right: 16,
               width: 44, height: 44, borderRadius: '50%',
@@ -2250,7 +2275,7 @@ export default function PageClientMessages() {
             </svg>
           </button>
           <a
-            href={lightboxUrl} target="_blank" rel="noopener noreferrer"
+            href={lightboxOpenUrl || lightboxUrl} target="_blank" rel="noopener noreferrer"
             onClick={e => e.stopPropagation()}
             style={{
               position: 'absolute', top: 16, right: 68,
