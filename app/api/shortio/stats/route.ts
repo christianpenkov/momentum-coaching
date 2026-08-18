@@ -99,84 +99,104 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
   );
   const totalLinks = linksDataPerDomain.reduce((s, d) => s + Number(d?.count ?? 0), 0) || allLinks.length;
 
-  // Prioriser bio + description pour garantir qu'ils sont dans le top 20 fetchés
-  const isBioOrDesc = (l: any) => {
-    const m = (l.utmMedium || '').toLowerCase();
-    return m === 'bio' || m === 'description';
-  };
-  const prioritized = [
-    ...allLinks.filter(isBioOrDesc),
-    ...allLinks.filter(l => !isBioOrDesc(l)),
-  ].slice(0, 20);
-
-  const linksWithStats = await Promise.all(
-    prioritized.map(async (l: any) => {
-      try {
-        const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${l.id}?period=last30`, { headers });
-        const stats = await safeJson(statsRes);
-        const chartRaw: { x: string; y: string }[] = stats.clickStatistics?.datasets?.[0]?.data || [];
-        const chartData = chartRaw.map((pt) => ({ date: pt.x.split('T')[0], clicks: Number(pt.y) || 0 }));
-        return {
-          id: l.id, path: l.path || '',
-          shortUrl: l.secureShortURL || l.shortURL || `https://${l.__domainHostname || domain}/${l.path}`,
-          originalUrl: l.originalURL || '', title: l.title || l.path || '', createdAt: l.createdAt || null,
-          clicks30d: Number(stats.totalClicks ?? 0), humanClicks30d: Number(stats.humanClicks ?? 0),
-          clicksChange: stats.totalClicksChange !== undefined ? Number(stats.totalClicksChange) : null,
-          chartData,
-          countries: (stats.country || []).filter((c: any) => c.score > 0).slice(0, 5).map((c: any) => ({ label: c.countryName || c.country, value: c.score })),
-          referrers: (stats.referer || []).filter((r: any) => r.score > 0).slice(0, 5).map((r: any) => ({ label: r.referer || 'Direct', value: r.score })),
-          browsers: (stats.browser || []).filter((b: any) => b.score > 0).slice(0, 5).map((b: any) => ({ label: b.browser, value: b.score })),
-          os: (stats.os || []).filter((o: any) => o.score > 0).slice(0, 5).map((o: any) => ({ label: o.os, value: o.score })),
-          social: (stats.social || []).filter((s: any) => s.score > 0).slice(0, 5).map((s: any) => ({ label: s.social || 'Direct', value: s.score })),
-          cities: (stats.city || []).filter((c: any) => c.score > 0).slice(0, 5).map((c: any) => ({ label: `${c.name} (${c.countryCode})`, value: c.score })),
-          utmMedium: (stats.utm_medium || []).filter((u: any) => u.score > 0 && u.utm_medium).slice(0, 5).map((u: any) => ({ label: u.utm_medium, value: u.score })),
-          utmSource: (stats.utm_source || []).filter((u: any) => u.score > 0 && u.utm_source).slice(0, 5).map((u: any) => ({ label: u.utm_source, value: u.score })),
-        };
-      } catch {
-        return {
-          id: l.id, path: l.path || '',
-          shortUrl: l.secureShortURL || l.shortURL || `https://${l.__domainHostname || domain}/${l.path}`,
-          originalUrl: l.originalURL || '', title: l.title || l.path || '', createdAt: l.createdAt || null,
-          clicks30d: 0, humanClicks30d: 0, clicksChange: null,
-          chartData: [], countries: [], referrers: [], browsers: [], os: [], social: [], cities: [], utmMedium: [], utmSource: [],
-        };
-      }
-    })
-  );
-
-  linksWithStats.sort((a, b) => b.clicks30d - a.clicks30d);
-
-  // Enrichissement link_type + postPlatform depuis DB
+  // ── Clics par lien : lus depuis la DB, jamais depuis l'API Short.io ─────────
+  // Avant : 1 appel /statistics/link par lien, donc un plafond .slice(0, 20) pour tenir
+  // dans le quota Short.io (60 req/fenêtre, partagé entre TOUS les profils du même run).
+  // Ce plafond perdait silencieusement des liens dès qu'un élève en avait plus de 20
+  // (observé : 26 liens bio/description sur ce profil, 6 ignorés à chaque affichage, et
+  // le tri par clics n'intervenait qu'APRÈS la coupe — donc la sélection se faisait sur
+  // l'ordre brut de l'API, pas sur l'importance réelle).
+  // shortio_link_daily_snapshots contient déjà ces clics pour TOUS les liens et tous les
+  // domaines (écrits par le cron poll-leads toutes les 30 min) : on les agrège en SQL,
+  // sans plafond, sans quota, et le chartData par lien se reconstruit à partir des lignes
+  // journalières. Les champs de détail (countries/browsers/cities/os/social/referrers)
+  // ne sont affichés nulle part dans l'app (vérifié : seules des déclarations de type,
+  // plus un helper topRef jamais appelé) — ils restent à [] pour ne pas casser le type.
   const since30d = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  const dbRows = await fetchAllPages<{ link_id: string; link_type: string | null; link_category: string | null; original_url: string }>(() =>
+  const dbRows = await fetchAllPages<{
+    link_id: string; path: string | null; short_url: string | null; original_url: string;
+    link_type: string | null; link_category: string | null; date: string;
+    human_clicks: number | null; total_clicks: number | null;
+  }>(() =>
     serviceSupabase
       .from('shortio_link_daily_snapshots')
-      .select('link_id, link_type, link_category, original_url')
+      .select('link_id, path, short_url, original_url, link_type, link_category, date, human_clicks, total_clicks')
       .eq('profile_id', profileId)
       .gte('date', since30d)
   );
 
-  const dbByLinkId = new Map<string, { linkType: string | null; linkCategory: string | null; postPlatform: string | null }>();
+  const derivePostPlatform = (originalUrl: string): string | null => {
+    try {
+      const u = new URL(originalUrl);
+      const utmSource = u.searchParams.get('utm_source') || '';
+      const utmMedium = u.searchParams.get('utm_medium') || '';
+      const utmContent = u.searchParams.get('utm_content') || '';
+      if (utmSource === 'yt') return 'YT';
+      if (utmMedium === 'description' && isYtVideoId(utmContent)) return 'YT';
+      if (utmSource === 'ig' || utmSource.includes('ubizenai')) return 'IG';
+    } catch {}
+    return null;
+  };
+
+  // Agrégation par link_id : somme des clics sur la fenêtre + série journalière.
+  // link_type/link_category/original_url : première valeur non nulle rencontrée (le cron
+  // écrit parfois null sur les lignes d'anciens domaines pour ne pas écraser l'existant).
+  type LinkAgg = {
+    path: string; shortUrl: string; originalUrl: string;
+    linkType: string | null; linkCategory: string | null;
+    clicks30d: number; humanClicks30d: number;
+    chart: Map<string, number>;
+  };
+  const aggByLinkId = new Map<string, LinkAgg>();
   for (const row of dbRows) {
-    if (!dbByLinkId.has(row.link_id)) {
-      let postPlatform: string | null = null;
-      try {
-        const u = new URL(row.original_url);
-        const utmSource = u.searchParams.get('utm_source') || '';
-        const utmMedium = u.searchParams.get('utm_medium') || '';
-        const utmContent = u.searchParams.get('utm_content') || '';
-        if (utmSource === 'yt') postPlatform = 'YT';
-        else if (utmMedium === 'description' && isYtVideoId(utmContent)) postPlatform = 'YT';
-        else if (utmSource === 'ig' || utmSource.includes('ubizenai')) postPlatform = 'IG';
-      } catch {}
-      dbByLinkId.set(row.link_id, { linkType: row.link_type ?? null, linkCategory: (row as any).link_category ?? null, postPlatform });
+    let agg = aggByLinkId.get(row.link_id);
+    if (!agg) {
+      agg = {
+        path: row.path || '', shortUrl: row.short_url || '', originalUrl: row.original_url || '',
+        linkType: null, linkCategory: null, clicks30d: 0, humanClicks30d: 0, chart: new Map(),
+      };
+      aggByLinkId.set(row.link_id, agg);
     }
+    if (!agg.linkType && row.link_type) agg.linkType = row.link_type;
+    if (!agg.linkCategory && row.link_category) agg.linkCategory = row.link_category;
+    if (!agg.originalUrl && row.original_url) agg.originalUrl = row.original_url;
+    if (!agg.shortUrl && row.short_url) agg.shortUrl = row.short_url;
+    if (!agg.path && row.path) agg.path = row.path;
+    const human = row.human_clicks ?? 0;
+    const total = row.total_clicks ?? 0;
+    agg.humanClicks30d += human;
+    agg.clicks30d += total;
+    agg.chart.set(row.date, (agg.chart.get(row.date) ?? 0) + human);
   }
 
-  const enrichedLinks = linksWithStats.map((l: any) => {
-    const meta = dbByLinkId.get(l.id) ?? { linkType: null, linkCategory: null, postPlatform: null };
-    return { ...l, linkType: meta.linkType, linkCategory: meta.linkCategory, postPlatform: meta.postPlatform };
+  // Métadonnées de présentation (titre, date de création) depuis l'API : les liens
+  // remontés par la liste ci-dessus, indexés pour compléter les lignes DB.
+  const apiLinkById = new Map<string, any>(allLinks.map((l: any) => [String(l.id), l]));
+
+  const enrichedLinks = [...aggByLinkId.entries()].map(([linkId, agg]) => {
+    const apiLink = apiLinkById.get(linkId);
+    return {
+      id: linkId,
+      path: agg.path || apiLink?.path || '',
+      shortUrl: agg.shortUrl || apiLink?.secureShortURL || apiLink?.shortURL
+        || `https://${apiLink?.__domainHostname || domain}/${agg.path || apiLink?.path || ''}`,
+      originalUrl: agg.originalUrl || apiLink?.originalURL || '',
+      title: apiLink?.title || agg.path || '',
+      createdAt: apiLink?.createdAt || null,
+      clicks30d: agg.clicks30d,
+      humanClicks30d: agg.humanClicks30d,
+      clicksChange: null,
+      chartData: [...agg.chart.entries()]
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([date, clicks]) => ({ date, clicks })),
+      countries: [], referrers: [], browsers: [], os: [], social: [], cities: [], utmMedium: [], utmSource: [],
+      linkType: agg.linkType,
+      linkCategory: agg.linkCategory,
+      postPlatform: derivePostPlatform(agg.originalUrl || apiLink?.originalURL || ''),
+    };
   });
+
+  enrichedLinks.sort((a, b) => b.clicks30d - a.clicks30d);
 
   return {
     domain, totalLinks,
