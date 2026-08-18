@@ -80,6 +80,10 @@ export default function CallCard({
         <Avatar initials={initials} avatarUrl={avatarUrl} size={34} seed={seed} className="call-card-avatar" />
       </div>
 
+      {/* Colonne à droite du rail : la ligne d'infos, puis les blocs libres en
+          dessous. Sans ce conteneur, .call-card-extra devenait un frère du rail
+          dans le flex horizontal et écrasait la colonne du nom. */}
+      <div className="call-card-col">
       <div className="call-card-body">
         <div className="call-card-main">
           <div className="call-card-headline">
@@ -121,7 +125,8 @@ export default function CallCard({
         </div>
       </div>
 
-      {children && <div className="call-card-extra">{children}</div>}
+        {children && <div className="call-card-extra">{children}</div>}
+      </div>
     </div>
   );
 }

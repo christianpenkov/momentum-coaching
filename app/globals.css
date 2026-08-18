@@ -1322,8 +1322,14 @@ a { color: inherit; text-decoration: none; }
    inline, qui bat une simple classe (même pattern que .next-call-banner-avatar). */
 .call-card .call-card-avatar { display: none !important; }
 
-.call-card-body {
+/* Colonne empilant la ligne d'infos et les blocs libres, à droite du rail. */
+.call-card-col {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.call-card-body {
   min-width: 0;
   padding: 13px 18px;
   display: flex;
@@ -1343,6 +1349,11 @@ a { color: inherit; text-decoration: none; }
   font-weight: 620;
   color: var(--ink);
   letter-spacing: -0.005em;
+  /* Un nom long doit être tronqué, jamais cassé mot par mot en colonne. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
 }
 .call-card-meta {
   font-size: 12px;
@@ -1375,8 +1386,8 @@ a { color: inherit; text-decoration: none; }
   white-space: nowrap;
 }
 .call-card-extra {
-  flex-basis: 100%;
   padding: 0 18px 14px 18px;
+  min-width: 0;
 }
 
 @media (max-width: 767px) {
