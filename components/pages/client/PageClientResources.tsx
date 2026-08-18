@@ -8,6 +8,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import ModalShell from '@/components/ui/ModalShell';
 import DrawerShell from '@/components/ui/DrawerShell';
 import { createClient } from '@/lib/supabase/client';
+import { useClientSelf } from '@/lib/ClientSelfContext';
 import { formatSize, getEmbedUrl, TYPE_META, isImageFile, sectionHasChildren, type ResourceType } from '@/lib/resourceHelpers';
 import ResourceThumbnail from '@/components/pages/coach/ResourceThumbnail';
 import ResourceSectionTree from '@/components/pages/coach/ResourceSectionTree';
@@ -280,25 +281,18 @@ function SectionFolderCard({ section, count, subCount, unseen, onClick }: {
   );
 }
 
-async function fetchClientResourcesData(): Promise<{ resources: ResourceWithSeen[]; sections: ResourceSection[]; coachName: string | null; userId: string | null }> {
+async function fetchClientResourcesData(coachId: string): Promise<{ resources: ResourceWithSeen[]; sections: ResourceSection[]; coachName: string | null; userId: string | null }> {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { resources: [], sections: [], coachName: null, userId: null };
 
-  const { data: clientRow } = await supabase
-    .from('clients')
-    .select('coach_id')
-    .eq('profile_id', user.id)
-    .single();
-
-  if (!clientRow) return { resources: [], sections: [], coachName: null, userId: user.id };
-
-  // Ces 3 requêtes ne dépendent que de clientRow, pas les unes des autres —
-  // parallélisées au lieu d'enchaînées (c'était la cause du chargement plus lent
-  // que côté coach : 4 aller-retours réseau séquentiels au lieu de 2).
+  // coach_id vient désormais du ClientSelfContext (chargé une fois au niveau du
+  // layout élève) — plus besoin de refaire clients.where(profile_id=user.id) ici,
+  // c'était un aller-retour réseau en série avant même de pouvoir lancer les 3
+  // requêtes ci-dessous.
   const [{ data: coachProfile }, { data: sectionsData }, { data: accessData }] = await Promise.all([
-    supabase.from('profiles').select('full_name').eq('id', clientRow.coach_id).maybeSingle(),
-    supabase.from('resource_sections').select('*').eq('coach_id', clientRow.coach_id).order('position'),
+    supabase.from('profiles').select('full_name').eq('id', coachId).maybeSingle(),
+    supabase.from('resource_sections').select('*').eq('coach_id', coachId).order('position'),
     supabase.from('resource_access').select('resource_id, seen_at').eq('client_id', user.id).eq('unlocked', true),
   ]);
   const coachName = coachProfile?.full_name ? coachProfile.full_name.split(' ')[0] : null;
@@ -329,14 +323,20 @@ type ClientResourcesData = Awaited<ReturnType<typeof fetchClientResourcesData>>;
 
 export default function PageClientResources() {
   const queryClient = useQueryClient();
-  const queryKey = ['client-resources-page'];
-  const { data, isLoading } = useQuery({ queryKey, queryFn: fetchClientResourcesData });
+  const { clientRow } = useClientSelf();
+  const coachId = clientRow?.coach_id ?? null;
+  const queryKey = ['client-resources-page', coachId];
+  const { data, isLoading } = useQuery({
+    queryKey,
+    queryFn: () => fetchClientResourcesData(coachId!),
+    enabled: !!coachId,
+  });
 
   const resources = data?.resources ?? [];
   const sections = data?.sections ?? [];
   const coachName = data?.coachName ?? null;
   const userId = data?.userId ?? null;
-  const loading = isLoading && !data;
+  const loading = (isLoading || !clientRow) && !data;
 
   const [search, setSearch] = useState('');
   const [previewResource, setPreviewResource] = useState<ResourceWithSeen | null>(null);
