@@ -7,6 +7,7 @@ import BottomNav from '@/components/layout/BottomNav';
 import ClientMoreSheet from '@/components/layout/ClientMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider, useUser } from '@/lib/UserContext';
+import { ClientSelfProvider } from '@/lib/ClientSelfContext';
 import { GlobalPresenceClientProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
@@ -53,9 +54,11 @@ export default function ClientLayout({ children }: { children: React.ReactNode }
 
   return (
     <UserProvider>
-      <GlobalPresenceClientProvider>
-        <ClientLayoutInner shellRef={shellRef} navRef={navRef}>{children}</ClientLayoutInner>
-      </GlobalPresenceClientProvider>
+      <ClientSelfProvider>
+        <GlobalPresenceClientProvider>
+          <ClientLayoutInner shellRef={shellRef} navRef={navRef}>{children}</ClientLayoutInner>
+        </GlobalPresenceClientProvider>
+      </ClientSelfProvider>
     </UserProvider>
   );
 }
