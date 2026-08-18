@@ -1361,7 +1361,15 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     if (!firstUnreadComputedRef.current) {
       firstUnreadComputedRef.current = true;
       const firstUnread = messages.find(m => m.sender_id !== userId && !m.read_at);
-      if (firstUnread) { setFirstUnreadId(firstUnread.id); return; } // re-render → divider monté
+      // On ne sort (pour attendre le re-render qui monte le divider) que si l'état
+      // CHANGE réellement. Sinon React ne re-rend pas, cet effet n'est pas rappelé,
+      // et setContentReady(true) plus bas n'est jamais atteint : la zone reste en
+      // visibility:hidden — figée et non scrollable jusqu'à un remontage complet.
+      // Même correctif que côté élève (cas vécu au retour d'arrière-plan).
+      if (firstUnread && firstUnread.id !== firstUnreadId) {
+        setFirstUnreadId(firstUnread.id);
+        return; // re-render → divider monté
+      }
     }
     if (initialLandingDoneRef.current) return;
     initialLandingDoneRef.current = true;
@@ -1371,6 +1379,16 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     setContentReady(true);
     suppressAutoReadRef.current = false;
   }, [messages, loading, firstUnreadId, clientId, userId]);
+
+  // Filet de sécurité : quoi qu'il arrive, la zone ne doit jamais rester masquée.
+  // contentReady ne pilote qu'un anti-flash de quelques millisecondes ; si le chemin
+  // d'atterrissage échoue, une zone définitivement invisible est bien pire que le
+  // flash qu'on cherchait à éviter.
+  useEffect(() => {
+    if (loading || contentReady) return;
+    const t = setTimeout(() => setContentReady(true), 400);
+    return () => clearTimeout(t);
+  }, [loading, contentReady]);
 
   // Envoi texte
   async function sendMessage(text: string) {
