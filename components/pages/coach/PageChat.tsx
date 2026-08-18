@@ -1158,6 +1158,12 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
         .limit(MESSAGES_PAGE_SIZE);
       const older = ((data as Msg[]) || []).slice().reverse();
       if (older.length) {
+        // Marque les anciens messages comme DÉJÀ CONNUS avant leur premier rendu.
+        // Sans ça, `animate={!knownIdsRef.has(id)}` les traite comme des messages
+        // qui viennent d'arriver et leur applique l'animation d'entrée
+        // (msg-bubble-in) — un historique qui « surgit » en remontant, alors qu'il
+        // doit simplement être là.
+        if (knownIdsRef.current) older.forEach(m => knownIdsRef.current!.add(m.id));
         // Dédoublonnage : deux messages peuvent partager created_at à la milliseconde
         // près, et `lt` les exclurait ou les reprendrait selon l'ordre d'insertion.
         setMessages(prev => {

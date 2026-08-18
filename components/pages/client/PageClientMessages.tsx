@@ -1293,6 +1293,12 @@ export default function PageClientMessages() {
   // navigateur préserve nativement la position de scroll, sans compensation
   // manuelle de scrollHeight. C'est ce qui rend l'infinite scroll sûr ici, et ce
   // qui évite de rouvrir le bug de scroll corrigé par la refonte column-reverse.
+  // IDs déjà présents au premier chargement — ces messages ne jouent pas l'animation d'entrée
+  // (sinon translateY/opacity donne l'impression d'un mouvement). Inchangé par column-reverse.
+  // Déclaré ici (et non plus bas) pour que loadOlderMessages puisse y enregistrer les
+  // messages d'historique AVANT leur premier rendu.
+  const knownIdsRef = useRef<Set<string> | null>(null);
+
   const loadingMoreRef = useRef(false);
   const loadOlderMessages = useCallback(async () => {
     if (loadingMoreRef.current || !hasMoreMessages || !clientId) return;
@@ -1309,6 +1315,11 @@ export default function PageClientMessages() {
         .limit(MESSAGES_PAGE_SIZE);
       const older = ((data as Msg[]) || []).slice().reverse();
       if (older.length) {
+        // Marque les anciens messages comme DÉJÀ CONNUS avant leur premier rendu.
+        // Sans ça, `animate={!knownIdsRef.has(id)}` les traite comme des messages
+        // qui viennent d'arriver et leur applique l'animation d'entrée — un
+        // historique qui « surgit » en remontant, alors qu'il doit juste être là.
+        if (knownIdsRef.current) older.forEach(m => knownIdsRef.current!.add(m.id));
         // Dédoublonnage : deux messages peuvent partager created_at à la milliseconde
         // près, et `lt` les exclurait ou les reprendrait selon l'ordre d'insertion.
         setMessages(prev => {
@@ -1483,9 +1494,6 @@ export default function PageClientMessages() {
   // toute instrumentation JS). Plus besoin d'aucune boucle rAF, settlingRef, ResizeObserver de
   // rattrapage, stickTo*, ni handlers de geste — tout supprimé, le navigateur fait le travail.
 
-  // IDs déjà présents au premier chargement — ces messages ne jouent pas l'animation d'entrée
-  // (sinon translateY/opacity donne l'impression d'un mouvement). Inchangé par column-reverse.
-  const knownIdsRef = useRef<Set<string> | null>(null);
   // Premier message non lu (du coach) au chargement — figé une fois, sinon il disparaîtrait
   // dès que markMessageRead marque les messages lus. Sert au séparateur "Nouveaux messages"
   // et à l'atterrissage dessus (comme WhatsApp/Telegram).
