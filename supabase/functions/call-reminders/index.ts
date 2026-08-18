@@ -117,28 +117,50 @@ Deno.serve(async (req: Request) => {
 
   let sent = 0;
 
+  // Résolution GROUPÉE des destinataires et de leurs fuseaux.
+  //
+  // Avant : 2 requêtes séquentielles PAR CALL (clients puis profiles) à
+  // l'intérieur de la boucle — un N+1 classique. Deux requêtes `.in()` donnent
+  // exactement la même information, avec un coût constant quel que soit le nombre
+  // de rappels dus.
+  const clientIds = [...new Set(calls.map((c: any) => c.client_id).filter(Boolean))];
+
+  const profileByClient = new Map<string, string>();
+  if (clientIds.length) {
+    const { data: clientRows } = await sb
+      .from('clients')
+      .select('id, profile_id')
+      .in('id', clientIds);
+    for (const row of clientRows || []) {
+      if (row.profile_id) profileByClient.set(row.id, row.profile_id);
+    }
+  }
+
+  // Fuseau du DESTINATAIRE (l'élève), jamais celui de l'émetteur ni Paris : la
+  // notification atterrit sur SON écran verrouillé, elle doit donner SON heure.
+  // profiles.timezone est écrit par lib/UserContext.tsx à chaque ouverture de
+  // l'app ; il peut être en retard si l'élève a voyagé sans rouvrir Momentum —
+  // limite connue, documentée dans docs/fuseaux-horaires.md.
+  const tzByProfile = new Map<string, string | null>();
+  const profileIds = [...new Set(profileByClient.values())];
+  if (profileIds.length) {
+    const { data: profileRows } = await sb
+      .from('profiles')
+      .select('id, timezone')
+      .in('id', profileIds);
+    for (const row of profileRows || []) {
+      tzByProfile.set(row.id, row.timezone ?? null);
+    }
+  }
+
   for (const call of calls) {
     if (!call.client_id || !call.scheduled_at) continue;
 
-    const { data: clientRow } = await sb
-      .from('clients')
-      .select('profile_id')
-      .eq('id', call.client_id)
-      .single();
+    const recipientProfileId = profileByClient.get(call.client_id);
+    if (!recipientProfileId) continue;
+    const clientRow = { profile_id: recipientProfileId };
 
-    if (!clientRow?.profile_id) continue;
-
-    // Fuseau du DESTINATAIRE (l'élève), jamais celui de l'émetteur ni Paris : la
-    // notification atterrit sur SON écran verrouillé, elle doit donner SON heure.
-    // profiles.timezone est écrit par lib/UserContext.tsx à chaque ouverture de
-    // l'app ; il peut être en retard si l'élève a voyagé sans rouvrir Momentum —
-    // limite connue, documentée dans docs/fuseaux-horaires.md.
-    const { data: recipient } = await sb
-      .from('profiles')
-      .select('timezone')
-      .eq('id', clientRow.profile_id)
-      .single();
-    const tz = safeZone(recipient?.timezone);
+    const tz = safeZone(tzByProfile.get(recipientProfileId) ?? null);
 
     const scheduledAt = new Date(call.scheduled_at);
     const topic = call.topic || 'Call coaching';

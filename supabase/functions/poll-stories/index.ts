@@ -6,6 +6,7 @@
 // Pattern calqué sur supabase/functions/poll-leads/index.ts.
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { mapWithConcurrency } from '../_shared/rate-limit.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -229,7 +230,11 @@ Deno.serve(async (req: Request) => {
     const allErrors: Record<string, string[]> = {};
     let polled = 0, storiesFound = 0;
 
-    await Promise.all(integrations.map(async ({ profile_id }) => {
+    // Concurrence bornée à 5 : chaque profil déclenche 2-3 appels Meta par story
+    // (liste, insights, téléchargement du média). Ces appels partagent le quota
+    // Graph avec poll-leads, qui tourne sur les mêmes comptes — un Promise.all non
+    // borné à 30 élèves émettait ~450 requêtes en rafale sur ce même quota.
+    await mapWithConcurrency(integrations, 5, async ({ profile_id }) => {
       try {
         const creds = await getIgCreds(profile_id);
         if (!creds) return;
@@ -240,14 +245,20 @@ Deno.serve(async (req: Request) => {
       } catch (e: any) {
         allErrors[profile_id] = [`profile_failed: ${e?.message || 'unknown'}`];
       }
-    }));
+    });
 
     if (Object.keys(allErrors).length) {
       console.error('poll-stories errors', JSON.stringify(allErrors));
     }
   };
 
-  (globalThis as any).EdgeRuntime?.waitUntil(runMain());
+  // .catch() OBLIGATOIRE : la réponse 202 est déjà partie quand runMain s'exécute,
+  // donc une exception non capturée ici ne remonte NULLE PART — ni au client, ni
+  // dans les logs. La fonction pouvait échouer silencieusement à chaque cycle sans
+  // qu'aucun signal ne l'indique. poll-leads a ce catch, pas poll-stories.
+  (globalThis as any).EdgeRuntime?.waitUntil(
+    runMain().catch((e: any) => console.error('[poll-stories] runMain_fatal:', e?.message || e))
+  );
 
   return new Response(JSON.stringify({ status: 'accepted' }), { status: 202, headers: { 'Content-Type': 'application/json' } });
 });
