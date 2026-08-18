@@ -1,6 +1,6 @@
 'use client';
 
-import { isCoachingCall, isCallMissingRecording } from '@/lib/sessionRapport';
+import { isCoachingCall, isCallMissingRecording, isCallCanceled } from '@/lib/sessionRapport';
 
 // Badges et pastilles de résultat d'un call — source unique pour les pages Calls
 // coach et élève, le pipeline et les widgets d'accueil. CallTypeBadge existait en 4
@@ -96,9 +96,22 @@ export function PendingBadge() {
 export function CallResultPill({ call, now }: { call: CallLike; now?: number }) {
   const pillStyle: React.CSSProperties = { fontSize: 11 };
 
+  // Un call annulé le reste dans TOUS les onglets. Sans ce test, l'onglet
+  // Historique affichait "Terminé" sur un call annulé — le nom était bien barré,
+  // mais la pastille disait le contraire.
+  if (isCallCanceled(call)) {
+    return (
+      <span className="pill pill-red" style={pillStyle}>
+        <span className="dot" />{call.status === 'declined' ? 'Refusé' : 'Annulé'}
+      </span>
+    );
+  }
+
   if (isCoachingCall(call)) {
+    // "Pas présent" plutôt que "No-show" : le jargon commercial n'a pas sa place
+    // sur un call de coaching, où l'élève lit sa propre assiduité.
     if (call.session_no_show === true) {
-      return <span className="pill pill-neutral" style={pillStyle}><span className="dot" />No-show</span>;
+      return <span className="pill pill-neutral" style={pillStyle}><span className="dot" />Pas présent</span>;
     }
     if (call.session_completed === true) {
       return <span className="pill pill-green" style={pillStyle}><span className="dot" />Présent</span>;

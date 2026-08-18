@@ -200,13 +200,13 @@ export default function PageCalls() {
         {coaching && pendingSessionRapportIds.has(call.id) && (
           <button type="button" className="btn-ghost call-action-rapport"
             onClick={() => setOpenSessionRapportCall({ callId: call.id, clientName: cl?.name ?? null, scheduledAt: call.scheduled_at, call })}>
-            <span className="call-rapport-dot" />Rapport
+            <Icon name="alert-triangle" size={13} />Rapport
           </button>
         )}
         {!coaching && call.coach_id === userId && call.outcome == null && (
           <button type="button" className="btn-ghost call-action-rapport"
             onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: call.is_follow_up === true })}>
-            <span className="call-rapport-dot" />Rapport
+            <Icon name="alert-triangle" size={13} />Rapport
           </button>
         )}
         {showInfos && (

@@ -140,7 +140,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                   className="btn-ghost"
                   style={{ flex: 1, minHeight: 56, fontSize: 15, gap: 8, borderColor: 'var(--red)', color: 'var(--red)' }}
                 >
-                  <Icon name="x" size={17} /> No-show
+                  <Icon name="x" size={17} /> Pas présent
                 </button>
               </div>
             </div>
@@ -217,7 +217,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                 <Icon name="check" size={26} style={{ color: 'var(--green)' }} />
               </div>
               <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--accent)' }}>
-                {attended === false ? 'No-show enregistré' : 'Rapport enregistré'}
+                {attended === false ? 'Absence enregistrée' : 'Rapport enregistré'}
               </div>
             </div>
           )}

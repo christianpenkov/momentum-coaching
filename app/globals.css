@@ -1423,29 +1423,25 @@ a { color: inherit; text-decoration: none; }
 }
 
 @media (max-width: 767px) {
-  /* Le rail passe en bande horizontale collée en haut : en colonne verticale, il
-     s'étirait sur toute la hauteur de la carte (jusqu'à 150px quand un bloc de
-     texte suivait), laissant une large bande crème vide à gauche. */
-  .call-card { flex-direction: column; }
+  /* Rail vertical à gauche, comme la maquette validée. Il avait été basculé en
+     bande horizontale à l'époque où les commentaires s'affichaient sous la carte
+     et l'étiraient jusqu'à 150px de haut ; ces blocs vivent maintenant dans la
+     modale Infos, donc les cartes ont une hauteur régulière et le rail ne laisse
+     plus de vide. */
   .call-card-rail {
-    width: 100%;
-    flex-direction: row;
-    align-items: center;
-    justify-content: flex-start;
+    width: 62px;
+    padding: 12px 0;
     gap: 8px;
-    padding: 8px 14px;
-    border-right: none;
-    border-bottom: 1px solid var(--border);
   }
-  .call-card-day { font-size: 15px; }
-  .call-card-month { font-size: 10px; margin-top: 0; }
-  /* Sur une seule ligne, l'heure retrouve sa place dans le rail à côté de la date,
-     et disparaît donc de la ligne d'infos. */
-  .call-card-hour { display: block; margin-top: 0; margin-left: 2px; }
+  .call-card-day { font-size: 19px; }
+  .call-card-month { font-size: 9.5px; }
+  /* L'heure descend dans la ligne d'infos : le rail n'a plus la largeur de
+     l'afficher sous la date une fois l'avatar empilé dessous. */
+  .call-card-hour { display: none; }
   .call-card-time,
-  .call-card-time-sep { display: none; }
+  .call-card-time-sep { display: inline; }
   /* Bascule des avatars : celui du rail apparaît, celui du corps disparaît. */
-  .call-card .call-card-avatar-rail { display: inline-flex !important; margin-left: auto; }
+  .call-card .call-card-avatar-rail { display: inline-flex !important; }
   .call-card .call-card-avatar-body { display: none !important; }
 
   .call-card-body {
@@ -1499,19 +1495,18 @@ a { color: inherit; text-decoration: none; }
    En bleu plein il ressemblait à l'action principale de la carte et écrasait
    Infos juste à côté. Contour neutre + point ambre = même poids visuel que ses
    voisins, mais repérable au scan grâce à la couleur d'attente du projet. */
-.call-action-rapport {
-  color: var(--ink-2);
-  border: 1px solid var(--border);
-  gap: 7px;
+/* !important : les règles .btn-ghost du bloc mobile (plus bas dans le fichier)
+   remettent border:none et fond transparent, ce qui effaçait l'encadré ambre. */
+.call-action-rapport,
+.btn-ghost.call-action-rapport {
+  color: var(--amber) !important;
+  background: var(--amber-soft) !important;
+  border: 1px solid var(--amber) !important;
+  gap: 6px;
+  font-weight: 600;
 }
-.call-action-rapport:hover { border-color: var(--amber); color: var(--amber); }
-.call-rapport-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--amber);
-  flex-shrink: 0;
-}
+.call-action-rapport:hover,
+.btn-ghost.call-action-rapport:hover { background: var(--amber) !important; color: #fff !important; }
 
 /* ── Séparateurs de période dans les listes de calls ──
    Collants en haut du scroll pour que le mois en cours de lecture reste visible
@@ -1520,21 +1515,16 @@ a { color: inherit; text-decoration: none; }
 /* Le fond opaque (nécessaire au sticky, sinon les cartes défilent visiblement
    sous le texte) est limité à la largeur du texte : en pleine largeur, il
    dessinait une bande traversant tout l'écran. */
+/* Séparateur centré, sans position:sticky — le fond opaque qu'exigeait le collage
+   au scroll dessinait une bande visible passant au-dessus des cartes. */
 .call-period-sep {
-  position: sticky;
-  top: 0;
-  z-index: 3;
-  margin: 10px 0 8px;
+  margin: 14px 0 10px;
   font-size: 12px;
   font-weight: 620;
   color: var(--ink-2);
+  text-align: center;
 }
-.call-period-sep span {
-  display: inline-block;
-  background: var(--bg);
-  padding: 4px 10px 4px 0;
-  border-radius: var(--r-sm);
-}
+.call-period-sep span { display: inline-block; }
 
 /* ── Bandeau "Prochain call" (accueil élève, calendrier) — responsive ── */
 .next-call-banner-top {

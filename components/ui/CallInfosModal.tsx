@@ -83,7 +83,7 @@ export default function CallInfosModal({
                 background: attended === false ? 'var(--red-soft)' : 'var(--green-soft)',
                 color: attended === false ? 'var(--red)' : 'var(--green)',
               }}>
-                {attended === false ? 'No-show' : 'Présent'}
+                {attended === false ? 'Pas présent' : 'Présent'}
               </span>
               {topicLabel && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{topicLabel}</span>}
             </div>

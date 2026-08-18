@@ -435,7 +435,7 @@ export default function PageClientCalls() {
             type="button"
             onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
           >
-            <span className="call-rapport-dot" />Rapport
+            <Icon name="alert-triangle" size={13} />Rapport
           </button>
         )}
         {showInfos && (
