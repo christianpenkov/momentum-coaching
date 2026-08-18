@@ -138,7 +138,9 @@ export default function PageClientCalendar() {
             const timeStr = d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
             return (
               <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '16px 18px', marginBottom: 8 }}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 6 }}>TON COACH TE PROPOSE UN CALL</div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 6 }}>
+                  {(client?.coachName || 'TON COACH').toUpperCase()} TE PROPOSE UN CALL
+                </div>
                 <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)', textTransform: 'capitalize' }}>{dateStr}</div>
                 <div style={{ fontSize: 13, color: 'var(--accent)', marginTop: 2, marginBottom: 4 }}>
                   {timeStr}

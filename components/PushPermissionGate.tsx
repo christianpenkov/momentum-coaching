@@ -94,7 +94,10 @@ export default function PushPermissionGate({ userId }: { userId: string | null }
             Active les notifications
           </div>
           <div style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 320, lineHeight: 1.6, marginBottom: 24 }}>
-            Pour ne rater aucun message de ton coach, active les notifications sur cet appareil.
+            {/* Formulation neutre : ce composant est monté dans le layout des DEUX
+                rôles, et le coach n'a pas de coach. Y injecter une requête profil
+                juste pour cette phrase serait disproportionné. */}
+            Pour ne rater aucun message, active les notifications sur cet appareil.
           </div>
           <button
             onClick={handleActivate}

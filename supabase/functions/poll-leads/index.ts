@@ -1291,8 +1291,17 @@ Deno.serve(async (req: Request) => {
       const due2h = !call.invite_reminder_2h_sent && scheduledAt.getTime() <= in2h.getTime();
       if (!due24h && !due2h) return;
 
-      const { data: clientRow } = await supa.from('clients').select('profile_id').eq('id', call.client_id).single();
+      const { data: clientRow } = await supa.from('clients').select('profile_id, coach_id').eq('id', call.client_id).single();
       if (!clientRow?.profile_id) return;
+
+      // Prénom du coach dans la notification : "Quennel t'a proposé un call" est
+      // nettement plus clair que "Ton coach t'a proposé un call" sur un écran
+      // verrouillé, où l'élève ne voit que cette ligne.
+      let coachFirstName: string | null = null;
+      if (clientRow.coach_id) {
+        const { data: coachProfile } = await supa.from('profiles').select('full_name').eq('id', clientRow.coach_id).single();
+        coachFirstName = coachProfile?.full_name ? String(coachProfile.full_name).split(' ')[0] : null;
+      }
 
       const timeStr = scheduledAt.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
       try {
@@ -1303,7 +1312,7 @@ Deno.serve(async (req: Request) => {
           body: JSON.stringify({
             profileId: clientRow.profile_id,
             title: 'Invitation de call en attente',
-            body: `Ton coach t'a proposé un call à ${timeStr} — n'oublie pas d'accepter ou refuser l'invitation.`,
+            body: `${coachFirstName || 'Ton coach'} t'a proposé un call à ${timeStr} — n'oublie pas d'accepter ou refuser l'invitation.`,
             url: '/client/calls',
           }),
           signal: controller.signal,

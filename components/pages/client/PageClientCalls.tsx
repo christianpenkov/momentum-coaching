@@ -675,7 +675,12 @@ export default function PageClientCalls() {
                 <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                     <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>TON COACH TE PROPOSE UN CALL</div>
+                      {/* Prénom du coach plutôt que "ton coach" : l'élève sait de qui
+                          vient l'invitation sans avoir à deviner. Repli sur la formule
+                          générique tant que le profil du coach n'est pas chargé. */}
+                      <div style={{ fontSize: 11, fontWeight: 600, color: '#92400e', marginBottom: 4 }}>
+                        {(client?.coachName || 'TON COACH').toUpperCase()} TE PROPOSE UN CALL
+                      </div>
                       <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', textTransform: 'capitalize' }}>{dateStr}</div>
                       <div style={{ fontSize: 13, color: 'var(--accent)', marginTop: 2 }}>
                         {timeStr}

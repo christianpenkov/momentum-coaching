@@ -219,7 +219,11 @@ export default function PageClientView() {
             <div key={notif.id} className="card" style={{ borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px', marginBottom: 10 }}>
               <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
                 <div>
-                  <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>DEMANDE DE CALL COACHING</div>
+                  {/* Le prénom du coach nomme l'expéditeur de la demande : sans lui,
+                      l'élève voyait "DEMANDE DE CALL COACHING" sans savoir de qui. */}
+                  <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 4 }}>
+                    DEMANDE DE CALL COACHING{client?.coachName ? ` AVEC ${client.coachName.toUpperCase()}` : ''}
+                  </div>
                   <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{notif.body}</div>
                   {notif.scheduledAt && (
                     <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>

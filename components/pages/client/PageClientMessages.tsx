@@ -1868,7 +1868,7 @@ export default function PageClientMessages() {
                 </svg>
               </div>
               <div style={{ fontWeight: 600, color: 'var(--ink-2)', fontSize: 14, marginBottom: 4 }}>Aucun message</div>
-              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Commence la conversation avec ton coach</div>
+              <div style={{ fontSize: 12, color: 'var(--muted)' }}>Commence la conversation avec {coachName}</div>
             </div>
           ) : messageGroups.slice().reverse().map((group) => (
             <div key={group.dateLabel} style={{ display: 'flex', flexDirection: 'column-reverse', gap: 3 }}>
@@ -2138,7 +2138,7 @@ export default function PageClientMessages() {
                 }
               }}
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(input); } }}
-              placeholder="Écrire à ton coach…"
+              placeholder={`Écrire à ${coachName}…`}
               autoComplete="off" autoCorrect="off" autoCapitalize="sentences"
               spellCheck={false} inputMode="text" name="chat-momentum-x7k"
               style={{
