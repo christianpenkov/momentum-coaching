@@ -144,27 +144,18 @@ export function useBlobMediaCache() {
     // Premier affichage sur cet appareil : passe par le cache d'URL signée existant, puis
     // télécharge les octets nous-mêmes (fetch(signedUrl)) pour les mettre en cache — un seul
     // GET réseau par image/thumb, jamais deux (le <img> affiche l'object URL, pas l'URL signée).
+    //
+    // La MINIATURE est prioritaire et appliquée dès qu'elle est prête (apply() séparé,
+    // pas attendu par le grand format) : c'est elle qui s'affiche dans le fil de la
+    // conversation. Le grand format (potentiellement plusieurs Mo, contre quelques
+    // dizaines de Ko pour la miniature webp) se télécharge en arrière-plan sans bloquer
+    // l'affichage du fil — avant ce fix, les deux étaient attendus en série (grand format
+    // D'ABORD, alors qu'il n'est utile qu'au clic sur le lightbox), ce qui retardait
+    // l'apparition de la miniature de plusieurs secondes sans raison.
     await signedResolve(toFetch, async (signedUpdates) => {
-      const finalUpdates: Record<string, BlobResolvedUpdate> = {};
+      const thumbUpdates: Record<string, BlobResolvedUpdate> = {};
       await Promise.all(Object.entries(signedUpdates).map(async ([id, u]) => {
-        let finalUrl = u.url;
         let finalThumbUrl = u.thumbnailUrl;
-        try {
-          const res = await fetch(u.url);
-          // res.ok=200 ne garantit pas un corps valide : sur mobile (réseau instable,
-          // requête interrompue en arrière-plan) le body peut arriver tronqué/vide —
-          // putCachedBlob rejette déjà les blobs de taille 0, mais on vérifie ici aussi
-          // pour ne pas remplacer une URL signée fonctionnelle par un objet vide.
-          if (res.ok) {
-            const blob = await res.blob();
-            if (blob.size > 0) {
-              await putCachedBlob(cache, id, 'full', blob);
-              finalUrl = acquireObjectUrl(cacheKeyFor(id, 'full'), blob);
-            }
-          }
-        } catch {
-          // Échec du fetch/cache — on garde l'URL signée brute, l'image reste affichable.
-        }
         if (u.thumbnailUrl) {
           try {
             const resThumb = await fetch(u.thumbnailUrl);
@@ -176,12 +167,35 @@ export function useBlobMediaCache() {
               }
             }
           } catch {
-            // idem — repli sur l'URL signée du thumbnail.
+            // Échec — on garde l'URL signée brute du thumbnail, l'image reste affichable.
           }
         }
-        finalUpdates[id] = { url: finalUrl, thumbnailUrl: finalThumbUrl };
+        // url reste l'URL signée brute pour l'instant (résolue en arrière-plan ci-dessous) —
+        // suffisant pour le bouton "Ouvrir" du lightbox si l'utilisateur clique avant la
+        // fin du téléchargement du grand format.
+        thumbUpdates[id] = { url: u.url, thumbnailUrl: finalThumbUrl };
       }));
-      apply(finalUpdates);
+      apply(thumbUpdates);
+
+      // Grand format : téléchargé après coup, en arrière-plan, sans bloquer l'affichage
+      // du fil. Se met à jour dans les messages dès qu'il est prêt (utile pour un clic
+      // quasi-immédiat sur le lightbox, qui bénéficie alors déjà du cache).
+      Object.entries(signedUpdates).forEach(([id, u]) => {
+        (async () => {
+          try {
+            const res = await fetch(u.url);
+            if (res.ok) {
+              const blob = await res.blob();
+              if (blob.size > 0) {
+                await putCachedBlob(cache, id, 'full', blob);
+                apply({ [id]: { url: acquireObjectUrl(cacheKeyFor(id, 'full'), blob), thumbnailUrl: thumbUpdates[id]?.thumbnailUrl ?? null } });
+              }
+            }
+          } catch {
+            // Échec silencieux — le lightbox retombera sur l'URL signée brute au clic.
+          }
+        })();
+      });
     });
   }, [signedResolve]);
 
