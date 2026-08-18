@@ -149,9 +149,16 @@ export default function PageCalls() {
   const upcoming = calls
     .filter(c => c.scheduled_at && isCallJoinable(c, nowTick))
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
-  // Historique : réellement terminé (fin théorique stricte), inchangé.
+  // Historique : réellement terminé ET plus joignable.
+  //
+  // Le `!isCallJoinable` est indispensable : isCallReallyOver bascule dès la fin
+  // théorique, mais isCallJoinable reste vrai 15 min de plus (fenêtre de rattrapage
+  // pour le bouton Rejoindre). Sans cette exclusion, un call qui vient de se
+  // terminer appartenait aux DEUX listes pendant 15 minutes — donc affiché deux
+  // fois dans les onglets Ventes/Coachings/Annulés (une fois en "À venir", une fois
+  // en "Historique") et compté deux fois dans leur badge.
   const history = calls
-    .filter(c => c.scheduled_at && isCallReallyOver(c, nowTick))
+    .filter(c => c.scheduled_at && isCallReallyOver(c, nowTick) && !isCallJoinable(c, nowTick))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
   const upcomingActive = upcoming.filter(c => c.status === 'active');
 

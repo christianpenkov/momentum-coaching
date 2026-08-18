@@ -340,8 +340,11 @@ export default function PageClientCalls() {
 
   // Calls historique : passés, non annulés, réellement terminés (fin théorique stricte,
   // pas la fenêtre de rattrapage — un call encore en rattrapage reste dans "upcoming").
+  // Le `!isCallJoinable` évite qu'un call qui vient de se terminer appartienne aux
+  // DEUX listes pendant les 15 min de fenêtre de rattrapage — il serait alors
+  // affiché et compté deux fois dans les onglets Ventes et Coachings.
   const history = calls
-    .filter(c => c.scheduled_at && isCallReallyOver(c as any, nowTick) && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
+    .filter(c => c.scheduled_at && isCallReallyOver(c as any, nowTick) && !isCallJoinable(c as any, nowTick) && !isCallCanceled(c))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
   // Onglets Ventes / Coachings — chacun affiche ses propres sections À venir puis
