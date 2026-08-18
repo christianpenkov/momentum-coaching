@@ -8,10 +8,9 @@ import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
 import type { Integration, Provider } from '@/lib/supabase/types';
+import type { IntegrationMode } from '@/lib/onboarding/integrationConfig';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
-
-type IntegrationMode = 'oauth' | 'apikey';
 
 const INTEGRATION_CONFIG: {
   provider: Provider;
@@ -33,11 +32,12 @@ const INTEGRATION_CONFIG: {
   // },
   {
     provider: 'stripe',
-    name: 'Stripe — Clé secrète',
+    name: 'Stripe',
     icon: 'stripe',
-    desc: 'Clé secrète pour lire les données clients et paiements',
-    mode: 'apikey',
-    placeholder: 'sk_live_... ou sk_test_...',
+    desc: 'Paiements encaissés rattachés automatiquement à leurs deals',
+    mode: 'both',
+    oauthPath: '/api/oauth/stripe',
+    placeholder: 'rk_live_... ou sk_live_...',
   },
   {
     provider: 'calendly',
@@ -187,9 +187,15 @@ export default function PageSettings() {
     const label = validation.label || null;
     const metadata = validation.meta || null;
 
+    // Sur un provider 'both', poser une clé remplace une éventuelle connexion OAuth :
+    // on efface le token, sinon deux identifiants concurrents cohabitent et l'appelant
+    // ne sait plus lequel fait foi. Symétrique de l'effacement d'api_key au callback OAuth.
+    const clearOauth = INTEGRATION_CONFIG.find(i => i.provider === provider)?.mode === 'both'
+      ? { access_token: null, refresh_token: null } : {};
+
     const existing = integrations[provider];
     if (existing) {
-      await supabase.from('integrations').update({ api_key: key, account_label: label, metadata, connected_at: new Date().toISOString() }).eq('id', existing.id);
+      await supabase.from('integrations').update({ api_key: key, account_label: label, metadata, connected_at: new Date().toISOString(), ...clearOauth }).eq('id', existing.id);
     } else {
       await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata });
     }
@@ -361,7 +367,7 @@ export default function PageSettings() {
                   <div style={{ flex: 1, minWidth: 140 }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</span>
-                      {cfg.mode === 'oauth' && (
+                      {cfg.mode !== 'apikey' && (
                         <span style={{ fontSize: 10, padding: '2px 7px', background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 20, fontWeight: 600 }}>OAuth</span>
                       )}
                     </div>
@@ -386,7 +392,7 @@ export default function PageSettings() {
                       ) : (
                         <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
                       )}
-                      {cfg.mode === 'oauth' && (
+                      {cfg.mode !== 'apikey' && (
                         <a href={cfg.oauthPath} className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>
                           Reconnecter
                         </a>
@@ -396,19 +402,28 @@ export default function PageSettings() {
                           {(integ.metadata as any)?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
                         </button>
                       )}
-                      {cfg.mode === 'apikey' && (
+                      {cfg.mode !== 'oauth' && (
                         <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
-                          Modifier
+                          {cfg.mode === 'both' ? 'Utiliser une clé' : 'Modifier'}
                         </button>
                       )}
                       <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px' }} type="button" onClick={() => disconnect(cfg.provider)}>
                         Déconnecter
                       </button>
                     </div>
-                  ) : cfg.mode === 'oauth' ? (
-                    <a href={cfg.oauthPath} className="btn-primary-brand" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <Icon name="link" size={13} /> Connecter
-                    </a>
+                  ) : cfg.mode !== 'apikey' ? (
+                    <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <a href={cfg.oauthPath} className="btn-primary-brand" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="link" size={13} /> Connecter
+                      </a>
+                      {/* Repli clé API : pour les comptes que l'OAuth Connect ne peut
+                          pas atteindre (déjà reliés à une autre plateforme). */}
+                      {cfg.mode === 'both' && (
+                        <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px', textDecoration: 'underline' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                          ou une clé
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <button className="btn-primary-brand" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                       <Icon name="link" size={13} /> Connecter
@@ -424,16 +439,18 @@ export default function PageSettings() {
                 )}
 
                 {/* Formulaire clé API inline */}
-                {isEditing && cfg.mode === 'apikey' && (
+                {isEditing && cfg.mode !== 'oauth' && (
                   <div style={{ padding: '0 20px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
                     {cfg.provider === 'stripe' && (
                       <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment récupérer ta clé Stripe :</div>
-                        <div>1. Ouvre ton dashboard Stripe →{' '}
-                          <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>dashboard.stripe.com/apikeys</a>
+                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Le bouton « Connecter » suffit dans la plupart des cas.</div>
+                        <div style={{ marginBottom: 6 }}>Utilise une clé seulement si Stripe refuse la connexion — c&apos;est le cas quand ton compte est déjà relié à une autre plateforme (Kajabi, Systeme.io…).</div>
+                        <div>1. Crée une <strong>clé restreinte</strong> →{' '}
+                          <a href="https://dashboard.stripe.com/apikeys/create" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>dashboard.stripe.com/apikeys/create</a>
                         </div>
-                        <div>2. Copie la <strong>Clé secrète</strong> (<code>sk_live_...</code> en prod, <code>sk_test_...</code> en test)</div>
-                        <div>3. Colle-la ci-dessous</div>
+                        <div>2. Donne-lui les droits <strong>Lecture</strong> sur Clients, Paiements, Abonnements et Factures</div>
+                        <div>3. Colle-la ci-dessous (<code>rk_live_...</code>)</div>
+                        <div style={{ marginTop: 6, fontSize: 11 }}>Une clé restreinte ne peut ni encaisser ni rembourser : si elle fuite, personne ne peut toucher à ton argent.</div>
                       </div>
                     )}
                     {cfg.provider === 'anthropic' && (

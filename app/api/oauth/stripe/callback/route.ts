@@ -9,13 +9,14 @@ export async function GET(request: NextRequest) {
   const state = searchParams.get('state');
   const error = searchParams.get('error');
 
-  if (error) {
-    return NextResponse.redirect(`${origin}/dashboard/settings?error=stripe_denied`);
-  }
+  // /dashboard/settings n'existe pas : les vraies routes sont /settings (coach) et
+  // /client/settings (élève). Le rôle n'est connu qu'après auth, donc on retombe sur
+  // /settings tant qu'on ne l'a pas — le middleware redirige un élève qui y atterrit.
+  const fail = (reason: string, role?: string | null) =>
+    NextResponse.redirect(`${origin}${role === 'client' ? '/client/settings' : '/settings'}?error=${reason}`);
 
-  if (!code || !state) {
-    return NextResponse.redirect(`${origin}/dashboard/settings?error=stripe_invalid`);
-  }
+  if (error) return fail('stripe_denied');
+  if (!code || !state) return fail('stripe_invalid');
 
   // Vérifier le state = user_id en base64
   const cookieStore = await cookies();
@@ -35,11 +36,13 @@ export async function GET(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.redirect(`${origin}/login`);
 
+  // Rôle résolu ici : sert autant aux redirections d'erreur qu'à celle de succès.
+  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
+  const role = profile?.role === 'coach' ? 'coach' : 'client';
+
   // Vérifier que le state correspond à cet utilisateur
   const expectedState = Buffer.from(user.id).toString('base64');
-  if (state !== expectedState) {
-    return NextResponse.redirect(`${origin}/dashboard/settings?error=stripe_state`);
-  }
+  if (state !== expectedState) return fail('stripe_state', role);
 
   // Échanger le code contre un access_token
   const tokenRes = await fetch('https://connect.stripe.com/oauth/token', {
@@ -56,7 +59,7 @@ export async function GET(request: NextRequest) {
 
   if (tokenData.error) {
     console.error('Stripe OAuth error:', tokenData.error);
-    return NextResponse.redirect(`${origin}/dashboard/settings?error=stripe_token`);
+    return fail('stripe_token', role);
   }
 
   // Stocker dans Supabase (service role pour bypass RLS)
@@ -75,18 +78,20 @@ export async function GET(request: NextRequest) {
     provider: 'stripe',
     access_token: tokenData.access_token,
     refresh_token: tokenData.refresh_token || null,
-    account_label: tokenData.stripe_user_id, // ex: acct_xxxxx
+    account_label: tokenData.stripe_user_id, // ex: acct_xxxxx — clé de résolution du webhook Connect
+    // Une clé posée avant la bascule vers OAuth doit disparaître : sans ça deux
+    // identifiants concurrents cohabitent et l'appelant ne sait plus lequel fait foi.
+    api_key: null,
     connected_at: stripeConnectedNow,
     first_connected_at: existingStripe?.first_connected_at || stripeConnectedNow,
   }, { onConflict: 'profile_id,provider' });
 
   if (upsertError) {
     console.error('Supabase upsert error:', upsertError);
-    return NextResponse.redirect(`${origin}/dashboard/settings?error=stripe_save`);
+    return fail('stripe_save', role);
   }
 
   // Rediriger vers les réglages avec succès
-  const { data: profile } = await supabase.from('profiles').select('role').eq('id', user.id).single();
-  const dest = profile?.role === 'coach' ? '/settings' : '/client/settings';
+  const dest = role === 'coach' ? '/settings' : '/client/settings';
   return NextResponse.redirect(`${origin}${dest}?connected=stripe`);
 }

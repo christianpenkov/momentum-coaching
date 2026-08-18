@@ -11,7 +11,10 @@ import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 
 type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio' | 'google' | 'fathom';
 
-const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean; oauthPath?: string }[] = [
+// apiKeyFallback : le provider est en OAuth, mais la saisie d'une clé reste offerte
+// en repli (cf. mode 'both' de lib/onboarding/integrationConfig.ts). Stripe en a besoin —
+// OAuth Connect ne peut pas atteindre un compte déjà relié à une autre plateforme.
+const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean; oauthPath?: string; apiKeyFallback?: boolean }[] = [
   {
     provider: 'google',
     name: 'Google Calendar',
@@ -25,8 +28,11 @@ const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: stri
     provider: 'stripe',
     name: 'Stripe',
     icon: 'dollar-sign',
-    desc: 'Clé secrète Stripe pour afficher ton MRR, paiements et abonnements',
-    placeholder: 'sk_live_... ou sk_test_...',
+    desc: 'Tes paiements rattachés à tes deals, ton MRR et tes abonnements',
+    placeholder: 'rk_live_... ou sk_live_...',
+    oauth: true,
+    oauthPath: '/api/oauth/stripe',
+    apiKeyFallback: true,
   },
   {
     provider: 'calendly',
@@ -169,12 +175,19 @@ export default function PageClientSettings() {
     const label = validation.label || null;
     const metadata = validation.meta || null;
 
+    // Poser une clé sur un provider à repli (Stripe) remplace une éventuelle connexion
+    // OAuth : on efface le token, sinon deux identifiants concurrents cohabitent et
+    // l'appelant ne sait plus lequel fait foi. Symétrique du callback OAuth.
+    const clearOauth = INTEGRATIONS.find(i => i.provider === provider)?.apiKeyFallback
+      ? { access_token: null, refresh_token: null } : {};
+
     const { data: existing } = await supabase.from('integrations').select('id, first_connected_at').eq('profile_id', profileId).eq('provider', provider).single();
     const connectedNow = new Date().toISOString();
     if (existing) {
       await supabase.from('integrations').update({
         api_key: key, account_label: label, metadata, connected_at: connectedNow,
         first_connected_at: existing.first_connected_at || connectedNow,
+        ...clearOauth,
       }).eq('id', existing.id);
     } else {
       await supabase.from('integrations').insert({ profile_id: profileId, provider, api_key: key, account_label: label, metadata, first_connected_at: connectedNow });
@@ -363,7 +376,7 @@ export default function PageClientSettings() {
                           {shortioMeta?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
                         </button>
                       )}
-                      {!cfg.oauth && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>Modifier</button>}
+                      {(!cfg.oauth || cfg.apiKeyFallback) && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>{cfg.apiKeyFallback ? 'Utiliser une clé' : 'Modifier'}</button>}
                       {cfg.oauth && <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
                       {cfg.provider === 'calendly' && (
                         <button className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} type="button" onClick={syncCalendly} disabled={syncing}>
@@ -373,9 +386,16 @@ export default function PageClientSettings() {
                       <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
                     </div>
                   ) : cfg.oauth ? (
-                    <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-primary-brand" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-                      <Icon name="link" size={13} /> Connecter
-                    </a>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-primary-brand" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+                        <Icon name="link" size={13} /> Connecter
+                      </a>
+                      {cfg.apiKeyFallback && (
+                        <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', padding: '6px 4px', textDecoration: 'underline' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                          ou une clé
+                        </button>
+                      )}
+                    </div>
                   ) : (
                     <button className="btn-primary-brand" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                       <Icon name="link" size={13} /> Connecter

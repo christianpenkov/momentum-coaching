@@ -1,7 +1,12 @@
 import type { IconName } from '@/components/ui/Icon';
 import type { Provider } from '@/lib/supabase/types';
 
-export type IntegrationMode = 'oauth' | 'apikey';
+// 'both' : OAuth proposé en premier, clé API conservée en repli. Nécessaire pour
+// Stripe — depuis juin 2021, OAuth read_write ne peut pas se connecter à un compte
+// Standard déjà contrôlé par une autre plateforme (Kajabi, Systeme.io…), et les
+// Connect Extensions qui contournaient ça sont dépréciées. Un élève dans ce cas
+// n'a que la clé restreinte pour connecter son compte existant.
+export type IntegrationMode = 'oauth' | 'apikey' | 'both';
 
 export interface IntegrationInstructionStep {
   text: string;
@@ -40,14 +45,16 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     provider: 'stripe',
     name: 'Stripe',
     icon: 'stripe',
-    desc: 'Clé secrète pour lire les données clients et paiements',
-    mode: 'apikey',
-    placeholder: 'sk_live_... ou sk_test_...',
-    wizardCopy: 'Vois tes revenus et l\'historique de paiement en un coup d\'œil.',
+    desc: 'Paiements encaissés rattachés automatiquement à leurs deals',
+    mode: 'both',
+    oauthPath: '/api/oauth/stripe',
+    placeholder: 'rk_live_... ou sk_live_...',
+    wizardCopy: 'Chaque euro encaissé remonte tout seul, rattaché à son deal et au contenu qui l\'a produit.',
     instructions: [
-      { text: 'Ouvre ton dashboard Stripe →', href: 'https://dashboard.stripe.com/apikeys', hrefLabel: 'dashboard.stripe.com/apikeys' },
-      { text: 'Copie la Clé secrète (sk_live_... en prod, sk_test_... en test)' },
-      { text: 'Colle-la ci-dessous' },
+      { text: 'Le bouton « Connecter » ci-dessus suffit dans la plupart des cas : tu choisis ton compte Stripe, c\'est tout.' },
+      { text: 'Si Stripe refuse la connexion (compte déjà relié à une autre plateforme type Kajabi ou Systeme.io), utilise une clé restreinte à la place.' },
+      { text: 'Créer une clé restreinte →', href: 'https://dashboard.stripe.com/apikeys/create', hrefLabel: 'dashboard.stripe.com/apikeys/create' },
+      { text: 'Donne-lui les droits Lecture sur Clients, Paiements, Abonnements et Factures, puis colle-la ci-dessous.' },
     ],
   },
   {
@@ -138,7 +145,7 @@ export const CLIENT_WIZARD_INTEGRATIONS: IntegrationDef[] = [
   findBase('calendly'),
   findBase('instagram'),
   findBase('youtube'),
-  { ...findBase('stripe'), desc: 'Clé secrète Stripe pour afficher ton MRR, paiements et abonnements', wizardCopy: 'Ton coach voit ton MRR et tes paiements sans que tu aies à les lui envoyer.' },
+  { ...findBase('stripe'), desc: 'Tes paiements rattachés à tes deals, ton MRR et tes abonnements', wizardCopy: 'Chaque euro encaissé remonte tout seul, rattaché à son deal et au contenu qui l\'a produit.' },
   findBase('fathom'),
   findBase('shortio'),
 ];

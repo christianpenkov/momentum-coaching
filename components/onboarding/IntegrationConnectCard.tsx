@@ -48,8 +48,13 @@ export default function IntegrationConnectCard({ config, integration, onSaved, o
     const label = validation.label || null;
     const metadata = validation.meta || null;
 
+    // Sur un provider 'both', poser une clé remplace une éventuelle connexion OAuth :
+    // on efface le token, sinon deux identifiants concurrents cohabitent et l'appelant
+    // ne sait plus lequel fait foi. Symétrique de l'effacement d'api_key au callback OAuth.
+    const clearOauth = config.mode === 'both' ? { access_token: null, refresh_token: null } : {};
+
     if (integration) {
-      await supabase.from('integrations').update({ api_key: key, account_label: label, metadata, connected_at: new Date().toISOString() }).eq('id', integration.id);
+      await supabase.from('integrations').update({ api_key: key, account_label: label, metadata, connected_at: new Date().toISOString(), ...clearOauth }).eq('id', integration.id);
     } else {
       await supabase.from('integrations').insert({ profile_id: user.id, provider: config.provider, api_key: key, account_label: label, metadata });
     }
@@ -90,11 +95,13 @@ export default function IntegrationConnectCard({ config, integration, onSaved, o
         {integration ? (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
             <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
-            {config.mode === 'oauth' && (
+            {config.mode !== 'apikey' && (
               <a href={config.oauthPath} className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>Reconnecter</a>
             )}
-            {config.mode === 'apikey' && (
-              <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(true); setKeyInput(''); }}>Modifier</button>
+            {config.mode !== 'oauth' && (
+              <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(true); setKeyInput(''); }}>
+                {config.mode === 'both' ? 'Utiliser une clé' : 'Modifier'}
+              </button>
             )}
             <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px' }} type="button" onClick={disconnect}>
               Déconnecter
@@ -102,13 +109,20 @@ export default function IntegrationConnectCard({ config, integration, onSaved, o
           </div>
         ) : (
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-            {config.mode === 'oauth' ? (
+            {config.mode !== 'apikey' ? (
               <a href={config.oauthPath} className="btn-primary-brand" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                 <Icon name="link" size={13} /> Connecter
               </a>
             ) : (
               <button className="btn-primary-brand" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(true); setKeyInput(''); }}>
                 <Icon name="link" size={13} /> Connecter
+              </button>
+            )}
+            {/* Repli clé API : proposé en second, pour les comptes que l'OAuth
+                Connect ne peut pas atteindre (déjà reliés à une autre plateforme). */}
+            {config.mode === 'both' && (
+              <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px', textDecoration: 'underline' }} type="button" onClick={() => { setEditing(true); setKeyInput(''); }}>
+                ou une clé
               </button>
             )}
           </div>
@@ -123,7 +137,7 @@ export default function IntegrationConnectCard({ config, integration, onSaved, o
         </div>
       )}
 
-      {editing && config.mode === 'apikey' && (
+      {editing && config.mode !== 'oauth' && (
         <div style={{ padding: '0 16px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
           <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.7 }}>
             {config.instructions.map((step, i) => (
