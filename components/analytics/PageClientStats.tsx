@@ -1,7 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
-import PageLoader from '@/components/ui/PageLoader';
+import { useState, useEffect, useCallback } from 'react';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -187,22 +186,6 @@ function Card({ title, sub, children, style }: { title?: string; sub?: string; c
   );
 }
 
-function Stat({ label, value, sub, color, onClick }: { label: string; value: string | number; sub?: string; color?: string; onClick?: () => void }) {
-  return (
-    <div onClick={onClick} style={{ display: 'flex', flexDirection: 'column', gap: 2, cursor: onClick ? 'pointer' : 'default', borderRadius: 8, padding: onClick ? '6px 8px' : '0', margin: onClick ? '-6px -8px' : '0', transition: 'background .15s' }}
-      onMouseEnter={e => { if (onClick) e.currentTarget.style.background = 'var(--surface-2)'; }}
-      onMouseLeave={e => { e.currentTarget.style.background = ''; }}>
-      <div className="eyebrow-sm" style={{ color: 'var(--muted)' }}>{label}</div>
-      <div style={{ fontSize: 22, fontWeight: 700, color: color || 'var(--ink)', lineHeight: 1.1 }}>{value}</div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--muted)' }}>{sub}</div>}
-    </div>
-  );
-}
-
-function StatGrid({ children }: { children: React.ReactNode }) {
-  return <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))', gap: 20, marginBottom: 20 }}>{children}</div>;
-}
-
 function Tabs({ tabs, active, onChange }: { tabs: string[]; active: number; onChange: (i: number) => void }) {
   const [hovered, setHovered] = useState<number | null>(null);
   return (
@@ -252,16 +235,6 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
 
 // ─── TAB 1 : Vue Générale — helpers ──────────────────────────────────────────
 
-function LeverCard({ label, value, formula }: { label: string; value: string; formula: string }) {
-  return (
-    <div style={{ padding: '16px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
-      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
-      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 4 }}>{value}</div>
-      <div style={{ fontSize: 10, color: 'var(--faint)', fontFamily: 'monospace' }}>{formula}</div>
-    </div>
-  );
-}
-
 type SignalType = 'green' | 'amber' | 'red';
 function Signal({ type, text, isLast }: { type: SignalType; text: string; isLast?: boolean }) {
   const dot = type === 'green' ? GREEN : type === 'amber' ? AMBER : RED;
@@ -275,23 +248,6 @@ function Signal({ type, text, isLast }: { type: SignalType; text: string; isLast
 
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
-
-function Sparkline({ data, color = 'var(--accent)', height = 52 }: { data: number[]; color?: string; height?: number }) {
-  const pts = data.map((v, i) => ({ i, v }));
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <ReAreaChart data={pts} margin={{ top: 2, right: 0, left: 0, bottom: 0 }}>
-        <defs>
-          <linearGradient id={`sg-${color.replace(/[^a-z0-9]/gi, '')}`} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor={color} stopOpacity={0.2} />
-            <stop offset="95%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
-        <Area type="monotone" dataKey="v" stroke={color} strokeWidth={1.5} fill={`url(#sg-${color.replace(/[^a-z0-9]/gi, '')})`} dot={false} isAnimationActive={false} />
-      </ReAreaChart>
-    </ResponsiveContainer>
-  );
-}
 
 function ChartTooltip({ active, payload, label, fmtFn, pendingKey }: any) {
   if (!active || !payload?.length) return null;
@@ -3317,9 +3273,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     }
     return 0;
   })();
-  const dmLinks = prospectLinks.length;
-  const dmClics = prospectLinks.reduce((s: number, l: any) => s + linkClics(l), 0);
-  const tauxClicDM = dmLinks > 0 ? Math.round((dmClics / dmLinks) * 100) : 0;
   const lmEnvoyes = leadsInPeriod.filter(l => l.leadMagnetSent).length;
   // Numérateur strictement inclus dans le dénominateur : cette carte mesure la
   // performance du lead magnet ("parmi ceux à qui j'ai envoyé un LM, combien ont
@@ -3341,9 +3294,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // calls filtrés par la fenêtre de période (en S-0, callsEff n'a pas de borne haute)
   const callsInWindow = (calls ?? []).filter(c => isInPeriod(c.scheduled_at));
   const callsBooked = callsInWindow.filter(c => c.status === 'active').length;
-  const callsFromLM = callsInWindow.filter(c => c.status === 'active' && c.ig_lead_id).length;
-  const tauxLMCalendly = lmEnvoyes > 0 ? Math.round((lmCalendlyLinks / lmEnvoyes) * 100) : 0;
-  const tauxCalendlyCall = lmCalendlyLinks > 0 ? Math.round((callsFromLM / lmCalendlyLinks) * 100) : 0;
   const callsTotal = callsBooked;
 
   // ── Séries jour-par-jour pour les KPI cliquables ──
@@ -3669,8 +3619,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const matchContent = !selectedContentId || l.postId === selectedContentId;
     return matchFilter && matchContent;
   });
-
-  const topRef = (l: ShortioLink) => l.referrers?.[0]?.label || '—';
 
   const SectionHead = ({ title, sub, action }: { title: string; sub?: string; action?: React.ReactNode }) => (
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
