@@ -5847,14 +5847,19 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
 
   // Dans la table calls, coach_id = profile_id de l'élève (leadsProfileId dans le sync Calendly)
   const callsOwnerId = profileId ?? user.id;
-  const callsQuery = supabase.from('calls').select('*')
-    .eq('coach_id', callsOwnerId)
-    .neq('ignored', true)
-    .eq('call_type', 'calendly')
-    .order('scheduled_at', { ascending: false }).limit(500);
-  if (onboardingFloor) callsQuery.gte('scheduled_at', onboardingFloor);
-  const callsRes = await callsQuery;
-  if ((callsRes.data?.length ?? 0) >= 500) console.warn('[PageClientStats] calls a atteint le plafond de 500 lignes — troncature probable pour coach_id=%s', callsOwnerId);
+  // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, silencieusement
+  // tronqué au-delà (11 calls Calendly aujourd'hui, mais le mode "Depuis connexion"
+  // cumule tout l'historique d'un élève sur plusieurs années — même raison que les
+  // autres .limit() fixes déjà migrés ci-dessus).
+  const callsRawRows = await fetchAllPages<any>(() => {
+    const q = supabase.from('calls').select('*')
+      .eq('coach_id', callsOwnerId)
+      .neq('ignored', true)
+      .eq('call_type', 'calendly')
+      .order('scheduled_at', { ascending: false });
+    return onboardingFloor ? q.gte('scheduled_at', onboardingFloor) : q;
+  });
+  const callsRes = { data: callsRawRows };
 
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();

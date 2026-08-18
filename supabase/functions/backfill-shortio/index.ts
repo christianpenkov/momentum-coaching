@@ -13,12 +13,12 @@ const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
 const safeJson = async (r: Response) => { try { return await r.json(); } catch { return {}; } };
 
-async function fetchShortioLinks(creds: { apiKey: string; domainId: string }): Promise<any[]> {
-  const headers = { authorization: creds.apiKey, accept: 'application/json' };
+async function fetchShortioLinksForDomain(apiKey: string, domainId: string): Promise<any[]> {
+  const headers = { authorization: apiKey, accept: 'application/json' };
   const all: any[] = [];
   let beforeId: string | undefined;
   while (true) {
-    const url = `https://api.short.io/api/links?domain_id=${creds.domainId}&limit=150${beforeId ? `&beforeId=${beforeId}` : ''}`;
+    const url = `https://api.short.io/api/links?domain_id=${domainId}&limit=150${beforeId ? `&beforeId=${beforeId}` : ''}`;
     const res = await fetch(url, { headers });
     if (!res.ok) break;
     const data = await safeJson(res);
@@ -27,6 +27,21 @@ async function fetchShortioLinks(creds: { apiKey: string; domainId: string }): P
     all.push(...page);
     if (page.length < 150) break;
     beforeId = String(page[page.length - 1].id);
+  }
+  return all;
+}
+
+// Un élève peut avoir changé de domaine Short.io — ses liens sur l'ancien domaine
+// restent actifs (posts déjà publiés) mais un backfill limité au seul domaine actif les
+// manquerait entièrement. Même principe que snapshotOldDomainLinks côté poll-leads.
+async function fetchShortioLinksAllDomains(
+  apiKey: string,
+  domains: { id: string | number; hostname: string }[],
+): Promise<{ link: any; hostname: string }[]> {
+  const all: { link: any; hostname: string }[] = [];
+  for (const d of domains) {
+    const links = await fetchShortioLinksForDomain(apiKey, String(d.id));
+    all.push(...links.map(link => ({ link, hostname: d.hostname })));
   }
   return all;
 }
@@ -56,6 +71,8 @@ Deno.serve(async (req) => {
     const domain = (integ.metadata as any)?.domain;
     const domainId = String((integ.metadata as any)?.domain_id || '');
     if (!apiKey || !domain || !domainId) continue;
+    const allDomains = ((integ.metadata as any)?.all_domains as { id: string | number; hostname: string }[] | undefined)
+      ?? [{ id: domainId, hostname: domain }];
 
     const headers = { authorization: apiKey, accept: 'application/json' };
 
@@ -110,9 +127,9 @@ Deno.serve(async (req) => {
       return null;
     };
 
-    // Récupère tous les liens du domaine
-    let links: any[];
-    try { links = await fetchShortioLinks({ apiKey, domainId }); } catch (e: any) {
+    // Récupère tous les liens de tous les domaines connus du compte (actif + anciens)
+    let linksWithDomain: { link: any; hostname: string }[];
+    try { linksWithDomain = await fetchShortioLinksAllDomains(apiKey, allDomains); } catch (e: any) {
       results[profileId] = { error: `fetch_links: ${e?.message}` };
       continue;
     }
@@ -122,11 +139,11 @@ Deno.serve(async (req) => {
     let errors = 0;
 
     // Pour chaque lien : récupère le chartData 30j et insère les jours manquants
-    for (const l of links) {
+    for (const { link: l, hostname } of linksWithDomain) {
       try {
         const linkId = String(l.id);
         const path = l.path || '';
-        const shortUrl = l.secureShortURL || l.shortURL || `https://${domain}/${path}`;
+        const shortUrl = l.secureShortURL || l.shortURL || `https://${hostname}/${path}`;
         const originalUrl = l.originalURL || '';
         let link_type: string | null = null;
         try { link_type = new URL(originalUrl).searchParams.get('utm_medium') || null; } catch {}
@@ -167,7 +184,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    results[profileId] = { links: links.length, inserted, skipped, errors };
+    results[profileId] = { links: linksWithDomain.length, inserted, skipped, errors };
   }
 
   return new Response(JSON.stringify({ ok: true, results }), {

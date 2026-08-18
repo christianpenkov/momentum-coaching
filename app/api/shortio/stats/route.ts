@@ -29,7 +29,7 @@ async function fetchAllPages<T>(
   return allRows;
 }
 
-async function getCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string | number } | null> {
+async function getCreds(profileId: string): Promise<{ apiKey: string; domain: string; domainId: string | number; allDomains: { id: string | number; hostname: string }[] } | null> {
   const { data: integ } = await serviceSupabase
     .from('integrations')
     .select('api_key, metadata')
@@ -41,23 +41,30 @@ async function getCreds(profileId: string): Promise<{ apiKey: string; domain: st
   const domain = (integ.metadata as any)?.domain || null;
   const domainId = (integ.metadata as any)?.domain_id || null;
   if (!domain || !domainId) return null;
-  return { apiKey: integ.api_key, domain, domainId };
+  // Un élève peut avoir changé de domaine Short.io (ex: ubizenai.s.gy → link.ubizenai.com)
+  // sans avoir supprimé les anciens liens, toujours actifs en description de posts publiés
+  // avant le changement — même bug/fix que snapshotOldDomainLinks côté cron poll-leads
+  // (2026-08-14). all_domains liste tous les domaines connus du compte ; fallback sur le
+  // seul domaine actif si absent (comptes connectés avant l'ajout de ce champ).
+  const allDomains = ((integ.metadata as any)?.all_domains as { id: string | number; hostname: string }[] | undefined)
+    ?? [{ id: domainId, hostname: domain }];
+  return { apiKey: integ.api_key, domain, domainId, allDomains };
 }
 
 // Fetch complet Short.io — appelé seulement si cache expiré
-async function fetchFromShortio(creds: { apiKey: string; domain: string; domainId: string | number }, profileId: string) {
-  const { apiKey, domain, domainId } = creds;
+async function fetchFromShortio(creds: { apiKey: string; domain: string; domainId: string | number; allDomains: { id: string | number; hostname: string }[] }, profileId: string) {
+  const { apiKey, domain, domainId, allDomains } = creds;
   const headers = { authorization: apiKey, accept: 'application/json' };
   const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
 
-  const [domainStatsRes, linksRes] = await Promise.all([
+  const [domainStatsRes, ...linksResPerDomain] = await Promise.all([
     fetch(`https://api-v2.short.io/statistics/domain/${domainId}?period=last30`, { headers }),
-    fetch(`https://api.short.io/api/links?domain_id=${domainId}&limit=150`, { headers }),
+    ...allDomains.map(d => fetch(`https://api.short.io/api/links?domain_id=${d.id}&limit=150`, { headers })),
   ]);
 
-  const [domainStats, linksData] = await Promise.all([
+  const [domainStats, ...linksDataPerDomain] = await Promise.all([
     safeJson(domainStatsRes),
-    safeJson(linksRes),
+    ...linksResPerDomain.map(safeJson),
   ]);
 
   if (!domainStatsRes.ok) {
@@ -83,8 +90,14 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
   const topCities = (domainStats.city || []).filter((c: any) => c.score > 0).slice(0, 5)
     .map((c: any) => ({ label: `${c.name} (${c.countryCode})`, value: c.score }));
 
-  const allLinks: any[] = linksData?.links || [];
-  const totalLinks = Number(linksData?.count ?? allLinks.length);
+  // Fusionne les liens de tous les domaines (actif + anciens) — chaque lien garde une
+  // trace de son domaine d'origine pour le fallback shortUrl (l.secureShortURL/shortURL
+  // manque rarement, mais si l'API ne renvoie que le path, il faut savoir sur quel
+  // hostname le reconstruire, pas toujours celui actuellement actif).
+  const allLinks: any[] = linksDataPerDomain.flatMap((linksData, i) =>
+    (linksData?.links || []).map((l: any) => ({ ...l, __domainHostname: allDomains[i]?.hostname || domain }))
+  );
+  const totalLinks = linksDataPerDomain.reduce((s, d) => s + Number(d?.count ?? 0), 0) || allLinks.length;
 
   // Prioriser bio + description pour garantir qu'ils sont dans le top 20 fetchés
   const isBioOrDesc = (l: any) => {
@@ -105,7 +118,7 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
         const chartData = chartRaw.map((pt) => ({ date: pt.x.split('T')[0], clicks: Number(pt.y) || 0 }));
         return {
           id: l.id, path: l.path || '',
-          shortUrl: l.secureShortURL || l.shortURL || `https://${domain}/${l.path}`,
+          shortUrl: l.secureShortURL || l.shortURL || `https://${l.__domainHostname || domain}/${l.path}`,
           originalUrl: l.originalURL || '', title: l.title || l.path || '', createdAt: l.createdAt || null,
           clicks30d: Number(stats.totalClicks ?? 0), humanClicks30d: Number(stats.humanClicks ?? 0),
           clicksChange: stats.totalClicksChange !== undefined ? Number(stats.totalClicksChange) : null,
@@ -122,7 +135,7 @@ async function fetchFromShortio(creds: { apiKey: string; domain: string; domainI
       } catch {
         return {
           id: l.id, path: l.path || '',
-          shortUrl: l.secureShortURL || l.shortURL || `https://${domain}/${l.path}`,
+          shortUrl: l.secureShortURL || l.shortURL || `https://${l.__domainHostname || domain}/${l.path}`,
           originalUrl: l.originalURL || '', title: l.title || l.path || '', createdAt: l.createdAt || null,
           clicks30d: 0, humanClicks30d: 0, clicksChange: null,
           chartData: [], countries: [], referrers: [], browsers: [], os: [], social: [], cities: [], utmMedium: [], utmSource: [],

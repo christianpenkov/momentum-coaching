@@ -10,6 +10,13 @@ export interface ShortioLinkCreds {
   apiKey: string;
   domain: string;
   domainId: string | number;
+  // Tous les domaines connus du compte Short.io de l'élève (actif + anciens) — un
+  // élève qui a changé de domaine garde des liens toujours actifs (posts déjà publiés)
+  // sur l'ancien. Sans ça, snapshotShortioLinks/syncLmClickStream ignorent
+  // silencieusement les clics sur ces liens — même bug/fix que snapshotOldDomainLinks
+  // côté cron poll-leads (2026-08-14). Fallback [domaine actif] si absent (comptes
+  // connectés avant l'ajout de ce champ).
+  allDomains: { id: string | number; hostname: string }[];
 }
 
 export interface ShortioLinkRow {
@@ -53,34 +60,40 @@ export async function getShortioLinkCreds(profileId: string): Promise<ShortioLin
   const domain   = (integ.metadata as any)?.domain    || null;
   const domainId = (integ.metadata as any)?.domain_id || null;
   if (!domain || !domainId) return null;
-  return { apiKey: integ.api_key, domain, domainId };
+  const allDomains = ((integ.metadata as any)?.all_domains as { id: string | number; hostname: string }[] | undefined)
+    ?? [{ id: domainId, hostname: domain }];
+  return { apiKey: integ.api_key, domain, domainId, allDomains };
 }
 
-// ── Liste des liens du domaine (pagination cursor-based via beforeId) ─────────
+// ── Liste des liens de TOUS les domaines du compte (actif + anciens), pagination
+// cursor-based via beforeId propre à chaque domaine ─────────────────────────────
 export async function fetchShortioLinks(creds: ShortioLinkCreds): Promise<ShortioLinkRow[]> {
+  const domains = creds.allDomains.length > 0 ? creds.allDomains : [{ id: creds.domainId, hostname: creds.domain }];
   const allLinks: any[] = [];
-  let beforeId: string | null = null;
-  const limit = 150;
 
-  while (true) {
-    const url = new URL(`https://api.short.io/api/links`);
-    url.searchParams.set('domain_id', String(creds.domainId));
-    url.searchParams.set('limit', String(limit));
-    if (beforeId) url.searchParams.set('beforeId', beforeId);
+  for (const d of domains) {
+    let beforeId: string | null = null;
+    const limit = 150;
+    while (true) {
+      const url = new URL(`https://api.short.io/api/links`);
+      url.searchParams.set('domain_id', String(d.id));
+      url.searchParams.set('limit', String(limit));
+      if (beforeId) url.searchParams.set('beforeId', beforeId);
 
-    const res = await fetch(url.toString(), { headers: { authorization: creds.apiKey, accept: 'application/json' } });
-    if (!res.ok) throw new Error(`Short.io links ${res.status}`);
-    const data = await res.json();
-    const page: any[] = data?.links || [];
-    allLinks.push(...page);
-    if (page.length < limit) break;
-    beforeId = String(page[page.length - 1].id);
+      const res = await fetch(url.toString(), { headers: { authorization: creds.apiKey, accept: 'application/json' } });
+      if (!res.ok) throw new Error(`Short.io links ${res.status}`);
+      const data = await res.json();
+      const page: any[] = data?.links || [];
+      allLinks.push(...page.map((l: any) => ({ ...l, __domainHostname: d.hostname })));
+      if (page.length < limit) break;
+      beforeId = String(page[page.length - 1].id);
+    }
   }
 
   return allLinks.map((l: any) => ({
     id:          String(l.id),
     path:        l.path || '',
-    shortUrl:    l.secureShortURL || l.shortURL || `https://${creds.domain}/${l.path}`,
+    shortUrl:    l.secureShortURL || l.shortURL || `https://${l.__domainHostname || creds.domain}/${l.path}`,
     originalUrl: l.originalURL || '',
     title:       l.title || l.path || '',
     createdAt:   l.createdAt || null,
@@ -231,6 +244,33 @@ export async function upsertShortioLinkSnapshot(
 // Traite deux types de liens :
 //   - lm-* → lm_clicked sur instagram_leads.tracking_link
 //   - liens Calendly (prospect_links) → link_clicked si clic postérieur à calendly_link_sent_at
+// Rate-limit Short.io observé en prod sur cet endpoint précis quand deux domaines du
+// même compte sont interrogés dos à dos (cf. supabase/functions/poll-leads/index.ts,
+// snapshotOldDomainLinks, 2026-08-14 — x-ratelimit-limit=60, reset après ~48s). Lit le
+// header x-ratelimit-reset pour attendre exactement le bon délai avant un unique retry,
+// plutôt qu'un délai fixe qui ne correspond pas au vrai temps de réinitialisation.
+const CLICK_STREAM_MAX_RATE_LIMIT_WAIT_MS = 60_000;
+async function fetchLastClicksWithRetry(domainId: string | number, apiKey: string, afterDate: string): Promise<Response> {
+  const call = () => fetch(
+    `https://api-v2.short.io/statistics/domain/${domainId}/last_clicks`,
+    {
+      method: 'POST',
+      headers: { authorization: apiKey, 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify({ limit: 500, afterDate }),
+    }
+  );
+  let res = await call();
+  if (res.status === 429) {
+    const resetSeconds = Number(res.headers.get('x-ratelimit-reset'));
+    const waitMs = Number.isFinite(resetSeconds) && resetSeconds > 0
+      ? Math.min(resetSeconds * 1000 + 1000, CLICK_STREAM_MAX_RATE_LIMIT_WAIT_MS)
+      : 10_000;
+    await new Promise(r => setTimeout(r, waitMs));
+    res = await call();
+  }
+  return res;
+}
+
 export async function syncLmClickStream(
   profileId: string,
   creds: ShortioLinkCreds,
@@ -238,18 +278,17 @@ export async function syncLmClickStream(
 ): Promise<string[]> {
   const errors: string[] = [];
   try {
-    const res = await fetch(
-      `https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`,
-      {
-        method: 'POST',
-        headers: { authorization: creds.apiKey, 'content-type': 'application/json', accept: 'application/json' },
-        body: JSON.stringify({ limit: 500, afterDate }),
-      }
-    );
-    if (!res.ok) return [`click_stream_${res.status}`];
-
-    const data = await res.json();
-    const rawClicks: { path: string; dt: string; human: boolean }[] = data?.clicks ?? data ?? [];
+    // Un domaine par appel — un élève qui a changé de domaine Short.io garde des liens
+    // toujours actifs sur l'ancien, sinon leurs clics n'alimentent jamais l'attribution
+    // temps réel (lm_clicked/link_clicked) ci-dessous.
+    const domains = creds.allDomains.length > 0 ? creds.allDomains : [{ id: creds.domainId, hostname: creds.domain }];
+    const rawClicks: { path: string; dt: string; human: boolean }[] = [];
+    for (const d of domains) {
+      const res = await fetchLastClicksWithRetry(d.id, creds.apiKey, afterDate);
+      if (!res.ok) { errors.push(`click_stream_domain_${d.id}_${res.status}`); continue; }
+      const data = await res.json();
+      rawClicks.push(...((data?.clicks ?? data ?? []) as { path: string; dt: string; human: boolean }[]));
+    }
     const humanClicks = rawClicks.filter(c => c.human === true && c.path);
 
     // ── LM clicks (paths lm-*) ──────────────────────────────────────────────
