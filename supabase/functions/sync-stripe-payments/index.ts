@@ -1,4 +1,5 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { RateLimiter, mapWithConcurrency } from '../_shared/rate-limit.ts';
 
 /**
  * Lecture des paiements Stripe pour les comptes connectés par CLÉ RESTREINTE.
@@ -25,6 +26,19 @@ const CRON_SECRET = Deno.env.get('CRON_SECRET')!;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+// Limiteur Stripe PARTAGÉ par tout le run. Stripe plafonne à ~100 req/s en test
+// mais 25/s en live, et le compteur est par compte — or plusieurs élèves peuvent
+// dépendre du même compte Stripe (clé restreinte d'une plateforme tierce).
+// 20 req/s laisse une marge sous la limite live, sans ralentir un run normal.
+// Le 429 de Stripe renvoie l'en-tête standard, géré par le backoff du limiteur.
+const stripeLimiter = new RateLimiter({
+  concurrency: 5,
+  tokensPerInterval: 20,
+  intervalMs: 1_000,
+  maxRetryWaitMs: 15_000,
+  maxRetries: 3,
+});
+
 // Metadata posées à la création du lien (lib/stripe-payment-links.ts). Dupliquées
 // ici faute d'import cross-runtime possible — même pattern que isValidContentId
 // dans sync-calendly/index.ts.
@@ -42,12 +56,13 @@ interface SyncResult { seen: number; attached: number; errors: string[] }
 /** Un appel Stripe. La clé EST celle du compte : pas d'en-tête Stripe-Account. */
 async function stripeGet(apiKey: string, path: string, params: Record<string, string>): Promise<any> {
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`https://api.stripe.com/v1/${path}?${qs}`, {
+  // Passe par le limiteur partagé : sémaphore + token bucket + backoff sur 429.
+  const res = await stripeLimiter.run(() => fetch(`https://api.stripe.com/v1/${path}?${qs}`, {
     headers: {
       Authorization: `Bearer ${apiKey}`,
       'Stripe-Version': '2026-04-22.dahlia',
     },
-  });
+  }));
   const body = await res.json();
   if (!res.ok) throw new Error(body?.error?.message || `Stripe ${path} ${res.status}`);
   return body;
@@ -101,7 +116,14 @@ async function refreshDealStatus(dealId: string) {
   }
 }
 
-/** Même ordre de certitude que le webhook : metadata, puis subscription. */
+/**
+ * Même ordre de certitude que le webhook : metadata, puis subscription.
+ *
+ * `touchedDeals` collecte les deals impactés au lieu de recalculer leur statut
+ * ici : refreshDealStatus relit TOUS les paiements du deal, donc l'appeler à
+ * chaque paiement attaché le faisait tourner 3 fois pour un 3×, avec 3 lectures
+ * complètes. Un seul passage par deal en fin de profil donne le même résultat.
+ */
 async function upsertPayment(profileId: string, p: {
   paymentId: string;
   amountMinor: number;
@@ -109,7 +131,7 @@ async function upsertPayment(profileId: string, p: {
   paidAt: string;
   metadata: Record<string, string> | null;
   subscriptionId: string | null;
-}): Promise<boolean> {
+}, touchedDeals: Set<string>): Promise<boolean> {
   const { error: payErr } = await supabase.from('stripe_payments').upsert({
     profile_id: profileId,
     payment_id: p.paymentId,
@@ -154,13 +176,23 @@ async function upsertPayment(profileId: string, p: {
     status: 'succeeded',
     match_method: matchMethod,
   });
-  if (error) throw error;
+  if (error) {
+    // 23505 = violation d'unicité sur deal_payments_deal_id_stripe_payment_id_key.
+    // Le SELECT ci-dessus et cet INSERT ne sont pas atomiques : depuis que les
+    // paiements sont traités en concurrence, une charge et sa facture d'abonnement
+    // (même id de deal) peuvent franchir le check en même temps. L'index rattrape,
+    // et ce cas signifie « déjà écrit », pas « échec » — le compter comme erreur
+    // empêcherait à tort l'avance de la borne du profil.
+    if ((error as { code?: string }).code === '23505') return false;
+    throw error;
+  }
 
   if (installmentId) {
     await supabase.from('deal_installments').update({ status: 'paid' }).eq('id', installmentId);
   }
 
-  await refreshDealStatus(dealId);
+  // Statut recalculé une seule fois par deal, en fin de profil.
+  touchedDeals.add(dealId);
   return true;
 }
 
@@ -177,46 +209,66 @@ async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: stri
     : floor;
   const since = Math.floor(from / 1000);
 
+  // Deals touchés pendant ce profil — leur statut est recalculé une seule fois,
+  // en fin de fonction, plutôt qu'à chaque paiement attaché.
+  const touchedDeals = new Set<string>();
+
   // Charges : les paiements comptant. Factures : les échéances d'abonnement.
   // Un paiement d'abonnement produit les deux — le dédoublonnage se fait en base.
-  const charges = await stripeList(apiKey, 'charges', since);
-  for (const charge of charges) {
-    if (charge.status !== 'succeeded' || charge.refunded) continue;
-    seen++;
-    try {
-      if (await upsertPayment(profileId, {
-        paymentId: charge.id,
-        amountMinor: charge.amount,
-        currency: charge.currency,
-        paidAt: new Date(charge.created * 1000).toISOString(),
-        metadata: charge.metadata ?? null,
-        subscriptionId: null,
-      })) attached++;
-    } catch (e) {
-      errors.push(`charge ${charge.id}: ${(e as Error).message}`);
-    }
-  }
+  const charges = (await stripeList(apiKey, 'charges', since))
+    .filter((c: any) => c.status === 'succeeded' && !c.refunded);
+  seen += charges.length;
 
-  const invoices = await stripeList(apiKey, 'invoices', since, { status: 'paid' });
-  for (const inv of invoices) {
-    if (!inv.id) continue;
-    seen++;
+  // Concurrence bornée (4) au lieu d'un `for await` strictement séquentiel :
+  // chaque upsertPayment enchaîne 2 à 4 requêtes Supabase, donc 100 paiements
+  // faisaient jusqu'à 400 allers-retours en file d'attente. Borné, et non
+  // `Promise.all`, pour ne pas ouvrir 100 connexions Postgres d'un coup.
+  const chargeResults = await mapWithConcurrency(charges, 4, (charge: any) =>
+    upsertPayment(profileId, {
+      paymentId: charge.id,
+      amountMinor: charge.amount,
+      currency: charge.currency,
+      paidAt: new Date(charge.created * 1000).toISOString(),
+      metadata: charge.metadata ?? null,
+      subscriptionId: null,
+    }, touchedDeals)
+  );
+  chargeResults.forEach((r, i) => {
+    if (r.status === 'fulfilled') { if (r.value) attached++; }
+    else errors.push(`charge ${charges[i].id}: ${r.reason?.message || 'unknown'}`);
+  });
+
+  const invoices = (await stripeList(apiKey, 'invoices', since, { status: 'paid' }))
+    .filter((inv: any) => !!inv.id);
+  seen += invoices.length;
+
+  const invoiceResults = await mapWithConcurrency(invoices, 4, (inv: any) => {
     // API Dahlia : la subscription a déménagé sous parent.subscription_details.
     // Ses metadata sont un instantané figé à la finalisation — c'est ce qui fait
     // que les échéances 2 et 3 d'un 3× portent encore l'id du deal.
     const details = inv.parent?.subscription_details ?? null;
     const sub = details?.subscription ?? null;
+    return upsertPayment(profileId, {
+      paymentId: inv.id,
+      amountMinor: inv.amount_paid ?? 0,
+      currency: inv.currency ?? 'eur',
+      paidAt: new Date((inv.status_transitions?.paid_at ?? inv.created) * 1000).toISOString(),
+      metadata: details?.metadata ?? inv.metadata ?? null,
+      subscriptionId: typeof sub === 'string' ? sub : sub?.id ?? null,
+    }, touchedDeals);
+  });
+  invoiceResults.forEach((r, i) => {
+    if (r.status === 'fulfilled') { if (r.value) attached++; }
+    else errors.push(`invoice ${invoices[i].id}: ${r.reason?.message || 'unknown'}`);
+  });
+
+  // Un seul recalcul par deal touché, après que tous ses paiements sont écrits —
+  // sinon le statut serait calculé sur une vue partielle des échéances.
+  for (const dealId of touchedDeals) {
     try {
-      if (await upsertPayment(profileId, {
-        paymentId: inv.id,
-        amountMinor: inv.amount_paid ?? 0,
-        currency: inv.currency ?? 'eur',
-        paidAt: new Date((inv.status_transitions?.paid_at ?? inv.created) * 1000).toISOString(),
-        metadata: details?.metadata ?? inv.metadata ?? null,
-        subscriptionId: typeof sub === 'string' ? sub : sub?.id ?? null,
-      })) attached++;
+      await refreshDealStatus(dealId);
     } catch (e) {
-      errors.push(`invoice ${inv.id}: ${(e as Error).message}`);
+      errors.push(`deal_status ${dealId}: ${(e as Error).message}`);
     }
   }
 
@@ -248,30 +300,44 @@ Deno.serve(async (req: Request) => {
   // repris au cycle suivant, que le recouvrement de 30 min garantit de couvrir.
   const runStartedAt = new Date().toISOString();
 
-  // En parallèle : ~10 appels Stripe par profil, très en deçà du timeout à 20 élèves.
-  const results = await Promise.all(
-    (integrations as any[]).map((integ) =>
-      // last_synced_at est déjà utilisée par sync-calendly sur d'autres lignes, mais
-      // c'est la même colonne : on isole la borne Stripe dans metadata pour que les
-      // deux crons ne se marchent jamais dessus.
-      syncProfile(integ.profile_id, integ.api_key, integ.metadata?.stripe_synced_at ?? null)
-        .then(r => ({ profile_id: integ.profile_id, metadata: integ.metadata, ...r }))
-        .catch((e: any) => ({
-          profile_id: integ.profile_id, metadata: integ.metadata,
-          seen: 0, attached: 0, errors: [e?.message || 'unknown'],
-        }))
-    )
+  // Concurrence BORNÉE à 5 profils. Le budget de 150 s n'est pas la contrainte —
+  // la cadence l'est : Stripe plafonne à 25 req/s en live, et à 30 élèves un
+  // Promise.all non borné lancerait ~300 appels d'un coup. Le limiteur régule
+  // ensuite le débit fin, ce plafond évite d'empiler 30 files d'attente.
+  // last_synced_at est déjà utilisée par sync-calendly : on isole la borne Stripe
+  // dans metadata pour que les deux crons ne se marchent jamais dessus.
+  const settled = await mapWithConcurrency(integrations as any[], 5, (integ) =>
+    syncProfile(integ.profile_id, integ.api_key, integ.metadata?.stripe_synced_at ?? null)
+      .then(r => ({ profile_id: integ.profile_id, ...r }))
+  );
+
+  const results = settled.map((r, i) =>
+    r.status === 'fulfilled'
+      ? r.value
+      : {
+          profile_id: (integrations as any[])[i].profile_id,
+          seen: 0, attached: 0,
+          errors: [r.reason?.message || 'unknown'],
+        }
   );
 
   // On n'avance la borne QUE pour les profils sans erreur : un profil en échec
   // rejouera sa fenêtre complète au cycle suivant. En cas de doute on retraite
   // trop, jamais trop peu — même règle que sync-calendly.
+  //
+  // RPC plutôt qu'un update de l'objet metadata entier : sync-calendly écrit AUSSI
+  // dans integrations.metadata (user_uri, resource). Relire ici l'objet chargé en
+  // début de run puis le réécrire écrasait toute clé posée entre-temps par l'autre
+  // cron. jsonb_set côté serveur ne touche que la clé visée, sous verrou de ligne.
   for (const r of results) {
     if (r.errors.length) continue;
-    await supabase.from('integrations')
-      .update({ metadata: { ...(r.metadata ?? {}), stripe_synced_at: runStartedAt } })
-      .eq('provider', 'stripe')
-      .eq('profile_id', r.profile_id);
+    const { error: stampErr } = await supabase.rpc('set_integration_metadata_key', {
+      p_profile_id: r.profile_id,
+      p_provider: 'stripe',
+      p_key: 'stripe_synced_at',
+      p_value: runStartedAt,
+    });
+    if (stampErr) console.error('[sync-stripe-payments] stripe_synced_at:', stampErr.message);
   }
 
   const allErrors: Record<string, string[]> = {};
