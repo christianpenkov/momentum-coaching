@@ -109,10 +109,16 @@ export function isSalesCall(call: { call_type?: string | null }): boolean {
 // Widget "Prochain call" — bascule vers le call suivant dès que celui affiché est
 // réellement terminé, peu importe le délai avant le suivant. Un call encore dans son
 // créneau normal n'est jamais remplacé, même si le suivant approche.
-export function pickDisplayedCall<T extends Call>(list: T[], now: number = Date.now()): T | null {
+// Contrainte volontairement structurelle (et non `T extends Call`) : les pages élève
+// déclarent leur propre interface Call, plus stricte sur les champs optionnels, ce
+// qui la rendait incompatible avec le type généré.
+export function pickDisplayedCall<T extends { scheduled_at: string | null; outcome?: string | null }>(
+  list: T[],
+  now: number = Date.now()
+): T | null {
   if (list.length === 0) return null;
   const current = list[0];
   const next = list[1];
   if (!next) return current;
-  return isCallReallyOver(current, now) ? next : current;
+  return isCallReallyOver(current as unknown as Call, now) ? next : current;
 }

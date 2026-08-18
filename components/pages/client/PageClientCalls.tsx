@@ -11,13 +11,16 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { useClientSelf } from '@/lib/ClientSelfContext';
-import { isCallMissingRecording, isCallReallyOver, isCallJoinable, isCallInProgress } from '@/lib/sessionRapport';
-
-function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
-  return call?.call_type === 'google';
-}
+import { isCallReallyOver, isCallJoinable, isCallCanceled, isCoachingCall, pickDisplayedCall } from '@/lib/sessionRapport';
+import CallCard from '@/components/ui/CallCard';
+import { CallTypeBadge } from '@/components/ui/CallBadges';
+import { formatCallLongDate, formatCallTime, groupCallsByPeriod } from '@/lib/callFormat';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled';
+
+// Nombre de périodes (semaine/mois) affichées avant le bouton "Voir plus" —
+// remplace l'ancienne limite à 4 calls, qui coupait au milieu d'un mois.
+const VISIBLE_PERIODS = 2;
 
 interface Call {
   id: string;
@@ -46,22 +49,11 @@ interface Call {
   fathom_transcript?: string | null;
 }
 
-// Bascule anticipée du widget "Prochain call" : si le call affiché est déjà réellement
-// terminé (fin théorique stricte dépassée) et qu'un call suivant existe, on bascule
-// dessus — peu importe le délai avant ce suivant. Un call encore dans son créneau normal
-// n'est jamais remplacé, même si le suivant approche.
-function pickDisplayedCall(list: Call[], now: number): Call | null {
-  if (list.length === 0) return null;
-  const current = list[0];
-  const next = list[1];
-  if (!next) return current;
-  return isCallReallyOver(current as any, now) ? next : current;
-}
-
 interface RapportModal {
   callId: string;
   inviteeName: string | null;
   scheduledAt: string | null;
+  isFollowUp?: boolean;
   fathomShareUrl?: string | null;
   fathomSummary?: string | null;
   fathomActionItems?: unknown;
@@ -74,16 +66,6 @@ function daysUntil(dateStr: string) {
   const target = new Date(dateStr);
   target.setHours(0, 0, 0, 0);
   return Math.ceil((target.getTime() - now.getTime()) / 86400000);
-}
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('fr-FR', {
-    weekday: 'long', day: 'numeric', month: 'long',
-  });
-}
-
-function formatTime(dateStr: string) {
-  return new Date(dateStr).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 }
 
 // Notes personnelles de l'élève sur un call de coaching (Google Meet), indépendantes
@@ -163,7 +145,7 @@ function MyCallNotes({ callId, initialNotes, initialDismissed }: { callId: strin
   );
 }
 
-type SessionReportInfo = { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null };
+type SessionReportInfo = { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null; topic: string | null; topic_custom: string | null };
 
 // integrations_ready_at existe en base (trigger DB) mais pas encore dans le
 // type Client généré (lib/supabase/types.ts) — même angle mort que
@@ -229,10 +211,10 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
 
     const { data: reports } = await supabase
       .from('session_reports')
-      .select('call_id, student_notes, student_notes_dismissed, attended')
+      .select('call_id, student_notes, student_notes_dismissed, attended, topic, topic_custom')
       .eq('client_id', clientRow.id);
     const reportsMap: Record<string, SessionReportInfo> = {};
-    for (const r of reports || []) reportsMap[r.call_id] = { student_notes: r.student_notes, student_notes_dismissed: r.student_notes_dismissed, attended: r.attended };
+    for (const r of reports || []) reportsMap[r.call_id] = { student_notes: r.student_notes, student_notes_dismissed: r.student_notes_dismissed, attended: r.attended, topic: r.topic, topic_custom: r.topic_custom };
     sessionReportsByCall = reportsMap;
   }
 
@@ -348,11 +330,11 @@ export default function PageClientCalls() {
     .filter(c => c.scheduled_at && isCallReallyOver(c as any, nowTick) && !['cancelled', 'declined', 'canceled'].includes(c.status || ''))
     .sort((a, b) => new Date(b.scheduled_at!).getTime() - new Date(a.scheduled_at!).getTime());
 
-  // Onglets Prospects / Coachings — chacun affiche ses propres sections À venir puis
+  // Onglets Ventes / Coachings — chacun affiche ses propres sections À venir puis
   // Historique en dessous, indépendamment de l'onglet À venir/Historique principal
   // (qui, lui, mélange tous les types sans filtre). Même logique que côté coach.
-  const prospectUpcoming = upcoming.filter(c => !isCoachingCall(c));
-  const prospectHistory = history.filter(c => !isCoachingCall(c));
+  const salesUpcoming = upcoming.filter(c => !isCoachingCall(c));
+  const salesHistory = history.filter(c => !isCoachingCall(c));
   const coachingUpcoming = upcoming.filter(c => isCoachingCall(c));
   const coachingHistory = history.filter(c => isCoachingCall(c));
 
@@ -362,7 +344,7 @@ export default function PageClientCalls() {
   const widgetCandidates = calls
     .filter(c => c.scheduled_at && c.status === 'active' && isCallJoinable(c as any, nowTick))
     .sort((a, b) => new Date(a.scheduled_at!).getTime() - new Date(b.scheduled_at!).getTime());
-  const nextCall = pickDisplayedCall(widgetCandidates as any, nowTick);
+  const nextCall = pickDisplayedCall(widgetCandidates, nowTick);
 
   // Rapports en attente : calls Calendly passés sans rapport rempli
   // outcome = source de vérité : null = pas rempli, renseigné = rempli (tous les chemins du formulaire écrivent outcome)
@@ -431,166 +413,190 @@ export default function PageClientCalls() {
     return { id: call.id, name, initials: getInitials(name), avatar_url: null };
   }
 
-  const visibleHistory = historyLimited ? history.slice(0, 4) : history;
+  // Boutons propres à l'élève : Rapport de vente sur ses propres calls Calendly,
+  // Infos quand il y a quelque chose à consulter. Jamais de rapport de session —
+  // c'est le coach qui le remplit, l'élève ne fait qu'annoter (MyCallNotes).
+  function renderActions(call: Call, variant: 'upcoming' | 'history' | 'canceled') {
+    const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
+    const showInfos = variant === 'history'
+      && (call.fathom_status === 'matched' || sessionReportsByCall[call.id]?.attended != null || call.outcome != null);
 
-  // Rendu carte-liste "historique" — réutilisé par l'onglet Historique principal
-  // (avec limite "Voir plus") et les sections Historique de Prospects/Coachings (sans limite).
-  function renderHistoryList(list: Call[], emptyMsg: string | null) {
+    return (
+      <>
+        {variant === 'history' && rapportPending && (
+          <button
+            className="btn-primary-brand"
+            type="button"
+            style={{ fontSize: 12 }}
+            onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
+          >
+            Rapport
+          </button>
+        )}
+        {showInfos && (
+          <button
+            type="button"
+            className="btn-ghost"
+            style={{ fontSize: 12, border: '1px solid var(--border)' }}
+            onClick={() => setInfosModalCall(call)}
+          >
+            Infos
+          </button>
+        )}
+        {variant === 'canceled' && (
+          confirmDismissId === call.id ? (
+            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>Retirer ?</span>
+              <button
+                type="button"
+                className="btn-ghost call-confirm-btn"
+                onClick={async () => {
+                  setDismissingCanceledId(call.id);
+                  setConfirmDismissId(null);
+                  try {
+                    const res = await fetch(`/api/client/calls/${call.id}`, { method: 'DELETE' });
+                    if (res.ok) setCalls(prev => prev.filter(c => c.id !== call.id));
+                  } finally {
+                    setDismissingCanceledId(null);
+                  }
+                }}
+                disabled={dismissingCanceledId === call.id}
+                style={{ fontSize: 12, color: 'var(--red)', border: '1px solid var(--red)' }}
+              >
+                {dismissingCanceledId === call.id ? '…' : 'Oui'}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost call-confirm-btn"
+                onClick={() => setConfirmDismissId(null)}
+                style={{ fontSize: 12, border: '1px solid var(--border)' }}
+              >
+                Non
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => setConfirmDismissId(call.id)}
+              disabled={dismissingCanceledId === call.id}
+              style={{ fontSize: 12, color: 'var(--accent)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 5 }}
+            >
+              <Icon name="trash" size={13} />
+              {dismissingCanceledId === call.id ? '…' : 'Retirer'}
+            </button>
+          )
+        )}
+      </>
+    );
+  }
+
+  // Blocs rendus SOUS la carte : notes du coach, commentaire perso de l'élève sur
+  // un call de vente, et accordéon de notes personnelles sur un coaching.
+  function renderExtra(call: Call) {
+    const hasNotes = !!call.notes;
+    const hasComment = call.call_type === 'calendly' && !!call.lead_rapport_comment;
+    const hasMyNotes = call.call_type !== 'calendly';
+    if (!hasNotes && !hasComment && !hasMyNotes) return null;
+    return (
+      <>
+        {hasNotes && (
+          <div style={{ padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
+            {call.notes}
+          </div>
+        )}
+        {hasComment && (
+          <div style={{ marginTop: hasNotes ? 8 : 0, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
+            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>Ton commentaire perso</div>
+            {call.lead_rapport_comment}
+          </div>
+        )}
+        {hasMyNotes && (
+          <MyCallNotes
+            callId={call.id}
+            initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
+            initialDismissed={sessionReportsByCall[call.id]?.student_notes_dismissed || false}
+          />
+        )}
+      </>
+    );
+  }
+
+  // Liste de cartes groupées par période, avec séparateurs collants. Structure
+  // strictement identique à celle du coach — seules les actions diffèrent.
+  function renderCallList(
+    list: Call[],
+    variant: 'upcoming' | 'history' | 'canceled',
+    emptyMsg: string | null,
+    opts?: { paginate?: boolean }
+  ) {
     if (list.length === 0) return emptyMsg ? (
       <div className="card" style={{ padding: '32px 24px', textAlign: 'center' }}>
         <div style={{ fontSize: 13, color: 'var(--muted)' }}>{emptyMsg}</div>
       </div>
     ) : null;
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {list.map((call) => {
-          const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
-          return (
-            <div key={call.id} className="card" style={{ padding: '18px 20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
-                      {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
-                    </span>
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(call) ? 'var(--accent)' : 'var(--accent-brand)' }}>
-                      {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
-                    </span>
-                    {call.fathom_status === 'matched' ? (
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)' }}>
-                        Replay dispo
-                      </span>
-                    ) : isCallMissingRecording(call as any) ? (
-                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
-                        Pas de replay
-                      </span>
-                    ) : null}
-                  </div>
-                  <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                    {formatDate(call.scheduled_at!)} · {call.duration || '—'}
-                  </div>
-                </div>
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0 }}>
-                  {rapportPending ? (
-                    <button
-                      className="btn-ghost"
-                      type="button"
-                      style={{ fontSize: 11, color: 'var(--accent-brand)', border: '1px solid var(--accent-brand)' }}
-                      onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
-                    >
-                      Rapport
-                    </button>
-                  ) : call.no_show === true ? (
-                    <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>No-show</span>
-                  ) : call.deal_closed === true ? (
-                    <span className="pill pill-green" style={{ fontSize: 11 }}>Closé{call.revenue ? ` · ${call.revenue}€` : ''}</span>
-                  ) : call.outcome === 'second_call' ? (
-                    <span className="pill" style={{ fontSize: 11, background: '#3b82f620', color: '#3b82f6' }}>2ème call prévu</span>
-                  ) : call.outcome === 'to_recontact' ? (
-                    <span className="pill" style={{ fontSize: 11, background: '#f59e0b20', color: '#f59e0b' }}>À recontacter</span>
-                  ) : call.outcome === 'not_closed' || call.outcome === 'not_qualified' ? (
-                    <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>
-                      {call.outcome === 'not_qualified' ? 'Pas qualifié' : 'Pas closé'}
-                    </span>
-                  ) : call.deal_closed === false && call.no_show === false ? (
-                    <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Pas closé</span>
-                  ) : (
-                    <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Terminé</span>
-                  )}
-                  {(call.fathom_status === 'matched' || sessionReportsByCall[call.id]?.attended != null || call.outcome != null) && (
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      style={{ fontSize: 11, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
-                      onClick={() => setInfosModalCall(call)}
-                    >
-                      Infos
-                    </button>
-                  )}
-                </div>
-              </div>
-              {call.notes && (
-                <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
-                  {call.notes}
-                </div>
-              )}
-              {call.call_type === 'calendly' && call.lead_rapport_comment && (
-                <div style={{ marginTop: 8, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
-                  <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>Ton commentaire perso</div>
-                  {call.lead_rapport_comment}
-                </div>
-              )}
-              {call.call_type !== 'calendly' && (
-                <MyCallNotes
-                  callId={call.id}
-                  initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
-                  initialDismissed={sessionReportsByCall[call.id]?.student_notes_dismissed || false}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
-    );
-  }
 
-  // Rendu "à venir" version compacte (réutilisé pour les sections "À venir" des
-  // onglets Prospects/Coachings) — pas de bannière géante, juste des cartes simples
-  // cohérentes avec le style de renderHistoryList.
-  function renderUpcomingCompact(list: Call[], emptyMsg: string) {
-    if (list.length === 0) return (
-      <div className="card" style={{ padding: '32px 24px', textAlign: 'center' }}>
-        <div style={{ fontSize: 13, color: 'var(--muted)' }}>{emptyMsg}</div>
-      </div>
-    );
+    const groups = groupCallsByPeriod(list, nowTick);
+    const paginate = opts?.paginate && historyLimited;
+    const shown = paginate ? groups.slice(0, VISIBLE_PERIODS) : groups;
+    const hiddenCount = groups.slice(VISIBLE_PERIODS).reduce((n, g) => n + g.calls.length, 0);
+
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-        {list.map(call => (
-          <div key={call.id} className="card" style={{ padding: '18px 20px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12, flexWrap: 'wrap' }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>
-                    {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Session de coaching'}
-                  </span>
-                  <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(call) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(call) ? 'var(--accent)' : 'var(--accent-brand)' }}>
-                    {isCoachingCall(call) ? 'Coaching' : 'Prospect'}
-                  </span>
-                  {isCallInProgress(call as any, nowTick) && (
-                    <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-soft)', color: 'var(--green)' }}>
-                      En cours
-                    </span>
-                  )}
-                </div>
-                <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3, textTransform: 'capitalize' }}>
-                  {formatDate(call.scheduled_at!)} · {formatTime(call.scheduled_at!)}
-                  {call.duration && <span> · {call.duration}</span>}
-                </div>
-              </div>
-              {call.join_url && isCallJoinable(call as any, nowTick) && (
-                <a href={call.join_url} target="_blank" rel="noopener noreferrer" className="btn-ghost call-action-join"
-                  style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 5, border: '1px solid var(--border)', borderRadius: 8, padding: '4px 10px', flexShrink: 0 }}>
-                  <Icon name="video" size={13} /> Rejoindre
-                </a>
-              )}
+      <div>
+        {shown.map(group => (
+          <div key={group.key}>
+            <div className="call-period-sep">{group.label}</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginBottom: 18 }}>
+              {group.calls.map(call => {
+                const cp = getCallCounterpart(call);
+                return (
+                  <CallCard
+                    key={call.id}
+                    call={call}
+                    variant={variant}
+                    displayName={cp.name}
+                    initials={cp.initials || getInitials(cp.name)}
+                    avatarUrl={cp.avatar_url}
+                    seed={cp.id}
+                    now={nowTick}
+                    actions={renderActions(call, variant)}
+                  >
+                    {variant === 'history' ? renderExtra(call) : null}
+                  </CallCard>
+                );
+              })}
             </div>
           </div>
         ))}
+        {paginate && hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={() => setHistoryLimited(false)}
+            className="card"
+            style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              width: '100%', padding: '16px 20px', fontSize: 14, fontWeight: 600,
+              color: 'var(--accent)', cursor: 'pointer', border: '1px dashed var(--border)',
+            }}
+          >
+            Voir les périodes précédentes ({hiddenCount} call{hiddenCount > 1 ? 's' : ''})
+          </button>
+        )}
       </div>
     );
   }
 
-  // Sections "À venir" + "Historique" empilées — utilisées par les onglets Prospects/Coachings.
+  // Sections "À venir" + "Historique" empilées — utilisées par les onglets Ventes/Coachings.
   function renderStackedSections(upcomingList: Call[], historyList: Call[], upcomingEmptyMsg: string, historyEmptyMsg: string) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 28 }}>
         <div>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>À venir</div>
-          {renderUpcomingCompact(upcomingList, upcomingEmptyMsg)}
+          {renderCallList(upcomingList, 'upcoming', upcomingEmptyMsg)}
         </div>
         <div>
           <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 10 }}>Historique</div>
-          {renderHistoryList(historyList, historyEmptyMsg)}
+          {renderCallList(historyList, 'history', historyEmptyMsg)}
         </div>
       </div>
     );
@@ -630,7 +636,7 @@ export default function PageClientCalls() {
               type="button"
               onClick={() => setRapportIdx(i => Math.max(0, i - 1))}
               disabled={rapportIdx === 0 || pendingRapports.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 || pendingRapports.length <= 1 ? 0.2 : 1 }}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 || pendingRapports.length <= 1 ? 0.2 : 1 }}
             >‹</button>
             {(() => {
               const call = pendingRapports[rapportIdx];
@@ -646,7 +652,7 @@ export default function PageClientCalls() {
                         {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte'}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                        {call.scheduled_at ? formatDate(call.scheduled_at) : '—'}
+                        {call.scheduled_at ? formatCallLongDate(call.scheduled_at) : '—'}
                         {call.duration && <span style={{ marginLeft: 8 }}>· {call.duration}</span>}
                       </div>
                     </div>
@@ -666,7 +672,7 @@ export default function PageClientCalls() {
               type="button"
               onClick={() => setRapportIdx(i => Math.min(pendingRapports.length - 1, i + 1))}
               disabled={rapportIdx === pendingRapports.length - 1 || pendingRapports.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === pendingRapports.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === pendingRapports.length - 1 || pendingRapports.length <= 1 ? 0.2 : 1 }}
+              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === pendingRapports.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === pendingRapports.length - 1 || pendingRapports.length <= 1 ? 0.2 : 1 }}
             >›</button>
           </div>
         </div>
@@ -752,15 +758,13 @@ export default function PageClientCalls() {
             <div className="next-call-banner-info">
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
                 <span style={{ fontSize: 11, color: 'var(--muted)', fontWeight: 600 }}>PROCHAIN CALL</span>
-                <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isCoachingCall(nextCall) ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isCoachingCall(nextCall) ? 'var(--accent)' : 'var(--accent-brand)' }}>
-                  {isCoachingCall(nextCall) ? 'Coaching' : 'Prospect'}
-                </span>
+                <CallTypeBadge call={nextCall} />
               </div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2, textTransform: 'capitalize' }}>
-                {formatDate(nextCall.scheduled_at!)}
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
+                {formatCallLongDate(nextCall.scheduled_at!)}
               </div>
               <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--accent)', marginTop: 4 }}>
-                {formatTime(nextCall.scheduled_at!)}
+                {formatCallTime(nextCall.scheduled_at!)}
                 {nextCall.duration && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
               </div>
               {nextCall.invitee_name && (
@@ -804,7 +808,7 @@ export default function PageClientCalls() {
           Historique ({history.length})
         </button>
         <button className={`chip${tab === 'prospects' ? ' chip-active' : ''}`} onClick={() => setTab('prospects')} type="button">
-          Prospects ({prospectUpcoming.length + prospectHistory.length})
+          Ventes ({salesUpcoming.length + salesHistory.length})
         </button>
         <button className={`chip${tab === 'coachings' ? ' chip-active' : ''}`} onClick={() => setTab('coachings')} type="button">
           Coachings ({coachingUpcoming.length + coachingHistory.length})
@@ -814,34 +818,13 @@ export default function PageClientCalls() {
         </button>
       </div>
 
-      {tab === 'upcoming' && renderUpcomingCompact(upcoming, 'Aucun call à venir.')}
+      {tab === 'upcoming' && renderCallList(upcoming, 'upcoming', 'Aucun call à venir.')}
 
-      {tab === 'history' && (
-        history.length === 0 ? renderHistoryList([], "Aucun call dans l'historique.") : (
-          <div>
-            {renderHistoryList(visibleHistory, null)}
-            {historyLimited && history.length > 4 && (
-              <button
-                type="button"
-                onClick={() => setHistoryLimited(false)}
-                className="card"
-                style={{
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  width: '100%', marginTop: 10, padding: '16px 20px',
-                  fontSize: 14, fontWeight: 600, color: 'var(--accent)',
-                  cursor: 'pointer', border: '1px dashed var(--border)',
-                }}
-              >
-                Voir plus ({history.length - 4} restant{history.length - 4 > 1 ? 's' : ''})
-              </button>
-            )}
-          </div>
-        )
-      )}
+      {tab === 'history' && renderCallList(history, 'history', "Aucun call dans l'historique.", { paginate: true })}
 
       {tab === 'prospects' && renderStackedSections(
-        prospectUpcoming, prospectHistory,
-        'Aucun call prospect à venir.', "Aucun call prospect dans l'historique."
+        salesUpcoming, salesHistory,
+        'Aucun call de vente à venir.', "Aucun call de vente dans l'historique."
       )}
 
       {tab === 'coachings' && renderStackedSections(
@@ -849,77 +832,7 @@ export default function PageClientCalls() {
         'Aucun call coaching à venir.', "Aucun call coaching dans l'historique."
       )}
 
-      {tab === 'canceled' && (
-        canceledCalls.length === 0 ? (
-          <div className="card" style={{ padding: '32px 24px', textAlign: 'center' }}>
-            <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun call annulé.</div>
-          </div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            {canceledCalls.map(call => {
-              const isDeclined = call.status === 'declined';
-              return (
-                <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--red)', padding: '14px 18px', display: 'flex', alignItems: 'center', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0, opacity: 0.6 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--muted)', textDecoration: 'line-through' }}>{call.topic || 'Call coaching'}</div>
-                    {call.scheduled_at && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-                        {new Date(call.scheduled_at).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                        {' · '}{new Date(call.scheduled_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    )}
-                  </div>
-                  <span style={{ fontSize: 10, padding: '2px 8px', background: '#fee2e2', color: '#991b1b', borderRadius: 20, fontWeight: 700, border: '1px solid #fca5a5', flexShrink: 0 }}>
-                    {isDeclined ? 'Refusé' : 'Annulé'}
-                  </span>
-                  {confirmDismissId === call.id ? (
-                    <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, color: 'var(--muted)' }}>Retirer ?</span>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={async () => {
-                          setDismissingCanceledId(call.id);
-                          setConfirmDismissId(null);
-                          try {
-                            const res = await fetch(`/api/client/calls/${call.id}`, { method: 'DELETE' });
-                            if (res.ok) setCalls(prev => prev.filter(c => c.id !== call.id));
-                          } finally {
-                            setDismissingCanceledId(null);
-                          }
-                        }}
-                        disabled={dismissingCanceledId === call.id}
-                        style={{ fontSize: 11, color: 'var(--red)', border: 'none', background: 'none', cursor: 'pointer', padding: '2px 6px' }}
-                      >
-                        {dismissingCanceledId === call.id ? '…' : 'Oui'}
-                      </button>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => setConfirmDismissId(null)}
-                        style={{ fontSize: 11, border: 'none', background: 'none', cursor: 'pointer', padding: '2px 6px' }}
-                      >
-                        Non
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      onClick={() => setConfirmDismissId(call.id)}
-                      disabled={dismissingCanceledId === call.id}
-                      style={{ fontSize: 11, color: 'var(--accent)', display: 'inline-flex', alignItems: 'center', gap: 4, flexShrink: 0 }}
-                    >
-                      <Icon name="trash" size={12} />
-                      {dismissingCanceledId === call.id ? '…' : 'Retirer'}
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        )
-      )}
+      {tab === 'canceled' && renderCallList(canceledCalls, 'canceled', 'Aucun call annulé.')}
 
       {/* Modal rapport */}
       {rapportModal && (
@@ -936,6 +849,8 @@ export default function PageClientCalls() {
           counterpartName={infosModalCall.invitee_name}
           scheduledAt={infosModalCall.scheduled_at}
           attended={sessionReportsByCall[infosModalCall.id]?.attended ?? (infosModalCall.outcome != null ? infosModalCall.outcome !== 'no_show' : undefined)}
+          topic={(sessionReportsByCall[infosModalCall.id]?.topic ?? null) as never}
+          topicCustom={sessionReportsByCall[infosModalCall.id]?.topic_custom ?? null}
           notes={infosModalCall.notes ?? infosModalCall.lead_rapport_comment ?? null}
           studentNotes={sessionReportsByCall[infosModalCall.id]?.student_notes ?? null}
           fathomData={{
