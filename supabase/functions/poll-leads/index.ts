@@ -6,6 +6,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { snapshotIgPosts } from '../_shared/ig-posts.ts';
 import { formatTimeIn, safeZone } from '../_shared/timezone.ts';
+import { createShortioLimiter, mapWithConcurrency, sleep } from '../_shared/rate-limit.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL')!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
@@ -15,6 +16,12 @@ const YOUTUBE_CLIENT_SECRET = Deno.env.get('YOUTUBE_CLIENT_SECRET')!;
 const PLATFORM_URL = Deno.env.get('NEXT_PUBLIC_PLATFORM_URL') || 'https://momentum-plateforme.vercel.app';
 
 const supa = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+
+// Limiteur Short.io PARTAGÉ par tout le run — c'est le point essentiel : le quota
+// (~60 req/fenêtre) est global à la clé/domaine, et plusieurs profils partagent le
+// même domaine. Un limiteur par profil ne protégerait de rien, puisqu'ils se
+// cannibalisent mutuellement (constaté en prod à 4 élèves, cf. snapshotOldDomainLinks).
+const shortio = createShortioLimiter();
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Utils
@@ -549,7 +556,7 @@ async function fetchShortioLinks(creds: { apiKey: string; domainId: string }) {
     url.searchParams.set('domain_id', creds.domainId);
     url.searchParams.set('limit', String(limit));
     if (beforeId) url.searchParams.set('beforeId', beforeId);
-    const res = await fetch(url.toString(), { headers: { authorization: creds.apiKey, accept: 'application/json' } });
+    const res = await shortio.run(() => fetch(url.toString(), { headers: { authorization: creds.apiKey, accept: 'application/json' } }));
     if (!res.ok) throw new Error(`Short.io links ${res.status}`);
     const data = await safeJson(res);
     const page: any[] = data?.links || [];
@@ -643,11 +650,11 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
   let rawClicks: { path: string; dt: string; human: boolean }[] = [];
   try {
     const afterDate48h = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
-    const lcRes = await fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`, {
+    const lcRes = await shortio.run(() => fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}/last_clicks`, {
       method: 'POST',
       headers: { authorization: creds.apiKey, 'content-type': 'application/json', accept: 'application/json' },
       body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
-    });
+    }));
     if (lcRes.ok) {
       const lcData = await safeJson(lcRes);
       rawClicks = lcData?.clicks ?? lcData ?? [];
@@ -685,7 +692,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
       human_clicks = todayClicksByPath.get(path) ?? 0;
       total_clicks = human_clicks; // last_clicks ne retourne que les clics humains
     } else {
-      const statsRes = await fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=${period}`, { headers: { authorization: creds.apiKey, accept: 'application/json' } });
+      const statsRes = await shortio.run(() => fetch(`https://api-v2.short.io/statistics/link/${linkId}?period=${period}`, { headers: { authorization: creds.apiKey, accept: 'application/json' } }));
       stats = statsRes.ok ? await safeJson(statsRes) : {};
       human_clicks = Number(stats.humanClicks ?? 0);
       total_clicks = Number(stats.totalClicks ?? 0);
@@ -716,7 +723,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
 
   // Snapshot agrégat domaine J-1 + J-0 en parallèle
   await Promise.allSettled([
-    fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=yesterday`, { headers: { authorization: creds.apiKey, accept: 'application/json' } })
+    shortio.run(() => fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=yesterday`, { headers: { authorization: creds.apiKey, accept: 'application/json' } }))
       .then(r => r.ok ? safeJson(r) : null)
       .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
         profile_id: profileId, date: dateYesterday,
@@ -725,7 +732,7 @@ async function snapshotShortioLinks(profileId: string, creds: { apiKey: string; 
         shortio_top_countries: (domainStats.country || []).filter((c: any) => c.score > 0).slice(0, 8).map((c: any) => ({ label: c.countryName || c.country, code: c.country, value: c.score })),
         shortio_top_referrers: (domainStats.referer || []).filter((r: any) => r.score > 0).slice(0, 8).map((r: any) => ({ label: r.refhost || 'Direct', value: r.score })),
       }, { onConflict: 'profile_id,date', ignoreDuplicates: false })),
-    fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=today`, { headers: { authorization: creds.apiKey, accept: 'application/json' } })
+    shortio.run(() => fetch(`https://api-v2.short.io/statistics/domain/${creds.domainId}?period=today`, { headers: { authorization: creds.apiKey, accept: 'application/json' } }))
       .then(r => r.ok ? safeJson(r) : null)
       .then(domainStats => domainStats && supa.from('analytics_daily_snapshots').upsert({
         profile_id: profileId, date: dateToday,
@@ -778,10 +785,13 @@ async function snapshotOldDomainLinks(
   // ce domaine "ancien" pour ce profil est le domaine ACTIF d'autres profils du même
   // run cron (vérifié en base : 2 autres profils ont ubizenai.s.gy comme domaine actif),
   // dont les propres appels last_clicks/statistics consomment le même quota avant que
-  // ce profil-ci ne tente le sien. Fix : lire x-ratelimit-reset et attendre ce délai
-  // exact (avec un plafond, budget total de l'Edge Function = 150s) avant un unique
-  // retry, plutôt que deviner un délai fixe qui ne correspond pas au vrai temps de reset.
-  const MAX_RATE_LIMIT_WAIT_MS = 60_000;
+  // ce profil-ci ne tente le sien.
+  //
+  // Fix initial (2026-08-14) : lire x-ratelimit-reset et attendre ce délai exact avant
+  // un unique retry, sur CE seul appel. Fix généralisé (2026-08-19) : le limiteur
+  // partagé `shortio` applique désormais sémaphore + token bucket + backoff à TOUS
+  // les appels Short.io du run, ce qui traite la cause (rafale au-delà du quota)
+  // plutôt que le seul symptôme observé ici.
 
   for (const oldDomain of oldDomains) {
     try {
@@ -803,15 +813,11 @@ async function snapshotOldDomainLinks(
         body: JSON.stringify({ limit: 500, afterDate: afterDate48h }),
       });
 
-      let lcRes = await callLastClicks();
-      if (lcRes.status === 429) {
-        const resetSeconds = Number(lcRes.headers.get('x-ratelimit-reset'));
-        const waitMs = Number.isFinite(resetSeconds) && resetSeconds > 0
-          ? Math.min(resetSeconds * 1000 + 1000, MAX_RATE_LIMIT_WAIT_MS)
-          : 10_000; // fallback si le header est absent — ne devrait pas arriver, cf. observation prod
-        await new Promise(r => setTimeout(r, waitMs));
-        lcRes = await callLastClicks();
-      }
+      // Le retry 429 manuel qui était ici est désormais assuré par le limiteur
+      // partagé (backoff exponentiel + jitter + lecture de x-ratelimit-reset),
+      // qui couvre en plus TOUS les autres appels Short.io — pas seulement
+      // celui-ci. MAX_RATE_LIMIT_WAIT_MS est conservé côté limiteur.
+      const lcRes = await shortio.run(callLastClicks);
       if (!lcRes.ok) { errors.push(`old_domain_${oldDomain.id}_last_clicks: HTTP ${lcRes.status}`); continue; }
 
       const lcData = await safeJson(lcRes);
@@ -848,8 +854,10 @@ async function snapshotOldDomainLinks(
     } catch (e: any) {
       errors.push(`old_domain_${oldDomain.id}: ${e?.message || 'unknown'}`);
     }
-    // Pause entre chaque ancien domaine — même précaution que backfill-shortio/index.ts
-    await new Promise(r => setTimeout(r, 100));
+    // Pause entre chaque ancien domaine — conservée en complément du token bucket :
+    // elle lisse les rafales de requêtes Supabase (RPC upsert par lien), que le
+    // limiteur Short.io ne couvre pas.
+    await sleep(100);
   }
 
   return errors;
@@ -1240,8 +1248,20 @@ Deno.serve(async (req: Request) => {
   let polled = 0, leadsFound = 0, snapshots = 0;
   const allErrors: Record<string, string[]> = {};
 
-  // Tous les profils en parallèle — Edge Function a 150s, pas de limite Vercel 30s
-  await Promise.all(profiles.map(async (profile) => {
+  // Concurrence BORNÉE à 5 profils simultanés.
+  //
+  // Avant : Promise.all sur tous les profils, sans limite. Le budget de 150s n'était
+  // pas le problème — la concurrence l'était : à 30 élèves, 30 profils émettaient
+  // ensemble leurs appels Short.io/Meta/YouTube, saturant des quotas partagés
+  // (Short.io : ~60 req/fenêtre pour la clé/domaine, déjà atteint en prod à 4 élèves).
+  //
+  // Ironie corrigée ici : la version Vercel abandonnée batchait par 3
+  // (app/api/instagram/poll-leads/route.ts), et c'est l'Edge Function censée « tenir
+  // 20 élèves+ » qui avait supprimé ce garde-fou.
+  //
+  // 5 plutôt que 3 : les appels sont majoritairement en attente réseau, et le
+  // limiteur Short.io régule déjà finement le débit en aval.
+  await mapWithConcurrency(profiles, 5, async (profile) => {
     const profileErrors: string[] = [];
 
     if (profile.hasIg) {
@@ -1268,7 +1288,7 @@ Deno.serve(async (req: Request) => {
     } catch { profileErrors.push('snapshot_failed'); }
 
     if (profileErrors.length) allErrors[profile.profile_id] = profileErrors;
-  }));
+  });
 
   // Rappels invitation call Google Meet non répondue (24h puis 2h avant le call) —
   // seulement si toujours pending_acceptance à ce moment-là (pas annulé/refusé/accepté).
