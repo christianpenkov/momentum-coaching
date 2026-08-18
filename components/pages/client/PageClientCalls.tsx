@@ -10,6 +10,7 @@ import CallInfosModal from '@/components/ui/CallInfosModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
+import { useClientSelf } from '@/lib/ClientSelfContext';
 import { isCallMissingRecording, isCallReallyOver, isCallJoinable, isCallInProgress } from '@/lib/sessionRapport';
 
 function isCoachingCall(call: { call_type?: string | null } | null | undefined) {
@@ -164,7 +165,10 @@ function MyCallNotes({ callId, initialNotes, initialDismissed }: { callId: strin
 
 type SessionReportInfo = { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null };
 
-async function fetchClientCallsData(): Promise<{
+// integrations_ready_at existe en base (trigger DB) mais pas encore dans le
+// type Client généré (lib/supabase/types.ts) — même angle mort que
+// SupabaseClientsContext.tsx et useCoachData.ts, qui y accèdent aussi en `any`.
+async function fetchClientCallsData(clientRow: { id: string; integrations_ready_at?: string | null } | null): Promise<{
   calls: Call[];
   hasCalendly: boolean;
   sessionReportsByCall: Record<string, SessionReportInfo>;
@@ -182,14 +186,12 @@ async function fetchClientCallsData(): Promise<{
     .single();
   const hasCalendly = !!integ;
 
-  // Référence stable "toutes les intégrations obligatoires connectées pour la 1ère
-  // fois" (trigger DB, jamais réécrite) — les calls réservés avant sont ignorés
+  // clientRow (id + integrations_ready_at) vient désormais du ClientSelfContext —
+  // plus besoin de le requêter ici, c'était un aller-retour réseau en série avant
+  // de pouvoir lancer les requêtes calls/session_reports ci-dessous. Référence
+  // stable "toutes les intégrations obligatoires connectées pour la 1ère fois"
+  // (trigger DB, jamais réécrite) — les calls réservés avant sont ignorés
   // partout, voir docs/integrations-ready-at-vs-onboarding-completed-at.md.
-  const { data: clientRow } = await supabase
-    .from('clients')
-    .select('id, integrations_ready_at')
-    .eq('profile_id', user.id)
-    .maybeSingle();
   const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
   // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
@@ -248,17 +250,19 @@ export default function PageClientCalls() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { data: client } = useClientSelfData();
+  const { clientRow: selfRow } = useClientSelf();
   const queryClient = useQueryClient();
-  const callsQueryKey = ['client-calls-page'];
+  const callsQueryKey = ['client-calls-page', selfRow?.id];
   const { data: callsData, isLoading: callsLoading } = useQuery({
     queryKey: callsQueryKey,
-    queryFn: fetchClientCallsData,
+    queryFn: () => fetchClientCallsData(selfRow),
+    enabled: !!selfRow,
   });
   const calls = callsData?.calls ?? [];
   const hasCalendly = callsData?.hasCalendly ?? null;
   const sessionReportsByCall = callsData?.sessionReportsByCall ?? {};
   const userId = callsData?.userId ?? null;
-  const loading = callsLoading && !callsData;
+  const loading = (callsLoading || !selfRow) && !callsData;
 
   const setCalls = (updater: (prev: Call[]) => Call[]) => {
     queryClient.setQueryData<ClientCallsData>(callsQueryKey, prev => prev && { ...prev, calls: updater(prev.calls) });
