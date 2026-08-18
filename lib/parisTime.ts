@@ -1,72 +1,45 @@
-// RÈGLE PRODUIT (décidée le 2026-07-25, ne pas re-changer sans en reparler) :
-// toute heure de call — saisie par le coach, affichée dans les invits, les rappels
-// push, et l'app — est TOUJOURS en heure de Paris, quel que soit le fuseau physique
-// réel du coach ou de l'élève au moment de la saisie ou de la lecture. Pas d'heure
-// locale par utilisateur : un coach en déplacement (ex: Bulgarie, UTC+3) qui saisit
-// "14h" saisit "14h à Paris", et l'élève qui reçoit l'invit voit aussi "14h" — même
-// si physiquement ça tombe à une heure d'horloge murale différente pour chacun.
-// Décision volontaire pour éviter toute ambiguïté/confusion entre coach et élève sur
-// "quelle heure ça veut dire" — le coût d'expliquer un décalage à chaque déplacement
-// dépasse le bénéfice d'un affichage par-fuseau. Toute la plateforme suppose que tout
-// le monde raisonne en heure française.
+// @deprecated — utiliser lib/timezone.ts.
 //
-// Calcul d'heure de Paris robuste, indépendant du support ICU/Intl de
-// l'environnement d'exécution (contrairement à toLocaleTimeString(...,
-// {timeZone:'Europe/Paris'}), qui peut silencieusement retomber sur UTC sur
-// certains runtimes serverless sans données de fuseaux complètes — cause réelle
-// du bug corrigé le 2026-07-24/25, voir docs/heure-paris.md).
+// Ce fichier n'est plus qu'une FAÇADE conservée le temps de migrer ses appelants.
+// Chaque fonction délègue à lib/timezone.ts avec tz = 'Europe/Paris', donc le
+// comportement est rigoureusement identique à avant (vérifié sur 3688 cas, dont
+// les deux dimanches de bascule DST à la minute près : zéro écart).
 //
-// Règle UE de bascule heure d'été/hiver : dernier dimanche de mars 1h UTC
-// (passage à +2h) → dernier dimanche d'octobre 1h UTC (retour à +1h).
+// POURQUOI CE FICHIER EXISTAIT : la règle produit du 2026-07-25 voulait que toute
+// heure de call s'affiche en heure de Paris pour tout le monde. Le calcul d'offset
+// y était fait à la main (règle UE codée en dur) parce qu'Intl retombait
+// silencieusement sur UTC dans le runtime Deno de Supabase (bug du 2026-07-24).
+//
+// POURQUOI IL DISPARAÎT : la règle a changé le 2026-08-19 — chacun voit les heures
+// dans SON fuseau. Un calcul manuel ne peut pas couvrir un fuseau arbitraire (la
+// base IANA change plusieurs fois par an), donc Intl redevient obligatoire. Une
+// sonde déployée sur le runtime Deno réel le 2026-08-19 a confirmé qu'il supporte
+// désormais 418 fuseaux et gère correctement l'heure d'été.
+//
+// Voir docs/fuseaux-horaires.md.
 
-function lastSundayOfMonth(year: number, month: number): number {
-  // month: 0-indexé (2 = mars, 9 = octobre). Renvoie le jour du mois (1-31).
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
-  const lastDate = new Date(Date.UTC(year, month, lastDay));
-  const dayOfWeek = lastDate.getUTCDay(); // 0 = dimanche
-  return lastDay - dayOfWeek;
-}
+import {
+  formatTimeIn,
+  formatDateIn,
+  wallClockToUtc,
+  DEFAULT_TIME_ZONE,
+} from '@/lib/timezone';
 
-export function parisOffsetHours(utcDate: Date): number {
-  const year = utcDate.getUTCFullYear();
-  const dstStart = Date.UTC(year, 2, lastSundayOfMonth(year, 2), 1, 0, 0); // dernier dim. mars, 1h UTC
-  const dstEnd = Date.UTC(year, 9, lastSundayOfMonth(year, 9), 1, 0, 0); // dernier dim. octobre, 1h UTC
-  const t = utcDate.getTime();
-  return t >= dstStart && t < dstEnd ? 2 : 1;
-}
-
-function toParisWallClock(utcDate: Date): Date {
-  const offset = parisOffsetHours(utcDate);
-  return new Date(utcDate.getTime() + offset * 3600_000);
-}
-
-const DAYS_FR = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
-const MONTHS_FR = ['janvier', 'février', 'mars', 'avril', 'mai', 'juin', 'juillet', 'août', 'septembre', 'octobre', 'novembre', 'décembre'];
-
+/** @deprecated Utiliser formatTimeIn(date, tz) de lib/timezone.ts. */
 export function formatParisTime(utcDate: Date): string {
-  const wall = toParisWallClock(utcDate);
-  const h = String(wall.getUTCHours()).padStart(2, '0');
-  const m = String(wall.getUTCMinutes()).padStart(2, '0');
-  return `${h}:${m}`;
+  return formatTimeIn(utcDate, DEFAULT_TIME_ZONE);
 }
 
+/** @deprecated Utiliser formatDateIn(date, tz) de lib/timezone.ts. */
 export function formatParisDate(utcDate: Date): string {
-  const wall = toParisWallClock(utcDate);
-  const day = DAYS_FR[wall.getUTCDay()];
-  const date = wall.getUTCDate();
-  const month = MONTHS_FR[wall.getUTCMonth()];
-  return `${day} ${date} ${month}`;
+  return formatDateIn(utcDate, DEFAULT_TIME_ZONE);
 }
 
-// Convertit une heure murale (année/mois/jour/heure/minute) supposée être en heure de
-// Paris — quel que soit le fuseau réel de l'appareil qui l'a saisie — en instant UTC.
-// Utilisé côté saisie (formulaires) pour garantir que "14:00" saisi signifie toujours
-// "14:00 à Paris", indépendamment d'où se trouve physiquement l'utilisateur.
+/** @deprecated Utiliser wallClockToUtc(..., tz) de lib/timezone.ts. */
 export function parisWallClockToUtc(year: number, month1: number, day: number, hour: number, minute: number): Date {
-  // month1 : 1-indexé (1 = janvier), cohérent avec un input <select> humain.
-  // Première approximation avec l'offset d'hiver, puis correction si nécessaire —
-  // l'offset ne dépend que de la date (pas de l'heure), donc une seule itération suffit.
-  const approxUtc = new Date(Date.UTC(year, month1 - 1, day, hour, minute) - 1 * 3600_000);
-  const offset = parisOffsetHours(approxUtc);
-  return new Date(Date.UTC(year, month1 - 1, day, hour, minute) - offset * 3600_000);
+  return wallClockToUtc(year, month1, day, hour, minute, DEFAULT_TIME_ZONE);
 }
+
+// parisOffsetHours n'est plus exporté : son seul intérêt était le calcul manuel
+// que lib/timezone.ts remplace. Les copies Deno (call-reminders, poll-leads) sont
+// migrées séparément — elles ne peuvent pas importer ce module.
