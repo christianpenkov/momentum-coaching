@@ -35,23 +35,46 @@ async function resolveProfileId(supabase: Supa, accountId: string | undefined): 
 }
 
 /**
- * Extrait la subscription et ses metadata d'une facture.
+ * Extrait la subscription et ses metadata d'une facture, quelle que soit la version
+ * d'API du webhook.
  *
- * Depuis l'API Dahlia, la subscription n'est plus à la racine de l'Invoice : elle
- * vit sous `parent.subscription_details`. Ses `metadata` sont un INSTANTANÉ figé à
- * la finalisation de la facture — c'est précisément ce qui fait que les échéances
- * 2 et 3 d'un 3× portent encore l'identifiant du deal posé à la création du lien.
- * Sans `subscription_data.metadata`, ce champ serait vide et l'échéance orpheline.
+ * L'emplacement a changé entre deux versions : jusqu'à Acacia (2025-02-24) la
+ * subscription était à la racine de l'Invoice ; depuis Dahlia elle vit sous
+ * `parent.subscription_details`. La version appliquée est celle configurée sur le
+ * endpoint côté Stripe, pas celle du SDK — un webhook créé il y a des mois envoie
+ * donc encore l'ancien format. On lit les deux plutôt que de dépendre d'un réglage
+ * de dashboard qui peut différer d'un compte à l'autre.
+ *
+ * Les `metadata` de subscription_details sont un INSTANTANÉ figé à la finalisation
+ * de la facture — c'est précisément ce qui fait que les échéances 2 et 3 d'un 3×
+ * portent encore l'identifiant du deal posé à la création du lien. Sans
+ * `subscription_data.metadata`, ce champ serait vide et l'échéance orpheline.
  */
 function readInvoiceSubscription(inv: Stripe.Invoice): {
   subscriptionId: string | null;
   meta: Record<string, string> | null;
 } {
+  // Dahlia et suivantes
   const details = inv.parent?.subscription_details ?? null;
-  const sub = details?.subscription ?? null;
+  const subFromParent = details?.subscription ?? null;
+
+  // Acacia et antérieures : champs à la racine, absents des types du SDK courant.
+  const legacy = inv as unknown as {
+    subscription?: string | { id: string } | null;
+    subscription_details?: { metadata?: Record<string, string> | null } | null;
+  };
+  const subLegacy = legacy.subscription ?? null;
+
+  const sub = subFromParent ?? subLegacy;
+
   return {
     subscriptionId: typeof sub === 'string' ? sub : sub?.id ?? null,
-    meta: (details?.metadata ?? inv.metadata ?? null) as Record<string, string> | null,
+    // Ordre de préférence : metadata de la subscription (portent l'id du deal),
+    // puis celles de la facture elle-même en dernier recours.
+    meta: (details?.metadata
+      ?? legacy.subscription_details?.metadata
+      ?? inv.metadata
+      ?? null) as Record<string, string> | null,
   };
 }
 

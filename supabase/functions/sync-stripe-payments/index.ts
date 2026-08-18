@@ -243,11 +243,14 @@ async function syncProfile(profileId: string, apiKey: string, lastSyncedAt: stri
   seen += invoices.length;
 
   const invoiceResults = await mapWithConcurrency(invoices, 4, (inv: any) => {
-    // API Dahlia : la subscription a déménagé sous parent.subscription_details.
-    // Ses metadata sont un instantané figé à la finalisation — c'est ce qui fait
+    // L'emplacement de la subscription dépend de la version d'API : à la racine
+    // de l'Invoice jusqu'à Acacia (2025-02-24), sous parent.subscription_details
+    // depuis Dahlia. On lit les deux — un compte peut être épinglé sur une version
+    // antérieure à celle qu'on demande dans l'en-tête Stripe-Version.
+    // Ces metadata sont un instantané figé à la finalisation : c'est ce qui fait
     // que les échéances 2 et 3 d'un 3× portent encore l'id du deal.
-    const details = inv.parent?.subscription_details ?? null;
-    const sub = details?.subscription ?? null;
+    const details = inv.parent?.subscription_details ?? inv.subscription_details ?? null;
+    const sub = details?.subscription ?? inv.subscription ?? null;
     return upsertPayment(profileId, {
       paymentId: inv.id,
       amountMinor: inv.amount_paid ?? 0,
