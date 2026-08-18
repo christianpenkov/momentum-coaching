@@ -146,7 +146,13 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
 
   useEffect(() => {
     if (!user) return;
-    supabase.from('clients').select('id').eq('coach_id', user.id)
+    // .is('archived_at', null) : sans ce filtre, chaque élève archivé gardait un
+    // canal Presence ouvert avec ses 2 setInterval, indéfiniment. Le contexte
+    // principal filtre déjà les archivés (SupabaseClientsContext), donc ces canaux
+    // ne servaient plus rien — ils gonflaient juste le compte réel de canaux
+    // au-delà du nombre d'élèves actifs. Les canaux fuités sont la première cause
+    // documentée d'atteinte des limites Realtime.
+    supabase.from('clients').select('id').eq('coach_id', user.id).is('archived_at', null)
       .then(({ data }) => {
         const next = (data ?? []).map(c => c.id);
         // Ne réécrit l'état que si la LISTE a réellement changé : sans ce garde,
@@ -174,6 +180,28 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
     if (!user || clientIds.length === 0) return;
 
     const cleanups: (() => void)[] = [];
+
+    // Timers MUTUALISÉS : avant, chaque élève portait ses 2 setInterval (heartbeat
+    // 60s + stale-check 10s), soit 2N timers — 60 timers à 30 élèves, dont 180
+    // réveils/minute pour le seul stale-check. Ils font tous exactement la même
+    // chose au même instant : deux timers globaux qui balaient les élèves suffisent,
+    // et le coût devient constant quel que soit l'effectif.
+    const trackFns = new Map<string, () => void>();
+    const staleFns = new Map<string, () => void>();
+
+    const globalHeartbeatId = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      trackFns.forEach(fn => fn());
+    }, HEARTBEAT_MS);
+
+    const globalStaleCheckId = setInterval(() => {
+      staleFns.forEach(fn => fn());
+    }, STALE_CHECK_MS);
+
+    cleanups.push(() => {
+      clearInterval(globalHeartbeatId);
+      clearInterval(globalStaleCheckId);
+    });
 
     for (const clientId of clientIds) {
       const ch = supabase.channel(`global-presence-${clientId}`, {
@@ -222,15 +250,14 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
         }
       });
 
-      const heartbeatId = setInterval(() => {
-        if (isSubscribedRef.current && document.visibilityState === 'visible') track();
-      }, HEARTBEAT_MS);
-
-      const staleCheckId = setInterval(() => {
+      // Enregistrés dans les timers globaux ci-dessus plutôt que dans 2 setInterval
+      // propres à cet élève — même comportement, coût constant au lieu de 2N timers.
+      trackFns.set(clientId, () => { if (isSubscribedRef.current) track(); });
+      staleFns.set(clientId, () => {
         if (lastSeenRef.current !== null && Date.now() - lastSeenRef.current > STALE_TTL_MS) {
-          setOnlineMap(prev => ({ ...prev, [clientId]: false }));
+          setOnlineMap(prev => (prev[clientId] === false ? prev : { ...prev, [clientId]: false }));
         }
-      }, STALE_CHECK_MS);
+      });
 
       const handleVisibility = () => {
         if (!isSubscribedRef.current) return;
@@ -249,12 +276,12 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
 
       cleanups.push(() => {
         isSubscribedRef.current = false;
+        trackFns.delete(clientId);
+        staleFns.delete(clientId);
         setChannelMap(prev => {
           if (!(clientId in prev)) return prev;
           const next = { ...prev }; delete next[clientId]; return next;
         });
-        clearInterval(heartbeatId);
-        clearInterval(staleCheckId);
         if (retryTimer) clearTimeout(retryTimer);
         document.removeEventListener('visibilitychange', handleVisibility);
         supabase.removeChannel(ch);

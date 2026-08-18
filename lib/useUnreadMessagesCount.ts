@@ -1,37 +1,86 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useUser } from '@/lib/UserContext';
 import { clearAppBadge } from '@/lib/pwaBadge';
 
 let channelSeq = 0;
 
+// Abonnement PARTAGÉ entre tous les montages du hook.
+//
+// Sidebar et BottomNavCoach sont tous deux montés en permanence dans
+// (coach)/layout.tsx — seul le CSS en cache un selon la taille d'écran. Le hook
+// tournait donc en double : 2 canaux Realtime et 2 refetch pour chaque message
+// reçu. Un compteur global identique pour tout le monde n'a aucune raison d'être
+// calculé deux fois : le premier montage ouvre l'abonnement, les suivants
+// s'abonnent au même résultat, et le canal se ferme au démontage du dernier.
+type Subscriber = (n: number) => void;
+const sharedSubscribers = new Set<Subscriber>();
+let sharedTeardown: (() => void) | null = null;
+let sharedUserId: string | null = null;
+let sharedCount = 0;
+// Posé SYNCHRONEMENT dès que le premier montage prend la main. `sharedTeardown`
+// ne peut pas servir de témoin : il n'est assigné qu'après l'appel async à init(),
+// or React monte Sidebar et BottomNavCoach l'un après l'autre sans laisser tourner
+// la microtask entre les deux — le second verrait encore null et ouvrirait un
+// second canal, ce que ce drapeau empêche.
+let sharedActive = false;
+
 // Nombre de messages non lus adressés à l'utilisateur courant (coach ou élève),
 // tous clients confondus pour un coach. Se recalcule automatiquement dès qu'un
 // message est inséré ou marqué lu (read_at) via Realtime — pas de polling.
 export function useUnreadMessagesCount(): number {
   const { user } = useUser();
-  const [count, setCount] = useState(0);
-  const cancelledRef = useRef(false);
+  const [count, setCount] = useState(sharedCount);
 
   useEffect(() => {
-    cancelledRef.current = false;
     if (!user?.id) { setCount(0); return; }
+
+    // S'attacher à l'abonnement partagé. Le premier montage le crée (plus bas),
+    // les suivants réutilisent le même canal et reçoivent la valeur courante.
+    const subscriber: Subscriber = n => setCount(n);
+    sharedSubscribers.add(subscriber);
+
+    const release = () => {
+      sharedSubscribers.delete(subscriber);
+      if (sharedSubscribers.size === 0 && sharedTeardown) {
+        sharedTeardown();
+        sharedTeardown = null;
+        sharedUserId = null;
+        sharedActive = false;
+      }
+    };
+
+    // Abonnement déjà ouvert pour ce même utilisateur : se greffer dessus.
+    if (sharedActive && sharedUserId === user.id) {
+      setCount(sharedCount);
+      return release;
+    }
+
+    // Changement d'utilisateur : fermer l'abonnement précédent avant d'en ouvrir un neuf.
+    if (sharedTeardown) { sharedTeardown(); sharedTeardown = null; }
+    sharedActive = true;
+    sharedUserId = user.id;
+
+    let cancelled = false;
     const supabase = createClient();
     let clientIds: string[] = [];
 
     async function refresh() {
-      if (clientIds.length === 0 || cancelledRef.current) return;
+      if (clientIds.length === 0 || cancelled) return;
       const { count: c } = await supabase
         .from('messages')
         .select('id', { count: 'exact', head: true })
         .in('client_id', clientIds)
         .neq('sender_id', user!.id)
         .is('read_at', null);
-      if (cancelledRef.current) return;
+      if (cancelled) return;
       const n = c ?? 0;
-      setCount(n);
+      // Diffusé à TOUS les montages (Sidebar + BottomNavCoach) depuis l'unique
+      // abonnement partagé, au lieu d'un setCount par instance du hook.
+      sharedCount = n;
+      sharedSubscribers.forEach(fn => fn(n));
       // Le badge natif de l'icône PWA n'est sinon effacé que quand un message précis
       // est marqué lu (markMessageRead) — s'il n'y a déjà plus aucun message non lu
       // (app jamais rouverte depuis la notif, ou tout déjà lu ailleurs), rien ne le
@@ -52,22 +101,35 @@ export function useUnreadMessagesCount(): number {
         .from('clients')
         .select('id')
         .or(`coach_id.eq.${user!.id},profile_id.eq.${user!.id}`);
-      if (cancelledRef.current) return;
+      if (cancelled) return;
       clientIds = (clients ?? []).map(c => c.id);
       await refresh();
-      if (cancelledRef.current) return;
+      if (cancelled) return;
       channel
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+        // filter serveur : sans lui, l'abonnement portait sur TOUTE la table
+        // `messages` — chaque message de n'importe quelle conversation de la
+        // plateforme déclenchait un refetch ici, y compris ceux d'autres coachs.
+        // Un badge de non-lus ne dépend que des messages REÇUS, donc ceux dont
+        // l'expéditeur n'est pas l'utilisateur : `sender_id=neq` écarte déjà
+        // l'essentiel du bruit (ses propres envois) côté serveur. Le filtrage fin
+        // par clientIds reste fait dans refresh(), PostgREST ne supportant pas
+        // le `in.()` dans un filtre Realtime.
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `sender_id=neq.${user!.id}` }, () => {
           refresh();
         })
         .subscribe();
     }
     init();
 
-    return () => {
-      cancelledRef.current = true;
+    // Fermeture de l'abonnement partagé : n'a lieu qu'au démontage du DERNIER
+    // consommateur (voir le retour anticipé plus haut pour les montages suivants).
+    sharedTeardown = () => {
+      cancelled = true;
+      sharedCount = 0;
       supabase.removeChannel(channel);
     };
+
+    return release;
   }, [user?.id]);
 
   return count;

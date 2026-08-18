@@ -42,7 +42,10 @@ export function useUnreadCountsByClient(clientIds: string[]): Record<string, num
 
     refresh();
     channel
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages' }, () => {
+      // filter serveur : même raison que dans useUnreadMessagesCount — sans lui,
+      // l'abonnement portait sur toute la table `messages` et refetchait à chaque
+      // message de la plateforme. Les non-lus ne concernent que les messages reçus.
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'messages', filter: `sender_id=neq.${user!.id}` }, () => {
         refresh();
       })
       .subscribe();
