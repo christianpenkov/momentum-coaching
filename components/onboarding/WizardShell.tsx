@@ -212,12 +212,6 @@ export default function WizardShell({ open, onClose, config, initialStep }: Wiza
                         <Icon name="arrowR" size={15} color="#fff" />
                       </span>
                     </button>
-
-                    {!isLast && current.kind === 'welcome' && (
-                      <button type="button" onClick={onClose} style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', padding: '4px 8px' }}>
-                        Passer l&apos;introduction
-                      </button>
-                    )}
                   </m.div>
 
                   <m.div variants={staggerChild} style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 7, marginTop: 20, flexWrap: 'wrap', maxWidth: 400, margin: '20px auto 0' }}>
