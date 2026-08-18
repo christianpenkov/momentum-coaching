@@ -67,6 +67,10 @@ export async function POST(request: NextRequest) {
     const utmMedium = resource.tracking?.utm_medium || null;
     const utmCampaign = resource.tracking?.utm_campaign || null;
     const utmContent = resource.tracking?.utm_content || null;
+    // utm_term = le prospect. Écrit dans les liens depuis toujours, mais jamais lu ni
+    // stocké jusqu'ici : l'information partait vers Calendly et se perdait. Voir
+    // docs/utm-nomenclature.md (un rôle par champ).
+    const utmTerm = resource.tracking?.utm_term || null;
     const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
     // utm_campaign = "lead-{ig_user_id}" → extraire l'ig_user_id pour jointure instagram_leads
@@ -233,6 +237,7 @@ export async function POST(request: NextRequest) {
     if (effectiveSource)                     baseUpsert.source = effectiveSource;
     if (utmCampaign || inheritedUtmCampaign) baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;
     if (utmMedium)                           baseUpsert.utm_medium = utmMedium;
+    if (utmTerm)                             baseUpsert.utm_term = utmTerm;
     const newUtmContent = utmContent ?? inheritedUtmContent;
     // Garde anti-écrasement : si la ligne existante a déjà un utm_content valide (vrai
     // ID de post/vidéo/séquence, ex: backfillé après le bug de PageLiens.tsx qui posait

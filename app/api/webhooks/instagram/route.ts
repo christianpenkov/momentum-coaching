@@ -537,11 +537,16 @@ export async function POST(request: Request) {
                 if (shortioInteg?.api_key && shortioInteg?.metadata?.domain && shortioInteg?.metadata?.domain_id) {
                   const apiKey = shortioInteg.api_key;
                   const domainId = shortioInteg.metadata.domain_id;
+                  // Nomenclature : un rôle par champ, voir docs/utm-nomenclature.md.
+                  // utm_content porte l'identifiant du contenu d'origine — ici la
+                  // séquence story, comme le fait déjà le lien Calendly de séquence
+                  // (story-sequences/route.ts). Le prospect va dans utm_term.
                   const destUrl = new URL(seq.lm_url);
                   destUrl.searchParams.set('utm_source', 'ig');
                   destUrl.searchParams.set('utm_medium', 'story');
                   destUrl.searchParams.set('utm_campaign', `lm-story-${seq.lm_keyword.toLowerCase()}`);
-                  destUrl.searchParams.set('utm_content', cleanUsername);
+                  if (seq.id) destUrl.searchParams.set('utm_content', String(seq.id));
+                  destUrl.searchParams.set('utm_term', cleanUsername);
 
                   const res = await attemptShortioCreate(apiKey, { domain: shortioInteg.metadata.domain, originalURL: destUrl.toString(), title: `LM Story — ${senderUsername}`, path: lmPath });
 
@@ -860,12 +865,17 @@ export async function POST(request: Request) {
             const domain = shortioInteg.metadata.domain;
             const domainId = shortioInteg.metadata.domain_id;
 
-            // Construit l'URL avec UTMs
+            // Construit l'URL avec UTMs — nomenclature : un rôle par champ, voir
+            // docs/utm-nomenclature.md. utm_content porte l'identifiant du CONTENU
+            // d'origine (ici le post commenté), jamais le pseudo : c'est ce que
+            // « Performance par contenu » compare à l'id du post pour rattacher le call.
+            // Le prospect va dans utm_term, son champ dédié.
             const destUrl = new URL(cl.lm_url);
             destUrl.searchParams.set('utm_source', 'ig');
             destUrl.searchParams.set('utm_medium', 'dm');
             destUrl.searchParams.set('utm_campaign', `lm-${cl.lm_keyword.toLowerCase()}`);
-            destUrl.searchParams.set('utm_content', cleanUsername);
+            if (mediaId) destUrl.searchParams.set('utm_content', mediaId);
+            destUrl.searchParams.set('utm_term', cleanUsername);
 
             const res = await attemptShortioCreate(apiKey, { domain, originalURL: destUrl.toString(), title: `LM — ${commenterUsername}`, path: lmPath });
 

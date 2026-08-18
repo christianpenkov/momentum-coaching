@@ -145,6 +145,8 @@ export async function syncCalendlyEleve(
       const utmMedium = tracking?.utm_medium || null;
       const utmCampaign = tracking?.utm_campaign || null;
       const utmContent = tracking?.utm_content || null;
+      // utm_term = le prospect (voir docs/utm-nomenclature.md, un rôle par champ).
+      const utmTerm = tracking?.utm_term || null;
       const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
 
       // utm_campaign = "lead-{ig_user_id}" → résoudre l'ig_lead_id
@@ -289,6 +291,7 @@ export async function syncCalendlyEleve(
         }
       }
       if (utmMedium)            upsertData.utm_medium      = utmMedium;
+      if (utmTerm)              upsertData.utm_term        = utmTerm;
       if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
       if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;
       if (bookedAt)             upsertData.booked_at       = bookedAt;
