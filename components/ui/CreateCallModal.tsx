@@ -4,7 +4,8 @@ import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
-import { parisWallClockToUtc } from '@/lib/parisTime';
+import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
+import { useViewerTimeZone } from '@/lib/UserContext';
 
 interface CreateCallForm {
   clientId: string;
@@ -32,6 +33,7 @@ interface Props {
 
 export default function CreateCallModal({ open, onClose, onCreated }: Props) {
   const { clients } = useSupabaseClients();
+  const viewerTz = useViewerTimeZone();
   const [form, setForm] = useState<CreateCallForm>(EMPTY_FORM);
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState<string | null>(null);
@@ -51,11 +53,12 @@ export default function CreateCallModal({ open, onClose, onCreated }: Props) {
     setCreating(true);
     setCreateMsg(null);
 
-    // form.date/startHour/startMinute sont toujours interprétés comme une heure murale
-    // Europe/Paris — indépendamment du fuseau réel de l'appareil du coach (ex: en
-    // déplacement à l'étranger), pour que "14h" saisi signifie toujours "14h à Paris".
+    // "14:00" saisi signifie 14h DANS LE FUSEAU DU COACH au moment de la saisie
+    // (règle du 2026-08-19). Le formulaire affiche ce fuseau sous le champ pour
+    // qu'un coach en déplacement voie noir sur blanc ce qu'il est en train de
+    // créer — c'est le moment où une ambiguïté coûte le plus cher.
     const [year, month, day] = form.date.split('-').map(Number);
-    const startTime = parisWallClockToUtc(year, month, day, parseInt(form.startHour), parseInt(form.startMinute));
+    const startTime = wallClockToUtc(year, month, day, parseInt(form.startHour), parseInt(form.startMinute), viewerTz);
     const endTime = new Date(startTime.getTime() + parseInt(form.durationMin) * 60 * 1000);
     const client = clients.find(c => c.id === form.clientId);
 
@@ -182,6 +185,13 @@ export default function CreateCallModal({ open, onClose, onCreated }: Props) {
                     <option key={m} value={m}>{m}</option>
                   ))}
                 </select>
+              </div>
+              {/* Affiché TOUJOURS, même quand le coach est dans le fuseau de
+                  référence — contrairement aux cartes où le badge n'apparaît que
+                  s'il y a un écart. Dans un formulaire, savoir ce qu'on est en
+                  train de créer vaut plus qu'un libellé économisé. */}
+              <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>
+                Heure de {cityLabelOf(viewerTz)}
               </div>
             </div>
           </div>

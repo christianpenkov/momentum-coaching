@@ -9,6 +9,8 @@ import RapportModal from '@/components/ui/RapportModal';
 import ProspectDetailModal from './ProspectDetailModal';
 import { isYtVideoId } from '@/lib/ytId';
 import { isCallHonored } from '@/lib/callHonored';
+import { useViewerTimeZone } from '@/lib/UserContext';
+import { wallClockToUtc, cityLabelOf } from '@/lib/timezone';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -833,6 +835,7 @@ function getAdvanceConfirmations(currentStage: string, targetStage: string): { i
 }
 
 function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetStageLabel, currentStageKey, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
+  const viewerTz = useViewerTimeZone();
   const [reason, setReason] = useState('');
   const [irreversibleChecked, setIrreversibleChecked] = useState(false);
   const [advanceChecked, setAdvanceChecked] = useState<Set<string>>(new Set());
@@ -953,6 +956,10 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
                   <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Heure de début</div>
                   <input type="time" value={callTime} onChange={e => setCallTime(e.target.value)}
                     style={{ width: '100%', padding: '6px 10px', fontSize: 12, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)' }} />
+                  {/* Toujours affiché, comme dans CreateCallModal : dans un
+                      formulaire, l'ambiguïté sur le fuseau coûte plus cher qu'un
+                      libellé de plus. */}
+                  <div style={{ fontSize: 10, color: 'var(--muted)', marginTop: 3 }}>Heure de {cityLabelOf(viewerTz)}</div>
                 </div>
               </div>
               <div>
@@ -1056,7 +1063,15 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
               if (modalCase === 'forward_to_closed' && !closedValid) return;
               const extraData: Record<string, any> = {};
               if (modalCase === 'forward_to_call_booked') {
-                extraData.scheduledAt = `${callDate}T${callTime}:00`;
+                // .toISOString() produit un Z explicite. Avant ce fix, la chaîne
+                // `${callDate}T${callTime}:00` partait SANS offset : Postgres
+                // l'interprétait alors dans le fuseau de sa session (UTC chez
+                // Supabase), donc "14:00" était stocké comme 14:00 UTC = 16:00
+                // Paris. Tous les calls créés depuis le pipeline étaient décalés
+                // de 2h en été, silencieusement.
+                const [cy, cm, cd] = callDate.split('-').map(Number);
+                const [ch, cmin] = callTime.split(':').map(Number);
+                extraData.scheduledAt = wallClockToUtc(cy, cm, cd, ch, cmin, viewerTz).toISOString();
                 extraData.duration = callDuration;
                 extraData.inviteeName = callName.trim();
                 extraData.inviteeEmail = callEmail.trim() || null;

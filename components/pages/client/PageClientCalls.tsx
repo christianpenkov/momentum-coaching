@@ -15,7 +15,8 @@ import { isCallReallyOver, isCallJoinable, isCallCanceled, isCoachingCall, pickD
 import CallCard from '@/components/ui/CallCard';
 import { CallTypeBadge } from '@/components/ui/CallBadges';
 import { formatCallLongDate, formatCallTime, groupCallsByPeriod } from '@/lib/callFormat';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { useViewerTimeZone } from '@/lib/UserContext';
+import { formatTimeIn, formatDateIn } from '@/lib/timezone';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled';
 
@@ -240,6 +241,7 @@ type ClientCallsData = Awaited<ReturnType<typeof fetchClientCallsData>>;
 
 export default function PageClientCalls() {
   const searchParams = useSearchParams();
+  const viewerTz = useViewerTimeZone();
   const router = useRouter();
   const { data: client } = useClientSelfData();
   const { clientRow: selfRow } = useClientSelf();
@@ -644,7 +646,7 @@ export default function PageClientCalls() {
                         {call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte'}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                        {call.scheduled_at ? formatCallLongDate(call.scheduled_at) : '—'}
+                        {call.scheduled_at ? formatCallLongDate(call.scheduled_at, viewerTz) : '—'}
                         {call.duration && <span style={{ marginLeft: 8 }}>· {call.duration}</span>}
                       </div>
                     </div>
@@ -679,8 +681,8 @@ export default function PageClientCalls() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             {pendingCalls.map(call => {
               const d = new Date(call.scheduled_at!);
-              const dateStr = formatParisDate(d);
-              const timeStr = formatParisTime(d);
+              const dateStr = formatDateIn(d, viewerTz);
+              const timeStr = formatTimeIn(d, viewerTz);
               return (
                 <div key={call.id} className="card" style={{ borderLeft: '3px solid var(--amber)', padding: '18px 20px' }}>
                   <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
@@ -758,10 +760,10 @@ export default function PageClientCalls() {
                 <CallTypeBadge call={nextCall} />
               </div>
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
-                {formatCallLongDate(nextCall.scheduled_at!)}
+                {formatCallLongDate(nextCall.scheduled_at!, viewerTz)}
               </div>
               <div style={{ fontSize: 18, fontWeight: 600, color: 'var(--accent)', marginTop: 4 }}>
-                {formatCallTime(nextCall.scheduled_at!)}
+                {formatCallTime(nextCall.scheduled_at!, viewerTz)}
                 {nextCall.duration && <span style={{ fontSize: 13, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
               </div>
               {nextCall.invitee_name && (
@@ -881,7 +883,7 @@ export default function PageClientCalls() {
           <div className="card" style={{ width: '100%', maxWidth: 400, padding: 24, margin: 16 }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)', marginBottom: 8 }}>Refuser ce call</div>
             <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
-              {declineModal.topic} · {formatParisDate(new Date(declineModal.scheduledAt))}
+              {declineModal.topic} · {formatDateIn(new Date(declineModal.scheduledAt), viewerTz)}
             </div>
             <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
               Proposer un autre créneau (optionnel)

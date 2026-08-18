@@ -16,6 +16,7 @@ import CallCard from '@/components/ui/CallCard';
 import { CallTypeBadge } from '@/components/ui/CallBadges';
 import { formatCallLongDate, formatCallTime, groupCallsByPeriod } from '@/lib/callFormat';
 import type { Call } from '@/lib/supabase/types';
+import { useViewerTimeZone } from '@/lib/UserContext';
 
 type Tab = 'upcoming' | 'history' | 'prospects' | 'coachings' | 'canceled' | 'unmatched';
 
@@ -25,6 +26,7 @@ const VISIBLE_PERIODS = 2;
 
 export default function PageCalls() {
   const [tab, setTab] = useState<Tab>('upcoming');
+  const viewerTz = useViewerTimeZone();
   const { calls, clients, loading, refetch } = useSupabaseClients();
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
@@ -377,10 +379,10 @@ export default function PageCalls() {
                   <CallTypeBadge call={nextCall} />
                 </div>
                 <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--accent)', lineHeight: 1.2 }}>
-                  {formatCallLongDate(nextCall.scheduled_at)}
+                  {formatCallLongDate(nextCall.scheduled_at, viewerTz)}
                 </div>
                 <div style={{ fontSize: 16, fontWeight: 600, color: 'var(--accent)', marginTop: 2 }}>
-                  {formatCallTime(nextCall.scheduled_at)}
+                  {formatCallTime(nextCall.scheduled_at, viewerTz)}
                   {nextCall.duration && <span style={{ fontSize: 12, color: 'var(--muted)', fontWeight: 400, marginLeft: 8 }}>· {nextCall.duration}</span>}
                 </div>
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>

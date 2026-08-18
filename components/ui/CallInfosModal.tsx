@@ -6,7 +6,8 @@ import ModalShell from '@/components/ui/ModalShell';
 import FathomRecordingSection from '@/components/ui/FathomRecordingSection';
 import { SESSION_TOPICS, type SessionTopic } from '@/lib/sessionRapport';
 import { useUser } from '@/lib/UserContext';
-import { formatParisTime, formatParisDate } from '@/lib/parisTime';
+import { useViewerTimeZone } from '@/lib/UserContext';
+import { formatDateIn } from '@/lib/timezone';
 
 interface FathomData {
   shareUrl: string | null;
@@ -33,8 +34,8 @@ interface Props {
   onClose: () => void;
 }
 
-function formatDate(dateStr: string) {
-  return formatParisDate(new Date(dateStr));
+function formatDate(dateStr: string, tz: string) {
+  return formatDateIn(new Date(dateStr), tz);
 }
 
 // Modale de consultation pure — jamais de formulaire, jamais de soumission. Affiche
@@ -44,6 +45,7 @@ export default function CallInfosModal({
   counterpartName, scheduledAt, attended, topic, topicCustom, notes, studentNotes, leadComment, editableNotes, fathomData, onClose,
 }: Props) {
   const { user } = useUser();
+  const viewerTz = useViewerTimeZone();
   const topicLabel = topic === 'autre' ? topicCustom : SESSION_TOPICS.find(t => t.value === topic)?.label;
   const hasReport = attended !== undefined && attended !== null;
   const hasAnything = hasReport || !!leadComment || !!editableNotes
@@ -59,7 +61,7 @@ export default function CallInfosModal({
               Infos du call{counterpartName ? ` — ${counterpartName}` : ''}
             </div>
             {scheduledAt && (
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatDate(scheduledAt)}</div>
+              <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatDate(scheduledAt, viewerTz)}</div>
             )}
           </div>
         </div>

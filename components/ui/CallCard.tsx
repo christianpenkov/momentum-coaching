@@ -6,6 +6,8 @@ import Avatar from '@/components/ui/Avatar';
 import { CallTypeBadge, FathomBadge, InProgressBadge, CanceledBadge, PendingBadge, CallResultPill } from '@/components/ui/CallBadges';
 import { formatCallDay, formatCallTime } from '@/lib/callFormat';
 import { isCallCanceled, isCallInProgress, isCallJoinable } from '@/lib/sessionRapport';
+import { useViewerTimeZone } from '@/lib/UserContext';
+import { timeZoneCityLabel, DEFAULT_TIME_ZONE } from '@/lib/timezone';
 
 // Carte de call unique, partagée par la page Calls du coach et celle de l'élève.
 // Les deux rôles voient exactement la même nature de données (chacun ses propres
@@ -63,13 +65,19 @@ export default function CallCard({
   actions,
   children,
 }: CallCardProps) {
+  // Avant le return conditionnel : un hook ne peut pas être appelé après un early
+  // return, React exige un ordre d'appel stable entre deux rendus.
+  const viewerTz = useViewerTimeZone();
   if (!call.scheduled_at) return null;
 
-  const { day, month } = formatCallDay(call.scheduled_at);
-  const time = formatCallTime(call.scheduled_at);
+  const { day, month } = formatCallDay(call.scheduled_at, viewerTz);
+  const time = formatCallTime(call.scheduled_at, viewerTz);
   const canceled = isCallCanceled(call);
   const declined = call.status === 'declined';
   const showJoin = variant === 'upcoming' && call.join_url && isCallJoinable(call as never, now);
+  // null quand le lecteur est dans le fuseau de référence — rien à afficher, la
+  // carte reste strictement identique à aujourd'hui pour un utilisateur en France.
+  const tzLabel = timeZoneCityLabel(viewerTz, DEFAULT_TIME_ZONE, new Date(call.scheduled_at));
 
   return (
     <div className={`card call-card${canceled ? ' call-card-canceled' : ''}`}>
@@ -77,6 +85,10 @@ export default function CallCard({
         <div className="call-card-day">{day}</div>
         <div className="call-card-month">{month}</div>
         <div className="call-card-hour">{time}</div>
+        {/* Badge de fuseau du rail : suit .call-card-hour, donc visible en desktop
+            uniquement. Son jumeau mobile est dans .call-card-meta plus bas — l'heure
+            vit à deux endroits selon le breakpoint, le badge doit suivre les deux. */}
+        {tzLabel && <div className="call-card-tz-rail">{tzLabel}</div>}
         {/* Avatar du rail : visible en mobile seulement, où il complète la bande
             horizontale. En desktop c'est celui du corps qui sert (à côté du nom). */}
         <Avatar initials={initials} avatarUrl={avatarUrl} size={30} seed={seed} className="call-card-avatar-rail" />
@@ -107,6 +119,7 @@ export default function CallCard({
               il passait sur deux lignes et déséquilibrait la carte. */}
           <div className="call-card-meta">
             <span className="call-card-time">{time}</span>
+            {tzLabel && <span className="call-card-tz">{tzLabel}</span>}
             {call.duration && (
               <>
                 <span className="call-card-time-sep"> · </span>

@@ -1379,8 +1379,22 @@ a { color: inherit; text-decoration: none; }
 /* Doublon volontaire de l'heure : masquée ici sur desktop (elle est dans le rail),
    affichée sur mobile où le rail n'a plus la place. */
 .call-card-time,
-.call-card-time-sep { display: none; }
+.call-card-time-sep,
+.call-card-tz { display: none; }
 .call-card-time { font-family: var(--font-mono); font-weight: 600; color: var(--ink); }
+/* Badge de fuseau — se lit comme une précision de l'heure, jamais comme une donnée
+   de même poids. Deux exemplaires dans le DOM parce que l'heure elle-même vit à
+   deux endroits selon le breakpoint : .call-card-hour (rail, desktop) et
+   .call-card-time (ligne meta, mobile). Chacun suit la visibilité de son heure,
+   sinon le badge reste orphelin du côté où l'heure est masquée. */
+.call-card-tz,
+.call-card-tz-rail {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+.call-card-tz { margin-left: 4px; }
+.call-card-tz-rail { margin-top: 1px; text-align: center; }
 .call-card-duration { font-family: var(--font-mono); }
 /* Couleur forcée : sans elle, l'intitulé héritait d'une couleur d'accent sur la
    page élève et ressortait plus que le nom de la personne. */
@@ -1437,9 +1451,11 @@ a { color: inherit; text-decoration: none; }
   .call-card-month { font-size: 9.5px; }
   /* L'heure descend dans la ligne d'infos : le rail n'a plus la largeur de
      l'afficher sous la date une fois l'avatar empilé dessous. */
-  .call-card-hour { display: none; }
+  .call-card-hour,
+  .call-card-tz-rail { display: none; }
   .call-card-time,
   .call-card-time-sep { display: inline; }
+  .call-card-tz { display: inline; }
   /* Bascule des avatars : celui du rail apparaît, celui du corps disparaît. */
   .call-card .call-card-avatar-rail { display: inline-flex !important; }
   .call-card .call-card-avatar-body { display: none !important; }

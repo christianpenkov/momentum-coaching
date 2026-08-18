@@ -6,6 +6,22 @@ import Lottie from 'lottie-react';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
 import celebrationAnimation from '@/public/animations/celebration.json';
+import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn } from '@/lib/timezone';
+import { useViewerTimeZone } from '@/lib/UserContext';
+
+// Convertit les valeurs brutes des champs <input type="date"> et <input type="time">
+// en instant UTC, dans le fuseau de celui qui saisit.
+//
+// AVANT ce chantier : `new Date("2026-06-14T14:00")` — une chaîne sans offset ni Z
+// est interprétée dans le fuseau de l'appareil. Un coach en déplacement créait donc
+// un call décalé sans le savoir, alors que la règle d'alors imposait l'heure de
+// Paris. Le bug était réel et silencieux ; il devient correct ici parce qu'on le
+// rend explicite, pas parce que la règle a changé.
+function formInputsToUtc(dateStr: string, timeStr: string, tz: string): Date {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const [hh, mm] = timeStr.split(':').map(Number);
+  return wallClockToUtc(y, m, d, hh, mm, tz);
+}
 
 type RapportStep =
   | 'show_up'
@@ -37,12 +53,12 @@ interface Props {
   onClose: () => void;
 }
 
-function formatDate(dateStr: string) {
-  return new Date(dateStr).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' });
+function formatDate(dateStr: string, tz: string) {
+  return formatDateIn(new Date(dateStr), tz);
 }
 
-function formatTime(dateStr: string) {
-  return new Date(dateStr).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+function formatTime(dateStr: string, tz: string) {
+  return formatTimeIn(new Date(dateStr), tz);
 }
 
 function CelebrationOverlay({ onDone }: { onDone: () => void }) {
@@ -66,6 +82,7 @@ function CelebrationOverlay({ onDone }: { onDone: () => void }) {
 }
 
 export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, onClose }: Props) {
+  const viewerTz = useViewerTimeZone();
   const [step, setStep] = useState<RapportStep>('show_up');
   const [revenue, setRevenue] = useState('');
   const [saving, setSaving] = useState(false);
@@ -174,7 +191,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     if (!manualValid) return;
     setSaving(true);
     setError(null);
-    const scheduledAtNew = new Date(`${manualDate}T${manualTimeStart}`).toISOString();
+    const scheduledAtNew = formInputsToUtc(manualDate, manualTimeStart, viewerTz).toISOString();
     try {
       await patchRapport({
         outcome: 'rescheduled',
@@ -256,10 +273,10 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     if (!manualValid) return;
     setSaving(true);
     setError(null);
-    const scheduledAtNew = new Date(`${manualDate}T${manualTimeStart}`).toISOString();
+    const scheduledAtNew = formInputsToUtc(manualDate, manualTimeStart, viewerTz).toISOString();
     // Calculer la durée depuis heure de fin
-    const startMs = new Date(`${manualDate}T${manualTimeStart}`).getTime();
-    const endMs   = new Date(`${manualDate}T${manualTimeEnd}`).getTime();
+    const startMs = formInputsToUtc(manualDate, manualTimeStart, viewerTz).getTime();
+    const endMs   = formInputsToUtc(manualDate, manualTimeEnd, viewerTz).getTime();
     const durationMin = Math.round((endMs - startMs) / 60000);
     try {
       // Créer le 2ème call manuellement
@@ -414,7 +431,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               </div>
               {scheduledAt && (
                 <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                  {formatDate(scheduledAt)} · {formatTime(scheduledAt)}
+                  {formatDate(scheduledAt, viewerTz)} · {formatTime(scheduledAt, viewerTz)}
                 </div>
               )}
             </div>
@@ -482,8 +499,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Nouveau call détecté ✓</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.6 }}>Calendly a détecté un nouveau rendez-vous :</div>
               <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 24 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{formatDate(foundCall.scheduledAt)}</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatTime(foundCall.scheduledAt)}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{formatDate(foundCall.scheduledAt, viewerTz)}</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatTime(foundCall.scheduledAt, viewerTz)}</div>
               </div>
               <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => confirmRescheduled()}>
                 {saving ? 'Enregistrement…' : 'Confirmer le report'}
@@ -567,8 +584,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               </div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 8, lineHeight: 1.6 }}>Calendly a détecté un prochain rendez-vous :</div>
               <div style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 16px', marginBottom: 24 }}>
-                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{formatDate(foundCall.scheduledAt)}</div>
-                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatTime(foundCall.scheduledAt)}</div>
+                <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>{formatDate(foundCall.scheduledAt, viewerTz)}</div>
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{formatTime(foundCall.scheduledAt, viewerTz)}</div>
               </div>
               <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 16, lineHeight: 1.5 }}>
                 Ce call sera marqué comme suivi (non comptabilisé dans les statistiques).
