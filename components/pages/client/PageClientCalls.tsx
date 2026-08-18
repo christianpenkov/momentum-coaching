@@ -418,8 +418,12 @@ export default function PageClientCalls() {
   // c'est le coach qui le remplit, l'élève ne fait qu'annoter (MyCallNotes).
   function renderActions(call: Call, variant: 'upcoming' | 'history' | 'canceled') {
     const rapportPending = call.call_type === 'calendly' && call.no_show === null && call.status === 'active';
+    // Le commentaire perso et les notes du coach n'étant plus sur la carte, la
+    // modale devient leur seul point d'accès : le bouton doit donc s'afficher dès
+    // qu'il y a quelque chose à lire, pas seulement quand un rapport est rempli.
     const showInfos = variant === 'history'
-      && (call.fathom_status === 'matched' || sessionReportsByCall[call.id]?.attended != null || call.outcome != null);
+      && (call.fathom_status === 'matched' || sessionReportsByCall[call.id]?.attended != null
+        || call.outcome != null || !!call.notes || !!call.lead_rapport_comment);
 
     return (
       <>
@@ -494,31 +498,19 @@ export default function PageClientCalls() {
   // Blocs rendus SOUS la carte : notes du coach, commentaire perso de l'élève sur
   // un call de vente, et accordéon de notes personnelles sur un coaching.
   function renderExtra(call: Call) {
-    const hasNotes = !!call.notes;
-    const hasComment = call.call_type === 'calendly' && !!call.lead_rapport_comment;
+    // Les notes du coach et le commentaire perso ne sont plus rendus sur la carte :
+    // un texte libre de longueur imprévisible étirait la carte et, avec elle, la
+    // bande du rail, qui devenait une colonne vide de 150px. Ils sont consultables
+    // dans la modale Infos, qui sait déjà les afficher. Seul l'accordéon de notes
+    // reste ici parce qu'il est éditable, pas seulement consultable.
     const hasMyNotes = call.call_type !== 'calendly';
-    if (!hasNotes && !hasComment && !hasMyNotes) return null;
+    if (!hasMyNotes) return null;
     return (
-      <>
-        {hasNotes && (
-          <div style={{ padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
-            {call.notes}
-          </div>
-        )}
-        {hasComment && (
-          <div style={{ marginTop: hasNotes ? 8 : 0, padding: '6px 10px', background: 'var(--surface-2)', borderRadius: 6, fontSize: 12, color: 'var(--accent)', borderLeft: '2px solid var(--accent)' }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--muted)', marginBottom: 3 }}>Ton commentaire perso</div>
-            {call.lead_rapport_comment}
-          </div>
-        )}
-        {hasMyNotes && (
-          <MyCallNotes
-            callId={call.id}
-            initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
-            initialDismissed={sessionReportsByCall[call.id]?.student_notes_dismissed || false}
-          />
-        )}
-      </>
+      <MyCallNotes
+        callId={call.id}
+        initialNotes={sessionReportsByCall[call.id]?.student_notes || ''}
+        initialDismissed={sessionReportsByCall[call.id]?.student_notes_dismissed || false}
+      />
     );
   }
 

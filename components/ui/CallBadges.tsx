@@ -53,8 +53,11 @@ export function FathomBadge({ call, now }: { call: CallLike; now?: number }) {
     );
   }
   if (isCallMissingRecording(call as never, now)) {
+    // Sans bordure et en gris clair : c'est l'information la moins actionnable de
+    // la carte (un call sans replay n'appelle aucune décision). Encadré, il attirait
+    // plus l'œil que le résultat commercial juste à côté.
     return (
-      <span style={{ ...badgeBase, background: 'transparent', border: '1px solid var(--border)', color: 'var(--ink-2)' }}>
+      <span style={{ ...badgeBase, background: 'transparent', color: 'var(--muted)', fontWeight: 500, padding: '2px 0' }}>
         Pas de replay
       </span>
     );

@@ -97,6 +97,9 @@ export default function CallCard({
           {/* L'heure n'est visible qu'en mobile (en desktop elle vit dans le rail),
               donc le séparateur qui la suit doit disparaître avec elle — sinon il
               reste un "· 30 min" orphelin en tête de ligne. */}
+          {/* Durée et intitulé sur une seule ligne tronquée. Le texte du topic est
+              de longueur imprévisible (intitulés Calendly complets) : sans troncature
+              il passait sur deux lignes et déséquilibrait la carte. */}
           <div className="call-card-meta">
             <span className="call-card-time">{time}</span>
             {call.duration && (
@@ -105,7 +108,9 @@ export default function CallCard({
                 <span className="call-card-duration">{call.duration}</span>
               </>
             )}
-            {call.topic && <span className="call-card-topic"> · {call.topic}</span>}
+            {call.topic && (
+              <span className="call-card-topic">{call.duration ? ' · ' : ''}{call.topic}</span>
+            )}
           </div>
         </div>
 
