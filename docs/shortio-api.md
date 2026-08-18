@@ -237,3 +237,52 @@ Table `integrations`, provider `shortio` :
 - **Latence stats :** Les stats `api-v2` ont un délai de traitement de ~24-48h sur les dernières données
 - **Pagination :** `limit=150` couvre la majorité des comptes ; au-delà utiliser `offset`
 - **`path` unique :** Si un path existe déjà sur le domaine, Short.io retourne une erreur 409
+
+---
+
+## Piège n°1 : un élève peut avoir PLUSIEURS domaines
+
+`metadata.domain` / `metadata.domain_id` ne décrivent que le domaine **actif** (celui
+sélectionné dans les réglages). `metadata.all_domains` liste **tous** les domaines du
+compte Short.io.
+
+Quand un élève change de domaine (ex: `ubizenai.s.gy` → `link.ubizenai.com`), les liens
+déjà créés sur l'ancien domaine **restent actifs** : ils sont toujours en description
+des posts déjà publiés, et continuent d'être cliqués. Tout code qui n'interroge que
+`domain_id` les rend donc invisibles — silencieusement, sans erreur.
+
+**Symptôme observé (2026-08-17)** : dans Mes Stats → Funnel & Calls, « 3 calls bookés »
+mais « 0 clic sur lien Calendly », alors que les clics existaient bien en base. Les 2
+posts à l'origine des calls avaient leur lien Calendly sur l'ancien domaine.
+
+**Règle** : tout appel qui LIT des liens ou des clics doit boucler sur `all_domains`,
+avec un repli sur `[{ id: domain_id, hostname: domain }]` si le champ est absent
+(comptes connectés avant son introduction).
+
+| Fichier | Rôle | Multi-domaine |
+|---|---|---|
+| `supabase/functions/poll-leads/index.ts` | cron 30 min, écrit les snapshots | Oui (`snapshotOldDomainLinks`, 2026-08-14) |
+| `app/api/shortio/stats/route.ts` | alimente Mes Stats | Oui (2026-08-17) |
+| `lib/shortio-fetch.ts` | bouton « Rafraîchir » + click stream | Oui (2026-08-17) |
+| `supabase/functions/backfill-shortio/index.ts` | backfill ponctuel | Oui (2026-08-17) |
+| `app/api/shortio/links/route.ts` | crée/modifie un lien | Non nécessaire — le domaine cible est explicite dans la requête |
+| `app/api/webhooks/instagram/route.ts` | crée le lien perso d'un lead | Non nécessaire — création sur le domaine actif du moment |
+
+**Rate limit sur `last_clicks`** : interroger deux domaines dos à dos sur
+`/statistics/domain/{id}/last_clicks` déclenche un 429 (observé en prod le 2026-08-14 :
+`x-ratelimit-limit=60`, reset ~48 s). Le quota est partagé entre tous les profils du
+même run. Lire l'en-tête `x-ratelimit-reset` et attendre ce délai exact avant un unique
+retry — jamais un délai fixe deviné.
+
+## Piège n°2 : deux profils peuvent partager le même domaine
+
+Rien n'empêche deux comptes Momentum de pointer vers le même hostname Short.io. Dans ce
+cas, l'API renvoie les **mêmes** `link_id` aux deux profils, et chacun écrit sa propre
+ligne dans `shortio_link_daily_snapshots` (la contrainte unique porte sur
+`profile_id, link_id, date`). Le profil qui ne possède pas le lien dans son
+`content_links` écrit `link_category = null`.
+
+Ce n'est pas un défaut d'isolation Supabase — chaque ligne porte bien le bon
+`profile_id` — mais une conséquence du partage d'un domaine externe. En usage normal
+(un domaine par élève) le cas ne se produit pas. Observé uniquement entre deux comptes
+de test partageant temporairement `ubizenai.s.gy`.
