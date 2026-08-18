@@ -7,6 +7,7 @@ import BottomNavCoach from '@/components/layout/BottomNavCoach';
 import CoachMoreSheet from '@/components/layout/CoachMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import { UserProvider, useUser } from '@/lib/UserContext';
+import { SupabaseClientsProvider } from '@/lib/SupabaseClientsContext';
 import { GlobalPresenceCoachProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
@@ -52,9 +53,11 @@ export default function CoachLayout({ children }: { children: React.ReactNode })
 
   return (
     <UserProvider>
-      <GlobalPresenceCoachProvider>
-        <CoachLayoutInner shellRef={shellRef} navRef={navRef}>{children}</CoachLayoutInner>
-      </GlobalPresenceCoachProvider>
+      <SupabaseClientsProvider>
+        <GlobalPresenceCoachProvider>
+          <CoachLayoutInner shellRef={shellRef} navRef={navRef}>{children}</CoachLayoutInner>
+        </GlobalPresenceCoachProvider>
+      </SupabaseClientsProvider>
     </UserProvider>
   );
 }
