@@ -11,6 +11,7 @@ import { clearAppBadge } from '@/lib/pwaBadge';
 import { logAudio } from '@/lib/audioDebug';
 import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
+import { useFloatingDate } from '@/lib/useFloatingDate';
 import { useUser } from '@/lib/UserContext';
 import { compressImageIfNeeded } from '@/lib/compressImage';
 import { useBlobMediaCache } from '@/lib/useBlobMediaCache';
@@ -1858,6 +1859,12 @@ export default function PageClientMessages() {
     chatZoneRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
+  // Pastille de date flottante (repère de lecture, comme WhatsApp). `position:
+  // sticky` est inutilisable ici : il ne fonctionne pas dans un conteneur
+  // flex-direction column-reverse (limitation navigateur connue, sans
+  // contournement CSS) — d'où une pastille en superposition pilotée en JS.
+  const floatingDate = useFloatingDate(chatZoneRef, [messages.length, loading]);
+
   // ── Groupes par jour ───────────────────────────────────────────────────────
   const messageGroups: Array<{ dateLabel: string; msgs: Msg[] }> = [];
   messages.forEach((msg, i) => {
@@ -1904,6 +1911,33 @@ export default function PageClientMessages() {
             </div>
           </div>
         </div>
+
+        {/* Conteneur relatif englobant la zone de messages ET la pastille flottante :
+            positionner la pastille par rapport au shell global la placerait sous le
+            header, et coder en dur une hauteur de header serait fragile. */}
+        <div style={{ position: 'relative', flex: 1, display: 'flex', minHeight: 0 }}>
+
+        {/* Pastille de date flottante — superposée en haut de la zone de messages,
+            comme WhatsApp. Apparaît pendant le défilement, s'efface ~1,2 s après
+            l'arrêt. pointerEvents none : elle ne doit jamais intercepter un appui
+            sur une bulle qui passe dessous. */}
+        {floatingDate.label && (
+          <div style={{
+            position: 'absolute', top: 8, left: 0, right: 0, zIndex: 5,
+            display: 'flex', justifyContent: 'center', pointerEvents: 'none',
+            opacity: floatingDate.visible ? 1 : 0,
+            transition: 'opacity .2s ease',
+          }}>
+            <span style={{
+              fontSize: 13, fontWeight: 600, color: 'var(--ink)',
+              background: 'var(--surface)', padding: '5px 14px',
+              borderRadius: 20, border: '1px solid var(--border)',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.10)',
+            }}>
+              {floatingDate.label}
+            </span>
+          </div>
+        )}
 
         {/* ── Zone messages ── */}
         {/* column-reverse : le navigateur ancre nativement en bas, immunisé contre tout
@@ -1999,15 +2033,10 @@ export default function PageClientMessages() {
 
               {/* Séparateur date — dernier enfant DOM du groupe = visuellement au-dessus
                   grâce à column-reverse (reste au-dessus du groupe comme avant).
-
-                  STICKY : reste affiché en haut pendant qu'on parcourt les messages
-                  du jour, puis se fait pousser par la date précédente. En
-                  column-reverse, l'axe est inversé : c'est `bottom: 0` qui colle en
-                  HAUT de l'écran (et non `top: 0`, qui collerait en bas). */}
-              <div style={{
-                display: 'flex', justifyContent: 'center', margin: '10px 0 6px',
-                position: 'sticky', bottom: 0, zIndex: 2, pointerEvents: 'none',
-              }}>
+                  `data-date-label` sert à la pastille flottante (useFloatingDate) à
+                  savoir quel jour est actuellement à l'écran. */}
+              <div data-date-label={group.dateLabel}
+                style={{ display: 'flex', justifyContent: 'center', margin: '10px 0 6px' }}>
                 <span style={{
                   fontSize: 13, fontWeight: 600, color: 'var(--ink)',
                   background: 'var(--surface-2)', padding: '5px 14px',
@@ -2027,6 +2056,7 @@ export default function PageClientMessages() {
             </div>
           )}
         </div>
+        </div>{/* fin du conteneur relatif zone messages + pastille */}
 
         {/* ── Flèche scroll bas ── */}
         <button
