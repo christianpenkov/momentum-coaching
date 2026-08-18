@@ -124,15 +124,32 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         profileIds.length > 0
           ? supabase.from('integrations').select('profile_id, provider, first_connected_at, status').in('profile_id', profileIds)
           : { data: [], error: null },
+        // Cash collecté = paiements RATTACHÉS À UN DEAL, pas l'encaissé Stripe brut.
+        // Un élève peut encaisser hors Momentum (formation vendue ailleurs, virement
+        // manuel) : compter ces paiements rendrait le taux collecté/contracté
+        // incohérent (>100 %) et viderait de son sens la file « À rattacher », dont
+        // l'intérêt est justement de faire entrer un paiement dans le total.
+        // Décision du 19/08/2026.
         profileIds.length > 0
-          ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds).gte('date', startOfMonth)
+          ? supabase.from('deal_payments')
+              .select('amount, status, paid_at, deals!inner(profile_id)')
+              .in('deals.profile_id', profileIds)
+              .eq('status', 'succeeded')
+              .gte('paid_at', startOfMonth)
           : { data: [], error: null },
         profileIds.length > 0
-          ? supabase.from('stripe_payments').select('amount').in('profile_id', profileIds)
+          ? supabase.from('deal_payments')
+              .select('amount, status, deals!inner(profile_id)')
+              .in('deals.profile_id', profileIds)
+              .eq('status', 'succeeded')
           : { data: [], error: null },
         // Cash collecté all-time par élève (agrégat + tendance sparkbar, PageClients.tsx)
         profileIds.length > 0
-          ? supabase.from('stripe_payments').select('profile_id, amount, date').in('profile_id', profileIds).order('date', { ascending: true })
+          ? supabase.from('deal_payments')
+              .select('amount, paid_at, deals!inner(profile_id)')
+              .in('deals.profile_id', profileIds)
+              .eq('status', 'succeeded')
+              .order('paid_at', { ascending: true })
           : { data: [], error: null },
         // Calls de vente calendly par élève — coach_id de la table calls = profile_id
         // de l'élève, pas le coach humain (piège documenté dans docs/calls-coach-id-piege.md).
@@ -160,7 +177,13 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         // les élèves) — manquaient jusqu'ici, business.cashCollected lisait par erreur
         // stripePaymentsRes (scopé profileIds élèves, cf. plus haut).
         supabase.from('integrations').select('provider').eq('profile_id', user.id),
-        supabase.from('stripe_payments').select('amount, date').eq('profile_id', user.id).order('date', { ascending: true }),
+        // Même règle que pour les élèves : le cash collecté du coach compte les
+        // paiements rattachés à ses deals, pas son encaissé Stripe brut.
+        supabase.from('deal_payments')
+          .select('amount, paid_at, deals!inner(profile_id)')
+          .eq('deals.profile_id', user.id)
+          .eq('status', 'succeeded')
+          .order('paid_at', { ascending: true }),
       ]);
 
       if (snapshotsRes.error) throw snapshotsRes.error;
@@ -191,10 +214,14 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       });
 
       // Paiements triés asc par élève — sert au total all-time et à la sparkbar cumulative.
+      // Le profile_id vient de la jointure `deals` : la table deal_payments ne le
+      // porte pas, elle est rattachée au deal qui, lui, appartient à un profil.
       const paymentsByProfile: Record<string, { amount: number; date: string }[]> = {};
       (clientPaymentsRes.data || []).forEach((p: any) => {
-        if (!paymentsByProfile[p.profile_id]) paymentsByProfile[p.profile_id] = [];
-        paymentsByProfile[p.profile_id].push(p);
+        const pid = p.deals?.profile_id;
+        if (!pid) return;
+        if (!paymentsByProfile[pid]) paymentsByProfile[pid] = [];
+        paymentsByProfile[pid].push({ amount: Number(p.amount), date: p.paid_at });
       });
 
       // Calls de vente groupés par profile_id élève (coach_id de `calls` = profile_id
@@ -272,15 +299,12 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
           closingRate: computeSalesCallStats(salesCalls, now2).closingRate,
         } : null;
         const payments = c.profile_id ? (paymentsByProfile[c.profile_id] || []) : [];
-        const cashCollectedAllTimeForClient = payments.reduce((s, p) => s + (p.amount || 0), 0);
-        // Tendance = cash CONTRACTÉ cumulé (même source que la colonne Cash), pas le
-        // cash collecté Stripe — stripe_payments est vide pour la plupart des élèves
-        // tant que le chantier cash collecté (lien fiable deal↔paiement) n'est pas résolu.
-        const dealsClosedSorted = [...salesCalls]
-          .filter((call: any) => call.deal_closed && call.revenue)
-          .sort((a: any, b: any) => (a.scheduled_at || '').localeCompare(b.scheduled_at || ''));
-        let runningContracted = 0;
-        const cashContractedTrend = dealsClosedSorted.map((call: any) => (runningContracted += call.revenue || 0));
+        const cashCollectedAllTimeForClient = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
+        // Tendance = cash COLLECTÉ cumulé. C'était le contracté jusqu'ici, faute de
+        // lien fiable deal↔paiement ; ce lien existe maintenant (deal_payments), donc
+        // la sparkbar montre l'argent réellement entré plutôt que l'argent promis.
+        let runningCollected = 0;
+        const cashContractedTrend = payments.map(p => (runningCollected += Number(p.amount || 0)));
         const hasFailedIntegration = c.profile_id ? (failedProvidersByProfile[c.profile_id]?.size ?? 0) > 0 : false;
         const onboardingStatus: 'invited' | 'account_created' | 'integrating' | 'reconnect_needed' | 'active' =
           !c.profile_id ? 'invited'
@@ -324,19 +348,23 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const coachStripeConnected = (coachIntegrationsRes.data || []).some((row: any) => row.provider === 'stripe');
       const coachPayments = coachStripePaymentsAllTimeRes.data || [];
       const cashCollectedAllTime = coachStripeConnected
-        ? coachPayments.reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        ? coachPayments.reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
         : null;
+      // paid_at et non date : deal_payments date le moment de l'encaissement réel.
       const cashCollected = coachStripeConnected
-        ? coachPayments.filter((p: any) => (p.date ?? '') >= startOfMonth).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        ? coachPayments.filter((p: any) => (p.paid_at ?? '') >= startOfMonth)
+            .reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
         : null;
 
       // Cash collecté par TOUS LES ÉLÈVES — Stripe connecté sur au moins un profil élève.
       const studentsStripeConnected = (integrationsRes.data || []).some((row: any) => row.provider === 'stripe');
+      // Number() explicite : Postgres renvoie les numeric en chaîne, et une
+      // concaténation silencieuse ("10" + "20" = "1020") passerait le typage.
       const studentsCashCollectedAllTime = studentsStripeConnected
-        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        ? (stripePaymentsAllTimeRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
         : null;
       const studentsCashCollectedThisMonth = studentsStripeConnected
-        ? (stripePaymentsRes.data || []).reduce((s: number, p: { amount: number }) => s + (p.amount || 0), 0)
+        ? (stripePaymentsRes.data || []).reduce((s: number, p: any) => s + Number(p.amount || 0), 0)
         : null;
 
       setBusiness({

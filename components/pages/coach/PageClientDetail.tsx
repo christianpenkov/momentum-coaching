@@ -18,7 +18,7 @@ import { useUser } from '@/lib/UserContext';
 import { createClient as createSupabase } from '@/lib/supabase/client';
 import { getPendingSessionRapports, SESSION_TOPICS } from '@/lib/sessionRapport';
 import { isTaskOverdue } from '@/lib/clientSignals';
-import { computeSalesCallStats, isNotCanceled, fetchAllLeadsCount } from '@/lib/salesCallStats';
+import { computeSalesCallStats, isNotCanceled, fetchAllLeadsCount, fetchDealsForStats } from '@/lib/salesCallStats';
 import { getClientWeek } from '@/lib/clientWeek';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
@@ -453,6 +453,16 @@ export default function PageClientDetail({ id }: Props) {
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
+  // Deals de l'élève — source du cash contracté ET collecté. Remplace la somme de
+  // calls.revenue, qui ne voyait que les deals nés d'un call (donc ni les upsells
+  // ni les ventes hors pipeline) et n'avait aucune notion d'encaissement réel.
+  const { data: dealsForStats } = useQuery({
+    queryKey: ['client-deals-stats', profileId],
+    queryFn: () => fetchDealsForStats(createSupabase(), profileId!),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // Statut des 7 intégrations obligatoires — lecture seule côté coach (plus de
   // waiver possible, voir docs/integrations-ready-at-vs-onboarding-completed-at.md).
   const { data: clientIntegrations } = useQuery({
@@ -489,7 +499,7 @@ export default function PageClientDetail({ id }: Props) {
   // cf. docs/calls-coach-id-piege.md). Calcul partagé avec la liste clients via
   // lib/salesCallStats.ts pour éviter toute divergence entre les deux vues.
   const now = new Date();
-  const { callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate, cashContracted } = computeSalesCallStats(salesCallsData, now);
+  const { callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate, cashContracted, cashCollected } = computeSalesCallStats(salesCallsData, now, dealsForStats);
   const showUpRate = callsBookedCount > 0 ? Math.round((callsHonoredCount / callsBookedCount) * 100) : 0;
   const revenuePerCall = callsBookedCount > 0 ? Math.round(cashContracted / callsBookedCount) : 0;
 
@@ -502,8 +512,6 @@ export default function PageClientDetail({ id }: Props) {
   const publicationsTotal = (postsIg ?? 0) + (postsYt ?? 0) + (storiesCount ?? 0);
   const followersTotal = (igRaw?.followers ?? 0) + (ytRaw?.subscribers ?? 0);
 
-  // chantier Stripe↔lead non résolu (voir todo générale) — toujours null pour l'instant
-  const cashCollected = null as number | null;
 
   // ── Suivi de l'accompagnement (coaching, distinct du funnel de vente ci-dessus) ──
   const coachingCalls = calls.filter(c => c.call_type === 'google' && isNotCanceled(c));

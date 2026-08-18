@@ -15,19 +15,94 @@ export interface SalesCallStats {
   dealsClosedCount: number;
   closingRate: number;
   cashContracted: number;
+  /** Encaissé réel. null quand les deals n'ont pas été fournis (voir plus bas). */
+  cashCollected: number | null;
+}
+
+/**
+ * Un deal, tel que les calculs de cash en ont besoin.
+ *
+ * `deals` remplace `calls.revenue` comme source du cash : un deal porte sa devise,
+ * sa date de signature, son échéancier, et surtout il peut exister SANS call —
+ * upsell, vente hors pipeline. Sommer `calls.revenue` rendrait ces deals invisibles.
+ */
+export interface DealForStats {
+  amount_total: number | string;
+  status?: string | null;
+  collected?: number;
+}
+
+/**
+ * Cash contracté et collecté à partir des deals.
+ *
+ * Les deals annulés sont exclus du contracté : une vente annulée n'a pas été
+ * signée. En revanche ce qui a déjà été encaissé dessus reste compté — l'argent
+ * est bien entré, et un remboursement passe par un `deal_payments` négatif.
+ */
+export function computeDealTotals(deals: DealForStats[]): { contracted: number; collected: number } {
+  const active = deals.filter(d => d.status !== 'canceled');
+  return {
+    contracted: active.reduce((s, d) => s + Number(d.amount_total || 0), 0),
+    collected: deals.reduce((s, d) => s + Number(d.collected || 0), 0),
+  };
 }
 
 // Reproduit exactement le calcul de PageClientDetail.tsx:495-505 — closingRate =
 // deals closés / calls honorés (pas / calls bookés), cf. docs/calls-coach-id-piege.md
 // pour le filtre coach_id à appliquer en amont sur les calls passés ici.
-export function computeSalesCallStats(calls: Call[], now: Date): SalesCallStats {
+export function computeSalesCallStats(calls: Call[], now: Date, deals?: DealForStats[]): SalesCallStats {
   const salesCalls = calls.filter(isNotCanceled);
   const callsBookedCount = salesCalls.filter(c => c.status === 'active').length;
   const callsHonoredCount = salesCalls.filter(c => c.status && c.scheduled_at && isCallHonored({ ...c, status: c.status, scheduled_at: c.scheduled_at }, now)).length;
   const dealsClosedCount = salesCalls.filter(c => c.deal_closed).length;
   const closingRate = callsHonoredCount > 0 ? Math.round((dealsClosedCount / callsHonoredCount) * 100) : 0;
+
+  // Source du cash : la table `deals` quand elle est fournie, sinon `calls.revenue`.
+  //
+  // Le repli n'est pas de la compatibilité paresseuse : certains appelants n'ont
+  // qu'une liste de calls sous la main (batch sur plusieurs élèves) et charger les
+  // deals leur coûterait une requête de plus. Tant que tout deal naît d'un call,
+  // les deux sommes sont égales — vérifié en base le 19/08/2026, 8 700 € des deux
+  // côtés. Elles divergeront dès le premier deal créé hors call (upsell, vente
+  // directe) : c'est précisément pour ça que `deals` doit devenir la source.
+  if (deals) {
+    const totals = computeDealTotals(deals);
+    return {
+      callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate,
+      cashContracted: totals.contracted,
+      cashCollected: totals.collected,
+    };
+  }
+
   const cashContracted = salesCalls.reduce((s, c) => s + (c.revenue || 0), 0);
-  return { callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate, cashContracted };
+  return {
+    callsBookedCount, callsHonoredCount, dealsClosedCount, closingRate,
+    cashContracted,
+    cashCollected: null,   // inconnu sans les deals — surtout pas 0, qui se lirait « rien encaissé »
+  };
+}
+
+/**
+ * Charge les deals d'un profil avec leur cash encaissé.
+ *
+ * Une seule requête, jointure incluse : appelée par écran, pas par deal.
+ */
+export async function fetchDealsForStats(
+  supabase: SupabaseClient,
+  profileId: string,
+): Promise<DealForStats[]> {
+  const { data } = await supabase
+    .from('deals')
+    .select('amount_total, status, deal_payments(amount, status)')
+    .eq('profile_id', profileId);
+
+  return (data ?? []).map((d: any) => ({
+    amount_total: d.amount_total,
+    status: d.status,
+    collected: (d.deal_payments ?? [])
+      .filter((p: any) => p.status === 'succeeded')
+      .reduce((s: number, p: any) => s + Number(p.amount), 0),
+  }));
 }
 
 // Leads IG totaux — voir docs/pipeline-leads-ig-sources.md pour l'explication
