@@ -235,6 +235,22 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
 
 // ─── TAB 1 : Vue Générale — helpers ──────────────────────────────────────────
 
+// Carte affichant une stat AVEC sa formule de calcul en dessous
+// (ex: label "Closing", value "33 %", formula "deals closés / calls honorés").
+// CONSERVÉ VOLONTAIREMENT bien que non branché aujourd'hui : afficher d'où vient
+// chaque chiffre directement dans l'interface est une amélioration prévue (rendre
+// les stats auditables sans lire le code). Ne pas supprimer lors d'un passage de
+// nettoyage du code mort — décision Chris, 2026-08-18.
+function LeverCard({ label, value, formula }: { label: string; value: string; formula: string }) {
+  return (
+    <div style={{ padding: '16px 18px', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10 }}>
+      <div className="eyebrow-sm" style={{ color: 'var(--muted)', marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--ink)', lineHeight: 1, marginBottom: 4 }}>{value}</div>
+      <div style={{ fontSize: 10, color: 'var(--faint)', fontFamily: 'monospace' }}>{formula}</div>
+    </div>
+  );
+}
+
 type SignalType = 'green' | 'amber' | 'red';
 function Signal({ type, text, isLast }: { type: SignalType; text: string; isLast?: boolean }) {
   const dot = type === 'green' ? GREEN : type === 'amber' ? AMBER : RED;

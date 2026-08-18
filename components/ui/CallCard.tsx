@@ -90,9 +90,17 @@ export default function CallCard({
             {variant === 'canceled' && <CanceledBadge declined={declined} />}
             {variant === 'pending' && <PendingBadge />}
           </div>
+          {/* L'heure n'est visible qu'en mobile (en desktop elle vit dans le rail),
+              donc le séparateur qui la suit doit disparaître avec elle — sinon il
+              reste un "· 30 min" orphelin en tête de ligne. */}
           <div className="call-card-meta">
             <span className="call-card-time">{time}</span>
-            {call.duration && <span className="call-card-duration"> · {call.duration}</span>}
+            {call.duration && (
+              <>
+                <span className="call-card-time-sep"> · </span>
+                <span className="call-card-duration">{call.duration}</span>
+              </>
+            )}
             {call.topic && <span className="call-card-topic"> · {call.topic}</span>}
           </div>
         </div>

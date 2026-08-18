@@ -108,9 +108,15 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         ids.length > 0
           ? supabase.from('session_reports').select('*').in('client_id', ids)
           : { data: [], error: null },
+        // Plafond volontairement large plutôt qu'absent : ce contexte est chargé sur
+        // TOUTES les pages coach, donc une requête non bornée alourdirait chaque
+        // navigation. L'ancienne limite de 100 était atteinte en quelques mois (20
+        // élèves × ~3 coachings/semaine) et faisait alors disparaître silencieusement
+        // les calls les plus anciens de l'historique. La page Calls pagine par
+        // période, donc rien n'est rendu d'un coup.
         supabase.from('calls').select('*').eq('coach_id', user.id)
           .neq('ignored', true)
-          .order('scheduled_at', { ascending: false }).limit(100),
+          .order('scheduled_at', { ascending: false }).limit(2000),
         profileIds.length > 0
           ? supabase.from('profiles').select('id, avatar_url, full_name').in('id', profileIds)
           : { data: [], error: null },
