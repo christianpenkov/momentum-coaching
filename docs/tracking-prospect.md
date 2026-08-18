@@ -138,12 +138,59 @@ fausserait silencieusement les statistiques.
 
 ---
 
-## Ce qu'il reste à surveiller
+---
 
-**La suppression depuis le pipeline reste destructive.** `app/api/client/pipeline/route.ts`
-efface le prospect et tout ce qui s'y rattache. C'est un geste différent, assumé comme
-tel (« ce n'est pas un lead »), mais qui mériterait le même traitement si un cas de
-suppression accidentelle se présente.
+## Règle 4 — Un prospect ayant signé ne peut pas être supprimé
+
+Supprimer un prospect depuis le pipeline marque ses rendez-vous `ignored = true`. Or
+toutes les lectures de statistiques filtrent `.neq('ignored', true)` : le chiffre
+d'affaires disparaît donc de Revenue, Deals closés, Closing, Rev/call et Top contenus,
+sans aucun signal.
+
+Constaté en base le 2026-08-18 : **2 100 € sur 8 700 €** étaient déjà invisibles par ce
+mécanisme.
+
+Le risque est aggravé par le fait que le pipeline existe des deux côtés
+(`app/(client)/client/pipeline` et `app/(coach)/pipeline`) et que la suppression
+s'exécute sur `profile_id = user.id`. Un élève peut donc faire disparaître du chiffre
+d'affaires des statistiques que son coach consulte, sans que ni l'un ni l'autre ne s'en
+aperçoive.
+
+« Ce n'est pas un lead » et « cette personne m'a payé » sont contradictoires. Si les deux
+sont vrais, il y a une erreur de saisie. Le handler `DELETE` refuse donc la suppression
+(HTTP 409) quand un rendez-vous non ignoré porte `deal_closed = true`, et renvoie un
+message nommant le montant en jeu.
+
+Trois points d'attention pour qui modifiera ce code :
+
+- La vérification est **en amont des trois chemins de suppression** (`call_id` seul,
+  `prospect_id`, `ig_username`). Un quatrième chemin ajouté plus tard doit passer par le
+  même garde-fou.
+- Elle vit **côté serveur**, donc elle s'applique aux deux interfaces et à tout appel
+  direct à l'API.
+- Le geste **« Pas un lead »** (`PATCH not_a_lead`) reste disponible et non destructif
+  pour écarter un faux positif sans rien perdre. C'est lui qu'il faut utiliser dans le
+  cas courant.
+
+## Règle 5 — Le rapport de vente est corrigeable
+
+La règle 4 ne tient que parce qu'une sortie existe. Auparavant le rapport était définitif :
+le bouton disparaissait dès la première saisie (`!card.callOutcome` côté pipeline,
+`no_show === null` côté page Calls), et aucun chemin ne permettait de corriger un montant
+mal saisi ou un deal enregistré sur la mauvaise personne.
+
+Depuis le 2026-08-19 :
+
+- Le bouton reste affiché après saisie, libellé « Modifier le rapport »
+- `RapportModal` accepte une prop `existing` qui pré-remplit montant et commentaire
+- `CallInfosModal` expose `onEditRapport`, qui ouvre le formulaire existant — cette
+  modale reste un flux de **lecture**, elle n'affiche aucun formulaire elle-même
+- Chacun corrige ses propres rendez-vous, côté élève comme côté coach
+- Le nouveau rapport écrase l'ancien, sans historique des corrections (décision assumée)
+
+---
+
+## Ce qu'il reste à surveiller
 
 **L'événement `calendly_link_sent` reste dépendant de l'echo Meta.** La règle 1 comble le
 trou côté lecture, mais l'événement lui-même n'est toujours pas posé quand l'echo
