@@ -3,7 +3,8 @@
 import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
-import Portal from './Portal';
+import ModalShell from '@/components/ui/ModalShell';
+import { useIsMobile } from '@/lib/useIsMobile';
 import { fmtEur } from './types';
 
 /**
@@ -30,9 +31,11 @@ interface LeadOption {
 }
 
 export default function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
+  const isMobile = useIsMobile();
   const [who, setWho] = useState<Who>('prospect');
   const [query, setQuery] = useState('');
   const [options, setOptions] = useState<LeadOption[]>([]);
+  const [loadingOptions, setLoadingOptions] = useState(true);
   const [selected, setSelected] = useState<LeadOption | null>(null);
   const [freeName, setFreeName] = useState('');
   const [amount, setAmount] = useState('');
@@ -54,12 +57,14 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   // savoir qui on cherche, alors qu'on veut souvent juste « le prospect d'hier ».
   // Débounce sur la frappe pour ne pas requêter à chaque caractère.
   useEffect(() => {
-    if (who === 'free') { setOptions([]); return; }
+    if (who === 'free') { setOptions([]); setLoadingOptions(false); return; }
+    setLoadingOptions(true);
     const t = setTimeout(() => {
       fetch(`/api/payments/people?q=${encodeURIComponent(query.trim())}&kind=${who}`)
         .then(r => r.ok ? r.json() : { people: [] })
         .then(d => setOptions(d.people ?? []))
-        .catch(() => setOptions([]));
+        .catch(() => setOptions([]))
+        .finally(() => setLoadingOptions(false));
     }, query ? 250 : 0);
     return () => clearTimeout(t);
   }, [query, who]);
@@ -114,14 +119,15 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   }
 
   return (
-    <Portal>
-      <div onClick={() => !submitting && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 9998 }} />
-      <div style={{
-        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999,
-        width: 'min(620px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 64px)',
-        background: 'var(--surface)', borderRadius: 'var(--r-modal)', boxShadow: 'var(--shadow-modal)',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }}>
+    // Bottom sheet sur mobile comme RapportModal, boîte centrée sur desktop.
+    // ModalShell porte déjà le recalage clavier iOS/Android et l'animation.
+    <ModalShell onClose={() => !submitting && onClose()} variant={isMobile ? 'sheet' : 'centered'} width={620}>
+      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+        {isMobile && (
+          <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px', flexShrink: 0 }}>
+            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+          </div>
+        )}
         <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>Créer un lien de paiement</div>
@@ -167,12 +173,27 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                   </div>
                 ) : (
                   <>
-                    <input value={query} onChange={e => setQuery(e.target.value)} autoFocus
+                    <input value={query} onChange={e => setQuery(e.target.value)}
                       placeholder={who === 'prospect' ? 'Chercher un prospect…' : 'Chercher un client…'}
                       style={inputStyle} />
-                    {options.length > 0 && (
-                      <div style={{ border: '1px solid var(--border)', borderRadius: 8, marginTop: 6, maxHeight: 180, overflowY: 'auto' }}>
-                        {options.map(o => (
+                    {/* Hauteur RÉSERVÉE dès l'ouverture, jamais conditionnée au
+                        chargement : sinon la liste apparaît après coup, la boîte
+                        grandit et se recentre, et le doigt qui visait le champ de
+                        recherche atterrit sur un résultat. La zone garde donc sa
+                        place même vide ou en cours de chargement. */}
+                    <div style={{
+                      border: '1px solid var(--border)', borderRadius: 8, marginTop: 6,
+                      height: 180, overflowY: 'auto',
+                      background: options.length === 0 ? 'var(--surface-2)' : undefined,
+                    }}>
+                      {options.length === 0 ? (
+                        <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--muted)', padding: '0 16px', textAlign: 'center' }}>
+                          {loadingOptions ? 'Chargement…'
+                            : query ? 'Aucun résultat'
+                            : who === 'prospect' ? 'Aucun prospect' : 'Aucun client'}
+                        </div>
+                      ) : (
+                        options.map(o => (
                           <button key={o.id} onClick={() => { setSelected(o); setQuery(''); }}
                             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
                             <Avatar initials={getInitials(o.name)} avatarUrl={o.avatarUrl} size={24} seed={o.id} />
@@ -182,9 +203,9 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                             </span>
                             {o.lastDeal && <DealBadge deal={o.lastDeal} />}
                           </button>
-                        ))}
-                      </div>
-                    )}
+                        ))
+                      )}
+                    </div>
                   </>
                 )}
               </Block>
@@ -255,7 +276,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           </div>
         )}
       </div>
-    </Portal>
+    </ModalShell>
   );
 }
 
