@@ -4209,14 +4209,27 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
             return out;
           };
 
-          const coldCalls = callsForLinks(coldDMLinks);
+          // Même séparation que pour les leads LM plus bas : les listes *DMLinks
+          // restent bornées à la période (colonnes « liens envoyés » et « clics »),
+          // mais le rattachement des CALLS part de tous les liens du prospect. Sans
+          // ça, un prospect ayant reçu son lien avant la période mais réservé pendant
+          // voyait son call tomber en « Autre / non catégorisé ».
+          // callsForLinks ne remonte que des calls de callsByLeadInWindow, déjà borné
+          // à la période : élargir les liens n'élargit donc pas les calls.
+          const allDmLinksBySource = (pred: (l: any) => boolean) =>
+            dmDirectLinks.filter((l: any) => pred(l) && wasCalendlyLinkSent(l, linkClickedByLeadId));
+          const coldDMLinksAll    = allDmLinksBySource(l => sourceForLink(l) !== 'story_reply' && sourceForLink(l) !== 'comment');
+          const organicDMLinksAll = allDmLinksBySource(l => sourceForLink(l) === 'comment');
+          const storyReplyLinksAll = allDmLinksBySource(l => sourceForLink(l) === 'story_reply');
+
+          const coldCalls = callsForLinks(coldDMLinksAll);
           const coldBooked = coldCalls.filter(c => c.status === 'active').length;
           const coldHonored = coldCalls.filter(c => isCallHonored(c, now)).length;
           const coldClosed = coldCalls.filter(c => c.deal_closed === true).length;
           const coldRevenue = coldCalls.reduce((s: number, c: any) => s + (c.revenue || 0), 0);
           const coldClics = coldDMLinks.filter((l: any) => l.ig_lead_id && linkClickedByLeadId?.has(l.ig_lead_id)).length;
 
-          const organicCalls = callsForLinks(organicDMLinks);
+          const organicCalls = callsForLinks(organicDMLinksAll);
           const organicBooked = organicCalls.filter(c => c.status === 'active').length;
           const organicHonored = organicCalls.filter(c => isCallHonored(c, now)).length;
           const organicClosed = organicCalls.filter(c => c.deal_closed === true).length;
@@ -4226,7 +4239,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // "Story - Lead Magnet" : calls dont le lead vient d'un reply à une story
           // (source='story_reply') — pivot toujours story_sequence_id en amont, jamais
           // ig_story_id seul (cf. principe d'attribution du chantier Stories).
-          const storyLmCalls = callsForLinks(storyReplyDMLinks);
+          const storyLmCalls = callsForLinks(storyReplyLinksAll);
           const storyLmBooked = storyLmCalls.filter(c => c.status === 'active').length;
           const storyLmHonored = storyLmCalls.filter(c => isCallHonored(c, now)).length;
           const storyLmClosed = storyLmCalls.filter(c => c.deal_closed === true).length;
@@ -4256,7 +4269,27 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // prospectLinksData — sinon un lead ayant reçu un LM à n'importe quel moment
           // (même hors période) faisait fuiter ses calls dans le compte de cette période,
           // créant des incohérences du type "1 lien Calendly mais 2 calls bookés".
-          const lmLeadIds = new Set(lmProspectLinksDb.map((pl: any) => pl.ig_lead_id));
+          // Deux populations distinctes, à ne pas confondre :
+          //
+          // - lmProspectLinksDb : les liens ENVOYÉS dans la période (colonne "liens
+          //   Calendly" de la carte). Borné par période, c'est ce qu'on veut mesurer.
+          //
+          // - lmLeadIds : les leads dont on rattache les CALLS. Ne doit PAS être borné
+          //   par la date d'envoi du lien : un prospect peut recevoir son lien en juin
+          //   et ne réserver qu'en août. Le lien sortait alors de la fenêtre, le lead
+          //   avec, et son call tombait en « Autre / non catégorisé » — constaté sur
+          //   incogniton.734 (lien envoyé le 07/06, call le 15/08) pour la semaine du
+          //   10 au 16 août.
+          //
+          // Le risque d'incohérence que ce bornage évitait (« 1 lien Calendly mais 2
+          // calls bookés ») ne revient pas : callsByLeadInWindow ne contient déjà que
+          // les calls DE LA PÉRIODE, donc élargir les leads n'élargit pas les calls.
+          const lmAllLinks = (prospectLinksData ?? []).filter((pl: any) => {
+            const lead = leads.find((ml: any) => ml.id === pl.ig_lead_id);
+            if (!lead?.leadMagnetSent) return false;
+            return wasCalendlyLinkSent(pl, linkClickedByLeadId);
+          });
+          const lmLeadIds = new Set(lmAllLinks.map((pl: any) => pl.ig_lead_id));
           const lmCalls = [...callsByLeadInWindow.entries()]
             .filter(([leadId]) => lmLeadIds.has(leadId))
             .flatMap(([, cs]) => cs);
