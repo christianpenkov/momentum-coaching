@@ -136,6 +136,12 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  // Un prospect dont TOUS les calls ont été ignorés a été supprimé du pipeline —
+  // la ligne `prospects` survit au nettoyage, mais la personne ne doit pas
+  // réapparaître ici. Cas constaté : « CR7 Penkov », 21 calls ignorés sur 22.
+  // Pas de filtre sur l'existence d'un call : supprimer un lead efface désormais
+  // toutes ses données, donc une ligne `prospects` présente est une ligne valide.
+  // (Deux orphelins de l'ancien soft-delete ont été purgés le 19/08/2026.)
   for (const p of yt.data ?? []) {
     if (!p.name && !p.email) continue;
     people.push({
