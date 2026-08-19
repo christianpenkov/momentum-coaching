@@ -9,6 +9,7 @@ import RapportModal from '@/components/ui/RapportModal';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
+import { CALL_COLUMNS } from '@/lib/supabase/types';
 import { useClientSelfData } from '@/lib/supabase/useCoachData';
 import { useClientSelf } from '@/lib/ClientSelfContext';
 import { isCallReallyOver, isCallJoinable, isCallCanceled, isCoachingCall, pickDisplayedCall } from '@/lib/sessionRapport';
@@ -48,7 +49,11 @@ interface Call {
   fathom_share_url?: string | null;
   fathom_summary?: string | null;
   fathom_action_items?: unknown;
-  fathom_transcript?: string | null;
+  // Le transcript lui-même n'est PAS chargé avec le call (~40 Ko/call, sur tout
+  // l'historique de l'élève à chaque affichage de la page). Ce booléen généré
+  // dit s'il en existe un, sans transporter son contenu ; FathomRecordingSection
+  // va le chercher au clic via /api/calls/[id]/transcript. Voir CALL_COLUMNS.
+  has_fathom_transcript?: boolean | null;
 }
 
 interface RapportModal {
@@ -58,10 +63,10 @@ interface RapportModal {
   isFollowUp?: boolean;
   // Renseigné uniquement en mode correction (rapport déjà rempli qu'on rouvre).
   existing?: { revenue?: number | null; comment?: string | null } | null;
-  fathomShareUrl?: string | null;
-  fathomSummary?: string | null;
-  fathomActionItems?: unknown;
-  fathomTranscript?: string | null;
+  // Pas de champs fathom* ici : RapportModal ne les accepte pas dans ses props
+  // et le JSX ne passe que callId/inviteeName/scheduledAt/isFollowUp/existing.
+  // Les données Fathom s'affichent dans CallInfosModal, pas dans le formulaire
+  // de rapport.
 }
 
 function daysUntil(dateStr: string) {
@@ -183,7 +188,7 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
   // Calls Calendly : coach_id = profileId de l'élève (l'élève est l'hôte de ses calls leads)
   let calendlyQuery = supabase
     .from('calls')
-    .select('*')
+    .select(CALL_COLUMNS)
     .eq('coach_id', user.id)
     .eq('call_type', 'calendly')
     .neq('ignored', true)
@@ -206,7 +211,7 @@ async function fetchClientCallsData(clientRow: { id: string; integrations_ready_
   if (clientRow) {
     const { data } = await supabase
       .from('calls')
-      .select('*')
+      .select(CALL_COLUMNS)
       .eq('client_id', clientRow.id)
       .neq('call_type', 'calendly')
       .neq('ignored', true)
@@ -296,17 +301,31 @@ export default function PageClientCalls() {
   // Historique : 4 derniers affichés par défaut, "Voir plus" affiche le reste
   const [historyLimited, setHistoryLimited] = useState(true);
 
-  // Realtime : un changement sur `calls` invalide le cache, qui refetch tout
-  // (même comportement qu'avant, juste redirigé vers React Query au lieu d'un
-  // useState local — le refetch complet reste nécessaire ici, pas de mutation fine).
+  // Realtime : un changement sur les calls DE CET ÉLÈVE invalide le cache, qui
+  // refetch (pas de mutation fine ici, contrairement au contexte coach : les
+  // calls sont recomposés depuis deux requêtes et un mapping de rapports).
+  //
+  // Deux filtres serveur, un par colonne : un call calendly porte le profile_id
+  // de l'élève dans `coach_id` (l'élève est l'hôte de ses calls leads, cf.
+  // docs/calls-coach-id-piege.md), les autres portent `client_id`. PostgREST
+  // n'accepte qu'une égalité par abonnement, d'où deux `.on()` sur le même canal.
+  //
+  // Sans ces filtres, chaque élève était réveillé par les calls de TOUS les
+  // autres élèves et coachs, et par les écritures des crons — refetchant à
+  // chaque fois son historique complet pour un résultat inchangé.
+  //
+  // Le nom du canal porte l'identifiant : il était fixe ('calls-client'), donc
+  // partagé entre tous les élèves connectés.
   useEffect(() => {
+    if (!userId || !selfRow?.id) return;
     const supabase = createClient();
     const channel = supabase
-      .channel('calls-client')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls' }, () => { refetchCalls(); })
+      .channel(`calls-client-${userId}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', filter: `coach_id=eq.${userId}` }, () => { refetchCalls(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', filter: `client_id=eq.${selfRow.id}` }, () => { refetchCalls(); })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, []);
+  }, [userId, selfRow?.id]);
 
   // Deep link : ?rapport=<call_id> → ouvre la modal une seule fois (depuis push notif)
   const deepLinkHandled = useRef(false);
@@ -316,7 +335,7 @@ export default function PageClientCalls() {
     const call = calls.find(c => c.id === rapportId);
     if (!call || call.no_show !== null) return;
     deepLinkHandled.current = true;
-    setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript });
+    setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at });
   }, [searchParams, calls]);
 
   function closeRapportModal() {
@@ -449,7 +468,7 @@ export default function PageClientCalls() {
           <button
             className="btn-ghost call-action-rapport"
             type="button"
-            onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
+            onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true })}
           >
             <Icon name="alert-triangle" size={13} />Rapport
           </button>
@@ -658,7 +677,7 @@ export default function PageClientCalls() {
                       className="btn-primary-brand"
                       type="button"
                       style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
-                      onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, fathomShareUrl: call.fathom_share_url, fathomSummary: call.fathom_summary, fathomActionItems: call.fathom_action_items, fathomTranscript: call.fathom_transcript })}
+                      onClick={() => setRapportModal({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at })}
                     >
                       Remplir le rapport
                     </button>
@@ -875,10 +894,6 @@ export default function PageClientCalls() {
               scheduledAt: call.scheduled_at,
               isFollowUp: (call as { is_follow_up?: boolean | null }).is_follow_up === true,
               existing: { revenue: call.revenue ?? null, comment: call.lead_rapport_comment ?? null },
-              fathomShareUrl: call.fathom_share_url,
-              fathomSummary: call.fathom_summary,
-              fathomActionItems: call.fathom_action_items,
-              fathomTranscript: call.fathom_transcript,
             });
           } : undefined}
           editableNotes={infosModalCall.call_type !== 'calendly' ? (
@@ -893,7 +908,12 @@ export default function PageClientCalls() {
             shareUrl: infosModalCall.fathom_share_url ?? null,
             summary: infosModalCall.fathom_summary ?? null,
             actionItems: infosModalCall.fathom_action_items ?? null,
-            transcript: infosModalCall.fathom_transcript ?? null,
+            // Transcript chargé à la demande au clic (~40 Ko/call, sinon
+            // transféré sur tout l'historique à chaque affichage de la page).
+            // Voir CALL_COLUMNS.
+            transcript: null,
+            callId: infosModalCall.id,
+            hasTranscript: infosModalCall.has_fathom_transcript === true,
           }}
           onClose={() => setInfosModalCall(null)}
         />
