@@ -165,15 +165,22 @@ valide déjà en base n'est jamais remplacé.
 
 ---
 
-## Ce qui reste, volontairement
+## État au 2026-08-19
 
-Deux rendez-vous du 25 mai portent des valeurs hors nomenclature : `source = test_bio` et
-`source = linkedin_post` avec `utm_medium = post`. Ce sont des essais manuels, sans
-contenu ni chiffre d'affaires.
+`utm_anomalies` ne remonte **aucune anomalie**. Les 39 rendez-vous Calendly respectent la
+nomenclature.
 
-Ils sont laissés en l'état : les réécrire inventerait une attribution qui n'a jamais
-existé. La vue `utm_anomalies` les signale, ce qui est le comportement voulu — elle rend
-visible sans imposer.
+Trois rendez-vous de test ont été supprimés au passage (`invitee_email =
+christianpenkov06@gmail.com`, réservés depuis le compte de test entre le 19 et le 25 mai).
+Ils portaient les deux dernières valeurs hors nomenclature, `test_bio` et `linkedin_post`
+avec `utm_medium = post`. Aucun revenu, aucun lead ni prospect rattaché, aucune ligne
+dépendante dans `prospect_events`, `call_responses`, `client_notifications` ou
+`session_reports`, et déjà `ignored = true` donc déjà absents des statistiques. Leurs
+valeurs restent dans `_backup_calls_utm_20260819`.
+
+Ils portaient un `calendly_event_uuid` réel : si ces événements existent encore côté
+Calendly, une synchronisation pourrait les recréer — ils reviendraient alors avec
+`ignored = false` et seraient visibles dans les statistiques. À vérifier si c'est le cas.
 
 Si LinkedIn devient un canal réel, il suffira d'ajouter `linkedin` aux plateformes
-reconnues dans la vue et dans ce document.
+reconnues dans la vue `utm_anomalies` et dans ce document.
