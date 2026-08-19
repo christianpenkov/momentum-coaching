@@ -1705,16 +1705,14 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
             header, et coder en dur une hauteur de header serait fragile. */}
         <div style={{ position: 'relative', flex: 1, display: 'flex', minHeight: 0 }}>
 
-        {/* Pastille de date flottante — superposée en haut de la zone de messages,
-            comme WhatsApp. Apparaît pendant le défilement, s'efface ~1,2 s après
-            l'arrêt. pointerEvents none : elle ne doit jamais intercepter un appui
+        {/* Pastille de date flottante — superposée en haut de la zone de messages.
+            Affichée en permanence : repère « quel jour je lis », pas une indication
+            fugace. pointerEvents none : elle ne doit jamais intercepter un appui
             sur une bulle qui passe dessous. */}
         {floatingDate.label && (
           <div style={{
             position: 'absolute', top: 8, left: 0, right: 0, zIndex: 5,
             display: 'flex', justifyContent: 'center', pointerEvents: 'none',
-            opacity: floatingDate.visible ? 1 : 0,
-            transition: 'opacity .2s ease',
           }}>
             <span style={{
               fontSize: 13, fontWeight: 600, color: 'var(--ink)',

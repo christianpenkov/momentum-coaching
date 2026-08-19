@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useEffect, useState, type RefObject } from 'react';
 
 /**
  * Date des messages actuellement à l'écran, pour la pastille flottante en haut de
@@ -23,10 +23,8 @@ import { useEffect, useRef, useState, type RefObject } from 'react';
 export function useFloatingDate(
   scrollRef: RefObject<HTMLElement | null>,
   deps: unknown[] = [],
-): { label: string | null; visible: boolean } {
+): { label: string | null } {
   const [label, setLabel] = useState<string | null>(null);
-  const [visible, setVisible] = useState(false);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -58,23 +56,13 @@ export function useFloatingDate(
       setLabel(prev => (prev === current ? prev : current));
     }
 
-    function onScroll() {
-      compute();
-      // La pastille n'apparaît que pendant le défilement puis s'efface, comme
-      // dans WhatsApp — elle sert de repère, pas de bandeau permanent.
-      setVisible(true);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-      hideTimerRef.current = setTimeout(() => setVisible(false), 1200);
-    }
-
+    // Pastille TOUJOURS affichée (choix de Chris) : elle sert de repère permanent
+    // « quel jour je lis », pas d'indication fugace pendant le défilement.
     compute();
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      el.removeEventListener('scroll', onScroll);
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    };
+    el.addEventListener('scroll', compute, { passive: true });
+    return () => el.removeEventListener('scroll', compute);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scrollRef, ...deps]);
 
-  return { label, visible };
+  return { label };
 }

@@ -72,8 +72,24 @@ export function GlobalPresenceClientProvider({ children }: { children: ReactNode
         lastCoachSeenRef.current = entry?.online_at ? new Date(entry.online_at).getTime() : Date.now();
         setCoachOnline(true);
       } else {
-        lastCoachSeenRef.current = null;
-        setCoachOnline(false);
+        // PAS de passage immédiat à "hors ligne".
+        //
+        // Supabase émet plusieurs `sync` pendant l'établissement de la connexion, et
+        // les premiers portent un état encore incomplet : le coach n'y figure pas
+        // alors qu'il est bien là. Basculer à false à chaque sync vide produisait un
+        // clignotement en ligne/hors ligne de plusieurs secondes à l'ouverture, et à
+        // chaque reconnexion réseau.
+        //
+        // Le TTL existe précisément pour ça : on ne déclare hors ligne que si le
+        // coach n'a plus donné signe de vie depuis STALE_TTL_MS. Entre-temps, le
+        // dernier état connu est conservé — le staleCheck (toutes les 10 s) fera
+        // la bascule le moment venu.
+        if (lastCoachSeenRef.current === null) {
+          setCoachOnline(false); // jamais vu depuis l'abonnement : rien à préserver
+        } else if (Date.now() - lastCoachSeenRef.current > STALE_TTL_MS) {
+          lastCoachSeenRef.current = null;
+          setCoachOnline(false);
+        }
       }
     });
 
@@ -220,10 +236,18 @@ export function GlobalPresenceCoachProvider({ children }: { children: ReactNode 
         if (clientEntry) {
           const entry = clientEntry[1].find(e => e.role === 'client');
           lastSeenRef.current = entry?.online_at ? new Date(entry.online_at).getTime() : Date.now();
-          setOnlineMap(prev => ({ ...prev, [clientId]: true }));
+          setOnlineMap(prev => (prev[clientId] === true ? prev : { ...prev, [clientId]: true }));
         } else {
-          lastSeenRef.current = null;
-          setOnlineMap(prev => ({ ...prev, [clientId]: false }));
+          // PAS de passage immédiat à "hors ligne" — même raison que côté élève :
+          // Supabase émet plusieurs `sync` à la connexion, dont les premiers portent
+          // un état incomplet. Le TTL (vérifié toutes les 10 s par staleFns) fait la
+          // bascule si l'absence se confirme.
+          if (lastSeenRef.current === null) {
+            setOnlineMap(prev => (prev[clientId] === false ? prev : { ...prev, [clientId]: false }));
+          } else if (Date.now() - lastSeenRef.current > STALE_TTL_MS) {
+            lastSeenRef.current = null;
+            setOnlineMap(prev => (prev[clientId] === false ? prev : { ...prev, [clientId]: false }));
+          }
         }
       });
 
