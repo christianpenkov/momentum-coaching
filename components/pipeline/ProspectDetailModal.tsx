@@ -134,7 +134,19 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
     // "Call booké" n'est ajouté que s'il n'existe pas déjà en tant que prospect_event réel
     // pour ce call précis (event_type call_booked + call_id) — évite le doublon visuel.
     const hasRealBookedEvent = ctx.events.some(e => e.event_type === 'call_booked' && e.call_id === call.id);
-    if (!hasRealBookedEvent) {
+
+    // Un call issu d'un REPORT n'est pas une nouvelle réservation : il remplace le
+    // précédent. Sans ce filtre, la timeline affichait deux « Call booké » pour un
+    // prospect qui n'avait réservé qu'une fois puis déplacé son rendez-vous — la
+    // reprogrammation est déjà racontée par l'événement « Call reporté » du call
+    // qu'il remplace.
+    const isRescheduleResult = ctx.calls.some(c =>
+      c.id !== call.id
+      && !!call.calendly_event_uuid
+      && c.next_rescheduled_uri?.includes(call.calendly_event_uuid)
+    );
+
+    if (!hasRealBookedEvent && !isRescheduleResult) {
       // Source vidéo YouTube : lien Calendly placé en description d'une vidéo
       const ytVideoId = call.utm_medium === 'description' && call.utm_content && isYtVideoId(call.utm_content)
         ? call.utm_content
@@ -182,14 +194,38 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
       // toute la chaîne de reprogrammations disparaissait de l'historique.
       // next_rescheduled_uri, lui, porte l'URL du call qui remplace celui-ci.
     } else if (call.rescheduled || call.next_rescheduled_uri) {
+      // Date du report = moment où le NOUVEAU rendez-vous a été réservé.
+      //
+      // `rescheduled_at` n'est pas renseigné par le sync Calendly (vérifié : null
+      // sur des calls pourtant reportés), et le repli sur `scheduled_at` datait
+      // l'événement à l'heure du rendez-vous — donc dans le futur, ce qui plaçait
+      // « Call reporté » APRÈS « Call annulé » dans une timeline pourtant triée
+      // chronologiquement.
+      //
+      // Le booked_at du call suivant est la vraie date : c'est l'instant où le
+      // prospect a choisi son nouveau créneau.
+      const successorUuid = call.next_rescheduled_uri
+        ?.split('/scheduled_events/')[1]?.split('/')[0];
+      const successor = successorUuid
+        ? ctx.calls.find(c => c.calendly_event_uuid === successorUuid)
+        : undefined;
+      const rescheduledAt = call.rescheduled_at
+        ?? successor?.booked_at
+        ?? call.created_at;
+
       events.push({
         id: `${call.id}-rescheduled`,
         type: 'rescheduled',
-        occurredAt: call.rescheduled_at ?? call.scheduled_at ?? call.created_at,
+        occurredAt: rescheduledAt,
         source: 'derived',
         label: 'Call reporté',
+        // Ancienne date → nouvelle date : sans la seconde, on ne sait pas vers
+        // quand le rendez-vous a été déplacé.
         detail: call.scheduled_at
-          ? `Était prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}`
+          ? `${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}`
+            + (successor?.scheduled_at
+              ? ` → ${new Date(successor.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}`
+              : '')
           : undefined,
       });
     } else if (['canceled', 'cancelled'].includes(call.status ?? '')) {
