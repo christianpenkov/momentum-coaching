@@ -1,5 +1,6 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 import Link from 'next/link';
 import Ring from '@/components/ui/Ring';
@@ -108,7 +109,39 @@ export default function PageClientView() {
     await supabase.from('tasks').update({ done }).eq('id', taskId);
   }, [supabase]);
 
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
+  // Squelette plutôt qu'un loader centré : il reproduit la structure réelle de
+  // la page (en-tête, carte du prochain call, grille de KPI), donc l'app paraît
+  // déjà là et le contenu remplace des formes de mêmes dimensions au lieu de
+  // surgir dans le vide.
+  if (loading) {
+    return (
+      <div className="page-content">
+        <div className="page-header">
+          <div>
+            <Skeleton width={160} height={22} />
+            <Skeleton width={110} height={12} style={{ marginTop: 8 }} />
+          </div>
+        </div>
+        <div className="card" style={{ padding: '18px 20px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+            <Skeleton width={40} height={40} radius={20} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width="45%" height={14} />
+              <Skeleton width="30%" height={11} style={{ marginTop: 8 }} />
+            </div>
+          </div>
+        </div>
+        <div className="grid-4 client-kpi-grid" style={{ marginTop: 24 }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card" style={{ padding: '16px 20px' }}>
+              <Skeleton width="70%" height={11} />
+              <Skeleton width="45%" height={22} style={{ marginTop: 10 }} />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   if (!client) {
     return (

@@ -2930,6 +2930,38 @@ a { color: inherit; text-decoration: none; }
 
    Le fond, lui, est exactement la même couleur que le splash système : la
    surface ne présente donc aucune rupture, seul le logo se ré-affiche. */
+/* ══ Squelettes de chargement ═══════════════════════════════════════════════
+   Voir components/ui/Skeleton.tsx. Balayage lumineux plutôt que clignotement
+   d'opacité : c'est le motif des apps natives, il suggère un chargement en
+   cours au lieu d'un élément qui apparaît et disparaît. ────────────────────── */
+.skeleton {
+  position: relative;
+  overflow: hidden;
+  background: var(--surface-2);
+  /* Empêche le texte réel de "sauter" quand il remplace le squelette : les
+     formes ont les mêmes dimensions que le contenu attendu. */
+  flex-shrink: 0;
+}
+.skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.55),
+    transparent
+  );
+  animation: skeleton-sweep 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-sweep {
+  100% { transform: translateX(100%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .skeleton::after { animation: none; }
+}
+
 /* Sonde de mesure : expose la valeur réelle de safe-area-inset-top au JS
    d'instrumentation (voir app/layout.tsx). Plusieurs rapports indiquent qu'elle
    vaut 0px en portrait sur iPhone, ce qui rendrait toute compensation inopérante
