@@ -27,6 +27,7 @@ const FAINT = 'var(--faint)';
 const SURFACE = 'var(--surface)';
 const SURFACE2 = 'var(--surface-2)';
 const BORDER = 'var(--border)';
+const BORDER_SOFT = 'var(--border-soft)';
 const BG = 'var(--bg)';
 const GREEN = 'var(--green)';
 const GREEN_SOFT = 'var(--green-soft)';
@@ -2619,19 +2620,107 @@ function ActionsStories({ selectionMode, selectedCount, compact, onStartSelectio
   );
 }
 
+// Icônes du rail et du menu — l'avion en papier est réservé à « envoyer en DM ».
+const IcoRetour = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>;
+const IcoMenu = <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>;
+const IcoAvion = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>;
+const IcoLm = <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>;
+
+/**
+ * Bouton carré du rail (état ②).
+ *
+ * Les entrées épinglées — Calendly prospect et Lead magnets — sont des vues de
+ * même niveau qu'un contenu, pas des actions : elles vivent donc dans le rail,
+ * au-dessus du filet qui les sépare des miniatures.
+ */
+function RailBouton({ children, title, actif, accent, onClick }: {
+  children: ReactNode; title: string; actif?: boolean; accent?: boolean; onClick: () => void;
+}) {
+  return (
+    <button onClick={onClick} title={title} aria-label={title} style={{
+      width: 34, height: 34, borderRadius: 9, flexShrink: 0, cursor: 'pointer',
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      transition: `all var(--dur-quick) var(--ease-out)`,
+      ...(accent
+        ? {
+            background: actif ? BLUE : BLUE_SOFT,
+            border: `1px solid ${actif ? BLUE : '#cfdce4'}`,
+            color: actif ? '#fff' : BLUE,
+            boxShadow: actif ? `0 0 0 2px ${SURFACE}, 0 0 0 3px ${BLUE}` : undefined,
+          }
+        : { background: 'transparent', border: '1px solid transparent', color: INK }),
+    }}>{children}</button>
+  );
+}
+
+/**
+ * Rail de 56px — l'état ② du parcours, celui par défaut quand on ouvre un
+ * contenu : la séquence dispose alors de toute la largeur restante.
+ */
+function RailContenus({ posts, rightView, onRetour, onDeplier, onProspect, onLmLibrary, onOuvrirPost }: {
+  posts: Post[];
+  rightView: RightView;
+  onRetour: () => void;
+  onDeplier: () => void;
+  onProspect: () => void;
+  onLmLibrary: () => void;
+  onOuvrirPost: (post: Post) => void;
+}) {
+  const idCourant = rightView && (rightView.type === 'post' || rightView.type === 'story') ? rightView.post.id : null;
+
+  return (
+    <div style={{
+      width: 56, flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG,
+      padding: '11px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+      boxSizing: 'border-box', overflowY: 'auto',
+    }}>
+      <RailBouton title="Revenir à tous les contenus" onClick={onRetour}>{IcoRetour}</RailBouton>
+      <RailBouton title="Déplier la liste" onClick={onDeplier}>{IcoMenu}</RailBouton>
+      <RailBouton title="Lien Calendly prospect" accent actif={rightView?.type === 'prospect'} onClick={onProspect}>{IcoAvion}</RailBouton>
+      <RailBouton title="Lead magnets" accent actif={rightView?.type === 'lm-library'} onClick={onLmLibrary}>{IcoLm}</RailBouton>
+
+      <span style={{ width: 26, height: 1, background: BORDER, margin: '2px 0', flexShrink: 0 }} />
+
+      {posts.map(post => {
+        const actif = post.id === idCourant;
+        return (
+          <button key={post.id} onClick={() => onOuvrirPost(post)} title={post.caption} style={{
+            padding: 0, border: 'none', background: 'none', cursor: 'pointer', flexShrink: 0,
+            borderRadius: 8, outline: actif ? `2px solid ${BLUE}` : 'none', outlineOffset: 1,
+          }}>
+            {/* Les stories sont en 9/16 : une vignette carrée les déformerait. */}
+            <VignetteContenu post={post} size={34} hauteur={post.platform === 'STORY' ? 44 : 34} />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 /** Vignette d'un contenu, avec repli sur le logo de la plateforme. */
-function VignetteContenu({ post, size }: { post: Post; size: number }) {
+function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; hauteur?: number }) {
   const icon = post.platform === 'IG'
     ? <svg width="14" height="14" viewBox="0 0 24 24" fill={MUTED}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
     : post.platform === 'YT'
     ? <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
     : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>;
 
+  const h = hauteur ?? size;
+  // Le compteur de stories groupées : sans lui, quatre vignettes identiques
+  // dans le rail ne disent pas qu'elles forment une seule séquence.
+  const nbStories = post.platform === 'STORY' ? (post.sequenceStoryCount ?? 0) : 0;
+
   return (
-    <div style={{ width: size, height: size, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
       {post.thumbnail
         ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
         : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>}
+      {nbStories > 1 && (
+        <span style={{
+          position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.6)', color: '#fff',
+          fontSize: 8, fontWeight: 700, borderRadius: 8, padding: '0 4px', lineHeight: 1.5,
+        }}>{nbStories}</span>
+      )}
     </div>
   );
 }
@@ -3098,6 +3187,16 @@ export default function PageLiens() {
     ? posts.filter(p => rightView.postIds.includes(p.id))
     : [];
   const [storiesSubTab, setStoriesSubTab] = useState<'stories' | 'sequences'>('stories');
+
+  // Parcours desktop en trois états :
+  //   ① rightView === null           → la liste occupe toute la largeur
+  //   ② rightView + menu replié      → rail d'icônes 56px + détail (état par
+  //                                     défaut à l'ouverture d'un contenu : la
+  //                                     séquence a besoin de la largeur)
+  //   ③ rightView + menu déplié      → liste 250px + détail
+  // Déplier est une action volontaire, quand on cherche un autre contenu.
+  const [menuDeplie, setMenuDeplie] = useState(false);
+
   const sequences: any[] = sequencesData?.sequences ?? [];
   const [highlightedSequenceId, setHighlightedSequenceId] = useState<string | null>(null);
   const navigateToSequencesTab = (sequenceId: string) => {
@@ -3402,22 +3501,66 @@ export default function PageLiens() {
           </div>
         )}
 
-        {/* Body : 2 colonnes */}
+        {/* Body desktop — trois états : ① liste pleine largeur · ② rail + détail
+             (défaut à l'ouverture) · ③ menu déplié + détail */}
         <div className="liens-desktop-only" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
 
-          {/* Colonne gauche */}
-          <div style={{ width: 380, flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          {/* ② le rail, quand un contenu est ouvert et le menu replié */}
+          {rightView !== null && !menuDeplie && (
+            <RailContenus
+              posts={filteredPosts} rightView={rightView}
+              onRetour={() => unsavedGuardApi.guard(() => setRightView(null))}
+              onDeplier={() => setMenuDeplie(true)}
+              onProspect={() => unsavedGuardApi.guard(() => setRightView({ type: 'prospect' }))}
+              onLmLibrary={() => unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }))}
+              onOuvrirPost={post => unsavedGuardApi.guard(() => setRightView(post.platform === 'STORY' ? { type: 'story', post } : { type: 'post', post }))}
+            />
+          )}
 
-            {/* Bouton Calendly prospect */}
-            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0 }}>
+          {/* Colonne gauche — ① pleine largeur, ③ repliée à 250px */}
+          {(rightView === null || menuDeplie) && (
+          <div style={{
+            width: rightView === null ? '100%' : 250,
+            flexShrink: 0,
+            borderRight: rightView === null ? 'none' : `1px solid ${BORDER}`,
+            background: BG, display: 'flex', flexDirection: 'column', minHeight: 0,
+          }}>
+
+            {/* En ③, la tête de menu porte le retour à ① et le repli du menu —
+                sans elle, on ne pourrait plus ni revenir ni retrouver la largeur. */}
+            {menuDeplie && (
+              <div style={{ padding: '12px 13px 9px', display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0, borderBottom: `1px solid ${BORDER_SOFT}` }}>
+                <button onClick={() => unsavedGuardApi.guard(() => { setRightView(null); setMenuDeplie(false); })} title="Revenir à tous les contenus" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: BLUE, fontSize: 12, fontWeight: 700 }}>
+                  {IcoRetour}<span>Gérer mes liens</span>
+                </button>
+                <button onClick={() => setMenuDeplie(false)} title="Replier la liste" aria-label="Replier la liste" style={{
+                  marginLeft: 'auto', width: 26, height: 24, borderRadius: 6, flexShrink: 0, cursor: 'pointer',
+                  background: SURFACE, border: `1px solid ${BORDER}`, color: INK,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{IcoMenu}</button>
+              </div>
+            )}
+
+            {/* Entrées épinglées — présentes dans le rail ET ici : sans ça, elles
+                disparaîtraient dès qu'on déplie le menu. */}
+            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
               <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'prospect' }))} style={{
-                width: '100%', padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
-                border: `1.5px solid ${rightView?.type === 'prospect' ? BLUE : BORDER}`,
-                background: rightView?.type === 'prospect' ? BLUE_SOFT : 'transparent',
-                color: rightView?.type === 'prospect' ? BLUE : MUTED, transition: 'all .15s',
+                width: '100%', padding: '9px 11px', fontSize: menuDeplie ? 11.5 : 13, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                border: `1px solid ${rightView?.type === 'prospect' ? BLUE : '#cfdce4'}`,
+                background: rightView?.type === 'prospect' ? BLUE_SOFT : BLUE_SOFT,
+                color: BLUE, transition: `all var(--dur-quick) var(--ease-out)`,
               }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-                Envoyer un lien Calendly Prospect en DM
+                {IcoAvion}
+                <span>Lien Calendly prospect</span>
+              </button>
+              <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }))} style={{
+                width: '100%', padding: '9px 11px', fontSize: menuDeplie ? 11.5 : 13, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                border: `1px solid ${rightView?.type === 'lm-library' ? BLUE : BORDER}`,
+                background: rightView?.type === 'lm-library' ? BLUE_SOFT : 'transparent',
+                color: rightView?.type === 'lm-library' ? BLUE : MUTED, transition: `all var(--dur-quick) var(--ease-out)`,
+              }}>
+                {IcoLm}
+                <span>Lead magnets{leadMagnets.length > 0 ? ` · ${leadMagnets.length}` : ''}</span>
               </button>
             </div>
 
@@ -3522,20 +3665,14 @@ export default function PageLiens() {
               })}
             </div>
           </div>
+          )}
 
-          {/* Colonne droite */}
+          {/* Colonne droite — seulement en ② et ③ : en ① la liste prend toute la
+              largeur, et une carte « sélectionne un contenu » n'aurait rien à dire
+              de plus que la liste elle-même. */}
+          {rightView !== null && (
           <div style={{ flex: 1, minWidth: 0, background: SURFACE, overflowY: 'auto' }}>
-            {rightView === null ? (
-              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', gap: 10, padding: 40, textAlign: 'center' }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
-                <div style={{ fontSize: 14, fontWeight: 600, color: INK, marginTop: 2 }}>Sélectionne un contenu</div>
-                <div style={{ fontSize: 12, color: MUTED, maxWidth: 300, lineHeight: 1.6 }}>
-                  Clique sur un contenu à gauche pour générer un lien description ou un lien lead magnet.
-                  <br /><br />
-                  Ou utilise <strong>Calendly prospect</strong> pour un lien DM unique, et <strong>Lead Magnets</strong> pour gérer ta bibliothèque.
-                </div>
-              </div>
-            ) : rightView.type === 'lm-library' ? (
+            {rightView.type === 'lm-library' ? (
               <PanneauLeadMagnets
                 leadMagnets={leadMagnets} lmLoading={lmLoading}
                 onCreated={(lm: LeadMagnet) => setLmOverrides(prev => [lm, ...(prev ?? leadMagnetsFromQuery)])}
@@ -3565,6 +3702,7 @@ export default function PageLiens() {
               />
             )}
           </div>
+          )}
         </div>
       </div>
 
