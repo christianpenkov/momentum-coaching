@@ -67,7 +67,9 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
         <div>
           <h1 className="page-title" style={{ fontSize: 22, fontWeight: 700, letterSpacing: '-0.4px', margin: 0 }}>{title}</h1>
           <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 4 }}>
-            {isLoading ? '…' : subtitleFor(tab, deals.length, orphanCount, relanceCount, isCoach)}
+            {isLoading
+              ? <span className="skeleton-shimmer" style={{ display: 'block', width: 96, height: 10, borderRadius: 4, marginTop: 3 }} />
+              : subtitleFor(tab, deals.length, orphanCount, relanceCount, isCoach)}
           </div>
         </div>
         {/* Masqué tant que Stripe n'est pas connecté : proposer une action
@@ -82,19 +84,32 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
         )}
       </div>
 
+      {/* Skeleton sur toute la zone de données — KPI, onglets et liste d'un
+          bloc. Les afficher vides avec des « — » puis les remplir donnerait
+          deux états successifs pour un même chargement. */}
+      {isLoading && <PaymentsSkeleton isMobile={isMobile} />}
+
+      {!isLoading && <>
+
       {/* ── Ruban de KPI ────────────────────────────────────────────────── */}
       {/* Mobile : un KPI héros (le collecté, la seule question qui compte sur un
           écran de 390px) et trois chiffres secondaires. Quatre cartes égales y
           seraient illisibles. */}
       {isMobile ? (
         <div style={{ marginBottom: 18 }}>
+          {/* Pas de mention de période : les KPI portent sur l'intégralité des
+              deals, pas sur une fenêtre glissante. Le « · 30 derniers jours »
+              affiché jusqu'ici décrivait un bornage qui n'a jamais existé côté
+              serveur — seul l'onglet « À rattacher » est borné. */}
           <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
-            <div className="kpi-label">Cash collecté{k ? ' · 30 derniers jours' : ''}</div>
-            <div className="kpi-value tabular" style={{ color: 'var(--green)', fontSize: 30 }}>
+            <div className="eyebrow-sm" style={{ marginBottom: 8 }}>Cash collecté</div>
+            <div className="kpi-value tabular" style={{ color: 'var(--green)', fontSize: 34, letterSpacing: '-0.8px' }}>
               {k ? fmtEur(k.collected) : '—'}
             </div>
-            <div style={{ height: 5, borderRadius: 3, background: 'var(--surface-2)', overflow: 'hidden', margin: '10px 0 6px' }}>
-              <div style={{ height: '100%', width: `${k?.collectedRate ?? 0}%`, background: 'var(--green)', borderRadius: 3 }} />
+            <div style={{ height: 5, borderRadius: 3, background: 'var(--surface-2)', overflow: 'hidden', margin: '12px 0 7px' }}>
+              {(k?.collectedRate ?? 0) > 0 && (
+                <div style={{ height: '100%', width: `${k?.collectedRate}%`, background: 'var(--green)', borderRadius: 3 }} />
+              )}
             </div>
             <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
               {k ? `${k.collectedRate} % de ${fmtEur(k.contracted)} contractés` : ''}
@@ -120,15 +135,15 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
       )}
 
       {/* ── Onglets ─────────────────────────────────────────────────────── */}
+      {/* Mobile : les trois onglets se partagent la largeur au lieu d'être
+          serrés à gauche — ça agrandit aussi les cibles tactiles. */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 18 }}>
-        <TabButton active={tab === 'deals'} onClick={() => setTab('deals')} label="Deals" />
-        <TabButton active={tab === 'reconcile'} onClick={() => setTab('reconcile')} label="À rattacher" count={orphanCount} alert />
-        <TabButton active={tab === 'relances'} onClick={() => setTab('relances')} label="Relances" count={relanceCount} />
+        <TabButton active={tab === 'deals'} onClick={() => setTab('deals')} label="Deals" grow={isMobile} />
+        <TabButton active={tab === 'reconcile'} onClick={() => setTab('reconcile')} label="À rattacher" count={orphanCount} alert grow={isMobile} />
+        <TabButton active={tab === 'relances'} onClick={() => setTab('relances')} label="Relances" count={relanceCount} grow={isMobile} />
       </div>
 
-      {isLoading ? (
-        <div style={{ padding: 60, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Chargement…</div>
-      ) : tab === 'deals' ? (
+      {tab === 'deals' ? (
         <>
           {/* Filtres masqués sans deal à filtrer : ils n'auraient aucun effet et
               encombreraient l'écran d'accueil d'un nouvel utilisateur. */}
@@ -175,6 +190,8 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
         <RelancesTab deals={deals} details={data?.details ?? {}} onChange={refetch} />
       )}
 
+      </>}
+
       {openDeal && data && (
         <DealPanel
           deal={deals.find(d => d.id === openDeal)!}
@@ -203,12 +220,86 @@ function Kpi({ label, value, sub, color }: { label: string; value: string; sub: 
   );
 }
 
-function TabButton({ active, onClick, label, count, alert }: {
+/**
+ * Squelette de chargement — reprend la structure exacte de la page (ruban de
+ * KPI, onglets, lignes) pour que le contenu se substitue à lui sans que la
+ * mise en page saute. Le shimmer `.skeleton-shimmer` est le même que sur les
+ * autres écrans de l'app.
+ */
+function PaymentsSkeleton({ isMobile }: { isMobile: boolean }) {
+  const bar = (w: number | string, h: number, extra?: React.CSSProperties) => (
+    <div className="skeleton-shimmer" style={{ width: w, height: h, borderRadius: 4, ...extra }} />
+  );
+
+  return (
+    <div aria-busy="true" aria-label="Chargement des paiements">
+      {isMobile ? (
+        <div style={{ marginBottom: 18 }}>
+          <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
+            {bar(110, 10, { marginBottom: 12 })}
+            {bar(150, 30, { borderRadius: 6 })}
+            {bar('100%', 5, { borderRadius: 3, margin: '14px 0 9px' })}
+            {bar(170, 10)}
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} className="card" style={{ padding: '12px 13px' }}>
+                {bar('70%', 9, { marginBottom: 9 })}
+                {bar('85%', 16, { borderRadius: 5 })}
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 20 }}>
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="card" style={{ padding: '16px 18px' }}>
+              {bar('65%', 10, { marginBottom: 11 })}
+              {bar('80%', 22, { borderRadius: 5, marginBottom: 9 })}
+              {bar('50%', 9)}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ display: 'flex', gap: isMobile ? 4 : 20, borderBottom: '1px solid var(--border)', marginBottom: 18, padding: '0 0 11px' }}>
+        {[70, 92, 78].map((w, i) => (
+          <div key={i} style={{ flex: isMobile ? 1 : undefined, display: 'flex', justifyContent: isMobile ? 'center' : undefined }}>
+            {bar(isMobile ? '70%' : w, 12)}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {[0, 1, 2, 3].map(i => (
+          <div key={i} className="card" style={{ padding: isMobile ? '14px 16px' : '15px 18px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 11 }}>
+              {bar(isMobile ? 32 : 30, isMobile ? 32 : 30, { borderRadius: '50%', flexShrink: 0 })}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                {bar(`${45 + ((i * 13) % 30)}%`, 12, { marginBottom: 6 })}
+                {bar(`${30 + ((i * 17) % 25)}%`, 9)}
+              </div>
+              {bar(72, 20, { borderRadius: 999, flexShrink: 0 })}
+            </div>
+            {bar('100%', 4, { borderRadius: 2 })}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TabButton({ active, onClick, label, count, alert, grow }: {
   active: boolean; onClick: () => void; label: string; count?: number; alert?: boolean;
+  /** Partage la largeur disponible à parts égales (mobile). */
+  grow?: boolean;
 }) {
   return (
     <button onClick={onClick} style={{
-      display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 15px', fontSize: 13,
+      flex: grow ? 1 : undefined,
+      justifyContent: grow ? 'center' : undefined,
+      display: 'inline-flex', alignItems: 'center', gap: 8,
+      padding: grow ? '10px 4px' : '10px 15px', fontSize: 13,
       marginBottom: -1, borderBottom: `2px solid ${active ? 'var(--accent-brand)' : 'transparent'}`,
       color: active ? 'var(--ink)' : 'var(--muted)', fontWeight: active ? 600 : 400,
       background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit',
