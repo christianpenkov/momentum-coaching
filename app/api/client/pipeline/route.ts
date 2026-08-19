@@ -26,7 +26,10 @@ export async function GET() {
   const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
   let callsQuery = supa.from('calls')
-    .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up, lead_rapport_comment')
+    // calendly_event_uuid + next_rescheduled_uri : servent à relier un call
+    // reprogrammé à celui qui le remplace, pour n'afficher qu'UNE carte par
+    // prospect (voir le chaînage dans PagePipeline).
+    .select('id, invitee_name, invitee_email, scheduled_at, booked_at, status, no_show, no_show_at, deal_closed, revenue, outcome, source, ig_lead_id, prospect_id, utm_content, utm_medium, utm_campaign, short_link_path, created_at, rescheduled, rescheduled_at, cancellation_reason, lead_deleted, is_follow_up, lead_rapport_comment, calendly_event_uuid, next_rescheduled_uri')
     .eq('coach_id', user.id)
     .eq('call_type', 'calendly')
     .neq('ignored', true)

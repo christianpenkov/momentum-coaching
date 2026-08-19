@@ -65,6 +65,14 @@ interface Call {
   created_at: string;
   rescheduled: boolean | null;
   rescheduled_at: string | null;
+  /** UUID Calendly de CE call — cible du next_rescheduled_uri du call précédent. */
+  calendly_event_uuid: string | null;
+  /**
+   * Renseigné quand ce call a été reprogrammé : contient l'URL de l'invitee du
+   * NOUVEAU call. Sert à chaîner les reprogrammations d'un même prospect pour
+   * n'afficher qu'une carte.
+   */
+  next_rescheduled_uri: string | null;
   cancellation_reason: string | null;
   lead_deleted: boolean;
   is_follow_up: boolean | null;
@@ -1445,18 +1453,67 @@ export default function PagePipeline() {
       return true;
     });
 
-    // Grouper par prospect_id quand disponible, sinon par call.id
+    // Chaîne des reprogrammations : quand un prospect déplace son rendez-vous,
+    // Calendly crée un NOUVEL événement (nouvel UUID) et annule l'ancien. Sans
+    // rattachement, les deux formaient deux cartes distinctes pour la même
+    // personne — constaté avec un prospect apparaissant deux fois dans le
+    // pipeline après un simple report.
+    //
+    // `next_rescheduled_uri` porte l'URL de l'invitee du call suivant, dont on
+    // extrait son UUID. On remonte ensuite chaque chaîne jusqu'à sa racine pour
+    // que tous les maillons partagent la même clé de groupe.
+    //
+    // prospect_id reste prioritaire quand il existe : c'est la fiche persistante,
+    // elle regroupe aussi les rebooks sans lien de reprogrammation.
+    const uuidToCallId = new Map<string, string>();
+    for (const call of nonIgCalls) {
+      if (call.calendly_event_uuid) uuidToCallId.set(call.calendly_event_uuid, call.id);
+    }
+    // callId -> callId du call qui le REMPLACE
+    const successorOf = new Map<string, string>();
+    for (const call of nonIgCalls) {
+      if (!call.next_rescheduled_uri) continue;
+      // .../scheduled_events/<uuid>/invitees/<uuid-invitee>
+      const nextUuid = call.next_rescheduled_uri.split('/scheduled_events/')[1]?.split('/')[0];
+      const nextCallId = nextUuid ? uuidToCallId.get(nextUuid) : undefined;
+      if (nextCallId && nextCallId !== call.id) successorOf.set(call.id, nextCallId);
+    }
+    // Racine de la chaîne : on suit les successeurs jusqu'au dernier call.
+    // `seen` protège d'une boucle si les données étaient incohérentes.
+    const chainRoot = (callId: string): string => {
+      const seen = new Set<string>([callId]);
+      let cur = callId;
+      for (;;) {
+        const next = successorOf.get(cur);
+        if (!next || seen.has(next)) return cur;
+        seen.add(next);
+        cur = next;
+      }
+    };
+
+    // Grouper par prospect_id quand disponible, sinon par racine de chaîne de
+    // reprogrammation (qui vaut call.id pour un call jamais reprogrammé).
     const prospectGroups = new Map<string, typeof nonIgCalls>();
     for (const call of nonIgCalls) {
-      const groupKey = call.prospect_id ?? call.id;
+      const groupKey = call.prospect_id ?? chainRoot(call.id);
       if (!prospectGroups.has(groupKey)) prospectGroups.set(groupKey, []);
       prospectGroups.get(groupKey)!.push(call);
     }
 
     for (const [prospectKey, calls] of prospectGroups) {
-      // Call le plus récent pour les infos affichées
-      const latestCall = calls.sort((a, b) =>
-        new Date(b.scheduled_at).getTime() - new Date(a.scheduled_at).getTime()
+      // Call à afficher : le dernier RÉSERVÉ (booked_at), pas celui dont la date
+      // est la plus tardive.
+      //
+      // Un report vers une date ANTÉRIEURE inverse les deux : le nouveau call a
+      // le booked_at le plus récent mais un scheduled_at plus ancien que celui
+      // qu'il remplace. Trier sur scheduled_at affichait alors l'ancien rendez-vous
+      // (annulé) à la place du nouveau — cas reproduit avec un report du 19/08
+      // 21:00 vers le 18/08 21:45.
+      //
+      // Repli sur scheduled_at quand booked_at manque (calls antérieurs au champ).
+      const latestCall = calls.slice().sort((a, b) =>
+        new Date(b.booked_at ?? b.scheduled_at).getTime()
+        - new Date(a.booked_at ?? a.scheduled_at).getTime()
       )[0];
 
       // Étape naturelle : la plus avancée parmi tous les calls du prospect

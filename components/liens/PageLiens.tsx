@@ -847,6 +847,12 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
     setDm2Saved(true);
     setButtonText(post.dmButtonText || '🚀 Je veux le lien !');
     setButtonSaved(true);
+    // Sans ça, les champs du DM2 gardaient les valeurs du post précédent en
+    // changeant de contenu.
+    setDmLinkMsg(post.dmLinkMessage || DM2_DEFAULT_MESSAGE);
+    setDmLinkBtn(post.dmLinkButtonText || DM2_DEFAULT_BUTTON);
+    setDmLinkSaved(true);
+    setDmLinkBtnSaved(true);
   }, [post.id]);
 
   if (isYT) return (
@@ -957,10 +963,14 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   const [buttonSaved, setButtonSaved] = useState(true);
   const [buttonSaving, setButtonSaving] = useState(false);
 
-  // DM2 — texte et libellé de bouton. Vides = les placeholders (identiques aux
-  // défauts appliqués par le webhook) montrent ce qui sera réellement envoyé.
-  const [dmLinkMsg, setDmLinkMsg] = useState(post.dmLinkMessage || '');
-  const [dmLinkBtn, setDmLinkBtn] = useState(post.dmLinkButtonText || '');
+  // DM2 — texte et libellé de bouton.
+  //
+  // Pré-remplis avec les valeurs par défaut (en noir, modifiables) plutôt que
+  // laissés vides : un champ vide n'aurait pas montré ce qui part réellement.
+  // Si on efface tout, le placeholder gris reprend la même valeur — on voit donc
+  // toujours ce qui sera envoyé, écrit en noir ou suggéré en gris.
+  const [dmLinkMsg, setDmLinkMsg] = useState(post.dmLinkMessage || DM2_DEFAULT_MESSAGE);
+  const [dmLinkBtn, setDmLinkBtn] = useState(post.dmLinkButtonText || DM2_DEFAULT_BUTTON);
   const [dmLinkSaved, setDmLinkSaved] = useState(true);
   const [dmLinkBtnSaved, setDmLinkBtnSaved] = useState(true);
   const [dmLinkSaving, setDmLinkSaving] = useState(false);
