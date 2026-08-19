@@ -8,86 +8,14 @@ import { createClient } from '@/lib/supabase/client';
 import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
 import type { Integration, Provider } from '@/lib/supabase/types';
-import type { IntegrationMode } from '@/lib/onboarding/integrationConfig';
+import { COACH_WIZARD_INTEGRATIONS } from '@/lib/onboarding/integrationConfig';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
 
-const INTEGRATION_CONFIG: {
-  provider: Provider;
-  name: string;
-  icon: string;
-  desc: string;
-  mode: IntegrationMode;
-  placeholder?: string;
-  oauthPath?: string;
-}[] = [
-  // Masqué : assistant IA non utilisé dans la plateforme pour l'instant. Ne pas supprimer.
-  // {
-  //   provider: 'anthropic',
-  //   name: 'Claude IA',
-  //   icon: 'sparkle',
-  //   desc: "Clé API Anthropic pour l'assistant IA intégré",
-  //   mode: 'apikey',
-  //   placeholder: 'sk-ant-api03-...',
-  // },
-  {
-    provider: 'stripe',
-    name: 'Stripe',
-    icon: 'stripe',
-    desc: 'Paiements encaissés rattachés automatiquement à leurs deals',
-    mode: 'both',
-    oauthPath: '/api/oauth/stripe',
-    placeholder: 'rk_live_... ou sk_live_...',
-  },
-  {
-    provider: 'calendly',
-    name: 'Calendly',
-    icon: 'calendar',
-    desc: 'Calls synchronisés, rappels automatiques',
-    mode: 'oauth',
-    oauthPath: '/api/oauth/calendly',
-  },
-  {
-    provider: 'instagram',
-    name: 'Instagram',
-    icon: 'instagram',
-    desc: 'Followers, engagement, métriques IG — connexion sécurisée via Facebook',
-    mode: 'oauth',
-    oauthPath: '/api/oauth/instagram',
-  },
-  {
-    provider: 'youtube',
-    name: 'YouTube',
-    icon: 'youtube',
-    desc: 'Abonnés, vues, analytics — connexion sécurisée via Google',
-    mode: 'oauth',
-    oauthPath: '/api/oauth/youtube',
-  },
-  {
-    provider: 'google',
-    name: 'Google Calendar',
-    icon: 'calendar',
-    desc: 'Créer des calls Google Meet directement depuis Momentum',
-    mode: 'oauth',
-    oauthPath: '/api/oauth/google',
-  },
-  {
-    provider: 'fathom',
-    name: 'Fathom',
-    icon: 'video',
-    desc: 'Enregistrement, résumé et transcript de tes appels, automatiquement',
-    mode: 'oauth',
-    oauthPath: '/api/oauth/fathom',
-  },
-  {
-    provider: 'shortio',
-    name: 'Short.io',
-    icon: 'link',
-    desc: 'CTR lien en bio',
-    mode: 'apikey',
-    placeholder: 'Clé API Short.io',
-  },
-];
+// Source unique des libellés, partagée avec le wizard d'onboarding et la page
+// Réglages élève (lib/onboarding/integrationConfig.ts). Le bloc 'anthropic'
+// masqué « ne pas supprimer » y a été reporté en commentaire.
+const INTEGRATION_CONFIG = COACH_WIZARD_INTEGRATIONS;
 
 // Points de chargement — remplace le bouton "Connecter" / statut le temps de savoir
 // si l'intégration est déjà connectée, pour ne pas afficher "Connecter" à tort.
@@ -272,7 +200,7 @@ export default function PageSettings() {
     <div className="page-content">
       {/* Toast */}
       {toast && (
-        <div style={{
+        <div className="settings-toast" style={{
           position: 'fixed', top: 24, right: 24, zIndex: 9999,
           background: toast.error ? '#fef2f2' : '#f0fdf4',
           border: `1px solid ${toast.error ? '#fca5a5' : '#86efac'}`,
@@ -327,7 +255,7 @@ export default function PageSettings() {
               <span style={{ fontSize: 11 }}>Visible par ton élève dans la messagerie</span>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="settings-profile-grid" style={{ display: 'grid', gap: 16 }}>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>Nom</label>
               <input value={coachName} onChange={e => setCoachName(e.target.value)}
@@ -364,14 +292,24 @@ export default function PageSettings() {
               }}>
                 <div className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
                   <Icon name={cfg.icon as any} size={20} color={integ ? 'var(--green)' : 'var(--muted)'} />
-                  <div style={{ flex: 1, minWidth: 140 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <div className="settings-row-main" style={{ flex: 1, minWidth: 140 }}>
+                    <div className="settings-row-head" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                       <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</span>
                       {cfg.mode !== 'apikey' && (
-                        <span style={{ fontSize: 10, padding: '2px 7px', background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 20, fontWeight: 600 }}>OAuth</span>
+                        <span style={{ fontSize: 10, padding: '2px 7px', background: 'var(--accent-soft)', color: 'var(--accent)', borderRadius: 20, fontWeight: 600, flexShrink: 0 }}>OAuth</span>
+                      )}
+                      {/* Statut remonté près du nom sur mobile (voir .settings-row-status
+                          dans globals.css) : c'est l'info qu'on vient chercher, elle ne
+                          doit pas être noyée dans la rangée de boutons après le wrap. */}
+                      {!integrationsLoading && integ && (
+                        cfg.provider === 'shortio' && !(integ.metadata as any)?.domain_id ? (
+                          <span className="pill settings-row-status" style={{ fontSize: 11, flexShrink: 0, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
+                        ) : (
+                          <span className="pill pill-green settings-row-status" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
+                        )
                       )}
                     </div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc}</div>
+                    <div className="settings-row-desc" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc}</div>
                     {integ?.account_label && (
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integ.account_label}</div>
                     )}
@@ -387,10 +325,13 @@ export default function PageSettings() {
                     <LoadingDots />
                   ) : integ ? (
                     <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {/* Doublon volontaire du statut affiché près du nom : celui-ci
+                          sert sur desktop, l'autre sur mobile. Un seul des deux est
+                          visible à la fois (.settings-row-status* dans globals.css). */}
                       {cfg.provider === 'shortio' && !(integ.metadata as any)?.domain_id ? (
-                        <span className="pill" style={{ fontSize: 11, flexShrink: 0, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
+                        <span className="pill settings-row-status-inline" style={{ fontSize: 11, flexShrink: 0, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
                       ) : (
-                        <span className="pill pill-green" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
+                        <span className="pill pill-green settings-row-status-inline" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
                       )}
                       {cfg.mode !== 'apikey' && (
                         <a href={cfg.oauthPath} className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>
@@ -497,7 +438,7 @@ export default function PageSettings() {
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                       Clé API {cfg.name}
                     </label>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div className="settings-key-form" style={{ display: 'flex', gap: 8 }}>
                       <input
                         type="password"
                         value={keyInput}
@@ -531,7 +472,7 @@ export default function PageSettings() {
 
       {/* Déconnexion */}
       <div className="settings-section" style={{ marginTop: 28 }}>
-        <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card settings-logout-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Se déconnecter</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Fermer la session sur cet appareil</div>
@@ -544,13 +485,11 @@ export default function PageSettings() {
             window.location.href = '/login';
           }}>
             Se déconnecter
-            <div className="icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </div>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
           </button>
         </div>
       </div>

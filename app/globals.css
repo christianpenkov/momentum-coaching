@@ -1121,6 +1121,16 @@ a { color: inherit; text-decoration: none; }
 .settings-row .sr-desc { font-size: 11px; color: var(--muted); margin-top: 2px; }
 .settings-row .sr-action { flex-shrink: 0; }
 
+/* Grille du bloc Profil (Réglages coach + élève). La valeur vivait en style
+   inline dans les deux pages, donc hors de portée des media queries : les deux
+   champs restaient à ~155px chacun sur 375px. */
+.settings-profile-grid { grid-template-columns: 1fr 1fr; }
+
+/* Statut d'intégration ("Connecté" / "Configuration requise") affiché à côté du
+   nom. Sur desktop il reste dans la rangée d'actions, à droite — d'où le
+   display:none ici, levé dans le bloc mobile. */
+.settings-row-status { display: none; }
+
 /* Connection badge */
 .connect-badge {
   display: inline-flex; align-items: center; gap: 6px;
@@ -1892,54 +1902,45 @@ a { color: inherit; text-decoration: none; }
 .icon-btn:hover { background: var(--surface-2); color: var(--ink); }
 
 /* Logout button — adapté de Uiverse.io by adamgiebl, couleurs alignées sur la charte (--red) */
+/* Bouton de déconnexion — contour au repos, rouge plein au survol. L'action est
+   destructive : le contour évite qu'elle pèse visuellement plus lourd que le
+   reste de la page au repos, le remplissage confirme l'intention au survol.
+   Dimensions en px (et non en em) pour garantir la cible tactile de 44px :
+   l'ancienne hauteur de 2.6em à 13px ne faisait que 34px. */
 .logout-button {
-  background: var(--red);
-  color: white;
+  background: transparent;
+  color: var(--red);
   font-family: inherit;
-  padding: 0.35em;
-  padding-left: 1.2em;
   font-size: 13px;
   font-weight: 600;
-  border-radius: 0.9em;
-  border: none;
   letter-spacing: 0.02em;
-  display: flex;
-  align-items: center;
-  box-shadow: inset 0 0 1.6em -0.6em #8a3f2b;
-  overflow: hidden;
-  position: relative;
-  height: 2.6em;
-  padding-right: 3.1em;
-  cursor: pointer;
-  transition: background 120ms;
-}
-.logout-button .icon {
-  background: white;
-  margin-left: 1em;
-  position: absolute;
-  display: flex;
+  padding: 10px 18px;
+  min-height: 44px;
+  border: 1.5px solid var(--red);
+  border-radius: var(--r-lg);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 2em;
-  width: 2em;
-  border-radius: 0.7em;
-  box-shadow: 0.1em 0.1em 0.6em 0.2em var(--red-soft);
-  right: 0.3em;
-  transition: all 0.3s;
+  gap: 8px;
+  cursor: pointer;
+  transition: background var(--dur-quick) var(--ease-out),
+              color var(--dur-quick) var(--ease-out);
 }
-.logout-button .icon svg {
-  width: 1.05em;
-  transition: transform 0.3s;
-  color: var(--red);
+.logout-button svg {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
 }
-.logout-button:hover .icon {
-  width: calc(100% - 0.6em);
+.logout-button:hover {
+  background: var(--red);
+  color: #fff;
 }
-.logout-button:hover .icon svg {
-  transform: translateX(0.1em);
+.logout-button:active {
+  transform: scale(0.98);
 }
-.logout-button:active .icon {
-  transform: scale(0.95);
+@media (prefers-reduced-motion: reduce) {
+  .logout-button { transition: none; }
+  .logout-button:active { transform: none; }
 }
 
 /* Verrouillage orientation portrait — voir components/OrientationLockOverlay.tsx.
@@ -2381,13 +2382,55 @@ a { color: inherit; text-decoration: none; }
   }
 
   /* Réglages — ligne d'intégration : badge + boutons passent sous le nom/description
-     au lieu de déborder hors écran (ex: "Déconnecter" coupé à droite). */
+     au lieu de déborder hors écran (ex: "Déconnecter" coupé à droite).
+     S'applique aux DEUX pages Réglages (coach et élève). */
   .settings-row {
     flex-wrap: wrap;
+    padding-top: 18px !important;
+    padding-bottom: 18px !important;
+    row-gap: 12px;
   }
   .settings-row-actions {
     width: 100%;
     justify-content: flex-start !important;
+    row-gap: 8px;
+  }
+
+  /* Le statut passe à côté du nom et quitte la rangée d'actions : c'est
+     l'information qu'on vient chercher, elle ne doit pas être noyée au milieu
+     des boutons une fois ceux-ci repliés sur une deuxième ligne. */
+  .settings-row-status { display: inline-flex; }
+  .settings-row-status-inline { display: none; }
+
+  /* Le nom peut être long (Google Calendar) et le statut ne doit jamais être
+     poussé hors écran : la ligne d'en-tête se replie plutôt que de déborder. */
+  .settings-row-head { flex-wrap: wrap; row-gap: 4px; }
+
+  /* Évite les lignes à un seul mot après le repli. */
+  .settings-row-desc { line-height: 1.45; }
+
+  /* Profil — les deux champs (Nom, Email) passent l'un sous l'autre : à 375px
+     ils tombaient à ~155px chacun, largeur où le texte saisi devient illisible. */
+  .settings-profile-grid { grid-template-columns: 1fr; }
+
+  /* Formulaire de clé API : input pleine largeur, boutons sous lui. En flex
+     rigide l'input tombait à ~130px une fois "Connecter" et "Annuler" posés. */
+  .settings-key-form { flex-wrap: wrap; }
+  .settings-key-form input { flex: 1 1 100%; min-width: 0; }
+
+  /* Déconnexion : le bouton passe sous le texte, pleine largeur. */
+  .settings-logout-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .settings-logout-row .logout-button { width: 100%; }
+
+  /* Toast : sans left ni max-width, un message long (« Erreur upload photo : … »)
+     débordait par la gauche de l'écran. */
+  .settings-toast {
+    left: 14px;
+    right: 14px !important;
+    max-width: none;
   }
 
   /* KpiRibbon — le style inline gridTemplateColumns (columns=4 passé par PageToday.tsx)

@@ -28,6 +28,32 @@ export interface IntegrationDef {
 
 // Base commune — champs partagés entre coach et élève. Les deux exports dérivés
 // ci-dessous filtrent/adaptent cette liste plutôt que de dupliquer chaque provider.
+//
+// Source unique des libellés : les pages Réglages (coach et élève) ET le wizard
+// d'onboarding lisent tous ce fichier. Un même provider doit afficher le même
+// texte partout — avant, chaque page Réglages avait sa propre copie et l'élève
+// lisait un texte à l'onboarding, un autre dans ses Réglages.
+//
+// Registre des `desc` : bénéfice sec, pas d'impératif. Éviter « Connecte X
+// pour… » : le bouton juste à côté dit déjà « Connecter », le verbe est redondant
+// et la phrase mange deux lignes sur mobile là où le bénéfice tient en une.
+//
+// Masqué : assistant IA non utilisé dans la plateforme pour l'instant. Ne pas
+// supprimer — à réactiver dans COACH_WIZARD_INTEGRATIONS le jour où l'assistant sert.
+// {
+//   provider: 'anthropic',
+//   name: 'Claude IA',
+//   icon: 'sparkle',
+//   desc: "Clé API Anthropic pour l'assistant IA intégré",
+//   mode: 'apikey',
+//   placeholder: 'sk-ant-...',
+//   wizardCopy: '…',
+//   instructions: [
+//     { text: 'Ouvre →', href: 'https://console.anthropic.com/settings/keys', hrefLabel: 'console.anthropic.com/settings/keys' },
+//     { text: 'Clique Create Key → copie la clé (sk-ant-...)' },
+//     { text: 'Colle-la ci-dessous' },
+//   ],
+// },
 const BASE_INTEGRATIONS: IntegrationDef[] = [
   {
     provider: 'calendly',
@@ -61,7 +87,7 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     provider: 'instagram',
     name: 'Instagram',
     icon: 'instagram',
-    desc: 'Followers, engagement, métriques IG — connexion sécurisée via Facebook',
+    desc: 'Followers, engagement, métriques IG — connexion sécurisée',
     mode: 'oauth',
     oauthPath: '/api/oauth/instagram',
     wizardCopy: 'Suis tes followers et ton engagement directement depuis Momentum.',
@@ -73,7 +99,7 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     provider: 'youtube',
     name: 'YouTube',
     icon: 'youtube',
-    desc: 'Abonnés, vues, analytics — connexion sécurisée via Google',
+    desc: 'Abonnés, vues, watch time — connexion sécurisée via Google',
     mode: 'oauth',
     oauthPath: '/api/oauth/youtube',
     wizardCopy: 'Suis tes vues et abonnés directement depuis Momentum.',
@@ -85,7 +111,7 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     provider: 'google',
     name: 'Google Calendar',
     icon: 'calendar',
-    desc: 'Créer des calls Google Meet directement depuis Momentum',
+    desc: 'Créer des calls Google Meet depuis Momentum',
     mode: 'oauth',
     oauthPath: '/api/oauth/google',
     wizardCopy: 'Crée des calls Google Meet et reçois tes invitations directement dans ton calendrier.',
@@ -97,7 +123,7 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     provider: 'shortio',
     name: 'Short.io',
     icon: 'link',
-    desc: 'CTR lien en bio',
+    desc: 'Tracking des clics de tous tes liens courts : bio, DMs, stories, description, lead magnet',
     mode: 'apikey',
     placeholder: 'Clé API Short.io',
     wizardCopy: 'Suis le CTR de ton lien en bio et de tous tes liens courts en temps réel.',
@@ -129,10 +155,12 @@ function findBase(provider: Provider): IntegrationDef {
   return def;
 }
 
-// Ordre et sélection par rôle pour le wizard — priorité à la valeur perçue immédiate.
+// Ordre et sélection par rôle — priorité à la valeur perçue immédiate. Sert au
+// wizard d'onboarding ET à la page Réglages : l'ordre ci-dessous est celui qui
+// s'affiche dans les deux.
 export const COACH_WIZARD_INTEGRATIONS: IntegrationDef[] = [
-  findBase('calendly'),
   findBase('stripe'),
+  findBase('calendly'),
   findBase('instagram'),
   findBase('youtube'),
   findBase('google'),
@@ -140,12 +168,16 @@ export const COACH_WIZARD_INTEGRATIONS: IntegrationDef[] = [
   findBase('shortio'),
 ];
 
+// Seuls `google` et `stripe` gardent un override : la valeur diffère réellement
+// pour l'élève (il *reçoit* les invitations là où le coach les *crée* ; ses
+// paiements sont les siens, pas ceux qu'il encaisse de tiers). Les 5 autres
+// providers lisent le texte commun — même libellé pour le coach et pour l'élève.
 export const CLIENT_WIZARD_INTEGRATIONS: IntegrationDef[] = [
-  { ...findBase('google'), desc: 'Reçois les invitations de call de ton coach directement dans Google Calendar + rappels push' },
+  { ...findBase('google'), desc: 'Les calls de ton coach dans ton agenda, avec rappels' },
+  { ...findBase('stripe'), desc: 'Tes paiements rattachés à leurs deals, MRR et abonnements' },
   findBase('calendly'),
   findBase('instagram'),
   findBase('youtube'),
-  { ...findBase('stripe'), desc: 'Tes paiements rattachés à tes deals, ton MRR et tes abonnements', wizardCopy: 'Chaque euro encaissé remonte tout seul, rattaché à son deal et au contenu qui l\'a produit.' },
   findBase('fathom'),
   findBase('shortio'),
 ];

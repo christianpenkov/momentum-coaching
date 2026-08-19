@@ -8,73 +8,18 @@ import { cropImageToSquare } from '@/lib/cropImageToSquare';
 import { useUser } from '@/lib/UserContext';
 import LegalFooter from '@/components/ui/LegalFooter';
 import ShortioDomainPicker from '@/components/settings/ShortioDomainPicker';
+import type { Provider } from '@/lib/supabase/types';
+import { CLIENT_WIZARD_INTEGRATIONS } from '@/lib/onboarding/integrationConfig';
 
-type Provider = 'stripe' | 'instagram' | 'youtube' | 'calendly' | 'shortio' | 'google' | 'fathom';
-
-// apiKeyFallback : le provider est en OAuth, mais la saisie d'une clé reste offerte
-// en repli (cf. mode 'both' de lib/onboarding/integrationConfig.ts). Stripe en a besoin —
-// OAuth Connect ne peut pas atteindre un compte déjà relié à une autre plateforme.
-const INTEGRATIONS: { provider: Provider; name: string; icon: string; desc: string; placeholder: string; oauth?: boolean; oauthPath?: string; apiKeyFallback?: boolean }[] = [
-  {
-    provider: 'google',
-    name: 'Google Calendar',
-    icon: 'calendar',
-    desc: 'Reçois les invitations de call de ton coach directement dans Google Calendar + rappels push',
-    placeholder: '',
-    oauth: true,
-    oauthPath: '/api/oauth/google',
-  },
-  {
-    provider: 'stripe',
-    name: 'Stripe',
-    icon: 'dollar-sign',
-    desc: 'Tes paiements rattachés à tes deals, ton MRR et tes abonnements',
-    placeholder: 'rk_live_... ou sk_live_...',
-    oauth: true,
-    oauthPath: '/api/oauth/stripe',
-    apiKeyFallback: true,
-  },
-  {
-    provider: 'calendly',
-    name: 'Calendly',
-    icon: 'calendar',
-    desc: 'Connecte ton Calendly pour voir tes calls en temps réel et recevoir les rappels',
-    placeholder: '',
-    oauth: true,
-  },
-  {
-    provider: 'instagram',
-    name: 'Instagram',
-    icon: 'instagram',
-    desc: 'Connecte ton compte Instagram Business pour tes stats de followers et d\'engagement',
-    placeholder: '',
-    oauth: true,
-  },
-  {
-    provider: 'youtube',
-    name: 'YouTube',
-    icon: 'youtube',
-    desc: 'Connecte ta chaîne YouTube pour voir tes stats (vues, abonnés, watch time)',
-    placeholder: '',
-    oauth: true,
-  },
-  {
-    provider: 'fathom',
-    name: 'Fathom',
-    icon: 'video',
-    desc: 'Enregistrement, résumé et transcript de tes appels, automatiquement',
-    placeholder: '',
-    oauth: true,
-    oauthPath: '/api/oauth/fathom',
-  },
-  {
-    provider: 'shortio',
-    name: 'Short.io',
-    icon: 'link',
-    desc: 'Connecte Short.io pour tracker les clics sur tous tes liens courts (bio, DMs, stories…)',
-    placeholder: 'Clé API Short.io',
-  },
-];
+// Source unique des libellés, partagée avec le wizard d'onboarding et la page
+// Réglages coach (lib/onboarding/integrationConfig.ts). Avant, cette page avait
+// sa propre copie des textes : l'élève lisait un libellé à l'onboarding et un
+// autre dans ses Réglages pour la même intégration.
+//
+// mode : 'oauth' (OAuth seul) | 'apikey' (clé seule) | 'both' (OAuth + clé en
+// repli). Stripe est en 'both' — OAuth Connect ne peut pas atteindre un compte
+// déjà relié à une autre plateforme (Kajabi, Systeme.io…).
+const INTEGRATIONS = CLIENT_WIZARD_INTEGRATIONS;
 
 // Points de chargement — remplace le bouton "Connecter" / statut le temps de savoir
 // si l'intégration est déjà connectée, pour ne pas afficher "Connecter" à tort.
@@ -97,7 +42,9 @@ export default function PageClientSettings() {
   const [profileId, setProfileId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
-  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false, fathom: false });
+  // Cast partiel : Provider (lib/supabase/types) couvre aussi 'anthropic' et
+  // 'stripe_webhook', absents de cette page. Même pattern que la page coach.
+  const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false, fathom: false } as Record<Provider, boolean>);
   const [integrationLabels, setIntegrationLabels] = useState<Partial<Record<Provider, string>>>({});
   const [shortioMeta, setShortioMeta] = useState<{ domain: string | null; domain_id: number | string | null; all_domains: { id: number | string; hostname: string }[] } | null>(null);
   const [domainPickerOpen, setDomainPickerOpen] = useState(false);
@@ -178,7 +125,7 @@ export default function PageClientSettings() {
     // Poser une clé sur un provider à repli (Stripe) remplace une éventuelle connexion
     // OAuth : on efface le token, sinon deux identifiants concurrents cohabitent et
     // l'appelant ne sait plus lequel fait foi. Symétrique du callback OAuth.
-    const clearOauth = INTEGRATIONS.find(i => i.provider === provider)?.apiKeyFallback
+    const clearOauth = INTEGRATIONS.find(i => i.provider === provider)?.mode === 'both'
       ? { access_token: null, refresh_token: null } : {};
 
     const { data: existing } = await supabase.from('integrations').select('id, first_connected_at').eq('profile_id', profileId).eq('provider', provider).single();
@@ -274,7 +221,7 @@ export default function PageClientSettings() {
   return (
     <div className="page-content">
       {toast && (
-        <div style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 18px', fontSize: 13, color: 'var(--accent)', boxShadow: 'var(--shadow-elev)', display: 'flex', alignItems: 'center', gap: 8 }}>
+        <div className="settings-toast" style={{ position: 'fixed', top: 20, right: 20, zIndex: 9999, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, padding: '12px 18px', fontSize: 13, color: 'var(--accent)', boxShadow: 'var(--shadow-elev)', display: 'flex', alignItems: 'center', gap: 8 }}>
           <Icon name="check" size={14} /> {toast}
         </div>
       )}
@@ -319,7 +266,7 @@ export default function PageClientSettings() {
               <span style={{ fontSize: 11 }}>Visible par {coachName || 'ton coach'} dans la messagerie</span>
             </div>
           </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+          <div className="settings-profile-grid" style={{ display: 'grid', gap: 16 }}>
             <div>
               <label style={{ fontSize: 12, color: 'var(--muted)', display: 'block', marginBottom: 6, fontWeight: 500 }}>Prénom & Nom</label>
               <input style={inputStyle} value={name} onChange={e => setName(e.target.value)} placeholder="Ton nom" />
@@ -347,11 +294,23 @@ export default function PageClientSettings() {
             const isEditing = editing === cfg.provider;
             return (
               <div key={cfg.provider} style={{ borderBottom: i < INTEGRATIONS.length - 1 ? '1px solid var(--border)' : 'none' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
+                <div className="settings-row" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '16px 20px' }}>
                   <Icon name={cfg.icon as any} size={20} color={connected ? 'var(--green)' : 'var(--muted)'} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</div>
-                    <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc.replace('ton coach', coachName || 'ton coach')}</div>
+                  <div className="settings-row-main" style={{ flex: 1, minWidth: 140 }}>
+                    <div className="settings-row-head" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>{cfg.name}</span>
+                      {/* Statut remonté près du nom sur mobile (voir .settings-row-status
+                          dans globals.css) : c'est l'info qu'on vient chercher, elle ne
+                          doit pas être noyée dans la rangée de boutons après le wrap. */}
+                      {!integrationsLoading && connected && (
+                        cfg.provider === 'shortio' && !shortioMeta?.domain_id ? (
+                          <span className="pill settings-row-status" style={{ fontSize: 11, flexShrink: 0, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
+                        ) : (
+                          <span className="pill pill-green settings-row-status" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
+                        )
+                      )}
+                    </div>
+                    <div className="settings-row-desc" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>{cfg.desc}</div>
                     {integrationLabels[cfg.provider] && (
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integrationLabels[cfg.provider]}</div>
                     )}
@@ -365,33 +324,42 @@ export default function PageClientSettings() {
                   {integrationsLoading ? (
                     <LoadingDots />
                   ) : connected ? (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                      {/* Doublon volontaire du statut affiché près du nom : celui-ci
+                          sert sur desktop, l'autre sur mobile. Un seul des deux est
+                          visible à la fois (.settings-row-status* dans globals.css). */}
                       {cfg.provider === 'shortio' && !shortioMeta?.domain_id ? (
-                        <span className="pill" style={{ fontSize: 11, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
+                        <span className="pill settings-row-status-inline" style={{ fontSize: 11, flexShrink: 0, background: 'var(--surface-2)', color: 'var(--muted)' }}>Configuration requise</span>
                       ) : (
-                        <span className="pill pill-green" style={{ fontSize: 11 }}>Connecté</span>
+                        <span className="pill pill-green settings-row-status-inline" style={{ fontSize: 11, flexShrink: 0 }}>Connecté</span>
                       )}
                       {cfg.provider === 'shortio' && (
-                        <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => setDomainPickerOpen(true)}>
+                        <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => setDomainPickerOpen(true)}>
                           {shortioMeta?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
                         </button>
                       )}
-                      {(!cfg.oauth || cfg.apiKeyFallback) && <button className="btn-ghost" style={{ fontSize: 12 }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>{cfg.apiKeyFallback ? 'Utiliser une clé' : 'Modifier'}</button>}
-                      {cfg.oauth && <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-ghost" style={{ fontSize: 12 }}>Reconnecter</a>}
+                      {cfg.mode !== 'oauth' && (
+                        <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                          {cfg.mode === 'both' ? 'Utiliser une clé' : 'Modifier'}
+                        </button>
+                      )}
+                      {cfg.mode !== 'apikey' && (
+                        <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }}>Reconnecter</a>
+                      )}
                       {cfg.provider === 'calendly' && (
-                        <button className="btn-ghost" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 5 }} type="button" onClick={syncCalendly} disabled={syncing}>
+                        <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 5 }} type="button" onClick={syncCalendly} disabled={syncing}>
                           <Icon name="refresh-cw" size={12} /> {syncing ? 'Sync…' : 'Sync calls'}
                         </button>
                       )}
-                      <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
+                      <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
                     </div>
-                  ) : cfg.oauth ? (
-                    <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                  ) : cfg.mode !== 'apikey' ? (
+                    <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                       <a href={cfg.oauthPath || `/api/oauth/${cfg.provider}`} className="btn-primary-brand" style={{ fontSize: 12, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
                         <Icon name="link" size={13} /> Connecter
                       </a>
-                      {cfg.apiKeyFallback && (
-                        <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', whiteSpace: 'nowrap', padding: '6px 4px', textDecoration: 'underline' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                      {cfg.mode === 'both' && (
+                        <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px', textDecoration: 'underline' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                           ou une clé
                         </button>
                       )}
@@ -410,7 +378,9 @@ export default function PageClientSettings() {
                   </div>
                 )}
 
-                {isEditing && (
+                {/* mode !== 'oauth' : un provider OAuth pur n'a pas de champ clé
+                    à proposer. Garde identique à la page coach. */}
+                {isEditing && cfg.mode !== 'oauth' && (
                   <div style={{ padding: '0 20px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>
                     {/* Instructions par provider */}
                     {cfg.provider === 'stripe' && (
@@ -469,7 +439,7 @@ export default function PageClientSettings() {
                     <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--muted)', display: 'block', marginBottom: 6 }}>
                       {cfg.provider === 'stripe' ? 'Clé secrète Stripe' : `Clé API ${cfg.name}`}
                     </label>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div className="settings-key-form" style={{ display: 'flex', gap: 8 }}>
                       <input
                         type="password"
                         value={keyInput}
@@ -501,7 +471,7 @@ export default function PageClientSettings() {
 
       {/* Déconnexion */}
       <div className="settings-section" style={{ marginTop: 28 }}>
-        <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="card settings-logout-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <div>
             <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--accent)' }}>Se déconnecter</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Fermer la session sur cet appareil</div>
@@ -514,13 +484,11 @@ export default function PageClientSettings() {
             window.location.href = '/login';
           }}>
             Se déconnecter
-            <div className="icon">
-              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
-                <polyline points="16 17 21 12 16 7" />
-                <line x1="21" y1="12" x2="9" y2="12" />
-              </svg>
-            </div>
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+              <polyline points="16 17 21 12 16 7" />
+              <line x1="21" y1="12" x2="9" y2="12" />
+            </svg>
           </button>
         </div>
       </div>
