@@ -459,7 +459,7 @@ export default function PageToday() {
                       l'autre au lieu de les faire disparaître/réapparaître.
                       L'objet persiste à travers la navigation, ce qui dit
                       « c'est le même élève, on entre dans sa fiche ». */}
-                  <ViewTransition name={`client-avatar-${client.id}`}>
+                  <ViewTransition name={`client-avatar-${client.id}`} share="avatar-morph">
                     {/* <span> intermédiaire : ViewTransition doit s'appliquer à un
                         élément DOM réel. Avant, il enveloppait directement <Avatar>,
                         un composant qui ne transmet pas de ref — React ne pouvait

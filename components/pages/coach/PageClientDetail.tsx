@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import InlineLoader from '@/components/ui/InlineLoader';
+import { Skeleton } from '@/components/ui/Skeleton';
 import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon, { type IconName } from '@/components/ui/Icon';
@@ -495,8 +496,30 @@ export default function PageClientDetail({ id }: Props) {
   const kpiLoading = igLoading || ytLoading || storiesLoading || igLeadsLoading || stripeLoading
     || callsLoading || salesCallsLoading;
 
+  // Squelette et non loader centré : la fiche doit rendre son en-tête TOUT DE
+  // SUITE pour que le morph de l'avatar ait une cible. Avec un loader plein
+  // écran, React attendait la fin du chargement avant de lancer l'animation,
+  // d'où le décalage entre le tap et le mouvement.
   if (!client && clientLoading) return (
-    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>
+    <div className="page-content">
+      <div className="page-header">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Skeleton width={48} height={48} radius={24} />
+          <div>
+            <Skeleton width={170} height={22} />
+            <Skeleton width={120} height={12} style={{ marginTop: 8 }} />
+          </div>
+        </div>
+      </div>
+      <div className="grid-4" style={{ marginTop: 24 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card" style={{ padding: '16px 20px' }}>
+            <Skeleton width="70%" height={11} />
+            <Skeleton width="45%" height={22} style={{ marginTop: 10 }} />
+          </div>
+        ))}
+      </div>
+    </div>
   );
 
   if (!client) return (
@@ -644,7 +667,7 @@ export default function PageClientDetail({ id }: Props) {
           {/* Même `name` que l'avatar de la liste (PageToday) : l'élément
               grandit et se déplace de la carte vers cet en-tête au lieu de
               disparaître puis réapparaître. Voir globals.css pour la durée. */}
-          <ViewTransition name={`client-avatar-${client.id}`}>
+          <ViewTransition name={`client-avatar-${client.id}`} share="avatar-morph">
             {/* Voir PageToday : ViewTransition a besoin d'un élément DOM réel. */}
             <span style={{ display: 'flex', flexShrink: 0 }}>
               <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={48} seed={client.id} />
