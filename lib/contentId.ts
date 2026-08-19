@@ -58,6 +58,34 @@ export function resolveUtmContent(
  * à trancher. Sinon on renvoie undefined — mieux vaut pas de source qu'une
  * source fausse, même règle que pour utm_content.
  */
+/**
+ * Canaux valides pour `utm_medium` — nomenclature fermée (docs/utm-nomenclature.md).
+ *
+ * Contrairement à utm_campaign, dont les valeurs sont libres par conception
+ * (`lm-{keyword}`, `lead-{ig_user_id}`, `prospect-{slug}`…), utm_medium n'a que
+ * quatre valeurs possibles. C'est donc le seul des deux qui puisse être validé.
+ */
+const VALID_UTM_MEDIUMS = ['bio', 'description', 'dm', 'story'] as const;
+
+/**
+ * Valide `utm_medium` avant écriture.
+ *
+ * Même règle que resolveUtmContent et resolveCallSource : une valeur externe non
+ * conforme n'est jamais recopiée. Retourne `undefined` quand il ne faut rien
+ * écrire — l'appelant omet alors la clé, il ne pose surtout pas null (ce qui
+ * écraserait une valeur correcte).
+ *
+ * Aucune anomalie constatée sur ce champ à ce jour : la garde est préventive.
+ * Les données étaient propres par chance, pas par conception — exactement la
+ * situation d'utm_content avant que la migration du 2026-08-19 ne la révèle.
+ */
+export function resolveUtmMedium(
+  incoming: string | null | undefined,
+): string | undefined {
+  if (!incoming) return undefined;
+  return (VALID_UTM_MEDIUMS as readonly string[]).includes(incoming) ? incoming : undefined;
+}
+
 export function resolveCallSource(
   utmSource: string | null | undefined,
   utmMedium: string | null | undefined,

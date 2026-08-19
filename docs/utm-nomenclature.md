@@ -184,3 +184,92 @@ Calendly, une synchronisation pourrait les recréer — ils reviendraient alors 
 
 Si LinkedIn devient un canal réel, il suffira d'ajouter `linkedin` aux plateformes
 reconnues dans la vue `utm_anomalies` et dans ce document.
+
+---
+
+## La règle : une valeur externe non conforme n'est jamais écrite
+
+**Champ vide plutôt que champ faux.** Un champ vide est honnête — on sait qu'on ne
+sait pas. Un champ faux ment, et pollue l'attribution sans qu'aucune alerte ne se
+déclenche.
+
+Cette règle s'applique à toute valeur venant de Calendly. Elle est implémentée dans
+`lib/contentId.ts` : `resolveUtmContent`, `resolveCallSource`, `resolveUtmMedium`.
+Toutes retournent `undefined` quand il ne faut rien écrire — l'appelant **omet alors
+la clé** de son upsert, il ne pose surtout pas `null`, ce qui écraserait une valeur
+correcte déjà en base.
+
+| Champ | Validable ? | Pourquoi |
+|---|---|---|
+| `utm_content` | oui | doit être un ID de post IG, vidéo YT ou séquence story |
+| `utm_medium` | oui | nomenclature fermée : `bio`, `description`, `dm`, `story` |
+| `source` | oui | `plateforme_medium`, plateforme ∈ {`ig`, `yt`} |
+| `utm_campaign` | **non** | valeurs libres par conception (`lm-{keyword}`, `lead-{id}`…) |
+| `utm_term` | **non** | pseudo du prospect, forme libre |
+
+### Les deux bugs qui ont produit cette règle (2026-08-19)
+
+**Le motif est identique dans les deux cas** : une valeur d'origine externe recopiée
+telle quelle, sans jamais demander « est-ce que ça a la forme attendue ? ».
+
+`utm_content` — un ancien bug de PageLiens écrivait le pseudo du prospect dans ce
+champ. Calendly fige les UTM au moment du clic et les renvoie éternellement à
+l'identique : ces pseudos étaient donc resynchronisés indéfiniment. Une garde existait
+(« si l'entrant est invalide mais que j'ai mieux en base, je garde le mien ») mais avec
+une branche finale « sinon j'écris quand même ». Tant que la base contenait le pseudo,
+le pseudo remplaçait le pseudo — invisible.
+
+`source` — construit depuis `utm_source` sans validation, produisait
+`ubizenai.s.gy_description` : le domaine Short.io au lieu de la plateforme. Même
+défaut, jamais repéré parce qu'on regardait le champ cassé, pas le motif.
+
+### Ce qui a réellement déclenché la casse
+
+La migration UTM a déplacé les pseudos vers `utm_term` (leur vrai champ) et **vidé**
+`utm_content`. Ce faisant, elle a retiré la seule chose qui masquait le défaut : au
+passage suivant du cron, les pseudos ont été réécrits.
+
+> **Avant toute migration qui vide un champ : qu'est-ce qui, dans le code, se comporte
+> différemment selon que ce champ est plein ou vide ?** Une garde peut dépendre du
+> contenu qu'elle protège.
+
+### Trois chemins d'écriture, pas un
+
+La même logique existe à trois endroits. Corriger le cron seul donne une fausse
+impression de sécurité : le prochain « Rafraîchir » ou la prochaine réservation
+reproduit le défaut à l'identique.
+
+| Chemin | Fichier | Déclencheur |
+|---|---|---|
+| Cron | `supabase/functions/sync-calendly/index.ts` | toutes les 5 min |
+| Temps réel | `app/api/webhooks/calendly/route.ts` | chaque réservation |
+| Manuel | `lib/calendly-fetch.ts` | bouton « Rafraîchir » |
+
+Les deux fichiers Next importent `lib/contentId.ts`. L'Edge Function ne le peut pas
+(pas d'import cross-runtime, même contrainte que `ig-metrics-core`) : elle garde des
+copies signalées par un commentaire pointant vers l'original. Une copie qui se sait
+copie vaut mieux que trois implémentations qui s'ignorent.
+
+### Piège de la vue `utm_anomalies`
+
+Elle retourne **tous** les calls Calendly, avec une colonne `anomalie` valant `NULL`
+quand tout va bien. `SELECT count(*) FROM utm_anomalies` compte donc l'historique des
+rendez-vous, pas les anomalies.
+
+```sql
+-- ✅ le bon comptage
+SELECT count(*) FROM utm_anomalies WHERE anomalie IS NOT NULL;
+```
+
+### Vérifier une correction
+
+Nettoyer puis constater zéro ne prouve **rien** — c'est l'état juste avant que le cron
+ne repasse. Le seul test valable reproduit les conditions de la régression :
+
+```sql
+-- 1. nettoyer
+UPDATE calls SET utm_content = NULL WHERE /* … */;
+-- 2. forcer une resynchronisation COMPLÈTE de l'historique
+UPDATE integrations SET last_synced_at = NULL WHERE provider = 'calendly';
+```
+Puis déclencher `sync-calendly` et **re-compter**. C'est ce passage-là qui tranche.

@@ -32,6 +32,19 @@ function isValidContentId(s: string | null | undefined): boolean {
  * connue, on la déduit du contenu ; sinon on n'écrit rien, même règle que pour
  * utm_content (mieux vaut pas de source qu'une source fausse).
  */
+/**
+ * ⚠️ Équivalent Deno de `resolveUtmMedium` (lib/contentId.ts).
+ *
+ * Nomenclature fermée (4 valeurs) — contrairement à utm_campaign, dont les
+ * valeurs sont libres par conception et ne peuvent donc pas être validées.
+ * Aucune anomalie constatée sur ce champ : la garde est préventive, les données
+ * étant propres par chance et non par conception.
+ */
+function resolveUtmMedium(incoming: string | null | undefined): string | undefined {
+  if (!incoming) return undefined;
+  return ['bio', 'description', 'dm', 'story'].includes(incoming) ? incoming : undefined;
+}
+
 function resolveCallSource(
   utmSource: string | null | undefined,
   utmMedium: string | null | undefined,
@@ -386,7 +399,9 @@ async function syncCalendlyEleve(
         upsertData.utm_content = utmContent;
       }
     }
-    if (utmMedium)           upsertData.utm_medium      = utmMedium;
+    // Règle partagée : un canal hors nomenclature n'est jamais recopié.
+    const resolvedMedium = resolveUtmMedium(utmMedium);
+    if (resolvedMedium)      upsertData.utm_medium      = resolvedMedium;
     if (utmTerm)             upsertData.utm_term        = utmTerm;
     if (shortLinkPath)       upsertData.short_link_path = shortLinkPath;
     if (finalProspectLinkId) upsertData.prospect_link_id = finalProspectLinkId;

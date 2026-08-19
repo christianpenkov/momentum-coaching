@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { upsertProspect } from '@/lib/prospects';
-import { resolveUtmContent, resolveCallSource } from '@/lib/contentId';
+import { resolveUtmContent, resolveCallSource, resolveUtmMedium } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -259,7 +259,10 @@ export async function POST(request: NextRequest) {
     // Toute divergence entre ces lignes recrée des calls contradictoires.
     if (effectiveSource)                     baseUpsert.source = effectiveSource;
     if (utmCampaign || inheritedUtmCampaign) baseUpsert.utm_campaign = inheritedUtmCampaign ?? utmCampaign;
-    if (utmMedium || inheritedUtmMedium)     baseUpsert.utm_medium = inheritedUtmMedium ?? utmMedium;
+    // Règle partagée : un canal hors nomenclature n'est jamais recopié.
+    // L'hérité prime (report de rendez-vous : on crédite le premier contact).
+    const resolvedMedium = inheritedUtmMedium ?? resolveUtmMedium(utmMedium);
+    if (resolvedMedium)                      baseUpsert.utm_medium = resolvedMedium;
     if (utmTerm || inheritedUtmTerm)         baseUpsert.utm_term = inheritedUtmTerm ?? utmTerm;
     const newUtmContent = utmContent ?? inheritedUtmContent;
     // Garde anti-écrasement : si la ligne existante a déjà un utm_content valide (vrai

@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { resolveUtmContent, resolveCallSource } from '@/lib/contentId';
+import { resolveUtmContent, resolveCallSource, resolveUtmMedium } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -293,7 +293,9 @@ export async function syncCalendlyEleve(
         // undefined = ne rien écrire (omettre la clé, pas poser null).
         if (resolvedUtm !== undefined) upsertData.utm_content = resolvedUtm;
       }
-      if (utmMedium)            upsertData.utm_medium      = utmMedium;
+      // Regle partagee : un canal hors nomenclature n'est jamais recopie.
+      const resolvedMedium = resolveUtmMedium(utmMedium);
+      if (resolvedMedium)       upsertData.utm_medium      = resolvedMedium;
       if (utmTerm)              upsertData.utm_term        = utmTerm;
       if (shortLinkPath)        upsertData.short_link_path = shortLinkPath;
       if (finalProspectLinkId)  upsertData.prospect_link_id = finalProspectLinkId;

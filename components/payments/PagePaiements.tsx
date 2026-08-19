@@ -421,7 +421,7 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
         color: k && k.collected > 0 ? 'var(--green)' : 'var(--muted)',
         marginBottom: 11,
       }}>
-        {k && k.collected > 0 ? text : '—'}
+        {text}
       </div>
       <div
         role="progressbar"
@@ -435,9 +435,12 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
           transition: reduceMotion ? undefined : 'width 900ms var(--ease-out)',
         }} />
       </div>
+      {/* Pas de mention de période : cette carte porte sur tous les deals, pas
+          sur une fenêtre glissante. La légende garde le contracté même à zéro
+          encaissé — sans lui la carte ne dirait plus rien de ce qui reste. */}
       <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
         {!k ? ''
-          : k.collected === 0 ? 'aucun encaissement sur la période'
+          : k.contracted === 0 ? 'aucun deal signé'
           : rate >= 100 ? 'intégralement encaissé'
           : `${rate} % de ${fmtEur(k.contracted)} contractés`}
       </div>
