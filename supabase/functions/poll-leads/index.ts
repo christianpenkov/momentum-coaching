@@ -29,7 +29,7 @@ const shortio = createShortioLimiter();
 
 // Offset Paris (+1h hiver / +2h été) — règle UE : dernier dimanche de mars 1h UTC
 // (passage à +2h) → dernier dimanche d'octobre 1h UTC (retour à +1h). Dupliqué ici
-// (pas d'import cross-runtime possible entre l'Edge Function Deno et lib/parisTime.ts
+// (pas d'import cross-runtime possible entre l'Edge Function Deno et lib/timezone.ts
 // côté Next.js) pour que les dates écrites dans analytics_daily_snapshots restent
 // calées sur le même calendrier Paris que getPeriodWindow (lib/period.ts, frontend).
 function lastSundayOfMonth(year: number, month: number): number {

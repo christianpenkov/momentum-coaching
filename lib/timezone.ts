@@ -12,7 +12,8 @@
 // SOURCE D'AUTORITÉ : le navigateur à l'écran (toujours frais), la colonne
 // profiles.timezone côté serveur (seule information dont il dispose).
 //
-// POURQUOI Intl EST UTILISABLE ICI alors que lib/parisTime.ts l'évitait :
+// POURQUOI Intl EST UTILISABLE ICI alors que l'ancien lib/parisTime.ts l'évitait
+// (fichier supprimé le 2026-08-19, ce module l'a entièrement remplacé) :
 // le calcul manuel d'offset ne vaut que pour Paris (règle UE codée en dur). Pour
 // un fuseau arbitraire, aucune formule n'existe — la base IANA change plusieurs
 // fois par an. Intl est donc obligatoire. Le bug du 2026-07-24 (Intl retombant

@@ -20,7 +20,7 @@ async function safeJson(res: Response): Promise<any> {
 
 function isoDateParis(): string {
   // Même logique que poll-leads/index.ts (offset Paris dupliqué faute d'import
-  // cross-runtime entre cette Edge Function et lib/parisTime.ts côté Next.js).
+  // cross-runtime entre cette Edge Function et lib/timezone.ts côté Next.js).
   function lastSundayOfMonth(year: number, month: number): number {
     const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
     const lastDate = new Date(Date.UTC(year, month, lastDay));
