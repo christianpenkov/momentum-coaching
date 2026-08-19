@@ -145,17 +145,20 @@ async function syncCalendlyEleve(
   if (uuidsInPage.length) {
     const { data: knownRows } = await supabase
       .from('calls')
-      .select('calendly_event_uuid, canceled_at')
+      .select('calendly_event_uuid, canceled_at, canceled_by')
       .eq('coach_id', profileId)
       .eq('status', 'canceled')
       .in('calendly_event_uuid', uuidsInPage);
     for (const row of knownRows || []) {
-      // `canceled_at` renseigné = on a bien TOUT ce que Calendly peut donner sur
-      // cette annulation. Sans lui, l'event est retraité une fois pour récupérer
-      // l'objet `cancellation` (date + auteur), ajouté après coup : sinon ces
-      // calls, déjà annulés en base, restaient éternellement skippés et leur date
-      // d'annulation ne serait jamais remplie.
-      if (row.calendly_event_uuid && row.canceled_at) terminalUuids.add(row.calendly_event_uuid);
+      // Terminal = annulé ET on a déjà l'auteur de l'annulation.
+      //
+      // `canceled_by` plutôt que `canceled_at` comme témoin : le webhook temps
+      // réel peut avoir posé un canceled_at approximatif (instant de réception,
+      // quand Calendly n'envoie pas la date exacte) sans jamais avoir l'auteur.
+      // Se fier à canceled_at aurait figé cette approximation pour toujours,
+      // puisque l'event ne serait plus jamais retraité. canceled_by n'est écrit
+      // que lorsque l'objet `cancellation` complet a été lu.
+      if (row.calendly_event_uuid && row.canceled_by) terminalUuids.add(row.calendly_event_uuid);
     }
   }
 

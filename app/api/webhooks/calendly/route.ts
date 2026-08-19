@@ -340,9 +340,38 @@ export async function POST(request: NextRequest) {
         .eq('calendly_event_uuid', eventUuid)
         .maybeSingle();
 
+      // Date et auteur de l'annulation, dès le webhook.
+      //
+      // Sans ça, ces informations n'arrivaient qu'au passage suivant du cron
+      // (jusqu'à 5 min plus tard), et la timeline affichait entre-temps l'heure
+      // du RENDEZ-VOUS comme date d'annulation — donc une date fausse, parfois
+      // dans le futur.
+      //
+      // Deux emplacements testés : Calendly place `cancellation` sur l'invitee
+      // (resource) ou sur l'événement imbriqué selon le contexte. On lit les
+      // deux plutôt que de dépendre d'une structure non garantie par la doc.
+      const cancellation = resource.cancellation
+        ?? resource.scheduled_event?.cancellation
+        ?? null;
+
+      const cancelUpdate: Record<string, unknown> = {
+        status: 'canceled',
+        cancellation_reason: cancellation?.reason || 'canceled',
+      };
+      // Renseignés seulement si présents : ne jamais écraser avec null une
+      // valeur déjà récupérée par le cron.
+      //
+      // Repli sur l'instant de réception si Calendly n'envoie pas `created_at`
+      // dans ce webhook (la doc ne garantit pas sa présence) : le webhook part
+      // à la seconde où l'annulation a lieu, donc l'écart est négligeable — et
+      // toujours infiniment plus juste que l'heure du rendez-vous. Le cron
+      // corrigera avec la valeur exacte au passage suivant.
+      cancelUpdate.canceled_at = cancellation?.created_at ?? new Date().toISOString();
+      if (cancellation?.canceled_by) cancelUpdate.canceled_by = cancellation.canceled_by;
+
       await serviceSupabase
         .from('calls')
-        .update({ status: 'canceled', cancellation_reason: 'canceled' })
+        .update(cancelUpdate)
         .eq('calendly_event_uuid', eventUuid);
 
       // Invalider l'override pipeline_overrides pour que le lead recule
