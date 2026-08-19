@@ -2962,13 +2962,6 @@ a { color: inherit; text-decoration: none; }
   .skeleton::after { animation: none; }
 }
 
-/* Sonde de mesure : expose la valeur réelle de safe-area-inset-top au JS
-   d'instrumentation (voir app/layout.tsx). Plusieurs rapports indiquent qu'elle
-   vaut 0px en portrait sur iPhone, ce qui rendrait toute compensation inopérante
-   — il faut le vérifier sur l'appareil plutôt que le supposer.
-   À retirer avec l'instrumentation. */
-:root { --probe-safe-top: env(safe-area-inset-top, 0px); }
-
 /* Tant que l'écran de lancement est là, aucun loader de page ne doit se voir.
    Sans cette règle, la page peut rendre son loader pendant que l'overlay
    entame son fondu : on aperçoit alors une fraction de seconde de spinner

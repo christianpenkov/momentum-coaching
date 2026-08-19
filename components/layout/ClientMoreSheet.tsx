@@ -14,10 +14,6 @@ const MORE_NAV: { href: string; icon: IconName; label: string }[] = [
   { href: '/client/taches', icon: 'task-check', label: 'Tâches' },
   { href: '/client/ressources', icon: 'folder', label: 'Ressources' },
   { href: '/client/settings', icon: 'settings', label: 'Réglages' },
-  // Temporaire : diagnostic du raccord splash système -> app. La PWA installée
-  // ne permet pas de taper une URL, il faut donc un point d'entrée dans la nav.
-  // À retirer avec l'instrumentation.
-  { href: '/debug-splash', icon: 'settings', label: 'Diagnostic splash' },
 ];
 
 // Doit rester aligné sur la transition CSS ci-dessous : le composant reste monté
