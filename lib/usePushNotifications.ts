@@ -10,17 +10,53 @@ function urlBase64ToUint8Array(base64String: string) {
 }
 
 /**
- * navigator.serviceWorker.ready n'a AUCUN délai d'expiration : tant que le
- * service worker n'est pas activé, la promesse ne se résout jamais. C'est le
- * cas juste après l'installation de la PWA — exactement le moment où l'écran
- * d'activation des notifications s'affiche. Sans borne de temps, l'appelant
- * reste bloqué en « Activation… » indéfiniment.
+ * Obtient un service worker ACTIF, sans attendre passivement.
+ *
+ * navigator.serviceWorker.ready n'a aucun délai d'expiration : au tout premier
+ * lancement de la PWA — précisément quand l'écran d'activation des
+ * notifications s'affiche — le worker n'est pas encore activé et la promesse
+ * peut ne jamais se résoudre. S'appuyer dessus revenait à faire patienter
+ * l'utilisateur sans raison.
+ *
+ * On force donc l'enregistrement nous-mêmes (idempotent : si le worker est déjà
+ * là, le navigateur renvoie l'enregistrement existant sans rien réinstaller) et
+ * on écoute `statechange` pour repartir dès la seconde où il devient actif,
+ * plutôt que d'attendre un signal global.
+ *
+ * Le délai n'est plus qu'un dernier filet, jamais le chemin normal.
  */
 function serviceWorkerReady(timeoutMs = 8000): Promise<ServiceWorkerRegistration | null> {
+  const activated = (async () => {
+    // Enregistrement immédiat : ne dépend pas de l'événement 'load' du
+    // document, qui peut arriver bien après le geste de l'utilisateur.
+    const reg = await navigator.serviceWorker.register('/sw.js');
+
+    if (reg.active) return reg;
+
+    // Un worker en cours d'installation : on suit sa progression et on repart
+    // dès qu'il est activé, au lieu d'attendre .ready.
+    const pending = reg.installing || reg.waiting;
+    if (pending) {
+      await new Promise<void>(resolve => {
+        if (pending.state === 'activated') return resolve();
+        pending.addEventListener('statechange', function onChange() {
+          if (pending.state === 'activated') {
+            pending.removeEventListener('statechange', onChange);
+            resolve();
+          }
+        });
+      });
+      return reg;
+    }
+
+    // Cas résiduel : ni actif ni en installation. .ready tranchera.
+    return navigator.serviceWorker.ready;
+  })();
+
   return Promise.race([
-    navigator.serviceWorker.ready,
+    activated,
     new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs)),
-  ]);
+  ]).catch(() => null);
 }
 
 /**
