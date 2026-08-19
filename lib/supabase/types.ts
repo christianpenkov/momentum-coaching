@@ -30,7 +30,15 @@ export interface Client {
   created_at: string;
   email: string | null;
   archived_at: string | null;
+  /** Date du choix de mot de passe. Pour l'ancienneté du compte et getClientWeek —
+   *  JAMAIS comme filtre de date pour des calls ou des leads, utiliser
+   *  `integrations_ready_at` (voir docs/integrations-ready-at-vs-onboarding-completed-at.md). */
   onboarding_completed_at: string | null;
+  /** Première fois que les 7 intégrations obligatoires ont toutes été connectées
+   *  (posé par trigger, ne redescend jamais). Référence unique pour « depuis quand le
+   *  pipeline Momentum de cet élève est opérationnel » : périmètre des calls, des leads
+   *  et de la fenêtre All-Time, sur tous les écrans. */
+  integrations_ready_at: string | null;
   integrations_waived: string[];
   onboarding_step: string;
   onboarding_data: Record<string, unknown>;

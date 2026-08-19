@@ -424,7 +424,18 @@ export default function PageClientDetail({ id }: Props) {
   // (moment où il choisit son mot de passe, cf. app/invite/callback/page.tsx),
   // pas la connexion d'un provider externe (IG/YT) — remplace l'ancien
   // connectedAt/fetchConnectedAt sur demande explicite de Chris.
-  const sinceAccountCreated = client?.onboarding_completed_at ?? null;
+  // Périmètre des compteurs leads/stories : integrations_ready_at, la même référence
+  // que les calls de vente juste au-dessus (route sales-calls), que le pipeline et que
+  // Mes Stats. Sans ça, ce compteur partait de la création du compte de l'élève et
+  // comptait donc sur une fenêtre plus large que les autres écrans — deux façons de
+  // compter les mêmes leads (32 h d'écart sur le profil de test, 0 lead dedans, mais
+  // l'écart serait apparu au premier lead tombant dans un tel intervalle).
+  //
+  // Remplace onboarding_completed_at, que docs/integrations-ready-at-vs-onboarding-
+  // completed-at.md interdit explicitement comme filtre de date pour des leads : c'est
+  // la date du choix de mot de passe, sans rapport avec les intégrations. Aligné le
+  // 2026-08-19 sur décision de Chris (le choix inverse était le sien à l'origine).
+  const sinceIntegrationsReady = client?.integrations_ready_at ?? null;
 
   const { data: igRaw, isLoading: igLoading } = useQuery({
     queryKey: ['stats-ig', profileId],
@@ -445,14 +456,14 @@ export default function PageClientDetail({ id }: Props) {
     staleTime: 5 * 60 * 1000,
   });
   const { data: storiesCount, isLoading: storiesLoading } = useQuery({
-    queryKey: ['client-stories-count', profileId, sinceAccountCreated],
-    queryFn: () => fetchStoriesCount(profileId!, sinceAccountCreated),
+    queryKey: ['client-stories-count', profileId, sinceIntegrationsReady],
+    queryFn: () => fetchStoriesCount(profileId!, sinceIntegrationsReady),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
   const { data: leadsTotalCount, isLoading: igLeadsLoading } = useQuery({
-    queryKey: ['client-all-leads-count', profileId, sinceAccountCreated],
-    queryFn: () => fetchAllLeadsCount(createSupabase(), profileId!, sinceAccountCreated),
+    queryKey: ['client-all-leads-count', profileId, sinceIntegrationsReady],
+    queryFn: () => fetchAllLeadsCount(createSupabase(), profileId!, sinceIntegrationsReady),
     enabled: !!profileId,
     staleTime: 5 * 60 * 1000,
   });
@@ -1085,7 +1096,11 @@ export default function PageClientDetail({ id }: Props) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginTop: 16 }}>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
               <Icon name="calendar" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Client depuis</span>
-              <strong>{sinceAccountCreated ? `${Math.floor((now.getTime() - new Date(sinceAccountCreated).getTime()) / 86400000)}j` : '—'}</strong>
+              {/* Ancienneté du COMPTE : onboarding_completed_at est ici la bonne donnée
+                  (usage autorisé par la doc, au même titre que getClientWeek). À ne pas
+                  confondre avec le périmètre des leads/stories juste au-dessus, qui part
+                  lui de integrations_ready_at. */}
+              <strong>{client?.onboarding_completed_at ? `${Math.floor((now.getTime() - new Date(client.onboarding_completed_at).getTime()) / 86400000)}j` : '—'}</strong>
             </div>
             <div className="info-row" style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
               <Icon name="phone-call" size={14} /><span style={{ color: 'var(--muted)', flex: 1 }}>Prochain call</span>

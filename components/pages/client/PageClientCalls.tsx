@@ -156,9 +156,9 @@ function MyCallNotes({ callId, initialNotes, initialDismissed }: { callId: strin
 
 type SessionReportInfo = { student_notes: string | null; student_notes_dismissed: boolean; attended: boolean | null; topic: string | null; topic_custom: string | null };
 
-// integrations_ready_at existe en base (trigger DB) mais pas encore dans le
-// type Client généré (lib/supabase/types.ts) — même angle mort que
-// SupabaseClientsContext.tsx et useCoachData.ts, qui y accèdent aussi en `any`.
+// integrations_ready_at est désormais déclaré sur le type Client
+// (lib/supabase/types.ts, ajouté le 2026-08-19) — l'angle mort qui obligeait
+// SupabaseClientsContext.tsx et useCoachData.ts à y accéder en `any` est levé.
 async function fetchClientCallsData(clientRow: { id: string; integrations_ready_at?: string | null } | null): Promise<{
   calls: Call[];
   hasCalendly: boolean;
