@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
+import { buildDestUrl } from '@/lib/shortio-create';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -49,13 +50,14 @@ async function propagateLmUrlChange(profileId: string, lmId: string, newUrl: str
     await Promise.all(batch.map(async (link) => {
       if (!link.desc_short_id) return;
 
-      // Reconstruit l'URL avec les UTM spécifiques à ce contenu
+      // Reconstruit l'URL avec les UTM spécifiques à ce contenu.
+      //
+      // buildDestUrl partagé (lib/shortio-create.ts) plutôt qu'une copie locale :
+      // celle qui était ici omettait utm_term, donc toute propagation d'URL
+      // effaçait le pseudo du prospect des liens régénérés. Une copie qui diverge
+      // de son original est exactement ce qui a produit le bug UTM du 2026-08-19.
       const utms = (link.desc_utms as Record<string, string>) || {};
-      const destUrl = new URL(newUrl);
-      if (utms.source) destUrl.searchParams.set('utm_source', utms.source);
-      if (utms.medium) destUrl.searchParams.set('utm_medium', utms.medium);
-      if (utms.campaign) destUrl.searchParams.set('utm_campaign', utms.campaign);
-      if (utms.content) destUrl.searchParams.set('utm_content', utms.content);
+      const destUrl = new URL(buildDestUrl(newUrl, utms));
 
       try {
         const res = await fetch(`https://api.short.io/links/${link.desc_short_id}`, {

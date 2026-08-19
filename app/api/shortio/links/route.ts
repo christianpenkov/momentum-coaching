@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
+import { buildDestUrl } from '@/lib/shortio-create';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -16,16 +17,6 @@ async function getCreds(profileId: string): Promise<{ apiKey: string; domainId: 
     .single();
   if (!integ?.api_key) return null;
   return { apiKey: integ.api_key, domainId: (integ.metadata as any)?.domain_id ?? null };
-}
-
-function buildDestUrl(originalUrl: string, utms: { source?: string; medium?: string; campaign?: string; content?: string; term?: string }) {
-  const url = new URL(originalUrl);
-  if (utms.source) url.searchParams.set('utm_source', utms.source);
-  if (utms.medium) url.searchParams.set('utm_medium', utms.medium);
-  if (utms.campaign) url.searchParams.set('utm_campaign', utms.campaign);
-  if (utms.content) url.searchParams.set('utm_content', utms.content);
-  if (utms.term) url.searchParams.set('utm_term', utms.term);
-  return url.toString();
 }
 
 async function resolveProfileId(user: { id: string }, profileId: string): Promise<string | null> {
