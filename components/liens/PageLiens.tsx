@@ -2505,6 +2505,116 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   );
 }
 
+// ─── Blocs partagés mobile / desktop ─────────────────────────────────────────
+//
+// Ces blocs étaient écrits deux fois — une version mobile, une version desktop —
+// avec une logique strictement identique et pour seule différence les cotes
+// (44px de cible tactile contre des contrôles compacts). Toute évolution devait
+// donc être faite deux fois, et l'oubli d'un côté passait inaperçu.
+//
+// Ils prennent maintenant une prop `compact` : `false` = mobile (cibles ≥ 44px,
+// exigence du handoff), `true` = desktop.
+
+/** Filtres de plateforme — les 4 valeurs du modèle : all / IG / YT / STORY. */
+function FiltresPlateforme({ value, onChange, compact, contentCount }: {
+  value: 'all' | 'IG' | 'YT' | 'STORY';
+  onChange: (f: 'all' | 'IG' | 'YT' | 'STORY') => void;
+  compact: boolean;
+  contentCount?: number;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: compact ? 'nowrap' : 'wrap' }}>
+      {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
+        const active = value === f;
+        return (
+          <button key={f} onClick={() => onChange(f)} style={{
+            display: 'flex', alignItems: 'center', gap: 5, borderRadius: 20, cursor: 'pointer', border: 'none', fontWeight: 600,
+            ...(compact
+              ? { padding: '4px 11px', fontSize: 11 }
+              : { minHeight: 44, padding: '0 14px', fontSize: 13 }),
+            background: active ? INK : SURFACE2, color: active ? 'var(--bg)' : MUTED,
+            transition: `all var(--dur-instant) var(--ease-out)`,
+          }}>
+            {/* Les logos de plateforme ne tiennent qu'en desktop : en mobile les
+                chips sont déjà à 44px de haut, l'icône ferait déborder la ligne. */}
+            {compact && f === 'IG' && <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>}
+            {compact && f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
+            {compact && f === 'STORY' && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>}
+            {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
+          </button>
+        );
+      })}
+      {compact && contentCount !== undefined && (
+        <span style={{ marginLeft: 'auto', fontSize: 10, color: FAINT }}>
+          {contentCount} contenu{contentCount !== 1 ? 's' : ''}
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** Sous-onglets Stories / Séquences — visibles uniquement sous le filtre Stories. */
+function SousOngletsStories({ value, onChange, compact }: {
+  value: 'stories' | 'sequences';
+  onChange: (t: 'stories' | 'sequences') => void;
+  compact: boolean;
+}) {
+  return (
+    <div style={{ display: 'flex', gap: 4 }}>
+      {(['stories', 'sequences'] as const).map(t => (
+        <button key={t} onClick={() => onChange(t)} style={{
+          borderRadius: 20, cursor: 'pointer', border: 'none', fontWeight: 600,
+          ...(compact
+            ? { padding: '4px 11px', fontSize: 11 }
+            : { minHeight: 44, padding: '0 14px', fontSize: 13 }),
+          background: value === t ? INK : SURFACE2, color: value === t ? 'var(--bg)' : MUTED,
+          transition: `all var(--dur-instant) var(--ease-out)`,
+        }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
+      ))}
+    </div>
+  );
+}
+
+/** Barre d'actions des stories : sélection en cours, ou création / actualisation. */
+function ActionsStories({ selectionMode, selectedCount, compact, onStartSelection, onCancelSelection, onContinue, onRefresh }: {
+  selectionMode: boolean;
+  selectedCount: number;
+  compact: boolean;
+  onStartSelection: () => void;
+  onCancelSelection: () => void;
+  onContinue: () => void;
+  onRefresh: () => void;
+}) {
+  const btn = {
+    padding: compact ? '4px 10px' : '5px 12px',
+    fontSize: compact ? 11 : 12,
+    fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`,
+    background: 'transparent', color: MUTED, cursor: 'pointer',
+  } as const;
+
+  if (selectionMode) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: compact ? 11 : 12, color: MUTED }}>
+          {selectedCount} sélectionnée{selectedCount > 1 ? 's' : ''}
+        </span>
+        <button onClick={onCancelSelection} style={{ ...btn, marginLeft: 'auto' }}>Annuler</button>
+        <button onClick={onContinue} disabled={selectedCount < 2} style={{
+          padding: compact ? '4px 10px' : '5px 12px', fontSize: compact ? 11 : 12, fontWeight: 700, borderRadius: 6, border: 'none',
+          background: selectedCount < 2 ? SURFACE2 : BLUE, color: selectedCount < 2 ? MUTED : '#fff',
+          cursor: selectedCount < 2 ? 'default' : 'pointer',
+        }}>Continuer</button>
+      </div>
+    );
+  }
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      <button onClick={onStartSelection} style={btn}>Créer une séquence stories</button>
+      <button onClick={onRefresh} style={btn}>↻ Actualiser</button>
+    </div>
+  );
+}
+
 // ─── Validation LM avant génération ──────────────────────────────────────────
 
 function validateLmParams(params: {
@@ -2887,6 +2997,18 @@ export default function PageLiens() {
     setTimeout(() => setHighlightedSequenceId(null), 2000);
   };
 
+  // Les stories expirent au bout de 24 h : ce rafraîchissement va rechercher
+  // celles publiées depuis le dernier passage du cron. Appelé depuis les deux
+  // rendus (mobile et desktop), d'où l'extraction.
+  const refreshStories = async () => {
+    await fetch('/api/client/stories/live-refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ profileId }),
+    });
+    queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
+  };
+
   // Mobile : overlay détail (un seul onglet "Mes liens" depuis la fusion avec l'ancien
   // "Générer un lien", qui faisait exactement la même chose)
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
@@ -3015,55 +3137,23 @@ export default function PageLiens() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', minHeight: 44, padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
 
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-                {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
-                  const active = filterPlatform === f;
-                  return (
-                    <button key={f} onClick={() => setFilterPlatform(f)} style={{
-                      display: 'flex', alignItems: 'center', gap: 5, minHeight: 44, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
-                      background: active ? INK : SURFACE2, color: active ? 'var(--bg)' : MUTED, transition: 'all .12s',
-                    }}>
-                      {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
-                    </button>
-                  );
-                })}
-              </div>
+              <FiltresPlateforme value={filterPlatform} onChange={setFilterPlatform} compact={false} />
 
               {filterPlatform === 'STORY' && (
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {(['stories', 'sequences'] as const).map(t => (
-                    <button key={t} onClick={() => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }} style={{
-                      minHeight: 44, padding: '0 14px', fontSize: 13, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
-                      background: storiesSubTab === t ? INK : SURFACE2, color: storiesSubTab === t ? 'var(--bg)' : MUTED, transition: 'all .12s',
-                    }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
-                  ))}
-                </div>
+                <SousOngletsStories
+                  value={storiesSubTab} compact={false}
+                  onChange={t => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }}
+                />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'stories' && (
-                selectionMode ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 12, color: MUTED }}>{selectedStoryIds.size} sélectionnée{selectedStoryIds.size > 1 ? 's' : ''}</span>
-                    <button onClick={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }} style={{ marginLeft: 'auto', padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                      Annuler
-                    </button>
-                    <button onClick={() => openMobileDetail({ type: 'story-multi', postIds: Array.from(selectedStoryIds) })} disabled={selectedStoryIds.size < 2} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 700, borderRadius: 6, border: 'none', background: selectedStoryIds.size < 2 ? SURFACE2 : BLUE, color: selectedStoryIds.size < 2 ? MUTED : '#fff', cursor: selectedStoryIds.size < 2 ? 'default' : 'pointer' }}>
-                      Continuer
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => setSelectionMode(true)} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                      Créer une séquence stories
-                    </button>
-                    <button onClick={async () => {
-                      await fetch('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) });
-                      queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
-                    }} style={{ padding: '5px 12px', fontSize: 12, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                      ↻ Actualiser
-                    </button>
-                  </div>
-                )
+                <ActionsStories
+                  selectionMode={selectionMode} selectedCount={selectedStoryIds.size} compact={false}
+                  onStartSelection={() => setSelectionMode(true)}
+                  onCancelSelection={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }}
+                  onContinue={() => openMobileDetail({ type: 'story-multi', postIds: Array.from(selectedStoryIds) })}
+                  onRefresh={refreshStories}
+                />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
@@ -3254,61 +3344,23 @@ export default function PageLiens() {
             <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-              <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
-                {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
-                  const active = filterPlatform === f;
-                  return (
-                    <button key={f} onClick={() => setFilterPlatform(f)} style={{
-                      display: 'flex', alignItems: 'center', gap: 5, padding: '4px 11px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
-                      background: active ? INK : SURFACE2, color: active ? 'var(--bg)' : MUTED, transition: 'all .12s',
-                    }}>
-                      {f === 'IG' && <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>}
-                      {f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
-                      {f === 'STORY' && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>}
-                      {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
-                    </button>
-                  );
-                })}
-                <span style={{ marginLeft: 'auto', fontSize: 10, color: FAINT }}>
-                  {filteredPosts.length} contenu{filteredPosts.length !== 1 ? 's' : ''}
-                </span>
-              </div>
+              <FiltresPlateforme value={filterPlatform} onChange={setFilterPlatform} compact contentCount={filteredPosts.length} />
 
               {filterPlatform === 'STORY' && (
-                <div style={{ display: 'flex', gap: 4 }}>
-                  {(['stories', 'sequences'] as const).map(t => (
-                    <button key={t} onClick={() => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }} style={{
-                      padding: '4px 11px', fontSize: 11, fontWeight: 600, borderRadius: 20, cursor: 'pointer', border: 'none',
-                      background: storiesSubTab === t ? INK : SURFACE2, color: storiesSubTab === t ? 'var(--bg)' : MUTED, transition: 'all .12s',
-                    }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
-                  ))}
-                </div>
+                <SousOngletsStories
+                  value={storiesSubTab} compact
+                  onChange={t => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }}
+                />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'stories' && (
-                selectionMode ? (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{ fontSize: 11, color: MUTED }}>{selectedStoryIds.size} sélectionnée{selectedStoryIds.size > 1 ? 's' : ''}</span>
-                    <button onClick={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }} style={{ marginLeft: 'auto', padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                      Annuler
-                    </button>
-                    <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'story-multi', postIds: Array.from(selectedStoryIds) }))} disabled={selectedStoryIds.size < 2} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 700, borderRadius: 6, border: 'none', background: selectedStoryIds.size < 2 ? SURFACE2 : BLUE, color: selectedStoryIds.size < 2 ? MUTED : '#fff', cursor: selectedStoryIds.size < 2 ? 'default' : 'pointer' }}>
-                      Continuer
-                    </button>
-                  </div>
-                ) : (
-                  <div style={{ display: 'flex', gap: 6 }}>
-                    <button onClick={() => setSelectionMode(true)} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                      Créer une séquence stories
-                    </button>
-                    <button onClick={async () => {
-                      await fetch('/api/client/stories/live-refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ profileId }) });
-                      queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
-                    }} style={{ padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, border: `1px solid ${BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer' }}>
-                      ↻ Actualiser
-                    </button>
-                  </div>
-                )
+                <ActionsStories
+                  selectionMode={selectionMode} selectedCount={selectedStoryIds.size} compact
+                  onStartSelection={() => setSelectionMode(true)}
+                  onCancelSelection={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }}
+                  onContinue={() => unsavedGuardApi.guard(() => setRightView({ type: 'story-multi', postIds: Array.from(selectedStoryIds) }))}
+                  onRefresh={refreshStories}
+                />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' && (
