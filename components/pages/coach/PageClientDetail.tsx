@@ -1182,19 +1182,23 @@ export default function PageClientDetail({ id }: Props) {
                 {entry.call.scheduled_at && <span className="session-row-time">{formatCallTime(entry.call.scheduled_at, viewerTz)}</span>}
               </div>
               <span className="pill pill-amber session-row-pill"><span className="dot" />Rapport à remplir</span>
+              {/* Ordre fixe : l'action propre à la ligne (Remplir ou Éditer) puis
+                  Infos toujours en dernier, contre le bord droit. Infos est la
+                  seule action commune aux deux types d'entrée — la garder à une
+                  position stable évite que l'œil la cherche d'une ligne à l'autre. */}
               <div className="session-row-actions">
-                {/* Pas encore de rapport sur cette entrée : la seule chose que la
-                    modale peut montrer est le contenu Fathom. On teste donc le
-                    replay ET le résumé, qui peut exister avant que le statut passe
-                    à "matched" — sinon le bouton ouvrirait une modale vide. */}
+                <button type="button" className="btn-ghost call-action-rapport" onClick={() => setSessionRapportCallId(entry.call.id)}>
+                  <Icon name="alert-triangle" size={13} />Remplir
+                </button>
+                {/* Pas encore de rapport ici : la modale ne peut montrer que le
+                    contenu Fathom. On teste donc le replay ET le résumé, qui peut
+                    exister avant que le statut passe à "matched" — sinon le bouton
+                    ouvrirait une modale vide. */}
                 {(entry.call.fathom_status === 'matched' || entry.call.fathom_share_url || entry.call.fathom_summary) && (
                   <button type="button" className="btn-ghost call-action-infos" onClick={() => setInfosModalCall(entry.call)}>
                     Infos
                   </button>
                 )}
-                <button type="button" className="btn-ghost call-action-rapport" onClick={() => setSessionRapportCallId(entry.call.id)}>
-                  <Icon name="alert-triangle" size={13} />Remplir
-                </button>
               </div>
             </div>
           ) : (() => {
@@ -1219,16 +1223,6 @@ export default function PageClientDetail({ id }: Props) {
                 </span>
                 {topicLabel && <span className="session-row-topic">{topicLabel}</span>}
                 <div className="session-row-actions">
-                  {/* Même règle que la page Calls : Infos s'affiche dès qu'il y a
-                      QUELQUE CHOSE à lire, pas seulement un replay Fathom. Avant,
-                      sur 24 coachings de cet élève, seuls 2 avaient un replay —
-                      donc 22 lignes sans bouton, alors que 13 avaient un rapport
-                      rempli et 7 des notes, inaccessibles depuis la modale. */}
-                  {(reportCall?.fathom_status === 'matched' || report.attended !== null || report.topic || report.notes || report.student_notes) && (
-                    <button type="button" onClick={() => setInfosModalReport(report)} className="btn-ghost call-action-infos">
-                      Infos
-                    </button>
-                  )}
                   {!isNoShow && (
                     <button
                       type="button"
@@ -1236,6 +1230,17 @@ export default function PageClientDetail({ id }: Props) {
                       className="btn-ghost session-row-edit"
                     >
                       Éditer
+                    </button>
+                  )}
+                  {/* Même règle que la page Calls : Infos s'affiche dès qu'il y a
+                      QUELQUE CHOSE à lire, pas seulement un replay Fathom. Avant,
+                      sur 24 coachings de cet élève, seuls 2 avaient un replay —
+                      donc 22 lignes sans bouton, alors que 13 avaient un rapport
+                      rempli et 7 des notes, inaccessibles depuis la modale.
+                      Toujours en dernier : voir l'ordre fixe commenté plus haut. */}
+                  {(reportCall?.fathom_status === 'matched' || report.attended !== null || report.topic || report.notes || report.student_notes) && (
+                    <button type="button" onClick={() => setInfosModalReport(report)} className="btn-ghost call-action-infos">
+                      Infos
                     </button>
                   )}
                 </div>

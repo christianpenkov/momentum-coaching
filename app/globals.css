@@ -1564,7 +1564,11 @@ a { color: inherit; text-decoration: none; }
   display: inline-flex;
   align-items: center;
 }
-.session-row-edit { border: 1px solid var(--border) !important; }
+/* Bordure en --muted plutôt qu'en --border : sur le fond crème de la ligne, la
+   bordure claire par défaut disparaissait et le bouton ne se lisait plus comme
+   tel. Reste plus discret que le noir de .call-action-infos, qui est l'action
+   principale de la rangée. */
+.session-row-edit { border: 1px solid var(--muted) !important; }
 .session-row-pending .session-row-extra { border-top-color: var(--border); }
 /* Notes et actions de suivi passent sous la ligne, pleine largeur. */
 .session-row-extra {
