@@ -1766,7 +1766,12 @@ export default function PagePipeline() {
     await refetch();
   };
 
-  const totalProspects = cards.length;
+  // Prospects de l'onglet affiché — sert à l'état vide ("aucun prospect ici").
+  const tabProspects = cards.length;
+  // Total toutes plateformes confondues, affiché en sous-titre : le chiffre ne doit pas
+  // changer quand on passe d'un onglet à l'autre, sinon il se lit comme un total alors
+  // qu'il ne compte que l'onglet courant (demande Chris, 2026-08-19).
+  const totalProspects = filteredIgCards.length + filteredYtCards.length + filteredOtherCards.length;
   const anyFilter = filterNoShow || filterArchived || filterCanceled || filterRescheduled || filterNotQualified || filterToRecontact;
 
   return (
@@ -1907,8 +1912,9 @@ export default function PagePipeline() {
         </div>
       )}
 
-      {/* Empty state */}
-      {!loading && totalProspects === 0 && (
+      {/* Empty state — sur l'onglet affiché (son message le nomme : "Aucun lead
+          Instagram", "Aucun call YouTube"…), pas sur le total toutes plateformes. */}
+      {!loading && tabProspects === 0 && (
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 60, paddingBottom: 60 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
