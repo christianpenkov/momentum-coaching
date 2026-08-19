@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import type { Client, Task, Call, SessionReport } from '@/lib/supabase/types';
+import { CALL_COLUMNS, type Client, type Task, type Call, type SessionReport } from '@/lib/supabase/types';
 import { computeSalesCallStats, fetchAllLeadsCount } from '@/lib/salesCallStats';
 import { getPeriodWindow } from '@/lib/period';
 
@@ -99,13 +99,17 @@ export function useClientSelfData() {
         // Marge de 2h avant `now` : inclut aussi les calls tout juste terminés (fenêtre
         // de rattrapage isCallJoinable de 15min gérée côté client dans PageClientView.tsx),
         // sans avoir à refaire une requête réseau pour ce cas précis.
-        supabase.from('calls').select('*').eq('client_id', clientRow.id)
+        // CALL_COLUMNS et non '*' : exclut `fathom_transcript`, la transcription
+        // intégrale du call. Elle n'est affichée que dans le modal de rapport
+        // (FathomRecordingSection), où elle est chargée à la demande — la tirer
+        // ici la ferait transiter à chaque chargement de la page élève.
+        supabase.from('calls').select(CALL_COLUMNS).eq('client_id', clientRow.id)
           .eq('status', 'active')
           .neq('ignored', true)
           .gte('scheduled_at', new Date(now.getTime() - 2 * 3600_000).toISOString())
           .order('scheduled_at', { ascending: true })
           .limit(5),
-        supabase.from('calls').select('*').eq('client_id', clientRow.id)
+        supabase.from('calls').select(CALL_COLUMNS).eq('client_id', clientRow.id)
           .eq('status', 'active')
           .neq('ignored', true)
           .gte('scheduled_at', startOfToday).lt('scheduled_at', startOfTomorrow),
@@ -119,7 +123,7 @@ export function useClientSelfData() {
               // un call réservé avant que toutes les intégrations obligatoires soient
               // connectées n'a pas pu être généré par le pipeline Momentum, même si son
               // scheduled_at tombe après. Fallback sur scheduled_at si booked_at manque.
-              let q = supabase.from('calls').select('*').eq('coach_id', clientRow.profile_id)
+              let q = supabase.from('calls').select(CALL_COLUMNS).eq('coach_id', clientRow.profile_id)
                 .eq('call_type', 'calendly')
                 .neq('ignored', true);
               if (integrationsReadyAt) {
@@ -131,7 +135,7 @@ export function useClientSelfData() {
         // Calls manuels : pas concernés par le piège coach_id (non documenté comme
         // tel), client_id reste fiable ici.
         (() => {
-          let q = supabase.from('calls').select('*').eq('client_id', clientRow.id)
+          let q = supabase.from('calls').select(CALL_COLUMNS).eq('client_id', clientRow.id)
             .eq('call_type', 'manual')
             .neq('ignored', true);
           if (onboardingStart) q = q.gte('scheduled_at', onboardingStart);
