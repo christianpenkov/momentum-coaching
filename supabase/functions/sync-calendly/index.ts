@@ -20,6 +20,33 @@ function isValidContentId(s: string | null | undefined): boolean {
   return false;
 }
 
+/**
+ * ⚠️ Équivalent Deno de `resolveCallSource` (lib/contentId.ts) — pas d'import
+ * cross-runtime possible. Toute modification de la règle doit être répercutée
+ * dans les deux.
+ *
+ * `calls.source` doit valoir `plateforme_medium` (ig_bio, yt_description…).
+ * Certains vieux liens portent le domaine Short.io dans utm_source, ce qui
+ * produisait `ubizenai.s.gy_description` — inexploitable pour l'attribution,
+ * qui regroupe par plateforme. Quand utm_source n'est pas une plateforme
+ * connue, on la déduit du contenu ; sinon on n'écrit rien, même règle que pour
+ * utm_content (mieux vaut pas de source qu'une source fausse).
+ */
+function resolveCallSource(
+  utmSource: string | null | undefined,
+  utmMedium: string | null | undefined,
+  utmContent?: string | null,
+): string | undefined {
+  if (!utmSource) return undefined;
+  const platform = ['ig', 'yt'].includes(utmSource)
+    ? utmSource
+    : (utmContent && /^[A-Za-z0-9_-]{11}$/.test(utmContent)) ? 'yt'
+    : (utmContent && /^\d{10,}$/.test(utmContent)) ? 'ig'
+    : null;
+  if (!platform) return undefined;
+  return [platform, utmMedium].filter(Boolean).join('_');
+}
+
 async function getCalendlyToken(profileId: string): Promise<string | null> {
   const { data: integ } = await supabase
     .from('integrations')
@@ -215,7 +242,7 @@ async function syncCalendlyEleve(
     const utmContent = tracking?.utm_content || null;
     // utm_term = le prospect (voir docs/utm-nomenclature.md, un rôle par champ).
     const utmTerm = tracking?.utm_term || null;
-    const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
+    const source = resolveCallSource(utmSource, utmMedium, utmContent) ?? null;
 
     const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;
     const prospectSlugFromUtm = utmCampaign?.startsWith('prospect-') ? utmCampaign.slice(9) : null;

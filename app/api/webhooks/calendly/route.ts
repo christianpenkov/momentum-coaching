@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { upsertProspect } from '@/lib/prospects';
-import { resolveUtmContent } from '@/lib/contentId';
+import { resolveUtmContent, resolveCallSource } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -71,7 +71,10 @@ export async function POST(request: NextRequest) {
     // stocké jusqu'ici : l'information partait vers Calendly et se perdait. Voir
     // docs/utm-nomenclature.md (un rôle par champ).
     const utmTerm = resource.tracking?.utm_term || null;
-    const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
+    // Règle partagée : utm_source doit être la PLATEFORME (ig/yt), jamais le
+    // domaine Short.io — sinon on produit des sources du type
+    // `ubizenai.s.gy_description`, inexploitables pour l'attribution.
+    const source = resolveCallSource(utmSource, utmMedium, utmContent) ?? null;
 
     // utm_campaign = "lead-{ig_user_id}" → extraire l'ig_user_id pour jointure instagram_leads
     const igUserIdFromUtm = utmCampaign?.startsWith('lead-') ? utmCampaign.slice(5) : null;

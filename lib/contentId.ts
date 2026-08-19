@@ -43,3 +43,34 @@ export function resolveUtmContent(
   if (isValidContentId(existing)) return existing as string;
   return undefined;
 }
+
+/**
+ * Construit `calls.source` au format `plateforme_medium` (ex. `ig_bio`,
+ * `yt_description`).
+ *
+ * `utm_source` doit contenir la PLATEFORME. Certains vieux liens portent le
+ * domaine Short.io à la place (`ubizenai.s.gy`), ce qui produisait des sources
+ * du type `ubizenai.s.gy_description` — inexploitables pour l'attribution, qui
+ * regroupe par plateforme.
+ *
+ * Quand utm_source n'est pas une plateforme connue, on la déduit du contenu :
+ * un identifiant YouTube (11 caractères) ou de post Instagram (chiffres) suffit
+ * à trancher. Sinon on renvoie undefined — mieux vaut pas de source qu'une
+ * source fausse, même règle que pour utm_content.
+ */
+export function resolveCallSource(
+  utmSource: string | null | undefined,
+  utmMedium: string | null | undefined,
+  utmContent?: string | null,
+): string | undefined {
+  if (!utmSource) return undefined;
+
+  const platform = ['ig', 'yt'].includes(utmSource)
+    ? utmSource
+    : isYtVideoId(utmContent) ? 'yt'
+    : isIgPostId(utmContent) ? 'ig'
+    : null;
+
+  if (!platform) return undefined;
+  return [platform, utmMedium].filter(Boolean).join('_');
+}

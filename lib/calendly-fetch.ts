@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { resolveUtmContent } from '@/lib/contentId';
+import { resolveUtmContent, resolveCallSource } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -147,7 +147,10 @@ export async function syncCalendlyEleve(
       const utmContent = tracking?.utm_content || null;
       // utm_term = le prospect (voir docs/utm-nomenclature.md, un rôle par champ).
       const utmTerm = tracking?.utm_term || null;
-      const source = utmSource ? [utmSource, utmMedium].filter(Boolean).join('_') : null;
+      // Règle partagée : utm_source doit être la PLATEFORME (ig/yt), jamais le
+      // domaine Short.io — sinon on produit des sources du type
+      // `ubizenai.s.gy_description`, inexploitables pour l'attribution.
+      const source = resolveCallSource(utmSource, utmMedium, utmContent) ?? null;
 
       // utm_campaign = "lead-{ig_user_id}" → résoudre l'ig_lead_id
       // utm_campaign = "prospect-{slug}" → fallback : cherche par prospect_link.ig_username
