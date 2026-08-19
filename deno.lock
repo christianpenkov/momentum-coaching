@@ -1,0 +1,37 @@
+{
+  "version": "5",
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.112.3"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.112.3": "f6b9130984301066587e8917dfab3b3d60be47dc966bd3d04c733bc9423c1cf9"
+  },
+  "workspace": {
+    "packageJson": {
+      "dependencies": [
+        "npm:@anthropic-ai/sdk@0.96",
+        "npm:@supabase/ssr@~0.10.3",
+        "npm:@supabase/supabase-js@^2.105.4",
+        "npm:@tanstack/react-query@^5.101.0",
+        "npm:@types/node@20",
+        "npm:@types/react-dom@19",
+        "npm:@types/react@19",
+        "npm:@types/web-push@^3.6.4",
+        "npm:fix-webm-duration@^1.0.6",
+        "npm:framer-motion@^12.42.2",
+        "npm:googleapis@173",
+        "npm:lottie-react@^2.4.1",
+        "npm:next@16.2.6",
+        "npm:pdf-to-img@^6.2.0",
+        "npm:qrcode.react@^4.2.0",
+        "npm:react-dom@19.2.4",
+        "npm:react@19.2.4",
+        "npm:recharts@^3.8.1",
+        "npm:sharp@~0.34.5",
+        "npm:stripe@^22.1.1",
+        "npm:typescript@5",
+        "npm:web-push@^3.6.7"
+      ]
+    }
+  }
+}

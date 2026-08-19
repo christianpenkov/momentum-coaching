@@ -73,6 +73,10 @@ interface Call {
    * n'afficher qu'une carte.
    */
   next_rescheduled_uri: string | null;
+  /** Moment réel de l'annulation (Calendly), distinct de l'heure du rendez-vous. */
+  canceled_at: string | null;
+  /** Qui a annulé — le prospect ou l'hôte. */
+  canceled_by: string | null;
   cancellation_reason: string | null;
   lead_deleted: boolean;
   is_follow_up: boolean | null;

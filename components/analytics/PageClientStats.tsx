@@ -2942,7 +2942,168 @@ const isValidPostId = (id: any, platform?: string) => {
   return isValidIgPostId(id) || isValidYtVideoId(id);
 };
 
-function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing, sinceConnection }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean }) {
+interface OriginRow {
+  key: string;
+  label: string;
+  meta: string;
+  amount: number;
+  isOrigin: boolean;
+  thumbnail: string | null;
+  dealsCount: number;
+}
+
+/**
+ * Cash encaissé par origine.
+ *
+ * Contenus et origines sans contenu (Cold DM, organique) sont classés ENSEMBLE
+ * par montant : le bloc répond à « qu'est-ce qui me rapporte », et le démarchage
+ * est une réponse aussi légitime qu'un contenu. Les lignes sans contenu se
+ * distinguent par une vignette pointillée, jamais par une mise en retrait.
+ */
+function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection }: {
+  profileId?: string;
+  periodStart: Date;
+  periodEnd: Date;
+  sinceConnection?: boolean;
+}) {
+  const [showAll, setShowAll] = useState(false);
+
+  // En mode "depuis connexion" le fetch est déjà borné en amont : ne pas
+  // re-clipper sur la fenêtre calendaire, qui écraserait ce bornage.
+  const start = sinceConnection ? undefined : periodStart.toISOString();
+  const end = sinceConnection ? undefined : periodEnd.toISOString();
+
+  const { data, isLoading } = useQuery<{ rows: OriginRow[]; total: number }>({
+    queryKey: ['cash-by-origin', profileId, start, end],
+    queryFn: () => {
+      const p = new URLSearchParams();
+      if (profileId) p.set('profileId', profileId);
+      if (start) p.set('start', start);
+      if (end) p.set('end', end);
+      return fetch(`/api/payments/by-origin?${p}`).then(r => r.json());
+    },
+  });
+
+  const rows = data?.rows ?? [];
+  const total = data?.total ?? 0;
+  const visible = showAll ? rows : rows.slice(0, 5);
+
+  return (
+    <div className="card">
+      <div className="card-head">
+        <div>
+          <div className="card-title">Cash encaissé par origine</div>
+          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+            Attribution au premier contact, pas au dernier clic
+          </div>
+        </div>
+      </div>
+
+      {isLoading ? (
+        <div style={{ padding: '24px 0' }}><InlineLoader /></div>
+      ) : rows.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '32px 24px' }}>
+          <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <circle cx="12" cy="12" r="10" /><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8" /><path d="M12 6v2m0 8v2" />
+            </svg>
+          </div>
+          <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucun revenu sur la période</div>
+        </div>
+      ) : (
+        <>
+          <div>
+            {visible.map((r, i) => {
+              const pct = total > 0 ? (r.amount / total) * 100 : 0;
+              // « Sans attribution » signale une absence d'information : texte en
+              // muted. Cold DM et organique sont des origines à part entière et
+              // gardent la couleur normale.
+              const dim = r.key === 'origin:manual';
+              return (
+                <div
+                  key={r.key}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '10px 0',
+                    borderTop: i === 0 ? 'none' : '1px solid var(--border-soft)',
+                  }}
+                >
+                  {r.thumbnail ? (
+                    <img
+                      src={r.thumbnail}
+                      alt=""
+                      style={{ width: 36, height: 36, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }}
+                    />
+                  ) : (
+                    <div style={{
+                      width: 36, height: 36, borderRadius: 8, flexShrink: 0,
+                      background: 'var(--bg)',
+                      border: '1px dashed var(--border)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      {r.isOrigin ? (
+                        // Origine sans contenu : flèche d'envoi (démarchage, entrant direct)
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <path d="m22 2-7 20-4-9-9-4Z" /><path d="M22 2 11 13" />
+                        </svg>
+                      ) : (
+                        // Contenu dont la vignette n'a pas pu être récupérée
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                          <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="9" cy="9" r="2" /><path d="m21 15-4.5-4.5L6 21" />
+                        </svg>
+                      )}
+                    </div>
+                  )}
+
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{
+                      fontSize: 13, fontWeight: 600,
+                      color: dim ? 'var(--muted)' : 'var(--ink)',
+                      overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>
+                      {r.label}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{r.meta}</div>
+                    <div style={{ height: 4, borderRadius: 2, background: 'var(--surface-2)', marginTop: 6, overflow: 'hidden' }}>
+                      <div style={{
+                        height: '100%', width: `${pct}%`, borderRadius: 2,
+                        background: dim ? 'var(--border)' : GREEN,
+                        transition: 'width var(--dur-base) var(--ease-out)',
+                      }} />
+                    </div>
+                  </div>
+
+                  <div style={{
+                    fontSize: 13, fontWeight: 600, fontVariantNumeric: 'tabular-nums',
+                    color: dim ? 'var(--muted)' : 'var(--ink)',
+                    width: 74, textAlign: 'right', flexShrink: 0,
+                  }}>
+                    {fmtEur(r.amount)}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {rows.length > 5 && (
+            <button
+              onClick={() => setShowAll(v => !v)}
+              style={{
+                marginTop: 10, width: '100%', padding: '8px 0',
+                fontSize: 12, fontWeight: 600, color: 'var(--muted)',
+                background: 'none', border: 'none', cursor: 'pointer',
+              }}
+            >
+              {showAll ? 'Voir moins' : `Voir plus (${rows.length - 5})`}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string }) {
   if (!stripe) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
@@ -3035,6 +3196,9 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       <Card title="Revenus / jour" sub={periodIndex === 0 ? `${period} derniers jours · deals closés & paiements Stripe` : `${periodLabel(period, periodIndex)} · deals closés & paiements Stripe`}>
         <BarChart data={revenueByDay} bars={[{ key: 'contracte', label: 'Cash contracté', color: 'var(--accent-brand)' }, { key: 'ca', label: 'Cash collecté', color: GREEN }]} xKey="date" height={200} formatter={fmtEur} xInterval={period === 7 ? 0 : Math.floor(revenueByDay.length / 7) - 1} />
       </Card>
+
+      {/* Empilé pleine largeur sous le graphique, jamais en colonne à côté. */}
+      <CashByOrigin profileId={profileId} periodStart={periodStart} periodEnd={periodEnd} sinceConnection={sinceConnection} />
 
       <div className="card">
         <div className="card-head">
@@ -6577,7 +6741,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}
     </div>

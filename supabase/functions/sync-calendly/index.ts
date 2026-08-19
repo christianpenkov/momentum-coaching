@@ -145,12 +145,17 @@ async function syncCalendlyEleve(
   if (uuidsInPage.length) {
     const { data: knownRows } = await supabase
       .from('calls')
-      .select('calendly_event_uuid')
+      .select('calendly_event_uuid, canceled_at')
       .eq('coach_id', profileId)
       .eq('status', 'canceled')
       .in('calendly_event_uuid', uuidsInPage);
     for (const row of knownRows || []) {
-      if (row.calendly_event_uuid) terminalUuids.add(row.calendly_event_uuid);
+      // `canceled_at` renseigné = on a bien TOUT ce que Calendly peut donner sur
+      // cette annulation. Sans lui, l'event est retraité une fois pour récupérer
+      // l'objet `cancellation` (date + auteur), ajouté après coup : sinon ces
+      // calls, déjà annulés en base, restaient éternellement skippés et leur date
+      // d'annulation ne serait jamais remplie.
+      if (row.calendly_event_uuid && row.canceled_at) terminalUuids.add(row.calendly_event_uuid);
     }
   }
 
@@ -170,6 +175,15 @@ async function syncCalendlyEleve(
     const scheduledAt = event.start_time || null;
     const endTime = event.end_time || null;
     const isCanceled = event.status === 'canceled';
+
+    // Objet `cancellation` de Calendly : porte le MOMENT réel de l'annulation et
+    // son auteur. Sans lui, la timeline du pipeline datait « Call annulé » à
+    // l'heure du rendez-vous — la seule date disponible, mais fausse.
+    // Savoir qu'un call a été annulé 2 h avant, et par le prospect, ne se lit pas
+    // comme une annulation la veille par l'hôte.
+    const cancellation = event.cancellation ?? null;
+    const canceledAt: string | null = cancellation?.created_at ?? null;
+    const canceledBy: string | null = cancellation?.canceled_by ?? null;
 
     let duration: string | null = null;
     if (scheduledAt && endTime) {
@@ -313,6 +327,12 @@ async function syncCalendlyEleve(
       ready: 'pending',
       reminder_sent: false,
     };
+    // Écrits seulement s'ils existent : un call redevenu actif (report) ne doit
+    // pas conserver la date d'annulation du précédent, et un upsert avec null
+    // écraserait une valeur déjà correcte.
+    if (canceledAt) upsertData.canceled_at = canceledAt;
+    if (canceledBy) upsertData.canceled_by = canceledBy;
+    if (isCanceled && cancellation?.reason) upsertData.cancellation_reason = cancellation.reason;
     if (utmCampaign)         upsertData.utm_campaign    = utmCampaign;
     if (utmContent) {
       // Garde anti-écrasement : voir commentaire équivalent dans

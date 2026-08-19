@@ -229,13 +229,30 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
           : undefined,
       });
     } else if (['canceled', 'cancelled'].includes(call.status ?? '')) {
+      // `canceled_at` = moment RÉEL de l'annulation, récupéré de l'objet
+      // cancellation de Calendly. Sans lui (calls annulés avant l'ajout de la
+      // colonne), on retombe sur l'heure du rendez-vous — la seule date connue,
+      // mais fausse : elle place l'événement au moment où le call aurait dû
+      // avoir lieu, pas au moment où il a été annulé.
+      const canceledDetail = [
+        call.canceled_by ? `Annulé par ${call.canceled_by}` : null,
+        call.cancellation_reason && call.cancellation_reason !== 'canceled'
+          ? call.cancellation_reason
+          : null,
+        // Rappel de la date du rendez-vous annulé : sans elle, on ne sait plus
+        // quel créneau a sauté.
+        call.scheduled_at
+          ? `Call du ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}`
+          : null,
+      ].filter(Boolean).join(' · ');
+
       events.push({
         id: `${call.id}-canceled`,
         type: 'call_canceled',
-        occurredAt: call.rescheduled_at ?? call.scheduled_at ?? call.created_at,
+        occurredAt: call.canceled_at ?? call.rescheduled_at ?? call.scheduled_at ?? call.created_at,
         source: 'derived',
         label: 'Call annulé',
-        detail: call.cancellation_reason ?? undefined,
+        detail: canceledDetail || undefined,
       });
     } else if (isCallHonored(call, now)) {
       const hasRealShowedUpEvent = ctx.events.some(e => e.event_type === 'showed_up' && e.call_id === call.id);
