@@ -187,8 +187,12 @@ export async function GET(request: NextRequest) {
     return true;
   });
 
+  // Tri par fraîcheur d'abord ; le classement par deal se fait plus bas, une fois
+  // les deals connus. On garde une marge sur LIMIT pour que le reclassement ait
+  // de quoi travailler : sans elle, un prospect avec deal impayé mais ancien
+  // serait coupé avant d'avoir pu remonter.
   unique.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
-  const top = unique.slice(0, LIMIT);
+  const top = unique.slice(0, LIMIT * 2);
 
   // Deal existant : savoir qu'on a déjà vendu 3 000 € à cette personne le mois
   // dernier change ce qu'on lui propose — c'est un upsell, pas une première vente.
@@ -236,10 +240,27 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  return NextResponse.json({
-    people: top.map(p => ({
-      ...p,
-      lastDeal: byKey.get(p.id) ?? byName.get(norm(p.name)) ?? null,
-    })),
+  const withDeals = top.map(p => ({
+    ...p,
+    lastDeal: byKey.get(p.id) ?? byName.get(norm(p.name)) ?? null,
+  }));
+
+  // Ordre d'affichage : d'abord les deals impayés (il reste de l'argent à aller
+  // chercher, c'est l'action la plus probable), puis les deals soldés (un upsell
+  // se propose à quelqu'un qui a déjà payé), puis les prospects sans deal.
+  // Au sein de chaque groupe, du plus récent au plus ancien.
+  const rank = (p: typeof withDeals[number]) =>
+    !p.lastDeal ? 2 : p.lastDeal.status === 'paid' ? 1 : 0;
+
+  withDeals.sort((a, b) => {
+    const ra = rank(a), rb = rank(b);
+    if (ra !== rb) return ra - rb;
+    // Un deal date la relation mieux que la détection du lead : c'est lui qu'on
+    // compare quand il existe.
+    const da = a.lastDeal?.signedAt ?? a.at ?? '';
+    const db = b.lastDeal?.signedAt ?? b.at ?? '';
+    return db.localeCompare(da);
   });
+
+  return NextResponse.json({ people: withDeals.slice(0, LIMIT) });
 }

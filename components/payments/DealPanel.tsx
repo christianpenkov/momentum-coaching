@@ -5,6 +5,7 @@ import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Portal from './Portal';
 import type { DealRow, DealDetail } from './types';
+import { useIsMobile } from '@/lib/useIsMobile';
 import { fmtEur, fmtDateLong } from './types';
 
 /**
@@ -19,6 +20,7 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
 }) {
   const [copied, setCopied] = useState(false);
   const [savingSent, setSavingSent] = useState(false);
+  const isMobile = useIsMobile();
 
   // Échap ferme le panneau — attendu de tout overlay.
   useEffect(() => {
@@ -72,13 +74,28 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
   return (
     <Portal>
       <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 9998 }} />
-      <aside style={{
+      {/* Bottom sheet sur mobile, panneau latéral sur desktop : 480px sur un écran
+          de 390px déborderait, et le geste attendu sur téléphone est de remonter
+          une feuille depuis le bas — c'est déjà le pattern des autres sheets. */}
+      <aside style={isMobile ? {
+        position: 'fixed', left: 0, right: 0, bottom: 0, maxHeight: '88vh', zIndex: 9999,
+        background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
+        borderTopLeftRadius: 18, borderTopRightRadius: 18,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      } : {
         position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(480px, 100vw)', zIndex: 9999,
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
+        {/* Poignée de préhension — signale que la feuille se ferme vers le bas. */}
+        {isMobile && (
+          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 10, flexShrink: 0 }}>
+            <span style={{ width: 44, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+          </div>
+        )}
+
         {/* En-tête */}
-        <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 13, flexShrink: 0 }}>
+        <div style={{ padding: isMobile ? '14px 20px' : '20px 24px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 13, flexShrink: 0 }}>
           <Avatar initials={getInitials(deal.buyerName)} avatarUrl={deal.avatarUrl} size={38} seed={deal.id} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>{deal.buyerName}</div>
@@ -93,7 +110,7 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
         </div>
 
         {/* Totaux */}
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-soft)', display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12, flexShrink: 0 }}>
+        <div style={{ padding: isMobile ? '16px 20px' : '18px 24px', borderBottom: '1px solid var(--border-soft)', display: 'grid', gridTemplateColumns: isMobile ? 'repeat(2, 1fr)' : 'repeat(4, 1fr)', gap: isMobile ? 14 : 12, flexShrink: 0 }}>
           <Total label="Contracté" value={fmtEur(deal.amountTotal)} />
           <Total label="Collecté" value={fmtEur(deal.collected)} color="var(--green)" />
           <Total label="Reste dû" value={fmtEur(Math.max(0, remaining - unpaid))} />
@@ -101,7 +118,7 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
         </div>
 
         {/* Versements */}
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
+        <div style={{ padding: isMobile ? '16px 20px' : '18px 24px', borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
           <div className="mono" style={{ marginBottom: 13 }}>
             {planSummary(deal)}
           </div>
@@ -172,7 +189,7 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
         </div>
 
         {/* Chaîne d'acquisition */}
-        <div style={{ padding: '14px 24px 20px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
+        <div style={{ padding: isMobile ? '14px 20px 24px' : '14px 24px 20px', flex: 1, minHeight: 0, overflowY: 'auto' }}>
           <div className="mono" style={{ marginBottom: 15 }}>Comment {deal.buyerName.split(' ')[0]} est arrivé</div>
           <AcquisitionChain dealId={deal.id} />
         </div>

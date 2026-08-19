@@ -291,19 +291,25 @@ function Done({ result, copied, onCopy, onDone }: { result: { url: string; mode:
   );
 }
 
-/** Deal existant : « 3 000 € · 15 juin » avec l'état du paiement. */
+/**
+ * Deal existant : « 3 000 EUR · 15 juin » avec l'etat du paiement.
+ *
+ * Trois etats visuellement distincts, parce que la liste est triee dessus :
+ * impaye (ambre, il reste de l'argent a aller chercher), paye (vert, un upsell
+ * se propose a quelqu'un qui a deja paye), et rien du tout.
+ */
 function DealBadge({ deal }: { deal: { amount: number; signedAt: string; status: string } }) {
   const paid = deal.status === 'paid';
   return (
     <span style={{
       display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
       fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
-      background: paid ? 'var(--green-soft)' : 'var(--surface-2)',
-      color: paid ? 'var(--green)' : 'var(--muted)',
+      background: paid ? 'var(--green-soft)' : 'var(--amber-soft)',
+      color: paid ? 'var(--green)' : 'var(--amber)',
       whiteSpace: 'nowrap',
     }}>
       {fmtEur(deal.amount)} · {new Date(deal.signedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-      {paid ? ' · payé' : ''}
+      {paid ? ' · payé' : ' · impayé'}
     </span>
   );
 }

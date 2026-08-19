@@ -8,6 +8,7 @@ import DealPanel from './DealPanel';
 import ReconcileTab from './ReconcileTab';
 import RelancesTab from './RelancesTab';
 import CreateLinkModal from './CreateLinkModal';
+import { useIsMobile } from '@/lib/useIsMobile';
 import type { PaymentsData, DealRow } from './types';
 import { fmtEur } from './types';
 
@@ -29,6 +30,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   const [search, setSearch] = useState('');
   const [openDeal, setOpenDeal] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const isMobile = useIsMobile();
 
   const { data, isLoading, refetch } = useQuery<PaymentsData>({
     queryKey: ['payments'],
@@ -79,16 +81,41 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
       </div>
 
       {/* ── Ruban de KPI ────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 20 }}>
-        <Kpi label="Cash contracté" value={k ? fmtEur(k.contracted) : '—'}
-          sub={k ? `${k.dealsCount} deal${k.dealsCount > 1 ? 's' : ''} signé${k.dealsCount > 1 ? 's' : ''}` : ''} />
-        <Kpi label="Cash collecté" value={k ? fmtEur(k.collected) : '—'}
-          sub={k ? `${k.collectedRate} % du contracté` : ''} color="var(--green)" />
-        <Kpi label="Reste à encaisser" value={k ? fmtEur(k.remaining) : '—'} sub="échéances à venir" />
-        <Kpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'}
-          sub={k && k.failedCount > 0 ? `${k.failedCount} carte refusée` : 'tout est à jour'}
-          color={k && k.unpaid > 0 ? 'var(--red)' : 'var(--green)'} />
-      </div>
+      {/* Mobile : un KPI héros (le collecté, la seule question qui compte sur un
+          écran de 390px) et trois chiffres secondaires. Quatre cartes égales y
+          seraient illisibles. */}
+      {isMobile ? (
+        <div style={{ marginBottom: 18 }}>
+          <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
+            <div className="kpi-label">Cash collecté{k ? ' · 30 derniers jours' : ''}</div>
+            <div className="kpi-value tabular" style={{ color: 'var(--green)', fontSize: 30 }}>
+              {k ? fmtEur(k.collected) : '—'}
+            </div>
+            <div style={{ height: 5, borderRadius: 3, background: 'var(--surface-2)', overflow: 'hidden', margin: '10px 0 6px' }}>
+              <div style={{ height: '100%', width: `${k?.collectedRate ?? 0}%`, background: 'var(--green)', borderRadius: 3 }} />
+            </div>
+            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+              {k ? `${k.collectedRate} % de ${fmtEur(k.contracted)} contractés` : ''}
+            </div>
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+            <MiniKpi label="Reste dû" value={k ? fmtEur(k.remaining) : '—'} />
+            <MiniKpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'} color={k && k.unpaid > 0 ? 'var(--red)' : undefined} />
+            <MiniKpi label="Deals" value={String(k?.dealsCount ?? 0)} />
+          </div>
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 14, marginBottom: 20 }}>
+          <Kpi label="Cash contracté" value={k ? fmtEur(k.contracted) : '—'}
+            sub={k ? `${k.dealsCount} deal${k.dealsCount > 1 ? 's' : ''} signé${k.dealsCount > 1 ? 's' : ''}` : ''} />
+          <Kpi label="Cash collecté" value={k ? fmtEur(k.collected) : '—'}
+            sub={k ? `${k.collectedRate} % du contracté` : ''} color="var(--green)" />
+          <Kpi label="Reste à encaisser" value={k ? fmtEur(k.remaining) : '—'} sub="échéances à venir" />
+          <Kpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'}
+            sub={k && k.failedCount > 0 ? `${k.failedCount} carte refusée` : 'tout est à jour'}
+            color={k && k.unpaid > 0 ? 'var(--red)' : 'var(--green)'} />
+        </div>
+      )}
 
       {/* ── Onglets ─────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', gap: 4, borderBottom: '1px solid var(--border)', marginBottom: 18 }}>
@@ -127,7 +154,9 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             ? <StripeDisconnected isCoach={isCoach} />
             : deals.length === 0
               ? <EmptyDeals onCreate={() => setCreating(true)} />
-              : <DealsTable rows={filtered} isCoach={isCoach} onOpen={setOpenDeal} />}
+              : isMobile
+                ? <DealCards rows={filtered} onOpen={setOpenDeal} />
+                : <DealsTable rows={filtered} isCoach={isCoach} onOpen={setOpenDeal} />}
         </>
       ) : tab === 'reconcile' ? (
         <ReconcileTab orphans={data?.orphans ?? []} onDone={refetch} />
@@ -252,6 +281,68 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
           onClick={() => onOpen(d.id)}>Détails</button>
       </td>
     </tr>
+  );
+}
+
+function MiniKpi({ label, value, color }: { label: string; value: string; color?: string }) {
+  return (
+    <div className="card" style={{ padding: '11px 12px' }}>
+      <div style={{ fontSize: 10.5, color: 'var(--muted)', marginBottom: 3 }}>{label}</div>
+      <div className="tabular" style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.2px', color: color ?? 'var(--ink)' }}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Version mobile du tableau : une carte par deal.
+ *
+ * Pas de scroll horizontal — sept colonnes sur 390px sont illisibles, et faire
+ * glisser un tableau latéralement pour lire un montant est une solution de repli
+ * qu'on refuse ici (mobile et desktop sont deux usages réels, pas l'un dégradé
+ * de l'autre). La carte entière est cliquable : la cible tactile fait toute la
+ * ligne plutôt qu'un bouton de 30px.
+ */
+function DealCards({ rows, onOpen }: { rows: DealRow[]; onOpen: (id: string) => void }) {
+  if (rows.length === 0) {
+    return <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Aucun deal ne correspond.</div>;
+  }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+      {rows.map(d => {
+        const pct = d.amountTotal > 0 ? Math.min(100, Math.round((d.collected / d.amountTotal) * 100)) : 0;
+        const st = statusOf(d);
+        return (
+          <button key={d.id} onClick={() => onOpen(d.id)} className="card"
+            style={{
+              padding: '14px 16px', textAlign: 'left', border: '1px solid var(--border)',
+              cursor: 'pointer', fontFamily: 'inherit', width: '100%', display: 'block',
+            }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 10 }}>
+              <Avatar initials={getInitials(d.buyerName)} avatarUrl={d.avatarUrl} size={32} seed={d.id} />
+              <span style={{ flex: 1, minWidth: 0 }}>
+                <span style={{ display: 'block', fontSize: 14, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.buyerName}</span>
+                <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {[planLabel(d), fmtDate(d.signedAt)].filter(Boolean).join(' · ')}
+                </span>
+              </span>
+              <Pill label={st.label} tone={st.tone} />
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9 }}>
+              <span className="tabular" style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.4px' }}>
+                {d.collected > 0 ? fmtEur(d.collected) : '—'}
+              </span>
+              <span className="tabular" style={{ fontSize: 13, color: 'var(--muted)' }}>/ {fmtEur(d.amountTotal)}</span>
+              <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>{progressLabel(d)}</span>
+            </div>
+
+            <span style={{ display: 'block', height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden' }}>
+              <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: st.barColor }} />
+            </span>
+          </button>
+        );
+      })}
+    </div>
   );
 }
 
