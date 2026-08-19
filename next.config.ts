@@ -1,6 +1,12 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Active le composant <ViewTransition> de React (Next 16 + React 19). Sans ce
+  // drapeau, <ViewTransition> est inerte. Les navigateurs sans View Transitions
+  // API ignorent simplement l'animation : la navigation reste fonctionnelle.
+  experimental: {
+    viewTransition: true,
+  },
   images: {
     remotePatterns: [
       { protocol: 'https', hostname: '*.cdninstagram.com' },

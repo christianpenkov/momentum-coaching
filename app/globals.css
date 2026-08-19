@@ -2873,3 +2873,109 @@ a { color: inherit; text-decoration: none; }
   color: var(--green);
   line-height: 1.45;
 }
+
+/* ══ View Transitions ═══════════════════════════════════════════════════════
+   Animations de navigation entre écrans (voir components/layout/PageTransition.tsx,
+   activé par experimental.viewTransition dans next.config.ts).
+
+   Durées : sortie 150ms, entrée 210ms décalée de 150ms, glissement 400ms.
+   L'asymétrie est volontaire — l'ancien contenu part vite pour libérer
+   l'attention, le nouveau arrive plus doucement pour laisser le temps de le
+   lire. Ce sont les valeurs de référence Material/Apple et de la doc Next.
+
+   Un navigateur sans View Transitions API ignore tout ce bloc : la navigation
+   reste fonctionnelle, sans animation. ────────────────────────────────────── */
+
+:root {
+  --vt-exit: 150ms;
+  --vt-enter: 210ms;
+  --vt-slide: 400ms;
+}
+
+/* Fondu par défaut — navigation entre onglets frères (Accueil, Messages,
+   Calls…). Un glissement dirait "je vais ailleurs" alors qu'on reste au même
+   niveau de l'app ; le fondu dit "même endroit, autre contenu". */
+::view-transition-old(.page-fade) {
+  animation: var(--vt-exit) ease-in both vt-fade reverse;
+}
+::view-transition-new(.page-fade) {
+  animation: var(--vt-enter) ease-out var(--vt-exit) both vt-fade;
+}
+
+/* Glissement directionnel — liste → détail et retour. L'horizontale encode la
+   profondeur : vers la gauche on avance, vers la droite on revient. */
+::view-transition-old(.nav-forward) {
+  --vt-offset: -60px;
+  animation:
+    var(--vt-exit) ease-in both vt-fade reverse,
+    var(--vt-slide) ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-forward) {
+  --vt-offset: 60px;
+  animation:
+    var(--vt-enter) ease-out var(--vt-exit) both vt-fade,
+    var(--vt-slide) ease-in-out both vt-slide;
+}
+::view-transition-old(.nav-back) {
+  --vt-offset: 60px;
+  animation:
+    var(--vt-exit) ease-in both vt-fade reverse,
+    var(--vt-slide) ease-in-out both vt-slide reverse;
+}
+::view-transition-new(.nav-back) {
+  --vt-offset: -60px;
+  animation:
+    var(--vt-enter) ease-out var(--vt-exit) both vt-fade,
+    var(--vt-slide) ease-in-out both vt-slide;
+}
+
+/* 60px et pas la largeur de l'écran : assez pour signaler la direction, pas
+   assez pour que l'œil doive poursuivre un élément qui file. */
+@keyframes vt-slide {
+  from { translate: var(--vt-offset); }
+  to { translate: 0; }
+}
+@keyframes vt-fade {
+  from { opacity: 0; filter: blur(2px); }
+  to { opacity: 1; filter: blur(0); }
+}
+
+/* Ancrage des chrome persistants (barre du haut, bottom nav, sidebar).
+   Sans ça l'API capture la page entière et fait glisser TOUT le viewport,
+   barres comprises : l'utilisateur perd son repère spatial et croit que
+   l'écran entier bouge. Ancrés, ils restent fixes pendant que le contenu
+   défile dessous — le comportement d'une app native. */
+.topbar { view-transition-name: vt-topbar; }
+.bottom-nav-wrapper { view-transition-name: vt-bottomnav; }
+.sidebar { view-transition-name: vt-sidebar; }
+
+::view-transition-group(vt-topbar),
+::view-transition-group(vt-bottomnav),
+::view-transition-group(vt-sidebar) {
+  animation: none;
+  z-index: 100;
+}
+/* display:none sur l'ancien snapshot : sinon les deux versions de la barre se
+   superposent brièvement et produisent un flash. */
+::view-transition-old(vt-topbar),
+::view-transition-old(vt-bottomnav),
+::view-transition-old(vt-sidebar) {
+  display: none;
+}
+::view-transition-new(vt-topbar),
+::view-transition-new(vt-bottomnav),
+::view-transition-new(vt-sidebar) {
+  animation: none;
+}
+
+/* Les glissements simulent un déplacement physique : c'est le déclencheur le
+   plus courant du mal des transports numérique. On coupe toute durée plutôt
+   que de laisser un mouvement résiduel. */
+@media (prefers-reduced-motion: reduce) {
+  ::view-transition-old(*),
+  ::view-transition-new(*),
+  ::view-transition-group(*) {
+    animation-duration: 0s !important;
+    animation-delay: 0s !important;
+  }
+}
