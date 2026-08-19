@@ -2886,23 +2886,24 @@ a { color: inherit; text-decoration: none; }
    ────────────────────────────────────────────────────────────────────────── */
 #app-splash {
   position: fixed;
-  /* 100vw/100dvh et non inset:0 : sous 767px, html et body sont en
-     position:fixed avec height:100%, et en PWA standalone iOS cette hauteur
-     EXCLUT la barre de statut. Un inset:0 se calerait alors sur ce body
-     raccourci et décalé, alors que le splash système occupe l'écran entier —
-     c'est ce qui faisait « descendre » le logo au raccord.
-     Les unités de viewport, elles, ignorent la boîte du parent. */
-  top: 0;
+  /* LE LOGO QUI DESCEND — cause exacte.
+     Le layout déclare apple-mobile-web-app-status-bar-style="default", et avec
+     cette valeur iOS affiche le contenu web SOUS la barre de statut : la
+     fenêtre de la PWA commence donc plus bas que l'écran. Le splash système,
+     lui, couvre l'écran ENTIER. Un élément centré sur la fenêtre se retrouve
+     ainsi plus bas que le logo du splash — d'où l'impression qu'il descend.
+
+     On remonte donc le splash de la hauteur exacte de cette barre.
+     env(safe-area-inset-top) est la valeur fournie par iOS (variable selon
+     encoche / Dynamic Island / anciens modèles) : un 20px codé en dur serait
+     faux sur la plupart des iPhone actuels. Le fallback 0 couvre Android et
+     le navigateur classique, où aucun décalage n'existe. */
+  top: calc(env(safe-area-inset-top, 0px) * -1);
   left: 0;
   width: 100vw;
-  /* 100vh (et non 100dvh) : en standalone iOS, dvh suit la zone visible qui
-     peut elle aussi exclure la barre de statut. vh reste indexé sur la fenêtre
-     complète, ce qui est précisément la surface du splash système.
-     Le débordement éventuel est masqué par overflow:hidden sur html/body. */
-  height: 100vh;
-  /* Filet supplémentaire : si malgré tout la boîte était raccourcie, le logo
-     resterait centré sur l'écran réel plutôt que sur cette boîte. */
-  min-height: 100vh;
+  /* Hauteur de la fenêtre PLUS la barre récupérée au-dessus, pour que la boîte
+     couvre réellement l'écran entier et que le centrage tombe au bon endroit. */
+  height: calc(100vh + env(safe-area-inset-top, 0px));
   z-index: 3000;
   background: var(--bg);
   display: flex;
