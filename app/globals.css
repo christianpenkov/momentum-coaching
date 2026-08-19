@@ -2886,7 +2886,23 @@ a { color: inherit; text-decoration: none; }
    ────────────────────────────────────────────────────────────────────────── */
 #app-splash {
   position: fixed;
-  inset: 0;
+  /* 100vw/100dvh et non inset:0 : sous 767px, html et body sont en
+     position:fixed avec height:100%, et en PWA standalone iOS cette hauteur
+     EXCLUT la barre de statut. Un inset:0 se calerait alors sur ce body
+     raccourci et décalé, alors que le splash système occupe l'écran entier —
+     c'est ce qui faisait « descendre » le logo au raccord.
+     Les unités de viewport, elles, ignorent la boîte du parent. */
+  top: 0;
+  left: 0;
+  width: 100vw;
+  /* 100vh (et non 100dvh) : en standalone iOS, dvh suit la zone visible qui
+     peut elle aussi exclure la barre de statut. vh reste indexé sur la fenêtre
+     complète, ce qui est précisément la surface du splash système.
+     Le débordement éventuel est masqué par overflow:hidden sur html/body. */
+  height: 100vh;
+  /* Filet supplémentaire : si malgré tout la boîte était raccourcie, le logo
+     resterait centré sur l'écran réel plutôt que sur cette boîte. */
+  min-height: 100vh;
   z-index: 3000;
   background: var(--bg);
   display: flex;
@@ -2904,9 +2920,11 @@ a { color: inherit; text-decoration: none; }
   max-width: 260px;
   height: auto;
 }
-/* Sur grand écran, 38vw serait démesuré : on borne à une taille de marque. */
-@media (min-width: 768px) {
-  #app-splash img { width: 200px; }
+/* Desktop : aucun splash système à prolonger, et le chargement est rapide —
+   l'écran ne serait qu'un flash de logo, plus gênant que pas d'écran du tout.
+   On ne l'affiche donc pas (voir aussi SplashHold, qui le retire sans délai). */
+@media (pointer: fine) and (min-width: 768px) {
+  #app-splash { display: none; }
 }
 #app-splash[data-hide='1'],
 #app-splash[data-force-hide='1'] {
