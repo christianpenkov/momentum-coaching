@@ -55,6 +55,16 @@ export async function GET(request: NextRequest) {
   const profileId = await resolveTargetProfile(user.id, requested);
   if (!profileId) return NextResponse.json({ error: 'Accès refusé' }, { status: 403 });
 
+  // Sans Stripe, créer un lien est impossible : l'écran doit le dire d'emblée
+  // plutôt que de laisser remplir un formulaire qui échouera à la validation.
+  const { data: stripeIntegration } = await supa
+    .from('integrations')
+    .select('access_token, api_key')
+    .eq('profile_id', profileId)
+    .eq('provider', 'stripe')
+    .maybeSingle();
+  const stripeConnected = !!(stripeIntegration?.access_token || stripeIntegration?.api_key);
+
   // ── Deals + leurs paiements ────────────────────────────────────────────────
   const { data: deals, error: dealsErr } = await supa
     .from('deals')
@@ -186,6 +196,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     profileId,
+    stripeConnected,
     kpis,
     deals: rows,
     orphans: orphans.map(o => ({

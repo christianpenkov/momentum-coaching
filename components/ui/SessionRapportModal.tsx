@@ -171,12 +171,22 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                   <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 10 }}>
                     L'élève était-il présent ?
                   </label>
+                  {/* Les DEUX boutons portent toujours une bordure : sans elle,
+                      l'option non retenue perdait son cadre et ne se lisait plus
+                      comme un bouton — impossible de voir qu'elle était cliquable,
+                      ni laquelle des deux était sélectionnée. Le choix actif se
+                      distingue par son fond plein, pas par la présence d'un cadre. */}
                   <div style={{ display: 'flex', gap: 10 }}>
                     <button
                       type="button"
                       onClick={() => { setAttended(true); setError(''); }}
-                      className={attended === true ? 'btn-primary-brand' : 'btn-ghost'}
-                      style={{ flex: 1, minHeight: 44, fontSize: 14, gap: 7 }}
+                      className="btn-ghost"
+                      style={{
+                        flex: 1, minHeight: 44, fontSize: 14, gap: 7, fontWeight: 600,
+                        border: '1px solid var(--accent-brand)',
+                        color: attended === true ? '#fff' : 'var(--accent-brand)',
+                        background: attended === true ? 'var(--accent-brand)' : 'transparent',
+                      }}
                     >
                       <Icon name="check" size={15} /> Présent
                     </button>
@@ -185,9 +195,10 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                       onClick={() => { setAttended(false); setError(''); }}
                       className="btn-ghost"
                       style={{
-                        flex: 1, minHeight: 44, fontSize: 14, gap: 7,
-                        borderColor: 'var(--red)', color: attended === false ? '#fff' : 'var(--red)',
-                        background: attended === false ? 'var(--red)' : undefined,
+                        flex: 1, minHeight: 44, fontSize: 14, gap: 7, fontWeight: 600,
+                        border: '1px solid var(--red)',
+                        color: attended === false ? '#fff' : 'var(--red)',
+                        background: attended === false ? 'var(--red)' : 'transparent',
                       }}
                     >
                       <Icon name="x" size={15} /> Pas présent

@@ -68,10 +68,14 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             {isLoading ? '…' : subtitleFor(tab, deals.length, orphanCount, relanceCount, isCoach)}
           </div>
         </div>
-        <button className="btn-primary-brand" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
-          onClick={() => setCreating(true)}>
-          <Icon name="plus" size={13} /> Créer un lien de paiement
-        </button>
+        {/* Masqué tant que Stripe n'est pas connecté : proposer une action
+            impossible fait perdre le temps de remplir un formulaire pour rien. */}
+        {data?.stripeConnected !== false && (
+          <button className="btn-primary-brand" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+            onClick={() => setCreating(true)}>
+            <Icon name="plus" size={13} /> Créer un lien de paiement
+          </button>
+        )}
       </div>
 
       {/* ── Ruban de KPI ────────────────────────────────────────────────── */}
@@ -97,7 +101,9 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
         <div style={{ padding: 60, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Chargement…</div>
       ) : tab === 'deals' ? (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
+          {/* Filtres masqués sans deal à filtrer : ils n'auraient aucun effet et
+              encombreraient l'écran d'accueil d'un nouvel utilisateur. */}
+          <div style={{ display: deals.length === 0 ? 'none' : 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             {([['all', 'Tous'], ['open', 'En cours'], ['unpaid', 'Impayés'], ['paid', 'Soldés']] as const).map(([key, label]) => (
               <button key={key} onClick={() => setFilter(key)}
                 style={{
@@ -115,9 +121,13 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             </span>
           </div>
 
-          {deals.length === 0
-            ? <EmptyDeals onCreate={() => setCreating(true)} />
-            : <DealsTable rows={filtered} isCoach={isCoach} onOpen={setOpenDeal} />}
+          {/* Stripe absent prime sur « aucun deal » : c'est ce qui bloque, et le
+              premier écran que verra tout nouvel utilisateur. */}
+          {data && !data.stripeConnected
+            ? <StripeDisconnected isCoach={isCoach} />
+            : deals.length === 0
+              ? <EmptyDeals onCreate={() => setCreating(true)} />
+              : <DealsTable rows={filtered} isCoach={isCoach} onOpen={setOpenDeal} />}
         </>
       ) : tab === 'reconcile' ? (
         <ReconcileTab orphans={data?.orphans ?? []} onDone={refetch} />
@@ -260,6 +270,43 @@ export function Pill({ label, tone }: { label: string; tone: 'green' | 'amber' |
       {tone !== 'neutral' && <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />}
       {label}
     </span>
+  );
+}
+
+/**
+ * Premier écran de tout nouvel utilisateur : il doit vendre ce que la connexion
+ * débloque, pas se contenter de constater une absence.
+ */
+function StripeDisconnected({ isCoach }: { isCoach: boolean }) {
+  const bullets = [
+    'Chaque euro encaissé rattaché à son deal et à son prospect',
+    'Le contenu Instagram ou YouTube qui a produit le lead',
+    'Échéances, impayés et relances suivis sans aucune saisie',
+  ];
+  return (
+    <div className="card" style={{ padding: '48px 40px', maxWidth: 620, margin: '32px auto 0' }}>
+      <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--accent-brand-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 20 }}>
+        <Icon name="stripe" size={20} color="var(--accent-brand)" />
+      </div>
+      <div style={{ fontSize: 17, fontWeight: 600, letterSpacing: '-0.2px', marginBottom: 10 }}>
+        Relie Stripe, et le reste se fait tout seul
+      </div>
+      <div style={{ fontSize: 13, color: 'var(--muted)', lineHeight: 1.65, maxWidth: 420, marginBottom: 22 }}>
+        Quand un client paie sur Stripe, il apparaît ici automatiquement, rattaché au deal et au contenu qui l&apos;a produit.
+      </div>
+      {bullets.map(t => (
+        <div key={t} style={{ display: 'flex', gap: 11, alignItems: 'flex-start', marginBottom: 11 }}>
+          <span style={{ marginTop: 4, flexShrink: 0, display: 'flex' }}>
+            <Icon name="check" size={14} color="var(--green)" />
+          </span>
+          <span style={{ fontSize: 13, color: 'var(--ink-2)', lineHeight: 1.5 }}>{t}</span>
+        </div>
+      ))}
+      <a href={isCoach ? '/settings' : '/client/settings'} className="btn-primary-brand"
+        style={{ fontSize: 12.5, textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 6, marginTop: 22 }}>
+        <Icon name="link" size={13} /> Connecter Stripe
+      </a>
+    </div>
   );
 }
 

@@ -25,6 +25,8 @@ interface LeadOption {
    *  igLeadId violerait la clé étrangère. */
   kind: 'lead' | 'prospect' | 'call' | 'link' | 'client';
   avatarUrl?: string | null;
+  /** Dernier deal de cette personne — un montant deja vendu change ce qu'on propose. */
+  lastDeal?: { amount: number; signedAt: string; status: string } | null;
 }
 
 export default function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
@@ -158,6 +160,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                       <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{selected.name}</span>
                       {selected.subtitle && <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{selected.subtitle}</span>}
                     </span>
+                    {selected.lastDeal && <DealBadge deal={selected.lastDeal} />}
                     <button onClick={() => setSelected(null)} style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', padding: 2 }}>
                       <Icon name="x" size={15} color="var(--muted)" />
                     </button>
@@ -173,10 +176,11 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                           <button key={o.id} onClick={() => { setSelected(o); setQuery(''); }}
                             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
                             <Avatar initials={getInitials(o.name)} avatarUrl={o.avatarUrl} size={24} seed={o.id} />
-                            <span style={{ minWidth: 0 }}>
+                            <span style={{ minWidth: 0, flex: 1 }}>
                               <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{o.name}</span>
                               {o.subtitle && <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{o.subtitle}</span>}
                             </span>
+                            {o.lastDeal && <DealBadge deal={o.lastDeal} />}
                           </button>
                         ))}
                       </div>
@@ -284,6 +288,23 @@ function Done({ result, copied, onCopy, onDone }: { result: { url: string; mode:
 
       <button className="btn-ghost" style={{ fontSize: 12.5 }} onClick={onDone}>Terminé</button>
     </div>
+  );
+}
+
+/** Deal existant : « 3 000 € · 15 juin » avec l'état du paiement. */
+function DealBadge({ deal }: { deal: { amount: number; signedAt: string; status: string } }) {
+  const paid = deal.status === 'paid';
+  return (
+    <span style={{
+      display: 'inline-flex', alignItems: 'center', gap: 5, flexShrink: 0,
+      fontSize: 10.5, fontWeight: 600, padding: '3px 8px', borderRadius: 999,
+      background: paid ? 'var(--green-soft)' : 'var(--surface-2)',
+      color: paid ? 'var(--green)' : 'var(--muted)',
+      whiteSpace: 'nowrap',
+    }}>
+      {fmtEur(deal.amount)} · {new Date(deal.signedAt).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+      {paid ? ' · payé' : ''}
+    </span>
   );
 }
 

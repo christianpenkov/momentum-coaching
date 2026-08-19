@@ -58,6 +58,8 @@ export interface Orphan {
 
 export interface PaymentsData {
   profileId: string;
+  /** Sans Stripe, aucun lien de paiement ne peut être créé. */
+  stripeConnected: boolean;
   kpis: {
     contracted: number;
     collected: number;

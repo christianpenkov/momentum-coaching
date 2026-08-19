@@ -1213,8 +1213,12 @@ export default function PageClientDetail({ id }: Props) {
             const acknowledged = !!report.acknowledged_at;
             const reportCall = calls.find(c => c.id === report.call_id);
             const callDate = reportCall?.scheduled_at ?? null;
+            // L'atténuation d'une absence "prise en compte" passe par une classe et
+            // non par un opacity sur le conteneur : appliqué globalement, il grisait
+            // aussi le badge et les boutons, qui doivent garder leur couleur pour
+            // rester lisibles et visiblement cliquables.
             return (
-              <div key={report.id} className="session-row" style={{ opacity: isNoShow && acknowledged ? 0.55 : 1 }}>
+              <div key={report.id} className={`session-row${isNoShow && acknowledged ? ' session-row-muted' : ''}`}>
                 <div className="session-row-date">
                   {callDate ? formatCallLongDate(callDate, viewerTz) : new Date(report.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
                   {callDate && <span className="session-row-time">{formatCallTime(callDate, viewerTz)}</span>}

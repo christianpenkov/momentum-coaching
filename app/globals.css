@@ -1549,6 +1549,12 @@ a { color: inherit; text-decoration: none; }
    vente"), pas une métadonnée. En --muted il se lisait comme un détail secondaire
    alors que c'est ce qui identifie la séance. */
 .session-row-topic { font-size: 12px; color: var(--ink); }
+/* Absence déjà prise en compte : on atténue la date et le sujet, jamais le badge
+   ni les boutons. Un bouton à demi transparent se lit comme désactivé alors qu'il
+   reste parfaitement cliquable. */
+.session-row-muted .session-row-date,
+.session-row-muted .session-row-topic,
+.session-row-muted .session-row-extra { opacity: 0.55; }
 /* Même gabarit que la rangée d'actions des cartes de call (32px, rayon --r-md). */
 .session-row-actions {
   margin-left: auto;

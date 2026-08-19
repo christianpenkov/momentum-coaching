@@ -188,6 +188,58 @@ export async function GET(request: NextRequest) {
   });
 
   unique.sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''));
+  const top = unique.slice(0, LIMIT);
 
-  return NextResponse.json({ people: unique.slice(0, LIMIT) });
+  // Deal existant : savoir qu'on a déjà vendu 3 000 € à cette personne le mois
+  // dernier change ce qu'on lui propose — c'est un upsell, pas une première vente.
+  // Recherché par identifiant ET par nom, parce qu'un deal créé « hors pipeline »
+  // ne porte aucun des identifiants ci-dessus.
+  const ids = top.map(p => p.id);
+  const names = top.map(p => p.name);
+
+  const byKey = new Map<string, { amount: number; signedAt: string; status: string }>();
+
+  // `.in.()` avec une liste vide produit du SQL invalide — on sort avant.
+  const deals = ids.length ? (await supa
+    .from('deals')
+    .select('id, buyer_name, amount_total, signed_at, status, ig_lead_id, prospect_id, call_id, client_id')
+    .eq('profile_id', profileId)
+    .neq('status', 'canceled')
+    .or(
+      `ig_lead_id.in.(${ids.join(',')}),prospect_id.in.(${ids.join(',')}),` +
+      `call_id.in.(${ids.join(',')}),client_id.in.(${ids.join(',')})`
+    )
+    .order('signed_at', { ascending: false })).data : [];
+
+  for (const d of deals ?? []) {
+    const entry = { amount: Number(d.amount_total), signedAt: d.signed_at, status: d.status };
+    // Le plus récent gagne : la requête est déjà triée par date décroissante.
+    for (const key of [d.ig_lead_id, d.prospect_id, d.call_id, d.client_id]) {
+      if (key && !byKey.has(key)) byKey.set(key, entry);
+    }
+  }
+
+  // Repli par nom pour les deals sans identifiant (créés « hors pipeline »).
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const byName = new Map<string, { amount: number; signedAt: string; status: string }>();
+  if (names.length) {
+    const { data: nameDeals } = await supa
+      .from('deals')
+      .select('buyer_name, amount_total, signed_at, status')
+      .eq('profile_id', profileId)
+      .neq('status', 'canceled')
+      .in('buyer_name', names)
+      .order('signed_at', { ascending: false });
+    for (const d of nameDeals ?? []) {
+      const k = norm(d.buyer_name);
+      if (!byName.has(k)) byName.set(k, { amount: Number(d.amount_total), signedAt: d.signed_at, status: d.status });
+    }
+  }
+
+  return NextResponse.json({
+    people: top.map(p => ({
+      ...p,
+      lastDeal: byKey.get(p.id) ?? byName.get(norm(p.name)) ?? null,
+    })),
+  });
 }
