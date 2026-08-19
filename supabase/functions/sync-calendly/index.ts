@@ -345,9 +345,14 @@ async function syncCalendlyEleve(
       if (!isValidContentId(utmContent)) {
         const { data: existingUtm } = await supabase.from('calls')
           .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
-        upsertData.utm_content = (existingUtm?.utm_content && isValidContentId(existingUtm.utm_content))
-          ? existingUtm.utm_content
-          : utmContent;
+        // Une valeur invalide (pseudo figé côté Calendly au moment du clic) n'est JAMAIS
+        // écrite : on garde l'identifiant valide déjà en base, sinon on laisse le champ
+        // tel quel. Avant, le pseudo était réinscrit faute de mieux — ce qui a réintroduit
+        // 15 anomalies après la migration UTM du 2026-08-19, qui avait justement vidé ces
+        // champs. Le pseudo a son propre champ : utm_term, écrit juste en dessous.
+        if (existingUtm?.utm_content && isValidContentId(existingUtm.utm_content)) {
+          upsertData.utm_content = existingUtm.utm_content;
+        }
       } else {
         upsertData.utm_content = utmContent;
       }

@@ -102,16 +102,22 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
               affiché jusqu'ici décrivait un bornage qui n'a jamais existé côté
               serveur — seul l'onglet « À rattacher » est borné. */}
           <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
-            <div className="eyebrow-sm" style={{ marginBottom: 8 }}>Cash collecté</div>
-            <div className="kpi-value tabular" style={{ color: 'var(--green)', fontSize: 34, letterSpacing: '-0.8px' }}>
+            {/* Valeurs reprises du prototype (Paiements.dc.html, KPI héros
+                mobile) : 34px / -1px d'interlettrage / line-height 1, barre de
+                4px de haut et 2px de rayon. */}
+            <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Cash collecté</div>
+            <div className="tabular" style={{
+              fontSize: 34, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1,
+              color: 'var(--green)', marginBottom: 11,
+            }}>
               {k ? fmtEur(k.collected) : '—'}
             </div>
-            <div style={{ height: 5, borderRadius: 3, background: 'var(--surface-2)', overflow: 'hidden', margin: '12px 0 7px' }}>
+            <div style={{ height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden' }}>
               {(k?.collectedRate ?? 0) > 0 && (
-                <div style={{ height: '100%', width: `${k?.collectedRate}%`, background: 'var(--green)', borderRadius: 3 }} />
+                <div style={{ height: '100%', width: `${k?.collectedRate}%`, background: 'var(--green)', borderRadius: 2 }} />
               )}
             </div>
-            <div style={{ fontSize: 11.5, color: 'var(--muted)' }}>
+            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
               {k ? `${k.collectedRate} % de ${fmtEur(k.contracted)} contractés` : ''}
             </div>
           </div>
@@ -236,10 +242,10 @@ function PaymentsSkeleton({ isMobile }: { isMobile: boolean }) {
       {isMobile ? (
         <div style={{ marginBottom: 18 }}>
           <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
-            {bar(110, 10, { marginBottom: 12 })}
-            {bar(150, 30, { borderRadius: 6 })}
-            {bar('100%', 5, { borderRadius: 3, margin: '14px 0 9px' })}
-            {bar(170, 10)}
+            {bar(110, 10, { marginBottom: 11 })}
+            {bar(150, 30, { borderRadius: 6, marginBottom: 12 })}
+            {bar('100%', 4, { borderRadius: 2 })}
+            {bar(170, 10, { marginTop: 9 })}
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             {[0, 1, 2].map(i => (
