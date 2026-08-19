@@ -2921,11 +2921,10 @@ a { color: inherit; text-decoration: none; }
   max-width: 260px;
   height: auto;
 }
-/* Desktop : aucun splash système à prolonger, et le chargement est rapide —
-   l'écran ne serait qu'un flash de logo, plus gênant que pas d'écran du tout.
-   On ne l'affiche donc pas (voir aussi SplashHold, qui le retire sans délai). */
-@media (pointer: fine) and (min-width: 768px) {
-  #app-splash { display: none; }
+/* Desktop : le logo est borné plutôt que proportionnel, 38vw serait démesuré.
+   La durée d'affichage est pilotée par SplashHold (voir MIN_VISIBLE_DESKTOP_MS). */
+@media (min-width: 768px) {
+  #app-splash img { width: 200px; }
 }
 #app-splash[data-hide='1'],
 #app-splash[data-force-hide='1'] {

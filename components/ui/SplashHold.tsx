@@ -21,22 +21,23 @@ import { useEffect } from 'react';
 // remonté à chaque changement de page.
 const SEEN_KEY = 'momentum:splash-held';
 
-// Durée d'affichage minimale sur mobile, à partir du chargement du document.
-// L'écran système a déjà été montré pendant le lancement : le prolonger
-// inutilement donnerait l'impression que l'app est lente.
+// Durées d'affichage minimales, comptées depuis le chargement du document.
+//
+// Mobile : l'écran système a déjà été montré pendant le lancement, le
+// prolonger donnerait l'impression que l'app est lente.
+//
+// Desktop : aucun splash système, et le chargement est rapide — sans durée
+// plancher le logo n'apparaîtrait que le temps d'un flash. La valeur est
+// volontairement généreuse pour que l'écran se lise comme une marque.
 const MIN_VISIBLE_MOBILE_MS = 260;
+const MIN_VISIBLE_DESKTOP_MS = 3000;
 
 // Doit rester aligné sur la transition CSS de #app-splash.
 const FADE_MS = 240;
 
 /**
- * Sur desktop, l'écran de lancement est retiré immédiatement et sans fondu.
- * Il n'y a aucun splash système à prolonger et le chargement est rapide :
- * l'écran ne serait qu'un flash de logo, plus gênant que pas d'écran du tout.
- * Le CSS le masque déjà (@media pointer:fine), ceci le retire aussi du flux.
- *
- * Détection par pointeur et largeur, comme la règle CSS correspondante : une
- * tablette tactile large garde l'écran, elle a bien un splash système.
+ * Détection par pointeur ET largeur : une tablette tactile large n'est pas un
+ * desktop, elle a bien un splash système et n'a pas besoin de la durée longue.
  */
 function isDesktop(): boolean {
   if (typeof window === 'undefined') return false;
@@ -48,11 +49,11 @@ export default function SplashHold({ show }: { show: boolean }) {
     const el = document.getElementById('app-splash');
     if (!el) return;
 
-    // Desktop, ou écran déjà vu dans cette session : retrait sec, sans fondu ni
-    // délai. Une navigation vers l'accueil ne doit pas rejouer un lancement.
+    // Déjà vu dans cette session : retrait sec, sans fondu ni délai. Une
+    // navigation vers l'accueil ne doit pas rejouer un lancement.
     let seen = false;
     try { seen = sessionStorage.getItem(SEEN_KEY) === '1'; } catch { /* mode privé */ }
-    if (seen || isDesktop()) {
+    if (seen) {
       el.setAttribute('data-done', '1');
       return;
     }
@@ -61,8 +62,9 @@ export default function SplashHold({ show }: { show: boolean }) {
 
     // performance.now() : temps écoulé depuis le début du chargement du
     // document, donc depuis que l'écran est réellement à l'image.
+    const minVisible = isDesktop() ? MIN_VISIBLE_DESKTOP_MS : MIN_VISIBLE_MOBILE_MS;
     const elapsed = performance.now();
-    const wait = Math.max(0, MIN_VISIBLE_MOBILE_MS - elapsed);
+    const wait = Math.max(0, minVisible - elapsed);
 
     const fadeTimer = setTimeout(() => {
       el.setAttribute('data-hide', '1');
