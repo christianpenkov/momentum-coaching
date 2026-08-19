@@ -176,30 +176,21 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
                       comme un bouton — impossible de voir qu'elle était cliquable,
                       ni laquelle des deux était sélectionnée. Le choix actif se
                       distingue par son fond plein, pas par la présence d'un cadre. */}
+                  {/* Styles en classes et non en ligne : le survol doit teinter
+                      légèrement l'option NON retenue de sa propre couleur, ce qu'un
+                      style inline ne permet pas d'exprimer. */}
                   <div style={{ display: 'flex', gap: 10 }}>
                     <button
                       type="button"
                       onClick={() => { setAttended(true); setError(''); }}
-                      className="btn-ghost"
-                      style={{
-                        flex: 1, minHeight: 44, fontSize: 14, gap: 7, fontWeight: 600,
-                        border: '1px solid var(--accent-brand)',
-                        color: attended === true ? '#fff' : 'var(--accent-brand)',
-                        background: attended === true ? 'var(--accent-brand)' : 'transparent',
-                      }}
+                      className={`btn-ghost presence-toggle presence-present${attended === true ? ' is-selected' : ''}`}
                     >
                       <Icon name="check" size={15} /> Présent
                     </button>
                     <button
                       type="button"
                       onClick={() => { setAttended(false); setError(''); }}
-                      className="btn-ghost"
-                      style={{
-                        flex: 1, minHeight: 44, fontSize: 14, gap: 7, fontWeight: 600,
-                        border: '1px solid var(--red)',
-                        color: attended === false ? '#fff' : 'var(--red)',
-                        background: attended === false ? 'var(--red)' : 'transparent',
-                      }}
+                      className={`btn-ghost presence-toggle presence-absent${attended === false ? ' is-selected' : ''}`}
                     >
                       <Icon name="x" size={15} /> Pas présent
                     </button>

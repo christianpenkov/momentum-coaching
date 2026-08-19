@@ -1223,10 +1223,15 @@ export default function PageClientDetail({ id }: Props) {
                   {callDate ? formatCallLongDate(callDate, viewerTz) : new Date(report.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
                   {callDate && <span className="session-row-time">{formatCallTime(callDate, viewerTz)}</span>}
                 </div>
-                {/* Mêmes pastilles que la page Calls : point coloré + libellé, et
-                    "Pas présent" plutôt que "No-show" sur un call de coaching. */}
-                <span className={`pill ${isNoShow ? 'pill-neutral' : 'pill-green'} session-row-pill`}>
-                  <span className="dot" />{isNoShow ? 'Pas présent' : 'Présent'}
+                {/* Une absence porte une croix et un libellé rouges plutôt qu'un
+                    point : dans une liste majoritairement verte, le signe se repère
+                    avant même d'être lu. Le fond reste gris — le rouge plein est
+                    réservé aux calls annulés, qui apparaissent dans la même page. */}
+                <span className={`pill ${isNoShow ? 'pill-neutral session-row-pill-absent' : 'pill-green'} session-row-pill`}>
+                  {isNoShow
+                    ? <Icon name="x" size={11} />
+                    : <span className="dot" />}
+                  {isNoShow ? 'Pas présent' : 'Présent'}
                 </span>
                 {topicLabel && <span className="session-row-topic">{topicLabel}</span>}
                 <div className="session-row-actions">

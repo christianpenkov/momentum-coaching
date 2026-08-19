@@ -1549,6 +1549,39 @@ a { color: inherit; text-decoration: none; }
    vente"), pas une métadonnée. En --muted il se lisait comme un détail secondaire
    alors que c'est ce qui identifie la séance. */
 .session-row-topic { font-size: 12px; color: var(--ink); }
+/* Croix et libellé rouges sur fond gris : le signe porte l'alerte, le fond reste
+   neutre pour ne pas se confondre avec les calls annulés de la même page. */
+/* !important : .pill-neutral fixe déjà `color: var(--ink-2)` et gagne à
+   spécificité égale, la croix et le libellé restaient gris. */
+.session-row-pill-absent { color: var(--red) !important; }
+
+/* ── Bascule Présent / Pas présent (rapport de session) ──
+   Les deux boutons gardent TOUJOURS leur bordure : sans elle, l'option non retenue
+   perdait son cadre et ne se lisait plus comme un bouton. La sélection se marque
+   par le fond plein, et le survol de l'option inactive la teinte légèrement de sa
+   propre couleur — on voit ce qu'on obtiendrait en cliquant, sans à-coup. */
+.presence-toggle {
+  flex: 1;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 7px;
+  background: transparent;
+  transition: background var(--dur-quick) var(--ease-out), color var(--dur-quick) var(--ease-out);
+}
+.presence-present { border: 1px solid var(--accent-brand) !important; color: var(--accent-brand) !important; }
+.presence-absent  { border: 1px solid var(--red) !important;          color: var(--red) !important; }
+
+.presence-present:hover { background: var(--accent-brand-soft) !important; }
+.presence-absent:hover  { background: var(--red-soft) !important; }
+
+/* L'option retenue passe en fond plein — y compris au survol, sinon repasser
+   dessus donnerait l'impression de la désélectionner. */
+.presence-present.is-selected,
+.presence-present.is-selected:hover { background: var(--accent-brand) !important; color: #fff !important; }
+.presence-absent.is-selected,
+.presence-absent.is-selected:hover  { background: var(--red) !important;          color: #fff !important; }
+
 /* Absence déjà prise en compte : on atténue la date et le sujet, jamais le badge
    ni les boutons. Un bouton à demi transparent se lit comme désactivé alors qu'il
    reste parfaitement cliquable. */
