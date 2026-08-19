@@ -81,7 +81,7 @@ function RelanceRow({ item, first }: { item: Group['items'][number]; first: bool
       display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px',
       borderTop: first ? 'none' : '1px solid var(--border-soft)',
     }}>
-      <Avatar initials={getInitials(item.deal.buyerName)} size={30} seed={item.deal.id} />
+      <Avatar initials={getInitials(item.deal.buyerName)} avatarUrl={item.deal.avatarUrl} size={30} seed={item.deal.id} />
       <span style={{ flex: 1, minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{item.deal.buyerName}</span>
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{item.sub}</span>

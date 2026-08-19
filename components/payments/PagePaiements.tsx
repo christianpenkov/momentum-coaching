@@ -213,7 +213,7 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
     <tr>
       <td>
         <span style={{ display: 'flex', alignItems: 'center', gap: 11, minWidth: 0 }}>
-          <Avatar initials={getInitials(d.buyerName)} size={26} seed={d.id} />
+          <Avatar initials={getInitials(d.buyerName)} avatarUrl={d.avatarUrl} size={26} seed={d.id} />
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.buyerName}</span>
             <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>

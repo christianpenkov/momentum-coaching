@@ -26,6 +26,8 @@ export interface DealRow {
   buyerName: string;
   buyerSubtitle: string | null;
   buyerKind: 'student' | 'external' | null;
+  /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
+  avatarUrl: string | null;
   amountTotal: number;
   collected: number;
   status: string;
@@ -70,16 +72,35 @@ export async function GET(request: NextRequest) {
 
   if (dealsErr) return NextResponse.json({ error: dealsErr.message }, { status: 500 });
 
-  // Pseudo Instagram pour le sous-titre : une seule requête pour tous les leads
-  // plutôt qu'une jointure — les leads archivés doivent rester lisibles.
+  // Pseudo et photo Instagram : une seule requête pour tous les leads plutôt
+  // qu'une jointure — les leads archivés doivent rester lisibles.
   const leadIds = (deals ?? []).map(d => d.ig_lead_id).filter(Boolean) as string[];
   const leadNames = new Map<string, string>();
+  const leadAvatars = new Map<string, string>();
   if (leadIds.length) {
     const { data: leads } = await supa
       .from('instagram_leads')
-      .select('id, ig_username')
+      .select('id, ig_username, avatar_url')
       .in('id', leadIds);
-    for (const l of leads ?? []) if (l.ig_username) leadNames.set(l.id, l.ig_username);
+    for (const l of leads ?? []) {
+      if (l.ig_username) leadNames.set(l.id, l.ig_username);
+      if (l.avatar_url) leadAvatars.set(l.id, l.avatar_url);
+    }
+  }
+
+  // Côté coach, l'acheteur peut être un élève de la plateforme : sa photo de
+  // profil vaut mieux que des initiales.
+  const clientIds = (deals ?? []).map(d => d.client_id).filter(Boolean) as string[];
+  const clientAvatars = new Map<string, string>();
+  if (clientIds.length) {
+    const { data: rows } = await supa
+      .from('clients')
+      .select('id, profile_id, profiles(avatar_url)')
+      .in('id', clientIds);
+    for (const c of (rows ?? []) as any[]) {
+      const url = c.profiles?.avatar_url;
+      if (url) clientAvatars.set(c.id, url);
+    }
   }
 
   const rows: DealRow[] = (deals ?? []).map((d: any) => {
@@ -100,6 +121,9 @@ export async function GET(request: NextRequest) {
       buyerName: d.buyer_name,
       buyerSubtitle: subtitle,
       buyerKind: d.buyer_kind,
+      avatarUrl: (d.ig_lead_id ? leadAvatars.get(d.ig_lead_id) : null)
+        ?? (d.client_id ? clientAvatars.get(d.client_id) : null)
+        ?? null,
       amountTotal: Number(d.amount_total),
       collected,
       status: d.status,

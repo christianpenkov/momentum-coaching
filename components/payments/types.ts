@@ -5,6 +5,8 @@ export interface DealRow {
   buyerName: string;
   buyerSubtitle: string | null;
   buyerKind: 'student' | 'external' | null;
+  /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
+  avatarUrl: string | null;
   amountTotal: number;
   collected: number;
   status: string;

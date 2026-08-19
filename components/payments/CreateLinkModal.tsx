@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
+import Portal from './Portal';
 import { fmtEur } from './types';
 
 /**
@@ -16,7 +17,7 @@ import { fmtEur } from './types';
 type Who = 'prospect' | 'client' | 'free';
 type Plan = 'one_shot' | 2 | 3 | 4;
 
-interface LeadOption { id: string; name: string; subtitle: string | null; kind: 'lead' | 'client' }
+interface LeadOption { id: string; name: string; subtitle: string | null; kind: 'lead' | 'client'; avatarUrl?: string | null }
 
 export default function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [who, setWho] = useState<Who>('prospect');
@@ -96,10 +97,10 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   }
 
   return (
-    <>
-      <div onClick={() => !submitting && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 400 }} />
+    <Portal>
+      <div onClick={() => !submitting && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 9998 }} />
       <div style={{
-        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 401,
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999,
         width: 'min(620px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 64px)',
         background: 'var(--surface)', borderRadius: 'var(--r-modal)', boxShadow: 'var(--shadow-modal)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -137,7 +138,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                   </>
                 ) : selected ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 11, border: '1.5px solid var(--ink)', borderRadius: 8, padding: '8px 12px', background: 'var(--surface-2)' }}>
-                    <Avatar initials={getInitials(selected.name)} size={26} seed={selected.id} />
+                    <Avatar initials={getInitials(selected.name)} avatarUrl={selected.avatarUrl} size={26} seed={selected.id} />
                     <span style={{ flex: 1, minWidth: 0 }}>
                       <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{selected.name}</span>
                       {selected.subtitle && <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{selected.subtitle}</span>}
@@ -156,7 +157,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                         {options.map(o => (
                           <button key={o.id} onClick={() => { setSelected(o); setQuery(''); }}
                             style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', width: '100%', background: 'none', border: 'none', borderBottom: '1px solid var(--border-soft)', cursor: 'pointer', textAlign: 'left', fontFamily: 'inherit' }}>
-                            <Avatar initials={getInitials(o.name)} size={24} seed={o.id} />
+                            <Avatar initials={getInitials(o.name)} avatarUrl={o.avatarUrl} size={24} seed={o.id} />
                             <span style={{ minWidth: 0 }}>
                               <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{o.name}</span>
                               {o.subtitle && <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)' }}>{o.subtitle}</span>}
@@ -235,7 +236,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           </div>
         )}
       </div>
-    </>
+    </Portal>
   );
 }
 

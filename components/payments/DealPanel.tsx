@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
+import Portal from './Portal';
 import type { DealRow, DealDetail } from './types';
 import { fmtEur, fmtDateLong } from './types';
 
@@ -45,16 +46,16 @@ export default function DealPanel({ deal, detail, onClose }: {
   }
 
   return (
-    <>
-      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 400 }} />
+    <Portal>
+      <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 9998 }} />
       <aside style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(480px, 100vw)', zIndex: 401,
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: 'min(480px, 100vw)', zIndex: 9999,
         background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
       }}>
         {/* En-tête */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 13, flexShrink: 0 }}>
-          <Avatar initials={getInitials(deal.buyerName)} size={38} seed={deal.id} />
+          <Avatar initials={getInitials(deal.buyerName)} avatarUrl={deal.avatarUrl} size={38} seed={deal.id} />
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>{deal.buyerName}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
@@ -129,7 +130,7 @@ export default function DealPanel({ deal, detail, onClose }: {
           <AcquisitionChain dealId={deal.id} />
         </div>
       </aside>
-    </>
+    </Portal>
   );
 }
 

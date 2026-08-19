@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
   // écarté ne doit pas revenir dans une liste de sélection.
   const { data } = await supa
     .from('instagram_leads')
-    .select('id, ig_username, detected_at, source')
+    .select('id, ig_username, detected_at, source, avatar_url')
     .eq('profile_id', profileId)
     .is('archived_at', null)
     .eq('not_a_lead', false)
@@ -61,6 +61,7 @@ export async function GET(request: NextRequest) {
       name: l.ig_username,
       subtitle: `@${l.ig_username}${l.source === 'cold_dm' ? ' · cold DM' : ''}`,
       kind: 'lead',
+      avatarUrl: l.avatar_url ?? null,
     })),
   });
 }
