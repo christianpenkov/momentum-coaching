@@ -14,6 +14,8 @@ import fixWebmDuration from 'fix-webm-duration';
 import { useGlobalClientPresence } from '@/lib/GlobalPresenceContext';
 import { useFloatingDate } from '@/lib/useFloatingDate';
 import { useUser } from '@/lib/UserContext';
+import { isOnlineNow } from '@/lib/useOnline';
+import { usePendingMessages } from '@/lib/usePendingMessages';
 import { compressImageIfNeeded } from '@/lib/compressImage';
 import { useBlobMediaCache } from '@/lib/useBlobMediaCache';
 import { buildMenuItems, renderMenuItem, ReactionBar, ReactionDetail, MENU_ITEM_HEIGHT, REACTION_BAR_HEIGHT, REACTION_BAR_WIDTH, REACTION_DETAIL_HEIGHT, REACTION_DETAIL_WIDTH, MENU_GAP, MENU_SCREEN_MARGIN, CTX_MENU_WIDTH } from '@/components/pages/shared/MessageMenuParts';
@@ -416,9 +418,11 @@ function AudioBubble({ id, url, duration, isMe, listened, onListened, avatarUrl,
 
 // ─── Coches de statut ────────────────────────────────────────────────────────
 
-function MessageStatus({ isMe, msgId, readAt, isAudio, listenedAt }: {
+function MessageStatus({ isMe, msgId, readAt, isAudio, listenedAt, pending }: {
   isMe: boolean; msgId: string; readAt?: string | null;
   isAudio?: boolean; listenedAt?: string | null;
+  /** Ecrit hors connexion : pas encore parti de l'appareil. */
+  pending?: boolean;
 }) {
   if (!isMe) return null;
   // Pour un vocal : "lu" (double coche pleine) signifie réellement ÉCOUTÉ par le
@@ -427,6 +431,19 @@ function MessageStatus({ isMe, msgId, readAt, isAudio, listenedAt }: {
   // que la personne a vraiment écouté mon message, pas juste vu qu'il existe.
   const isRead = isAudio ? !!listenedAt : !!readAt;
   const isOptimistic = msgId.startsWith('opt-');
+
+  // Horloge : le message n'a pas encore quitte l'appareil, faute de reseau.
+  // Meme semantique que WhatsApp, ou l'horloge precede la premiere coche —
+  // l'utilisateur comprend que rien n'est perdu, juste en attente.
+  if (pending) {
+    return (
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" style={{ flexShrink: 0, opacity: 0.75 }}
+           stroke="#6aa0c4" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <polyline points="12 7 12 12 15.5 14" />
+      </svg>
+    );
+  }
 
   if (isOptimistic) {
     return (
@@ -812,8 +829,10 @@ function EditBubbleOverlay({ rect, isMe, editText, setEditText, originalText, on
 
 // ─── MessageBubble — une bulle de message, isolée pour porter useLongPress proprement ──
 
-function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, coachName, coachAvatarUrl, coachInitials, myAvatarUrl, myInitials }: {
-  msg: Msg; userId: string; isContinued: boolean; isLast: boolean;
+function MessageBubble({ msg, userId, isPending, isContinued, isLast, isEditing, editRect, editText, setEditText, onStartEdit, onCancelEdit, onSaveEdit, canEdit, canDelete, onOpenCtxMenu, onOpenLightbox, onDoubleTapReact, isMenuTarget, liftPx, onEnterViewport, registerBubbleRef, animate, onListened, quotedMsg, onQuoteClick, coachName, coachAvatarUrl, coachInitials, myAvatarUrl, myInitials }: {
+  msg: Msg; userId: string;
+  /** Ecrit hors connexion, pas encore parti (voir lib/usePendingMessages). */
+  isPending?: boolean; isContinued: boolean; isLast: boolean;
   isEditing: boolean; editRect: DOMRect | null; editText: string; setEditText: (v: string) => void;
   onStartEdit: () => void; onCancelEdit: () => void; onSaveEdit: () => void;
   canEdit: boolean; canDelete: boolean;
@@ -1105,7 +1124,7 @@ function MessageBubble({ msg, userId, isContinued, isLast, isEditing, editRect, 
               <span style={{ fontSize: 10, color: isAudio ? (isMe ? 'rgba(255,255,255,0.5)' : 'var(--faint)') : 'rgba(255,255,255,0.7)' }}>modifié ·</span>
             )}
             <span style={{ fontSize: 10, color: isAudio ? (isMe ? 'rgba(255,255,255,0.5)' : 'var(--muted)') : 'rgba(255,255,255,0.9)' }}>{formatTime(msg.created_at)}</span>
-            <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} isAudio={isAudio} listenedAt={msg.listened_at} />
+            <MessageStatus isMe={isMe} msgId={msg.id} readAt={msg.read_at} isAudio={isAudio} listenedAt={msg.listened_at} pending={isPending} />
           </div>
         )}
       </div>
@@ -1131,6 +1150,12 @@ export default function PageClientMessages() {
   const myAvatarUrl = user?.avatar_url ?? null;
   const myInitials = user?.initials ?? '?';
   const [messages, setMessages] = useState<Msg[]>([]);
+  // Messages ecrits hors connexion, affiches en attente jusqu'au retour du
+  // reseau (voir lib/usePendingMessages).
+  const [pendingIds, setPendingIds] = useState<Set<string>>(new Set());
+  const { enqueue } = usePendingMessages((sentId) => {
+    setPendingIds(prev => { const n = new Set(prev); n.delete(sentId); return n; });
+  });
   const [input, setInput] = useState('');
   const [clientId, setClientId] = useState<string | null>(null);
   // Pagination de l'historique : une page au chargement, les précédentes en remontant.
@@ -1593,18 +1618,41 @@ export default function PageClientMessages() {
     };
     setMessages(prev => [...prev, optimistic]);
     setReplyingTo(null);
-    const { data, error } = await supabase.from('messages').insert({
-      client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', reply_to_id: replyId,
-    }).select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url').single();
-    if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
-    else if (error) {
-      // Sans ce rollback, un échec (RLS, réseau, contrainte DB) laissait le message
-      // optimiste affiché indéfiniment sans jamais se résoudre ni prévenir l'élève —
-      // mêmes garanties que editMessage/deleteMessage juste en dessous.
-      setMessages(prev => prev.filter(m => m.id !== optimisticId));
-      setInput(text);
-      setActionError('Message non envoyé — réessaie.');
-    }
+
+    // Tentative d'envoi, réutilisée telle quelle par la file d'attente au retour
+    // du réseau. Renvoie true quand le message est bien parti.
+    const attempt = async (): Promise<boolean> => {
+      const { data, error } = await supabase.from('messages').insert({
+        client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', reply_to_id: replyId,
+      }).select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, listened_at, edited_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url').single();
+
+      if (data) {
+        setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
+        setPendingIds(prev => { const n = new Set(prev); n.delete(optimisticId); return n; });
+        return true;
+      }
+
+      // Échec RÉSEAU : le message reste affiché, marqué en attente, et repartira
+      // au retour de la connexion. Ne pas le retirer ici — l'utilisateur verrait
+      // son message disparaître alors qu'il va bien être envoyé.
+      if (!isOnlineNow()) {
+        setPendingIds(prev => new Set(prev).add(optimisticId));
+        return false;
+      }
+
+      // Échec applicatif (RLS, contrainte DB) : réessayer ne changerait rien, on
+      // retire le message et on rend le texte à l'utilisateur.
+      if (error) {
+        setMessages(prev => prev.filter(m => m.id !== optimisticId));
+        setPendingIds(prev => { const n = new Set(prev); n.delete(optimisticId); return n; });
+        setInput(text);
+        setActionError('Message non envoyé — réessaie.');
+      }
+      return true; // rien à rejouer
+    };
+
+    const sent = await attempt();
+    if (!sent) enqueue({ id: optimisticId, send: attempt });
   }
 
   async function copyMessageText(text: string) {
@@ -2010,6 +2058,7 @@ export default function PageClientMessages() {
                     <MessageBubble
                       msg={msg}
                       userId={userId ?? ''}
+                      isPending={pendingIds.has(msg.id)}
                       isContinued={!!isContinued}
                       isLast={isLast}
                       isEditing={editingId === msg.id}

@@ -87,6 +87,10 @@ export default function PullToRefresh({ onRefresh }: { onRefresh: () => void | P
       setPull(TRIGGER_PX); // l'indicateur reste visible pendant le chargement
       try {
         await onRefresh();
+      } catch {
+        // Hors ligne, le refetch échoue. L'indicateur disparaît quand même
+        // plutôt que de tourner indéfiniment ; le bandeau global (OfflineBanner)
+        // dit déjà pourquoi, inutile d'ajouter un second message ici.
       } finally {
         setRefreshing(false);
         refreshingRef.current = false;

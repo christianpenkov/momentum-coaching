@@ -5,6 +5,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import { createClient } from '@/lib/supabase/client';
+import { isOnlineNow } from '@/lib/useOnline';
 import AreaChart, { todayDotFactory, lastRealPointKey } from '@/components/charts/AreaChart';
 import BarChart from '@/components/charts/BarChart';
 import Heatmap from '@/components/charts/Heatmap';
@@ -3329,7 +3330,7 @@ type ProspectStatus = 'all' | 'pending' | 'booked' | 'closed' | 'noshow';
 
 interface LeadMagnet { id: string; name: string; keyword: string; url?: string; }
 
-function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection }: {
+function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, destinations, lmHistory, period: globalPeriod, periodIndex, profileId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, calls, callsAllTime, leadIdToMediaId, igLive, ytLive, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, selectedMetric, setSelectedMetric, chartFilter, setChartFilter, sinceConnection, integrationsReadyAt }: {
   shortio: ShortioStats | null;
   shortioLoading?: boolean;
   ig: IGStats | null;
@@ -3367,6 +3368,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   chartFilter: 'all' | 'dm' | 'content' | 'bio';
   setChartFilter: (f: 'all' | 'dm' | 'content' | 'bio') => void;
   sinceConnection?: boolean;
+  integrationsReadyAt?: string | null;
 }) {
   const now = new Date();
   // Stories individuelles avec CTA (LM ou Calendly) — pour afficher titre/miniature des
@@ -3592,11 +3594,19 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   })();
   const todayUTCStr = utcDateStr(new Date());
   const isFutureDay = (date: string) => date > todayUTCStr;
+  // Jour antérieur à l'arrivée de l'élève : même traitement qu'un jour futur — un trou,
+  // pas un zéro. Un zéro affirme « il ne s'est rien passé » alors que la vérité est
+  // « l'élève n'était pas encore là ». Les 4 élèves en base sont arrivés en milieu de
+  // mois (le 9, 28, 13, 16) : pour celui du 28 juillet, le graphique de juillet
+  // montrait 13 jours plats qui se lisaient comme une mauvaise performance.
+  const arrivalDayStr = integrationsReadyAt ? utcDateStr(new Date(integrationsReadyAt)) : null;
+  const isBeforeArrival = (date: string) => arrivalDayStr != null && date < arrivalDayStr;
+  const isOutsideCoverage = (date: string) => isFutureDay(date) || isBeforeArrival(date);
 
   // 1. Clics totaux — déjà par jour dans shortioChartHistory, filtrer sur la fenêtre
   const clicsSeries = dayRange.map(date => ({
     date,
-    v: isFutureDay(date) ? null : ((shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0),
+    v: isOutsideCoverage(date) ? null : ((shortioChartHistory ?? []).find(d => d.date === date)?.clicks ?? 0),
   }));
   const clicsSeriesHasData = (shortioChartHistory ?? []).length > 0;
 
@@ -3608,7 +3618,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(h.detected_at));
     leadsPerDay.set(day, (leadsPerDay.get(day) ?? 0) + 1);
   }
-  const leadsSeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (leadsPerDay.get(date) ?? 0) }));
+  const leadsSeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (leadsPerDay.get(date) ?? 0) }));
 
   // 3. Réponses accroche LM DM — vrai timestamp hook_replied_at (ajouté au select ci-dessus)
   const hookRepliesPerDay = new Map<string, number>();
@@ -3618,7 +3628,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(l.hookRepliedAt));
     hookRepliesPerDay.set(day, (hookRepliesPerDay.get(day) ?? 0) + 1);
   }
-  const hookReplySeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (hookRepliesPerDay.get(date) ?? 0) }));
+  const hookReplySeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (hookRepliesPerDay.get(date) ?? 0) }));
 
   // 4. Liens Calendly envoyés DM — calendly_link_sent_at ?? created_at, sur calendlyLinksSent (déjà filtré période)
   const calendlyLinksPerDay = new Map<string, number>();
@@ -3627,7 +3637,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     const day = utcDateStr(new Date(ts));
     calendlyLinksPerDay.set(day, (calendlyLinksPerDay.get(day) ?? 0) + 1);
   }
-  const calendlyLinksSeries = dayRange.map(date => ({ date, v: isFutureDay(date) ? null : (calendlyLinksPerDay.get(date) ?? 0) }));
+  const calendlyLinksSeries = dayRange.map(date => ({ date, v: isOutsideCoverage(date) ? null : (calendlyLinksPerDay.get(date) ?? 0) }));
 
   // 5. Taux d'activation DM — deux ratios par jour, comme la KPI card (LM et Calendly) :
   // LM = clics lead magnet / LM envoyés (jour = commentedAt), Calendly = clics lien
@@ -3643,7 +3653,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     if (l.id && lmClickedByLeadId?.has(l.id)) lmClicsPerDay.set(day, (lmClicsPerDay.get(day) ?? 0) + 1);
   }
   const activationLmSeries = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, v: null as any };
+    if (isOutsideCoverage(date)) return { date, v: null as any };
     const sent = lmEnvoyesPerDay.get(date) ?? 0;
     const clicked = lmClicsPerDay.get(date) ?? 0;
     return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
@@ -3656,7 +3666,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     calendlyClicsPerDay.set(day, (calendlyClicsPerDay.get(day) ?? 0) + 1);
   }
   const activationCalendlySeries = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, v: null as any };
+    if (isOutsideCoverage(date)) return { date, v: null as any };
     const sent = calendlyLinksPerDay.get(date) ?? 0;
     const clicked = calendlyClicsPerDay.get(date) ?? 0;
     return { date, v: sent > 0 ? Math.round((clicked / sent) * 100) : 0 };
@@ -3682,7 +3692,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     cur.revenue += c.revenue || 0;
     callsPerDay.set(day, cur);
   }
-  const callsSeries = dayRange.map(date => ({ date, ...(callsPerDay.get(date) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 }) }));
+  // null (trou) hors couverture, comme les autres séries : avant l'arrivée de l'élève
+  // ou après aujourd'hui, un 0 se lirait comme « aucun call » au lieu de « pas de
+  // donnée ».
+  const callsSeries = dayRange.map(date => isOutsideCoverage(date)
+    ? { date, booked: null, honored: null, closed: null, revenue: null }
+    : { date, ...(callsPerDay.get(date) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 }) });
 
   // ── Graphique filtré — sur la vraie période sélectionnée (dayRange), pas une fenêtre
   // glissante fixe de 30 jours indépendante de periodStart/periodEnd. Avant ce fix,
@@ -3693,17 +3708,17 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   // l'historique). Source : mêmes tables shortio_link_daily_snapshots par catégorie
   // que shortioChartHistory (total), déjà filtrées sur periodStart/periodEnd.
   const chartDataBio: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, ig: null, yt: null };
+    if (isOutsideCoverage(date)) return { date, ig: null, yt: null };
     const row = (shortioChartHistoryBio ?? []).find(d => d.date === date);
     return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
   });
   const chartDataContent: { date: string; ig: number | null; yt: number | null }[] = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, ig: null, yt: null };
+    if (isOutsideCoverage(date)) return { date, ig: null, yt: null };
     const row = (shortioChartHistoryContent ?? []).find(d => d.date === date);
     return { date, ig: row?.ig ?? 0, yt: row?.yt ?? 0 };
   });
   const chartDataDm: { date: string; calendly: number | null; lm: number | null }[] = dayRange.map(date => {
-    if (isFutureDay(date)) return { date, calendly: null, lm: null };
+    if (isOutsideCoverage(date)) return { date, calendly: null, lm: null };
     const row = (shortioChartHistoryDm ?? []).find(d => d.date === date);
     return { date, calendly: row?.calendly ?? 0, lm: row?.lm ?? 0 };
   });
@@ -3903,6 +3918,24 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
 
   return (
     <div className="stack">
+
+      {/* Période qui commence avant l'arrivée de l'élève : les graphiques s'arrêtent
+          à sa date de démarrage (trou, pas zéro), mais un graphique tronqué ne dit pas
+          POURQUOI il est tronqué. Les élèves arrivent en milieu de mois (le 9, 28, 13,
+          16 pour les quatre en base) : sans cette mention, un mois où l'élève n'était
+          là que 4 jours se lit comme un mois faible. */}
+      {arrivalDayStr && dayRange.length > 0 && dayRange[0] < arrivalDayStr && (
+        <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, padding: '2px 2px 0' }}>
+          <span aria-hidden style={{ opacity: .6 }}>◷</span>
+          <span>
+            Données disponibles depuis le{' '}
+            <strong style={{ color: 'var(--ink-2)' }}>
+              {new Date(arrivalDayStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
+            </strong>
+            {' '}— début de la période non couvert.
+          </span>
+        </div>
+      )}
 
       {/* ── Section 0 : Stats globales ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
@@ -6473,6 +6506,9 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const [, setModalOpen] = useState(false);
   const [stripeRefreshing, setStripeRefreshing] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  // Message affiché quand le rafraîchissement ne peut pas aboutir faute de
+  // réseau — sans lui l'échec était totalement silencieux.
+  const [refreshError, setRefreshError] = useState<string | null>(null);
   // Remonté ici (au lieu d'un state local à TabShortioB) car ce composant est
   // démonté/remonté à chaque changement de période (loading passe par true le
   // temps du refetch) — un state local y serait reset à 'clics' à chaque fois.
@@ -6721,10 +6757,21 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
 
   async function handleRefresh() {
     if (inCooldown || refreshing) return;
+
+    // Hors connexion, les fetch ci-dessous échouent — mais Promise.allSettled
+    // ne rejette jamais, donc le code continuait comme si tout s'était bien
+    // passé : le bouton reprenait son état normal ET un cooldown se déclenchait,
+    // bloquant l'utilisateur alors que rien n'avait été rafraîchi.
+    if (!isOnlineNow()) {
+      setRefreshError('Pas de connexion — réessaie une fois le réseau revenu.');
+      setTimeout(() => setRefreshError(null), 4000);
+      return;
+    }
+
     setRefreshing(true);
     const body = profileId ? JSON.stringify({ profile_id: profileId }) : JSON.stringify({});
     // Refresh snapshots DB (instagram, youtube, shortio, calendly)
-    await Promise.allSettled([
+    const results = await Promise.allSettled([
       fetch('/api/instagram/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/youtube/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
       fetch('/api/shortio/refresh-today', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body }),
@@ -6732,8 +6779,19 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       // Force le re-fetch du cache shortio_stats_cache en bypassant le SWR
       fetch(`/api/shortio/stats${q}${q ? '&' : '?'}force=1`),
     ]);
-    startCooldown();
+    // Le réseau a pu tomber PENDANT le rafraîchissement : si tout a échoué, on
+    // ne déclenche pas le cooldown, sinon l'utilisateur serait bloqué sans avoir
+    // rien obtenu. Un échec partiel reste un succès (les autres sources ont
+    // répondu), donc on ne teste que le cas où rien n'est passé.
+    const allFailed = results.every(r => r.status === 'rejected');
     setRefreshing(false);
+    if (allFailed) {
+      setRefreshError('Rafraîchissement impossible — vérifie ta connexion.');
+      setTimeout(() => setRefreshError(null), 4000);
+      return;
+    }
+
+    startCooldown();
     refetchIntegStatus();
     await Promise.all([refetchSupa(), refetchIg(), refetchShortio()]);
   }
@@ -6809,7 +6867,20 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
         </div>
 
         {/* Droite : bouton Rafraîchir + sélecteur période sur une ligne, même hauteur */}
-        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexShrink: 0 }}>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', flexShrink: 0, position: 'relative' }}>
+          {/* Explique pourquoi le rafraîchissement n'a pas eu lieu. Sans ce
+              message, l'échec réseau était totalement silencieux : le bouton
+              reprenait son état normal comme si tout avait fonctionné. */}
+          {refreshError && (
+            <div style={{
+              position: 'absolute', top: '100%', right: 0, marginTop: 6, zIndex: 20,
+              padding: '7px 12px', borderRadius: 8, whiteSpace: 'nowrap',
+              background: 'var(--amber-soft)', border: '1px solid var(--amber)',
+              color: 'var(--amber)', fontSize: 11.5, fontWeight: 600,
+            }}>
+              {refreshError}
+            </div>
+          )}
           <button
             onClick={handleRefresh}
             disabled={inCooldown || refreshing || backfillInProgress}
@@ -6847,7 +6918,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 1 && <TabInstagram ig={igEff} period={period} periodIndex={periodIndex} profileId={profileId} sinceConnection={sinceConnection} />}
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
-          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} />}
+          {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} integrationsReadyAt={integrationsReadyAt} />}
           {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}

@@ -7,6 +7,7 @@ import BottomNav from '@/components/layout/BottomNav';
 import ClientMoreSheet from '@/components/layout/ClientMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import SplashHold from '@/components/ui/SplashHold';
+import OfflineBanner from '@/components/ui/OfflineBanner';
 import PullToRefresh from '@/components/ui/PullToRefresh';
 import { UserProvider, useUser } from '@/lib/UserContext';
 import { ClientSelfProvider, useClientSelf } from '@/lib/ClientSelfContext';
@@ -42,6 +43,9 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />
         <TopBar />
+        {/* Previent des que le reseau tombe : sans ca les actions echouaient
+            en silence (voir lib/useOnline). */}
+        <OfflineBanner />
         <div className="app-body-pwa">
           <SidebarClient />
           <main className="main-content">
