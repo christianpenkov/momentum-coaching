@@ -1066,15 +1066,24 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   };
 
   // Enregistre auprès du guard de navigation la fonction qui sauvegarde tout ce qui ne l'est pas encore
+  //
+  // Les CINQ champs doivent figurer ici, exactement les mêmes que ceux surveillés
+  // par setHasUnsaved plus haut. Le message du DM2 et le libellé de son bouton y
+  // manquaient : le guard signalait bien des modifications non enregistrées, mais
+  // "enregistrer" ne sauvait que dm1/dm2/bouton DM1 — les deux champs du DM2
+  // étaient perdus sans aucun message d'erreur.
   useEffect(() => {
     unsavedGuard?.registerSaveAll(async () => {
       if (!dm1Saved) await saveDm1(dm1Text);
       if (!dm2Saved) await saveDm2(dm2Text);
       if (!buttonSaved) await saveButtonText(buttonText);
+      if (!dmLinkSaved) await saveDmLinkMessage(dmLinkMsg);
+      if (!dmLinkBtnSaved) await saveDmLinkButton(dmLinkBtn);
     });
     return () => { unsavedGuard?.registerSaveAll(null); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dm1Saved, dm2Saved, buttonSaved, dm1Text, dm2Text, buttonText]);
+  }, [dm1Saved, dm2Saved, buttonSaved, dmLinkSaved, dmLinkBtnSaved,
+      dm1Text, dm2Text, buttonText, dmLinkMsg, dmLinkBtn]);
 
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
