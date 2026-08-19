@@ -39,7 +39,7 @@ export interface DealForStats {
  * signée. En revanche ce qui a déjà été encaissé dessus reste compté — l'argent
  * est bien entré, et un remboursement passe par un `deal_payments` négatif.
  */
-export function computeDealTotals(deals: DealForStats[]): { contracted: number; collected: number } {
+function computeDealTotals(deals: DealForStats[]): { contracted: number; collected: number } {
   const active = deals.filter(d => d.status !== 'canceled');
   return {
     contracted: active.reduce((s, d) => s + Number(d.amount_total || 0), 0),

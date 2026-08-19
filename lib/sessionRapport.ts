@@ -102,10 +102,6 @@ export function isCoachingCall(call: { call_type?: string | null }): boolean {
   return call.call_type === 'google';
 }
 
-export function isSalesCall(call: { call_type?: string | null }): boolean {
-  return !isCoachingCall(call);
-}
-
 // Widget "Prochain call" — bascule vers le call suivant dès que celui affiché est
 // réellement terminé, peu importe le délai avant le suivant. Un call encore dans son
 // créneau normal n'est jamais remplacé, même si le suivant approche.

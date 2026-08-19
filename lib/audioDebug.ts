@@ -13,11 +13,3 @@ export function logAudio(label: string, data?: unknown) {
   buffer.push(stamped);
   if (buffer.length > 500) buffer.shift();
 }
-
-export function getAudioLogs() {
-  return buffer.join('\n');
-}
-
-export function clearAudioLogs() {
-  buffer.length = 0;
-}

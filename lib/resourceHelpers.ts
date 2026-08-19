@@ -32,12 +32,6 @@ export function getEmbedUrl(url: string): string | null {
   return null;
 }
 
-export function getVideoThumbnail(url: string): string | null {
-  const ytId = extractYtId(url);
-  if (ytId) return `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
-  return null;
-}
-
 export function isImageFile(fileName: string | null): boolean {
   if (!fileName) return false;
   return /\.(png|jpe?g|gif|webp|svg)$/i.test(fileName);

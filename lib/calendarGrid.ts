@@ -1,4 +1,4 @@
-export function pad(n: number) { return String(n).padStart(2, '0'); }
+function pad(n: number) { return String(n).padStart(2, '0'); }
 export function toDateKey(d: Date) { return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; }
 
 export const DAYS_FR = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];

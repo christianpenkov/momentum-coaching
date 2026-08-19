@@ -660,6 +660,6 @@ function subtitleFor(tab: Tab, deals: number, orphans: number, relances: number,
 }
 
 /** Un deal appelle une relance dès qu'il reste de l'argent à aller chercher. */
-export function countRelances(deals: DealRow[]): number {
+function countRelances(deals: DealRow[]): number {
   return deals.filter(d => d.status !== 'paid' && d.status !== 'canceled').length;
 }

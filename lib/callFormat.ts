@@ -45,7 +45,7 @@ export type CallPeriod = {
 // locale de l'appareil (setHours, getDay), donc dans le fuseau du lecteur — c'est
 // exactement le comportement voulu. Le sujet ici est le regroupement, pas
 // l'affichage d'une heure précise. Ne pas "corriger" en y injectant un fuseau.
-export function getCallPeriod(dateStr: string, now: number = Date.now()): CallPeriod {
+function getCallPeriod(dateStr: string, now: number = Date.now()): CallPeriod {
   const d = new Date(dateStr);
   const ref = new Date(now);
 

@@ -50,6 +50,11 @@ async function safeJsonCore(res: Response): Promise<any> {
 // Fetch des métriques Instagram pour UNE journée donnée (period=day).
 // Utilisé par le cron (poll-leads) ET le bouton Rafraîchir (refresh-today) —
 // modifier cette fonction modifie automatiquement les deux.
+// Plus aucun appelant côté Next.js (les routes n'importent que isoDateCore) : cette
+// fonction subsiste comme ORIGINAL DE RÉFÉRENCE de la copie Deno qui, elle, tourne en
+// production (supabase/functions/poll-leads/index.ts:132, fetchIgDayMetrics). Ne pas
+// supprimer sans supprimer la copie — sinon le cron garde une logique dont plus aucune
+// version lisible ne fait autorité.
 export async function fetchIgDayMetricsCore(
   creds: IgCredsCore,
   date: string, // ISO YYYY-MM-DD

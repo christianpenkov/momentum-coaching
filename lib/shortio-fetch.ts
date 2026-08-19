@@ -67,7 +67,7 @@ export async function getShortioLinkCreds(profileId: string): Promise<ShortioLin
 
 // ── Liste des liens de TOUS les domaines du compte (actif + anciens), pagination
 // cursor-based via beforeId propre à chaque domaine ─────────────────────────────
-export async function fetchShortioLinks(creds: ShortioLinkCreds): Promise<ShortioLinkRow[]> {
+async function fetchShortioLinks(creds: ShortioLinkCreds): Promise<ShortioLinkRow[]> {
   const domains = creds.allDomains.length > 0 ? creds.allDomains : [{ id: creds.domainId, hostname: creds.domain }];
   const allLinks: any[] = [];
 
@@ -101,7 +101,7 @@ export async function fetchShortioLinks(creds: ShortioLinkCreds): Promise<Shorti
 }
 
 // ── Stats d'un lien pour une période (today | yesterday | last7 | last30 | custom) ──
-export async function fetchShortioLinkStats(
+async function fetchShortioLinkStats(
   creds: ShortioLinkCreds,
   link: ShortioLinkRow,
   period: string,
@@ -167,7 +167,7 @@ function emptySnapshot(link: ShortioLinkRow, date: string, link_type: string | n
 }
 
 // ── Upsert un snapshot dans shortio_link_daily_snapshots ─────────────────────
-export async function upsertShortioLinkSnapshot(
+async function upsertShortioLinkSnapshot(
   profileId: string,
   row: ShortioLinkSnapshot,
   source: 'cron' | 'refresh_partial',

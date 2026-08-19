@@ -27,7 +27,7 @@ const PARIS_TZ = 'Europe/Paris';
 
 // Décompose un instant en composantes Y/M/D telles que vues depuis Paris (gère
 // automatiquement heure d'été/hiver via Intl, pas de table d'offset à maintenir).
-export function parisDateParts(d: Date): { y: number; m: number; day: number } {
+function parisDateParts(d: Date): { y: number; m: number; day: number } {
   const parts = new Intl.DateTimeFormat('en-CA', {
     timeZone: PARIS_TZ, year: 'numeric', month: '2-digit', day: '2-digit',
   }).formatToParts(d);
@@ -118,17 +118,4 @@ export function getPeriodWindow(periodIndex: number, granularity: PeriodGranular
 
   const isCurrentIncomplete = periodIndex === 0 && Date.now() < periodEnd.getTime();
   return { periodStart, periodEnd, isCurrentIncomplete };
-}
-
-// Nombre de jours écoulés dans la période en cours (pour l'affichage "Xj/7" ou "Xj/N")
-export function daysElapsedInPeriod(periodStart: Date): number {
-  const today = parisDateParts(new Date());
-  const todayAsUTC = Date.UTC(today.y, today.m - 1, today.day);
-  const startParts = parisDateParts(periodStart);
-  const startAsUTC = Date.UTC(startParts.y, startParts.m - 1, startParts.day);
-  return Math.floor((todayAsUTC - startAsUTC) / 86400000) + 1;
-}
-
-export function totalDaysInPeriod(periodStart: Date, periodEnd: Date): number {
-  return Math.round((periodEnd.getTime() - periodStart.getTime()) / 86400000) + 1;
 }
