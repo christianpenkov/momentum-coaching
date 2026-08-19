@@ -2886,17 +2886,14 @@ a { color: inherit; text-decoration: none; }
    ────────────────────────────────────────────────────────────────────────── */
 #app-splash {
   position: fixed;
-  top: calc(env(safe-area-inset-top, 0px) * -1);
-  left: 0;
-  width: 100vw;
-  height: calc(100vh + env(safe-area-inset-top, 0px));
+  inset: 0;
   z-index: 3000;
   background: var(--bg);
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Aucune animation d'entrée : l'écran prend la suite du splash système, il
-     est déjà là. L'animer ferait précisément le flash qu'on veut supprimer. */
+  /* Le FOND, lui, est identique au splash système (même crème) : il n'y a donc
+     jamais de rupture visible sur la couleur, quelle que soit la géométrie. */
   opacity: 1;
   transition: opacity 240ms ease-out;
 }
@@ -2913,21 +2910,36 @@ a { color: inherit; text-decoration: none; }
   #app-splash img { width: 200px; }
 }
 
-/* LE LOGO QUI DESCEND — pourquoi le positionnement ci-dessus.
-   En PWA installée, iOS affiche son propre écran de démarrage avec le logo,
-   centré sur l'ÉCRAN ENTIER. Notre overlay, lui, vit dans la fenêtre de l'app,
-   qui commence SOUS la barre de statut (conséquence de
-   apple-mobile-web-app-status-bar-style="default"). Deux logos centrés sur deux
-   surfaces différentes : le second tombait plus bas, d'où l'impression qu'il
-   « descendait » au raccord.
+/* LE LOGO QUI DESCEND — solution retenue après quatre tentatives.
+   En PWA installée, iOS centre le logo du splash système sur l'ÉCRAN ENTIER,
+   alors que notre overlay vit dans la fenêtre de l'app, qui commence SOUS la
+   barre de statut (apple-mobile-web-app-status-bar-style="default" : Apple
+   limite le viewport à la zone sous la barre). Deux logos, deux surfaces : le
+   second tombe plus bas, on le voit « descendre ».
 
-   D'où le décalage négatif de env(safe-area-inset-top) sur #app-splash, qui
-   ramène la boîte sur l'écran entier plutôt que sur la fenêtre : les deux logos
-   se superposent alors au même endroit et le raccord devient invisible.
+   Compenser avec env(safe-area-inset-top) ne pouvait pas marcher : cette valeur
+   est rapportée à 0px en portrait sur une grande partie des iPhone, donc la
+   correction valait zéro. C'est ce qui explique l'échec des tentatives
+   précédentes.
 
-   Le logo est volontairement conservé en standalone : sans lui, l'écran ne
-   serait qu'un aplat crème entre le splash système et l'app, ce qui se lit
-   comme un blanc plutôt que comme une continuité. */
+   La pratique établie, y compris côté natif iOS, est de ne PAS viser
+   l'alignement au pixel mais de masquer l'écart par un fondu : la continuité
+   perçue prime sur la coïncidence exacte. Le logo de l'overlay apparaît donc en
+   fondu au lieu de surgir à une position légèrement différente — un élément qui
+   se révèle progressivement ne donne pas l'impression d'avoir bougé.
+
+   Le fond, lui, est exactement la même couleur que le splash système : la
+   surface ne présente donc aucune rupture, seul le logo se ré-affiche. */
+#app-splash img {
+  animation: splash-logo-in 380ms ease-out both;
+}
+@keyframes splash-logo-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  #app-splash img { animation: none; }
+}
 #app-splash[data-hide='1'],
 #app-splash[data-force-hide='1'] {
   opacity: 0;
