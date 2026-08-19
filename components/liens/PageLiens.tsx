@@ -1212,7 +1212,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
               style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
             />
             <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3, lineHeight: 1.5 }}>
-              Le délai de 2 minutes évite que les deux messages arrivent dans la même seconde — la question paraît écrite après coup, pas automatique.
+              Le délai de 2 minutes évite que les deux messages arrivent dans la même seconde — le DM 3 paraît écrit après coup, pas automatique.
             </div>
           </div>
           {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dm2Error}</div>}

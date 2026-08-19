@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task } from '@/lib/supabase/types';
 import type { ClientWithMetrics } from '@/lib/supabase/useCoachData';
-import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled } from '@/lib/salesCallStats';
+import { computeSalesCallStats, fetchIgLeadsCount, isNotCanceled, type DealForStats } from '@/lib/salesCallStats';
 import { getPeriodWindow } from '@/lib/period';
 
 export interface CoachBusinessData {
@@ -92,7 +92,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       const now = new Date();
       const startOfMonth = getPeriodWindow(0, 'month').periodStart.toISOString();
 
-      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, salesCallsRes, manualCallsRes, coachSalesCallsRes, coachLeadsAllTime, coachLeadsThisMonth, coachIntegrationsRes, coachStripePaymentsAllTimeRes] = await Promise.all([
+      const [snapshotsRes, tasksRes, sessionReportsRes, callsRes, avatarsRes, integrationsRes, stripePaymentsRes, stripePaymentsAllTimeRes, clientPaymentsRes, clientDealsRes, salesCallsRes, manualCallsRes, coachSalesCallsRes, coachLeadsAllTime, coachLeadsThisMonth, coachIntegrationsRes, coachStripePaymentsAllTimeRes] = await Promise.all([
         // Dernier snapshot par élève pour followers IG/YT + MRR actuels — remplace
         // weekly_metrics (jamais écrite par aucun cron, table morte). Fenêtre de 3
         // jours glissants pour tolérer un jour de cron manqué ; on garde ensuite le
@@ -151,6 +151,14 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
               .eq('status', 'succeeded')
               .order('paid_at', { ascending: true })
           : { data: [], error: null },
+        // Deals par élève — source du cash contracté, en remplacement de la somme
+        // des `calls.revenue`. Un deal hors call (upsell, vente directe) est
+        // invisible côté calls : le sommer là revenait à sous-estimer le cash.
+        // Le coach est inclus : il a ses propres deals (ses ventes à lui), et son
+        // profile_id n'est pas dans profileIds qui ne liste que ses élèves.
+        supabase.from('deals')
+          .select('id, profile_id, amount_total, signed_at, call_id, status')
+          .in('profile_id', [...profileIds, user.id]),
         // Calls de vente calendly par élève — coach_id de la table calls = profile_id
         // de l'élève, pas le coach humain (piège documenté dans docs/calls-coach-id-piege.md).
         // Utilisé pour currentStats par-élève (fiches clients), pas pour business
@@ -195,6 +203,7 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       if (stripePaymentsRes.error) throw stripePaymentsRes.error;
       if (stripePaymentsAllTimeRes.error) throw stripePaymentsAllTimeRes.error;
       if (clientPaymentsRes.error) throw clientPaymentsRes.error;
+      if (clientDealsRes.error) throw clientDealsRes.error;
       if (coachIntegrationsRes.error) throw coachIntegrationsRes.error;
       if (coachStripePaymentsAllTimeRes.error) throw coachStripePaymentsAllTimeRes.error;
       if (coachSalesCallsRes.error) throw coachSalesCallsRes.error;
@@ -222,6 +231,14 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         if (!pid) return;
         if (!paymentsByProfile[pid]) paymentsByProfile[pid] = [];
         paymentsByProfile[pid].push({ amount: Number(p.amount), date: p.paid_at });
+      });
+
+      // Deals groupés par élève — passés à computeSalesCallStats pour que le cash
+      // contracté vienne de `deals` et non de la somme des `calls.revenue`.
+      const dealsByProfile: Record<string, DealForStats[]> = {};
+      (clientDealsRes.data || []).forEach((d: any) => {
+        if (!dealsByProfile[d.profile_id]) dealsByProfile[d.profile_id] = [];
+        dealsByProfile[d.profile_id].push(d);
       });
 
       // Calls de vente groupés par profile_id élève (coach_id de `calls` = profile_id
@@ -292,11 +309,23 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
               call.call_type !== 'calendly'
               || (call.booked_at ? call.booked_at >= integrationsReadyAt : call.scheduled_at >= integrationsReadyAt))
           : allSalesCalls;
+        // Les deals suivent le même périmètre que les calls retenus ci-dessus :
+        // un deal issu d'un call antérieur à integrations_ready_at doit être
+        // exclu comme l'est son call, sinon la carte afficherait un cash que le
+        // closing rate juste à côté ignore. Un deal SANS call (upsell, vente
+        // directe) n'a pas de date de réservation à comparer : il est toujours
+        // compté, c'est précisément le cash que `calls.revenue` rendait invisible.
+        const keptCallIds = new Set(salesCalls.map((call: any) => call.id));
+        const allDeals = c.profile_id ? (dealsByProfile[c.profile_id] || []) : [];
+        const clientDeals = integrationsReadyAt
+          ? allDeals.filter((d: any) => !d.call_id || keptCallIds.has(d.call_id))
+          : allDeals;
+        const stats = c.profile_id ? computeSalesCallStats(salesCalls, now2, clientDeals) : null;
         const currentStats = c.profile_id ? {
           followersIg: snap?.ig_followers ?? 0,
           followersYt: snap?.yt_subscribers ?? 0,
-          cashContracted: computeSalesCallStats(salesCalls, now2).cashContracted,
-          closingRate: computeSalesCallStats(salesCalls, now2).closingRate,
+          cashContracted: stats!.cashContracted,
+          closingRate: stats!.closingRate,
         } : null;
         const payments = c.profile_id ? (paymentsByProfile[c.profile_id] || []) : [];
         const cashCollectedAllTimeForClient = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
@@ -338,9 +367,15 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       // celle de ses élèves) — à 0 tant que le coach n'a pas connecté ses propres
       // intégrations Calendly/Instagram (tracking coach pas encore mis en place).
       const coachSalesCalls: any[] = coachSalesCallsRes.data || [];
-      const coachAllTimeStats = computeSalesCallStats(coachSalesCalls, now2);
+      // Deals du coach lui-même : son profile_id est son user.id.
+      const coachDeals = (clientDealsRes.data || []).filter((d: any) => d.profile_id === user.id);
+      // Découpe mensuelle sur `signed_at`, la date de signature du deal — et non
+      // sur celle du call. Un deal signé en relance trois semaines après le call
+      // appartient au mois où l'argent a été engagé, pas à celui de l'entretien.
+      const coachDealsThisMonth = coachDeals.filter((d: any) => (d.signed_at ?? '') >= startOfMonth);
+      const coachAllTimeStats = computeSalesCallStats(coachSalesCalls, now2, coachDeals);
       const coachCallsThisMonth = coachSalesCalls.filter((c: any) => (c.scheduled_at ?? '') >= startOfMonth);
-      const coachThisMonthStats = computeSalesCallStats(coachCallsThisMonth, now2);
+      const coachThisMonthStats = computeSalesCallStats(coachCallsThisMonth, now2, coachDealsThisMonth);
       const coachYtBookedAllTime = coachSalesCalls.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
       const coachYtBookedThisMonth = coachCallsThisMonth.filter((c: any) => isNotCanceled(c) && (c.source ?? '').toLowerCase().startsWith('yt')).length;
 

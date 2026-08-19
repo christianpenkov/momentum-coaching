@@ -87,7 +87,7 @@ export function useClientSelfData() {
         tasksRes, resourcesRes, lastMsgRes, coachProfileRes,
         nextCallRes, callsTodayRes, salesCallsAllTimeRes, manualCallsAllTimeRes,
         stripeIntegRes, stripePaymentsRes, stripePaymentsAllTimeRes, ownProfileRes,
-        leadsAllTimeCount, leadsThisMonthCount,
+        dealsRes, leadsAllTimeCount, leadsThisMonthCount,
       ] = await Promise.all([
         supabase.from('tasks').select('*').eq('client_id', clientRow.id).order('created_at', { ascending: true }),
         supabase.from('resources').select('*').eq('coach_id', clientRow.coach_id).order('created_at', { ascending: false }).limit(3),
@@ -158,6 +158,15 @@ export function useClientSelfData() {
         clientRow.profile_id
           ? supabase.from('profiles').select('avatar_url').eq('id', clientRow.profile_id).maybeSingle()
           : Promise.resolve({ data: null }),
+        // Deals de l'élève — source du cash contracté en remplacement de la somme
+        // des `calls.revenue`, qui ne voit pas les ventes sans call (upsell, vente
+        // directe). Le périmètre integrations_ready_at est appliqué plus bas via
+        // les call_id retenus, comme pour les calls ci-dessus.
+        clientRow.profile_id
+          ? supabase.from('deals')
+              .select('id, amount_total, signed_at, call_id, status')
+              .eq('profile_id', clientRow.profile_id)
+          : Promise.resolve({ data: [] }),
         // Leads "depuis connexion" : integrations_ready_at (première fois que TOUTES
         // les intégrations obligatoires ont été connectées), pas une intégration
         // spécifique — un lead détecté sur Instagram avant que Calendly soit connecté
@@ -178,13 +187,23 @@ export function useClientSelfData() {
       // (calendly/manual, déjà filtré côté requête) — les calls coaching (google)
       // n'ont pas de notion de deal closé/revenue et fausseraient ces stats.
       const allSalesCalls: Call[] = [...(salesCallsAllTimeRes.data || []), ...(manualCallsAllTimeRes.data || [])];
-      const allTimeStats = computeSalesCallStats(allSalesCalls, now);
+
+      // Les deals suivent le périmètre des calls retenus : les requêtes ci-dessus
+      // écartent déjà les calls hors fenêtre integrations_ready_at, un deal issu
+      // de l'un d'eux doit l'être aussi. Un deal SANS call est toujours compté —
+      // c'est le cash (upsell, vente directe) que `calls.revenue` ne voyait pas.
+      const keptCallIds = new Set(allSalesCalls.map(c => c.id));
+      const allDeals = (dealsRes.data || []).filter((d: any) => !d.call_id || keptCallIds.has(d.call_id));
+      const allTimeStats = computeSalesCallStats(allSalesCalls, now, allDeals);
       const callsBookedAllTime = allTimeStats.callsBookedCount;
       const cashContractedAllTime = allTimeStats.cashContracted;
       const closingRateAllTime = allTimeStats.closingRate;
 
       const callsThisMonth = allSalesCalls.filter(c => (c.scheduled_at ?? '') >= startOfMonth);
-      const thisMonthStats = computeSalesCallStats(callsThisMonth, now);
+      // Découpe mensuelle sur `signed_at` : un deal signé en relance appartient au
+      // mois où l'argent a été engagé, pas à celui de l'entretien.
+      const dealsThisMonth = allDeals.filter((d: any) => (d.signed_at ?? '') >= startOfMonth);
+      const thisMonthStats = computeSalesCallStats(callsThisMonth, now, dealsThisMonth);
       const callsBookedThisMonthCount = thisMonthStats.callsBookedCount;
       const cashContractedThisMonth = thisMonthStats.cashContracted;
       const closingRateThisMonth = thisMonthStats.closingRate;
