@@ -437,17 +437,44 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
       // les écritures des crons, pour un refetch dont le résultat était identique.
       // Aucune fuite de données (le refetch est scopé, RLS actif), mais du travail
       // pur perte qui croît avec l'activité globale. Même pattern qu'useNotifications.ts:286.
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', filter: `coach_id=eq.${userId}` }, () => {
-        // limit alignée sur le chargement initial (2000). Avant : 100 — le premier
-        // event realtime tronquait donc silencieusement l'historique de 2000 à 100
-        // lignes, faisant disparaître les calls anciens de la page Calls.
-        supabase.from('calls').select(CALL_COLUMNS).eq('coach_id', userId)
-          .neq('ignored', true)
-          .order('scheduled_at', { ascending: false }).limit(2000)
-          .then(({ data, error }) => {
-            if (error) { console.error('[SupabaseClientsContext] refresh calls realtime:', error.message); return; }
-            if (data) setCalls(data);
-          });
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'calls', filter: `coach_id=eq.${userId}` }, (payload) => {
+        // Patch INCRÉMENTAL, pas de rechargement complet.
+        //
+        // Recharger 2000 calls à chaque événement représentait ~1,3 Mo par
+        // écriture, chez chaque coach connecté — et les crons écrivent dans
+        // `calls` en continu. C'était le premier poste d'egress projeté à 30
+        // élèves (quota Supabase : 5 Go/mois en plan gratuit).
+        //
+        // Le payload Realtime porte déjà la ligne modifiée : on l'applique
+        // directement. Le rechargement complet ne servait qu'à contourner
+        // l'absence de patch — au prix de tout retransmettre pour une ligne.
+        //
+        // Historique : cette requête était à `.limit(100)` alors que le
+        // chargement initial en prend 2000, ce qui tronquait silencieusement
+        // l'historique dès le premier événement. Le patch supprime le problème
+        // à la racine : on ne remplace plus la liste, on la modifie.
+        const row = (payload.new ?? payload.old) as import('@/lib/supabase/types').Call | undefined;
+        if (!row?.id) return;
+
+        setCalls(prev => {
+          if (payload.eventType === 'DELETE') return prev.filter(c => c.id !== row.id);
+          // `ignored` masque un call sans le supprimer : le retirer de la liste
+          // revient au même côté affichage.
+          if ((row as { ignored?: boolean }).ignored === true) return prev.filter(c => c.id !== row.id);
+
+          const idx = prev.findIndex(c => c.id === row.id);
+          if (idx === -1) {
+            // Nouveau call : inséré à sa place chronologique plutôt qu'en tête,
+            // pour que l'ordre reste celui du chargement initial (desc).
+            const next = [...prev, row];
+            next.sort((a, b) =>
+              new Date(b.scheduled_at ?? 0).getTime() - new Date(a.scheduled_at ?? 0).getTime());
+            return next;
+          }
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...row };
+          return next;
+        });
       })
       .subscribe();
     return () => { supabase.removeChannel(channel); };
