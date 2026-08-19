@@ -46,6 +46,9 @@ export default function PageClientSettings() {
   // 'stripe_webhook', absents de cette page. Même pattern que la page coach.
   const [integrations, setIntegrations] = useState<Record<Provider, boolean>>({ stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false, fathom: false } as Record<Provider, boolean>);
   const [integrationLabels, setIntegrationLabels] = useState<Partial<Record<Provider, string>>>({});
+  // Connexion établie via OAuth (par opposition à une clé API collée à la main).
+  // Sert à masquer « Utiliser une clé » sur un provider déjà relié en OAuth.
+  const [oauthConnected, setOauthConnected] = useState<Partial<Record<Provider, boolean>>>({});
   const [shortioMeta, setShortioMeta] = useState<{ domain: string | null; domain_id: number | string | null; all_domains: { id: number | string; hostname: string }[] } | null>(null);
   const [domainPickerOpen, setDomainPickerOpen] = useState(false);
   const [editing, setEditing] = useState<Provider | null>(null);
@@ -74,18 +77,23 @@ export default function PageClientSettings() {
         if (coachProfile?.full_name) setCoachName(coachProfile.full_name.split(' ')[0]);
       }
 
-      const { data: integs } = await supabase.from('integrations').select('provider, account_label, metadata').eq('profile_id', user.id);
+      // access_token n'est lu que pour savoir si la connexion est OAuth ou par clé :
+      // il est converti en booléen tout de suite et n'atterrit jamais dans le state.
+      const { data: integs } = await supabase.from('integrations').select('provider, account_label, metadata, access_token').eq('profile_id', user.id);
       setIntegrationsLoading(false);
       if (integs) {
         const map = { stripe: false, instagram: false, youtube: false, calendly: false, shortio: false, google: false, fathom: false } as Record<Provider, boolean>;
         const labels: Partial<Record<Provider, string>> = {};
-        integs.forEach((i: { provider: string; account_label: string | null; metadata: any }) => {
+        const oauth: Partial<Record<Provider, boolean>> = {};
+        integs.forEach((i: { provider: string; account_label: string | null; metadata: any; access_token: string | null }) => {
           if (i.provider in map) map[i.provider as Provider] = true;
           if (i.account_label) labels[i.provider as Provider] = i.account_label;
+          oauth[i.provider as Provider] = !!i.access_token;
           if (i.provider === 'shortio') setShortioMeta(i.metadata || null);
         });
         setIntegrations(map);
         setIntegrationLabels(labels);
+        setOauthConnected(oauth);
       }
 
 }
@@ -315,9 +323,11 @@ export default function PageClientSettings() {
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integrationLabels[cfg.provider]}</div>
                     )}
                     {cfg.provider === 'fathom' && integrations.fathom && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                        Vérifie que l'auto-join est activé sur ton compte Fathom →{' '}
-                        <a href="https://fathom.video/calendar" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>fathom.video/calendar</a>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
+                        Pour que Fathom rejoigne tes calls tout seul :{' '}
+                        <a href="https://fathom.video/customize" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>fathom.video/customize</a>
+                        {' '}→ section « Auto-Record Settings » → choisis « All Meetings » dans le premier menu.
+                        Ton agenda Google ou Microsoft doit aussi être connecté à Fathom, sinon il ne voit pas tes calls planifiés.
                       </div>
                     )}
                   </div>
@@ -338,7 +348,10 @@ export default function PageClientSettings() {
                           {shortioMeta?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
                         </button>
                       )}
-                      {cfg.mode !== 'oauth' && (
+                      {/* Sur un provider 'both' déjà relié en OAuth, « Utiliser une clé »
+                          n'a plus d'objet : la connexion fonctionne, et poser une clé
+                          effacerait le token. Le repli ne sert qu'avant connexion. */}
+                      {cfg.mode !== 'oauth' && !(cfg.mode === 'both' && oauthConnected[cfg.provider]) && (
                         <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                           {cfg.mode === 'both' ? 'Utiliser une clé' : 'Modifier'}
                         </button>
@@ -351,7 +364,7 @@ export default function PageClientSettings() {
                           <Icon name="refresh-cw" size={12} /> {syncing ? 'Sync…' : 'Sync calls'}
                         </button>
                       )}
-                      <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
+                      <button className="settings-action settings-action-danger" style={{ fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => disconnect(cfg.provider)}>Déconnecter</button>
                     </div>
                   ) : cfg.mode !== 'apikey' ? (
                     <div className="settings-row-actions" style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -359,7 +372,7 @@ export default function PageClientSettings() {
                         <Icon name="link" size={13} /> Connecter
                       </a>
                       {cfg.mode === 'both' && (
-                        <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px', textDecoration: 'underline' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                        <button className="settings-action" style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                           ou une clé
                         </button>
                       )}

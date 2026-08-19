@@ -52,6 +52,9 @@ export default function PageSettings() {
   const [justSaved, setJustSaved] = useState<Provider | null>(null);
   const [domainPickerProvider, setDomainPickerProvider] = useState<Provider | null>(null);
   const [integrationsLoading, setIntegrationsLoading] = useState(true);
+  // Connexion établie via OAuth (par opposition à une clé API collée à la main).
+  // Sert à masquer « Utiliser une clé » sur un provider déjà relié en OAuth.
+  const [oauthConnected, setOauthConnected] = useState<Partial<Record<Provider, boolean>>>({});
 
   useEffect(() => {
     const connected = searchParams.get('connected');
@@ -78,14 +81,19 @@ export default function PageSettings() {
       const { data: profile } = await supabase.from('profiles').select('full_name, avatar_url').eq('id', user.id).single();
       if (profile) { setCoachName(profile.full_name || ''); setAvatarUrl(profile.avatar_url || null); }
 
-      const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, metadata, connected_at').eq('profile_id', user.id);
+      // access_token n'est lu que pour savoir si la connexion est OAuth ou par clé :
+      // il est converti en booléen tout de suite et remis à null dans le state.
+      const { data: integs } = await supabase.from('integrations').select('id, profile_id, provider, account_label, metadata, connected_at, access_token').eq('profile_id', user.id);
       setIntegrationsLoading(false);
       if (integs) {
         const map = { anthropic: null, stripe: null, calendly: null, instagram: null, youtube: null, shortio: null, google: null, fathom: null } as Record<Provider, Integration | null>;
+        const oauth: Partial<Record<Provider, boolean>> = {};
         integs.forEach((i) => {
+          oauth[i.provider as Provider] = !!(i as { access_token: string | null }).access_token;
           map[i.provider as Provider] = { ...i, access_token: null, refresh_token: null, api_key: null, expires_at: null } as Integration;
         });
         setIntegrations(map);
+        setOauthConnected(oauth);
       }
     }
     load();
@@ -314,9 +322,11 @@ export default function PageSettings() {
                       <div style={{ fontSize: 11, color: 'var(--green)', marginTop: 2 }}>{integ.account_label}</div>
                     )}
                     {cfg.provider === 'fathom' && integ && (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>
-                        Vérifie que l'auto-join est activé sur ton compte Fathom →{' '}
-                        <a href="https://fathom.video/calendar" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>fathom.video/calendar</a>
+                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4, lineHeight: 1.5 }}>
+                        Pour que Fathom rejoigne tes calls tout seul :{' '}
+                        <a href="https://fathom.video/customize" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>fathom.video/customize</a>
+                        {' '}→ section « Auto-Record Settings » → choisis « All Meetings » dans le premier menu.
+                        Ton agenda Google ou Microsoft doit aussi être connecté à Fathom, sinon il ne voit pas tes calls planifiés.
                       </div>
                     )}
                   </div>
@@ -343,12 +353,15 @@ export default function PageSettings() {
                           {(integ.metadata as any)?.domain_id ? 'Changer de domaine' : 'Choisir un domaine'}
                         </button>
                       )}
-                      {cfg.mode !== 'oauth' && (
+                      {/* Sur un provider 'both' déjà relié en OAuth, « Utiliser une clé »
+                          n'a plus d'objet : la connexion fonctionne, et poser une clé
+                          effacerait le token. Le repli ne sert qu'avant connexion. */}
+                      {cfg.mode !== 'oauth' && !(cfg.mode === 'both' && oauthConnected[cfg.provider]) && (
                         <button className="btn-ghost" style={{ fontSize: 12, flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                           {cfg.mode === 'both' ? 'Utiliser une clé' : 'Modifier'}
                         </button>
                       )}
-                      <button style={{ fontSize: 12, color: 'var(--red)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px' }} type="button" onClick={() => disconnect(cfg.provider)}>
+                      <button className="settings-action settings-action-danger" style={{ fontSize: 12, cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => disconnect(cfg.provider)}>
                         Déconnecter
                       </button>
                     </div>
@@ -360,7 +373,7 @@ export default function PageSettings() {
                       {/* Repli clé API : pour les comptes que l'OAuth Connect ne peut
                           pas atteindre (déjà reliés à une autre plateforme). */}
                       {cfg.mode === 'both' && (
-                        <button style={{ fontSize: 12, color: 'var(--muted)', background: 'none', border: 'none', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap', padding: '6px 4px', textDecoration: 'underline' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
+                        <button className="settings-action" style={{ fontSize: 12, color: 'var(--muted)', cursor: 'pointer', fontFamily: 'inherit', flexShrink: 0, whiteSpace: 'nowrap' }} type="button" onClick={() => { setEditing(cfg.provider); setKeyInput(''); }}>
                           ou une clé
                         </button>
                       )}

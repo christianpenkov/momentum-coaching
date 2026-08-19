@@ -1131,6 +1131,35 @@ a { color: inherit; text-decoration: none; }
    display:none ici, levé dans le bloc mobile. */
 .settings-row-status { display: none; }
 
+/* Boutons d'action d'une ligne d'intégration : encadrés pour qu'ils se lisent
+   comme des boutons et non comme du texte cliquable, surtout une fois repliés
+   sous la description sur mobile. Bordure discrète, jamais d'ombre (règle du
+   Plat-par-Défaut du design system). */
+.settings-row-actions .btn-ghost,
+.settings-row-actions .settings-action {
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: var(--r-md);
+  padding: 6px 12px;
+  transition: background 120ms, border-color 120ms;
+}
+.settings-row-actions .btn-ghost:hover,
+.settings-row-actions .settings-action:hover {
+  background: var(--surface-2);
+  border-color: var(--muted);
+}
+/* Action destructive : encadré dans les tons rouges, cohérent avec
+   .btn-client-delete déjà utilisé ailleurs dans l'app. */
+.settings-row-actions .settings-action-danger {
+  border-color: rgba(205, 91, 63, 0.3);
+  background: var(--red-soft);
+  color: var(--red);
+}
+.settings-row-actions .settings-action-danger:hover {
+  background: rgba(205, 91, 63, 0.16);
+  border-color: var(--red);
+}
+
 /* Connection badge */
 .connect-badge {
   display: inline-flex; align-items: center; gap: 6px;
@@ -2415,8 +2444,11 @@ a { color: inherit; text-decoration: none; }
 
   /* Formulaire de clé API : input pleine largeur, boutons sous lui. En flex
      rigide l'input tombait à ~130px une fois "Connecter" et "Annuler" posés. */
+  /* !important : l'input porte un style inline flex:1, plus spécifique qu'une
+     media query. Sans lui il restait à ~114px, les boutons occupant le reste. */
   .settings-key-form { flex-wrap: wrap; }
-  .settings-key-form input { flex: 1 1 100%; min-width: 0; }
+  .settings-key-form input { flex: 1 1 100% !important; min-width: 0 !important; }
+  .settings-key-form button { flex: 1 1 auto; min-width: 0 !important; }
 
   /* Déconnexion : le bouton passe sous le texte, pleine largeur. */
   .settings-logout-row {

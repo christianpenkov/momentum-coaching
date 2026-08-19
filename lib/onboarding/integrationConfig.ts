@@ -144,7 +144,9 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     wizardCopy: 'Chaque appel enregistré par Fathom apparaît automatiquement dans ton historique, avec vidéo, résumé et points clés.',
     instructions: [
       { text: 'La connexion se fait via le bouton OAuth ci-dessus.' },
-      { text: 'Vérifie ensuite que l\'auto-join est activé sur ton compte Fathom →', href: 'https://fathom.video/calendar', hrefLabel: 'fathom.video/calendar' },
+      { text: 'Ouvre ensuite tes réglages Fathom →', href: 'https://fathom.video/customize', hrefLabel: 'fathom.video/customize' },
+      { text: 'Dans « Auto-Record Settings », choisis « All Meetings » dans le premier menu déroulant : Fathom rejoint alors tous tes calls sans que tu aies à lancer l\'enregistrement.' },
+      { text: 'Vérifie que ton agenda Google ou Microsoft est bien connecté à Fathom — sans lui, Fathom ne voit pas tes calls planifiés et ne peut pas les rejoindre.' },
     ],
   },
 ];
