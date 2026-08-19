@@ -1545,7 +1545,10 @@ a { color: inherit; text-decoration: none; }
   color: var(--ink);
   font-variant-numeric: tabular-nums;
 }
-.session-row-topic { font-size: 12px; color: var(--muted); }
+/* Le sujet en encre et non en gris : c'est une information de contenu ("Closing /
+   vente"), pas une métadonnée. En --muted il se lisait comme un détail secondaire
+   alors que c'est ce qui identifie la séance. */
+.session-row-topic { font-size: 12px; color: var(--ink); }
 /* Même gabarit que la rangée d'actions des cartes de call (32px, rayon --r-md). */
 .session-row-actions {
   margin-left: auto;
@@ -1591,7 +1594,10 @@ a { color: inherit; text-decoration: none; }
   border: 1px solid var(--ink) !important;
   background: transparent !important;
 }
-.call-action-infos:hover { background: var(--ink) !important; color: var(--surface) !important; }
+/* Voile gris très léger au survol : le remplissage noir plein faisait clignoter le
+   bouton d'une couleur à l'autre au passage de la souris, trop brutal pour une
+   action secondaire. Texte et bordure ne bougent pas. */
+.call-action-infos:hover { background: var(--accent-soft) !important; color: var(--ink) !important; }
 
 /* Bouton "Rapport" : un rapport non rempli est une ALERTE, pas une navigation.
    En bleu plein il ressemblait à l'action principale de la carte et écrasait

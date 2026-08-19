@@ -857,6 +857,9 @@ export default function PageClientDetail({ id }: Props) {
             topic: editingReport.topic as any,
             topicCustom: editingReport.topic_custom ?? '',
             notes: editingReport.notes ?? '',
+            // Sert de valeur de départ à la bascule de présence ET de référence
+            // pour savoir si quelque chose a été modifié avant de fermer.
+            attended: editingReport.attended,
           } : undefined}
         />
       )}
@@ -1223,15 +1226,16 @@ export default function PageClientDetail({ id }: Props) {
                 </span>
                 {topicLabel && <span className="session-row-topic">{topicLabel}</span>}
                 <div className="session-row-actions">
-                  {!isNoShow && (
-                    <button
-                      type="button"
-                      onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
-                      className="btn-ghost session-row-edit"
-                    >
-                      Éditer
-                    </button>
-                  )}
+                  {/* Éditer aussi sur les "Pas présent" : la modale permet
+                      désormais de rebasculer la présence, donc une absence saisie
+                      par erreur n'est plus définitive. */}
+                  <button
+                    type="button"
+                    onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
+                    className="btn-ghost session-row-edit"
+                  >
+                    Éditer
+                  </button>
                   {/* Même règle que la page Calls : Infos s'affiche dès qu'il y a
                       QUELQUE CHOSE à lire, pas seulement un replay Fathom. Avant,
                       sur 24 coachings de cet élève, seuls 2 avaient un replay —

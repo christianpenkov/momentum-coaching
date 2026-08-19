@@ -106,7 +106,9 @@ export default function CallInfosModal({
               }}>
                 {attended === false ? 'Pas présent' : 'Présent'}
               </span>
-              {topicLabel && <span style={{ fontSize: 13, color: 'var(--muted)' }}>{topicLabel}</span>}
+              {/* En encre, comme dans la timeline de la fiche élève : le sujet est
+                  une information de contenu, pas une métadonnée grise. */}
+              {topicLabel && <span style={{ fontSize: 13, color: 'var(--ink)' }}>{topicLabel}</span>}
             </div>
             {notes && (
               <div style={{ marginBottom: 14 }}>

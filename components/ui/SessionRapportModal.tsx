@@ -17,7 +17,7 @@ interface Props {
   // Mode édition d'un rapport déjà soumis — pré-remplit et saute directement à
   // l'étape topic_notes (le "présent/no-show" initial n'est pas remis en cause ici,
   // seuls sujet/notes sont modifiables après coup).
-  editInitial?: { topic: SessionTopic | null; topicCustom: string; notes: string };
+  editInitial?: { topic: SessionTopic | null; topicCustom: string; notes: string; attended?: boolean | null };
 }
 
 function formatDate(dateStr: string) {
@@ -29,17 +29,28 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
   const [step, setStep] = useState<SessionRapportStep>(isEdit ? 'topic_notes' : 'attended');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [attended, setAttended] = useState<boolean | null>(isEdit ? true : null);
+  const [attended, setAttended] = useState<boolean | null>(isEdit ? (editInitial?.attended ?? true) : null);
   const [topic, setTopic] = useState<SessionTopic | null>(editInitial?.topic ?? null);
   const [topicCustom, setTopicCustom] = useState(editInitial?.topicCustom ?? '');
   const [notes, setNotes] = useState(editInitial?.notes ?? '');
   const [confirmClose, setConfirmClose] = useState(false);
   const [confirmChecked, setConfirmChecked] = useState(false);
 
-  // En plein milieu du rapport (étape topic_notes) : demander confirmation avant de fermer,
-  // pour ne pas perdre la saisie en cours. Sinon (attended, ou terminé) fermeture directe.
+  // Y a-t-il quelque chose à perdre en fermant ? On compare l'état courant aux
+  // valeurs de départ — celles du rapport existant en édition, vides en création.
+  // Avant, la confirmation se déclenchait sur la seule ÉTAPE : ouvrir un rapport,
+  // ne rien toucher et vouloir fermer imposait quand même de confirmer.
+  const initialAttended = isEdit ? (editInitial?.attended ?? true) : null;
+  const hasChanges =
+    attended !== initialAttended ||
+    topic !== (editInitial?.topic ?? null) ||
+    topicCustom !== (editInitial?.topicCustom ?? '') ||
+    notes !== (editInitial?.notes ?? '');
+
+  // Confirmation uniquement si une saisie serait réellement perdue. Sur l'étape
+  // "done" le rapport est déjà enregistré, il n'y a jamais rien à perdre.
   function requestClose() {
-    if (step === 'topic_notes') { setConfirmChecked(false); setConfirmClose(true); }
+    if (step !== 'done' && hasChanges) { setConfirmChecked(false); setConfirmClose(true); }
     else onClose();
   }
 
@@ -85,7 +96,10 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
     if (!topic) { setError('Choisis un sujet principal.'); return; }
     if (topic === 'autre' && !topicCustom.trim()) { setError('Précise le sujet en 2-3 mots.'); return; }
     submitRapport({
-      attended: true,
+      // `attended` et non `true` en dur : en édition, la bascule ci-dessus peut
+      // l'avoir passé à false. À la première saisie il vaut déjà true, puisqu'un
+      // no-show est enregistré directement depuis l'étape précédente.
+      attended: attended !== false,
       topic,
       topic_custom: topic === 'autre' ? topicCustom.trim() : undefined,
       notes: notes.trim() || undefined,
@@ -148,6 +162,39 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
 
           {step === 'topic_notes' && (
             <div>
+              {/* En édition seulement : la présence redevient modifiable. À la
+                  première saisie elle a déjà été choisie à l'étape précédente, la
+                  redemander ici ferait doublon. Sans cette bascule, une absence
+                  saisie par erreur était définitive. */}
+              {isEdit && (
+                <div style={{ marginBottom: 24 }}>
+                  <label className="eyebrow-sm" style={{ color: 'var(--muted)', display: 'block', marginBottom: 10 }}>
+                    L'élève était-il présent ?
+                  </label>
+                  <div style={{ display: 'flex', gap: 10 }}>
+                    <button
+                      type="button"
+                      onClick={() => { setAttended(true); setError(''); }}
+                      className={attended === true ? 'btn-primary-brand' : 'btn-ghost'}
+                      style={{ flex: 1, minHeight: 44, fontSize: 14, gap: 7 }}
+                    >
+                      <Icon name="check" size={15} /> Présent
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setAttended(false); setError(''); }}
+                      className="btn-ghost"
+                      style={{
+                        flex: 1, minHeight: 44, fontSize: 14, gap: 7,
+                        borderColor: 'var(--red)', color: attended === false ? '#fff' : 'var(--red)',
+                        background: attended === false ? 'var(--red)' : undefined,
+                      }}
+                    >
+                      <Icon name="x" size={15} /> Pas présent
+                    </button>
+                  </div>
+                </div>
+              )}
               {/* Mention de visibilité obligatoire : les notes juste en dessous
                   portent déjà "Privé, visible coach uniquement", donc sans contrepartie
                   ici le coach pouvait croire que TOUT le rapport était privé. */}
