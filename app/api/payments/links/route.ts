@@ -3,13 +3,18 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getStripeAccess, resolveTargetProfile } from '@/lib/stripe-account';
 import { createDealPaymentLink } from '@/lib/stripe-payment-links';
+import { isValidContentId } from '@/lib/contentId';
 
 /**
  * Création d'un deal et de son (ses) lien(s) de paiement.
  *
  * POST /api/payments/links
  *   { buyerName, amount, paymentPlan, installmentsCount?, installmentInterval?,
- *     igLeadId?, clientId?, callId?, buyerEmail?, profileId? }
+ *     igLeadId? | prospectId? | callId? | clientId?, buyerEmail?, profileId? }
+ *
+ * Un seul de ces quatre identifiants est renseigné — ils désignent des tables
+ * différentes, et se tromper de champ violerait une clé étrangère. Un deal sans
+ * aucun des quatre reste légitime : c'est le cas « hors pipeline ».
  *
  * Trois plans possibles :
  *   one_shot            → 1 lien du montant total
@@ -65,27 +70,56 @@ export async function POST(request: NextRequest) {
   // pipeline et ses taux de conversion.
   let firstTouch: string | null = null;
   let attributionSource = 'manual';
+  // Un prospect sélectionné depuis un call sans lead : on récupère au passage son
+  // ig_lead_id/prospect_id s'il en a un, et l'attribution portée par le call.
+  let igLeadId: string | null = body.igLeadId ?? null;
+  let prospectId: string | null = body.prospectId ?? null;
 
-  if (body.igLeadId) {
+  if (body.callId) {
+    const { data: call } = await supa
+      .from('calls')
+      .select('ig_lead_id, prospect_id, utm_content, source')
+      .eq('id', body.callId)
+      .eq('coach_id', profileId)
+      .maybeSingle();
+    if (call) {
+      igLeadId = igLeadId ?? call.ig_lead_id;
+      prospectId = prospectId ?? call.prospect_id;
+      // utm_content ne vaut que si c'est un vrai ID de contenu : le champ a
+      // longtemps reçu des pseudos slugifiés (bug documenté PageLiens.tsx:1897).
+      if (isValidContentId(call.utm_content)) {
+        firstTouch = call.utm_content;
+        attributionSource = 'content';
+      } else if (call.source) {
+        attributionSource = 'organic';
+      }
+    }
+  }
+
+  if (igLeadId) {
     const { data: lead } = await supa
       .from('instagram_leads')
       .select('media_id, source')
-      .eq('id', body.igLeadId)
+      .eq('id', igLeadId)
       .maybeSingle();
     if (lead?.media_id) { firstTouch = lead.media_id; attributionSource = 'content'; }
     else if (lead?.source === 'cold_dm') attributionSource = 'cold_dm';
     else if (lead) attributionSource = 'organic';
+  } else if (prospectId) {
+    // Prospect YouTube ou « autre » : pas de media_id, l'origine reste la source.
+    attributionSource = 'organic';
   } else if (body.clientId) {
     attributionSource = 'client_existant';
   }
 
   // Élève de la plateforme ou client externe — alimente la colonne « Type » côté coach.
-  const buyerKind = body.clientId ? 'student' : body.igLeadId ? null : 'external';
+  const buyerKind = body.clientId ? "student" : (igLeadId || prospectId) ? null : "external";
 
   const { data: deal, error: dealErr } = await supa.from('deals').insert({
     profile_id: profileId,
     call_id: body.callId ?? null,
-    ig_lead_id: body.igLeadId ?? null,
+    ig_lead_id: igLeadId,
+    prospect_id: prospectId,
     client_id: body.clientId ?? null,
     buyer_name: buyerName,
     buyer_email: body.buyerEmail ?? null,
@@ -135,7 +169,7 @@ export async function POST(request: NextRequest) {
           dealId: deal.id,
           amount: amt,
           productName: `${productName} — ${rank}/${count}`,
-          leadId: body.igLeadId ?? null,
+          leadId: igLeadId,
           installmentId: inst.id,
           contentId: firstTouch,
           prospectHandle: body.prospectHandle ?? null,
@@ -169,7 +203,7 @@ export async function POST(request: NextRequest) {
       dealId: deal.id,
       amount: plan === 'installments_auto' && count ? amount / count : amount,
       productName,
-      leadId: body.igLeadId ?? null,
+      leadId: igLeadId,
       customerEmail: body.buyerEmail ?? null,
       contentId: firstTouch,
       prospectHandle: body.prospectHandle ?? null,

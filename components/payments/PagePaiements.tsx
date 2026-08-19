@@ -122,7 +122,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
       ) : tab === 'reconcile' ? (
         <ReconcileTab orphans={data?.orphans ?? []} onDone={refetch} />
       ) : (
-        <RelancesTab deals={deals} details={data?.details ?? {}} />
+        <RelancesTab deals={deals} details={data?.details ?? {}} onChange={refetch} />
       )}
 
       {openDeal && data && (
@@ -130,6 +130,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           deal={deals.find(d => d.id === openDeal)!}
           detail={data.details[openDeal]}
           onClose={() => setOpenDeal(null)}
+          onChange={refetch}
         />
       )}
 

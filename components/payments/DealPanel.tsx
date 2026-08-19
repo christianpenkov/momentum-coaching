@@ -11,12 +11,14 @@ import { fmtEur, fmtDateLong } from './types';
  * Détail d'un deal — panneau latéral, pas modal centré : la liste reste visible
  * derrière, ce qui permet d'enchaîner plusieurs deals sans perdre le contexte.
  */
-export default function DealPanel({ deal, detail, onClose }: {
+export default function DealPanel({ deal, detail, onClose, onChange }: {
   deal: DealRow;
   detail?: DealDetail;
   onClose: () => void;
+  onChange?: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [savingSent, setSavingSent] = useState(false);
 
   // Échap ferme le panneau — attendu de tout overlay.
   useEffect(() => {
@@ -38,11 +40,33 @@ export default function DealPanel({ deal, detail, onClose }: {
     ? `Lien de paiement · échéance ${nextInstallment.rank}/${installments.length}`
     : 'Lien de paiement Stripe';
 
+  const [sentMark, setSentMark] = useState(!!nextInstallment?.sent_at);
+
   async function copy() {
     if (!linkToCopy) return;
     await navigator.clipboard.writeText(linkToCopy);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function toggleSent() {
+    if (!nextInstallment || savingSent) return;
+    const next = !sentMark;
+    setSentMark(next);       // optimiste : le clic doit répondre tout de suite
+    setSavingSent(true);
+    try {
+      const r = await fetch('/api/payments/installments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ installmentId: nextInstallment.id, sent: next }),
+      });
+      if (!r.ok) throw new Error();
+      onChange?.();
+    } catch {
+      setSentMark(!next);    // l'écriture a échoué : la case ne doit pas mentir
+    } finally {
+      setSavingSent(false);
+    }
   }
 
   return (
@@ -121,6 +145,29 @@ export default function DealPanel({ deal, detail, onClose }: {
                 {copied ? 'Copié' : 'Copier'}
               </button>
             </div>
+          )}
+
+          {/* Marquage manuel : Momentum ne sait pas qu'un lien a été envoyé, il
+              sait qu'il en existe un. Seule la déclaration de l'élève fait foi. */}
+          {nextInstallment && (
+            <button onClick={toggleSent} disabled={savingSent}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8, background: 'none', border: 'none',
+                cursor: savingSent ? 'default' : 'pointer', fontFamily: 'inherit', padding: '10px 0 0',
+                opacity: savingSent ? .6 : 1,
+              }}>
+              <span style={{
+                width: 16, height: 16, borderRadius: 5, flexShrink: 0,
+                border: `1.5px solid ${sentMark ? 'var(--green)' : 'var(--faint)'}`,
+                background: sentMark ? 'var(--green)' : 'transparent',
+                display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {sentMark && <Icon name="check" size={11} color="#fff" />}
+              </span>
+              <span style={{ fontSize: 12, color: sentMark ? 'var(--green)' : 'var(--muted)' }}>
+                {sentMark ? 'Lien envoyé au client' : 'Marquer ce lien comme envoyé'}
+              </span>
+            </button>
           )}
         </div>
 

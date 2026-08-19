@@ -17,7 +17,15 @@ import { fmtEur } from './types';
 type Who = 'prospect' | 'client' | 'free';
 type Plan = 'one_shot' | 2 | 3 | 4;
 
-interface LeadOption { id: string; name: string; subtitle: string | null; kind: 'lead' | 'client'; avatarUrl?: string | null }
+interface LeadOption {
+  id: string;
+  name: string;
+  subtitle: string | null;
+  /** Détermine à quelle table l'id appartient — un id de call envoyé comme
+   *  igLeadId violerait la clé étrangère. */
+  kind: 'lead' | 'prospect' | 'call' | 'link' | 'client';
+  avatarUrl?: string | null;
+}
 
 export default function CreateLinkModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [who, setWho] = useState<Who>('prospect');
@@ -40,15 +48,17 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, submitting]);
 
-  // Autocomplete — débounce pour ne pas requêter à chaque frappe.
+  // Liste chargée dès l'ouverture, sans attendre une saisie : chercher suppose de
+  // savoir qui on cherche, alors qu'on veut souvent juste « le prospect d'hier ».
+  // Débounce sur la frappe pour ne pas requêter à chaque caractère.
   useEffect(() => {
-    if (who === 'free' || query.trim().length < 2) { setOptions([]); return; }
+    if (who === 'free') { setOptions([]); return; }
     const t = setTimeout(() => {
-      fetch(`/api/payments/people?q=${encodeURIComponent(query)}&kind=${who}`)
+      fetch(`/api/payments/people?q=${encodeURIComponent(query.trim())}&kind=${who}`)
         .then(r => r.ok ? r.json() : { people: [] })
         .then(d => setOptions(d.people ?? []))
         .catch(() => setOptions([]));
-    }, 250);
+    }, query ? 250 : 0);
     return () => clearTimeout(t);
   }, [query, who]);
 
@@ -72,9 +82,14 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           paymentPlan: count ? (auto ? 'installments_auto' : 'installments_manual') : 'one_shot',
           installmentsCount: count,
           installmentInterval: interval,
-          igLeadId: who === 'prospect' ? selected?.id : null,
-          clientId: who === 'client' ? selected?.id : null,
-          prospectHandle: selected?.subtitle?.replace('@', '') ?? null,
+          // L'id ne va pas dans le même champ selon sa provenance. Le type 'link'
+          // (prospect_links) n'a pas de colonne dédiée sur deals : on ne transmet
+          // que son pseudo, qui suffit à l'identifier dans les stats.
+          igLeadId: selected?.kind === 'lead' ? selected.id : null,
+          prospectId: selected?.kind === 'prospect' ? selected.id : null,
+          callId: selected?.kind === 'call' ? selected.id : null,
+          clientId: selected?.kind === 'client' ? selected.id : null,
+          prospectHandle: selected?.kind === 'lead' || selected?.kind === 'link' ? selected.name : null,
         }),
       });
       const d = await r.json();

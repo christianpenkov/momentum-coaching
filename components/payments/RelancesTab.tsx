@@ -17,15 +17,29 @@ import { fmtEur, fmtDateLong, fmtRelative } from './types';
  * d'un client sans passer par un lien envoyé à la main.
  */
 
+type Item = {
+  deal: DealRow;
+  sub: string;
+  url: string | null;
+  amount: number;
+  /** Renseigné en mode manuel : permet de marquer l'échéance comme envoyée. */
+  installmentId?: string | null;
+  sentAt?: string | null;
+};
+
 type Group = {
   key: string;
   title: string;
   tone: 'red' | 'amber';
   help: string;
-  items: { deal: DealRow; sub: string; url: string | null; amount: number }[];
+  items: Item[];
 };
 
-export default function RelancesTab({ deals, details }: { deals: DealRow[]; details: Record<string, DealDetail> }) {
+export default function RelancesTab({ deals, details, onChange }: {
+  deals: DealRow[];
+  details: Record<string, DealDetail>;
+  onChange?: () => void;
+}) {
   const groups = buildGroups(deals, details);
   const total = groups.reduce((s, g) => s + g.items.length, 0);
 
@@ -57,7 +71,7 @@ export default function RelancesTab({ deals, details }: { deals: DealRow[]; deta
           <div style={{ fontSize: 12, color: 'var(--muted)', marginBottom: 10, paddingLeft: 16, maxWidth: 560 }}>{g.help}</div>
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
             {g.items.map((it, i) => (
-              <RelanceRow key={it.deal.id} item={it} first={i === 0} />
+              <RelanceRow key={it.deal.id} item={it} first={i === 0} onChange={onChange} />
             ))}
           </div>
         </div>
@@ -66,26 +80,75 @@ export default function RelancesTab({ deals, details }: { deals: DealRow[]; deta
   );
 }
 
-function RelanceRow({ item, first }: { item: Group['items'][number]; first: boolean }) {
+function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onChange?: () => void }) {
   const [copied, setCopied] = useState(false);
+  // Optimiste : la case répond au clic sans attendre le serveur, sinon le geste
+  // paraît cassé sur une connexion lente.
+  const [sent, setSent] = useState(!!item.sentAt);
+  const [saving, setSaving] = useState(false);
 
   async function copy() {
     if (!item.url) return;
     await navigator.clipboard.writeText(item.url);
     setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setTimeout(() => setCopied(false), 4000);
+  }
+
+  async function toggleSent() {
+    if (!item.installmentId || saving) return;
+    const next = !sent;
+    setSent(next);
+    setSaving(true);
+    try {
+      const r = await fetch('/api/payments/installments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ installmentId: item.installmentId, sent: next }),
+      });
+      if (!r.ok) throw new Error();
+      onChange?.();
+    } catch {
+      setSent(!next);   // l'écriture a échoué : la case ne doit pas mentir
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px',
       borderTop: first ? 'none' : '1px solid var(--border-soft)',
+      flexWrap: 'wrap',
     }}>
       <Avatar initials={getInitials(item.deal.buyerName)} avatarUrl={item.deal.avatarUrl} size={30} seed={item.deal.id} />
-      <span style={{ flex: 1, minWidth: 0 }}>
+      <span style={{ flex: 1, minWidth: 140 }}>
         <span style={{ display: 'block', fontSize: 13, fontWeight: 600 }}>{item.deal.buyerName}</span>
-        <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{item.sub}</span>
+        <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
+          {sent && item.installmentId ? `Lien marqué comme envoyé · en attente de paiement` : item.sub}
+        </span>
       </span>
+
+      {/* Momentum ne peut pas savoir qu'un lien a été envoyé — l'élève le colle
+          dans son DM, hors de la plateforme. Seule sa déclaration fait foi, d'où
+          cette case, réversible parce qu'on se trompe de ligne. */}
+      {item.installmentId && (
+        <button onClick={toggleSent} disabled={saving}
+          style={{
+            display: 'inline-flex', alignItems: 'center', gap: 7, background: 'none', border: 'none',
+            cursor: saving ? 'default' : 'pointer', fontFamily: 'inherit', padding: '4px 0', flexShrink: 0,
+            opacity: saving ? .6 : 1,
+          }}>
+          <span style={{
+            width: 16, height: 16, borderRadius: 5, flexShrink: 0,
+            border: `1.5px solid ${sent ? 'var(--green)' : 'var(--faint)'}`,
+            background: sent ? 'var(--green)' : 'transparent',
+            display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+          }}>
+            {sent && <Icon name="check" size={11} color="#fff" />}
+          </span>
+          <span style={{ fontSize: 11.5, color: sent ? 'var(--green)' : 'var(--muted)' }}>Envoyé</span>
+        </button>
+      )}
       <span className="tabular" style={{ fontSize: 13, fontWeight: 600, width: 84, textAlign: 'right' }}>{fmtEur(item.amount)}</span>
       {/* Sans lien (deals repris de l'historique), un bouton « Copier le lien »
           grisé serait trompeur : il n'y a rien à copier. On dit ce qui manque. */}
@@ -99,6 +162,18 @@ function RelanceRow({ item, first }: { item: Group['items'][number]; first: bool
         <span style={{ fontSize: 11.5, color: 'var(--faint)', flexShrink: 0, width: 118, textAlign: 'right' }}>
           Encaissé hors Momentum
         </span>
+      )}
+
+      {/* Rappel après copie : le geste suivant se passe hors de Momentum (coller
+          dans un DM), donc l'élève oublie de revenir cocher. Ne s'affiche que si
+          la case existe et n'est pas déjà cochée. */}
+      {copied && item.installmentId && !sent && (
+        <div style={{
+          flexBasis: '100%', fontSize: 11.5, color: 'var(--accent-brand)',
+          background: 'var(--accent-brand-soft)', borderRadius: 6, padding: '7px 10px', marginTop: 2,
+        }}>
+          Une fois le lien envoyé à ton client, coche « Envoyé » pour ne plus le voir ici.
+        </div>
       )}
     </div>
   );
@@ -135,15 +210,19 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
     const next = detail?.installments.find(i => i.status !== 'paid');
     if (next) {
       const late = next.due_on <= today;
-      const item = {
+      const item: Item = {
         deal: d,
         sub: late
           ? `Échéance ${next.rank}/${detail!.installments.length} · à envoyer depuis le ${fmtDateLong(next.due_on)}`
           : `Échéance ${next.rank}/${detail!.installments.length} · à envoyer le ${fmtDateLong(next.due_on)}`,
         url: next.short_url,
         amount: Number(next.amount),
+        installmentId: next.id,
+        sentAt: next.sent_at,
       };
-      (late ? dueNow : waiting).push(item);
+      // Une échéance déjà marquée envoyée n'est plus une action à faire : elle
+      // passe en attente de paiement, même si sa date est dépassée.
+      (late && !next.sent_at ? dueNow : waiting).push(item);
       continue;
     }
 
