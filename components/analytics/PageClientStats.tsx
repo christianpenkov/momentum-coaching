@@ -145,6 +145,15 @@ const isYTCall = (c: { source?: string | null }) => {
   return s.startsWith('yt') || s.startsWith('youtube');
 };
 
+// Date de rattachement d'un call à une période : la RÉSERVATION, pas la tenue du
+// rendez-vous. « Booké » désigne l'acte de réserver — c'est la production commerciale
+// du mois, et c'est la date que le périmètre global utilise déjà (le fetch borne sur
+// booked_at). Découper sur scheduled_at faisait entrer un call dans le périmètre en
+// juin et le comptait en juillet. Repli sur scheduled_at pour les calls anciens
+// importés sans booked_at. Voir docs/perimetre-stats-referentiel.md, règle 2.
+const callPeriodDate = (c: { booked_at?: string | null; scheduled_at?: string | null }) =>
+  c.booked_at ?? c.scheduled_at ?? '';
+
 function pct(a: number, b: number) { return b > 0 ? Math.round((a / b) * 100) : 0; }
 
 // « Ce lien Calendly a-t-il été envoyé au prospect ? » — source unique pour toutes les
@@ -471,7 +480,7 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   // En mode "depuis connexion", calls est déjà borné [connectedAt, aujourd'hui] par le
   // fetch — ne pas re-filtrer avec la fenêtre calendaire du mois en cours (cutoff).
   const callsInPeriod = sinceConnection ? calls : calls.filter(c => {
-    const t = new Date(c.scheduled_at).getTime();
+    const t = new Date(callPeriodDate(c)).getTime();
     return t >= cutoff.getTime() && (_ovPIdx === 0 || t <= ovPeriodEnd.getTime());
   });
   const callsBookes  = callsInPeriod.filter(c => c.status === 'active').length;
@@ -2389,7 +2398,7 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
   // En mode "depuis connexion", calls est déjà borné [connectedAt, aujourd'hui] par le
   // fetch — ne pas re-clipper avec la fenêtre calendaire du mois/semaine en cours.
   const callsInWindow = sinceConnection ? calls : calls.filter(c => {
-    const t = new Date(c.scheduled_at).getTime();
+    const t = new Date(callPeriodDate(c)).getTime();
     return t >= periodStart.getTime() && t <= periodEnd.getTime();
   });
 
@@ -3124,9 +3133,22 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   const succeeded = allInPeriod.filter(p => p.status === 'succeeded');
 
   const callsInPeriod = sinceConnection ? calls : calls.filter(c => {
-    const d = new Date(c.scheduled_at);
+    const d = new Date(callPeriodDate(c));
     return d >= periodStart && d <= periodEnd;
   });
+  // Cash contracté de cet écran : somme des `calls.revenue` des calls closés de la
+  // période, donc rattaché au mois de RÉSERVATION du call depuis le passage de
+  // callsInPeriod sur booked_at.
+  //
+  // ⚠️ L'accueil (useCoachData) rattache lui son cash contracté au mois de SIGNATURE
+  // du deal (`deals.signed_at`) — un deal signé en relance appartient au mois où
+  // l'argent a été engagé. Les deux écrans peuvent donc diverger dès qu'une signature
+  // ne tombe pas dans le mois de son call. Aucun cas à ce jour : le cycle réservation
+  // → signature est de quelques heures (mesuré le 2026-08-19, max 1 jour).
+  //
+  // La convergence passe par le chantier « cash sur la table deals » (les deals sans
+  // call, upsells, sont aussi invisibles ici) — voir docs/perimetre-stats-referentiel.md,
+  // section « Ce qui reste ouvert ».
   const dealsClosed = callsInPeriod.filter(c => c.deal_closed);
   const cashContracte = dealsClosed.reduce((s, c) => s + (c.revenue || 0), 0);
 
@@ -3504,7 +3526,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const lmCalendlyLinks = calendlyLinksSent.length;
   const calendlyActivatedDb = calendlyLinksSent.filter(l => l.first_click_at != null).length;
   // calls filtrés par la fenêtre de période (en S-0, callsEff n'a pas de borne haute)
-  const callsInWindow = (calls ?? []).filter(c => isInPeriod(c.scheduled_at));
+  const callsInWindow = (calls ?? []).filter(c => isInPeriod(callPeriodDate(c)));
   const callsBooked = callsInWindow.filter(c => c.status === 'active').length;
   const callsTotal = callsBooked;
 
@@ -3600,10 +3622,12 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     calendly: activationCalendlySeries[i].v,
   }));
 
-  // 6. Calls bookés — grouper callsInWindow par jour sur scheduled_at
+  // 6. Calls bookés — groupés par jour sur la date de RÉSERVATION, la même que
+  // celle qui délimite callsInWindow. Grouper sur scheduled_at alors que la fenêtre
+  // filtre sur booked_at ferait sortir du graphique un call pourtant compté.
   const callsPerDay = new Map<string, { booked: number; honored: number; closed: number; revenue: number }>();
   for (const c of callsInWindow) {
-    const day = utcDateStr(new Date(c.scheduled_at));
+    const day = utcDateStr(new Date(callPeriodDate(c)));
     const cur = callsPerDay.get(day) ?? { booked: 0, honored: 0, closed: 0, revenue: 0 };
     if (c.status === 'active') {
       cur.booked += 1;
@@ -3734,7 +3758,7 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
     // sur ig_lead_id seulement si utm_content est absent (ex: cold DM sans lien traqué).
     const matchesContent = (c: CallRecord) => c.utm_content ? c.utm_content === postId : (c.ig_lead_id ? leadIdToMediaId?.get(c.ig_lead_id) === postId : false);
     const postCalls = (calls && leadIdToMediaId)
-      ? calls.filter(c => matchesContent(c) && isInPeriod(c.scheduled_at))
+      ? calls.filter(c => matchesContent(c) && isInPeriod(callPeriodDate(c)))
       : [];
     // Calls lifetime (depuis publication du contenu) — pour Cash/Vue et % qualifié, indépendant du filtre
     // de période. Source = callsAllTime (jamais coupé par periodIndex), PAS calls (= callsEff, qui EST
@@ -4139,8 +4163,8 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
           // prenaient TOUS les calls source=ig_bio/yt_bio sans borner à la période affichée.
           // Un call bio hors du mois sélectionné gonflait le breakdown par source sans
           // apparaître dans le KPI "Calls bookés" du haut de page (lui bien filtré).
-          const bioIGCalls = (calls ?? []).filter(c => c.source === 'ig_bio' && isInPeriod(c.scheduled_at));
-          const bioYTCalls = (calls ?? []).filter(c => c.source === 'yt_bio' && isInPeriod(c.scheduled_at));
+          const bioIGCalls = (calls ?? []).filter(c => c.source === 'ig_bio' && isInPeriod(callPeriodDate(c)));
+          const bioYTCalls = (calls ?? []).filter(c => c.source === 'yt_bio' && isInPeriod(callPeriodDate(c)));
           const bioIGBooked = bioIGCalls.filter(c => c.status === 'active').length;
           const bioIGHonored = bioIGCalls.filter(c => isCallHonored(c, now)).length;
           const bioIGClosed = bioIGCalls.filter(c => c.deal_closed === true).length;

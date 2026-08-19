@@ -203,14 +203,35 @@ export function useClientSelfData() {
       const cashContractedAllTime = allTimeStats.cashContracted;
       const closingRateAllTime = allTimeStats.closingRate;
 
-      const callsThisMonth = allSalesCalls.filter(c => (c.scheduled_at ?? '') >= startOfMonth);
-      // Découpe mensuelle sur `signed_at` : un deal signé en relance appartient au
-      // mois où l'argent a été engagé, pas à celui de l'entretien.
-      const dealsThisMonth = allDeals.filter((d: any) => (d.signed_at ?? '') >= startOfMonth);
-      const thisMonthStats = computeSalesCallStats(callsThisMonth, now, dealsThisMonth);
-      const callsBookedThisMonthCount = thisMonthStats.callsBookedCount;
-      const cashContractedThisMonth = thisMonthStats.cashContracted;
-      const closingRateThisMonth = thisMonthStats.closingRate;
+      // ── Découpe mensuelle : chaque métrique sur SA date, chacune cohérente avec
+      //    elle-même. Voir docs/perimetre-stats-referentiel.md.
+      //
+      // Calls du mois = calls RÉSERVÉS ce mois (booked_at), pas ceux qui s'y tiennent.
+      // « Booké » désigne l'acte de réserver : c'est la production commerciale du mois,
+      // et c'est la date que le périmètre global utilise déjà — découper sur
+      // scheduled_at faisait entrer un call dans le périmètre en juin et le comptait
+      // en juillet. Repli sur scheduled_at pour les calls importés sans booked_at.
+      const monthKeyOf = (c: { booked_at?: string | null; scheduled_at?: string | null }) =>
+        c.booked_at ?? c.scheduled_at ?? '';
+      const callsThisMonth = allSalesCalls.filter(c => monthKeyOf(c) >= startOfMonth);
+
+      // Taux de closing : numérateur et dénominateur sur la MÊME cohorte — les deals
+      // issus des calls réservés ce mois, quelle que soit leur date de signature.
+      // Règle de « cohort integrity » : diviser les deals signés ce mois par les calls
+      // tenus ce mois mélange deux populations, et un deal signé en relance sur un call
+      // du mois précédent pouvait faire dépasser 100 %.
+      const thisMonthCallIds = new Set(callsThisMonth.map(c => c.id));
+      const dealsOfMonthCohort = allDeals.filter((d: any) => d.call_id && thisMonthCallIds.has(d.call_id));
+      const closingRateThisMonth = computeSalesCallStats(callsThisMonth, now, dealsOfMonthCohort).closingRate;
+
+      // Cash contracté : sur `signed_at`, et c'est volontairement une AUTRE date.
+      // Un deal signé ce mois sur un call du mois dernier appartient bien au cash de
+      // ce mois — c'est le mois où l'argent a été engagé. Les deals sans call (upsell,
+      // vente directe) comptent ici, alors qu'ils n'ont pas de cohorte de calls.
+      const dealsSignedThisMonth = allDeals.filter((d: any) => (d.signed_at ?? '') >= startOfMonth);
+      const cashContractedThisMonth = computeSalesCallStats(callsThisMonth, now, dealsSignedThisMonth).cashContracted;
+
+      const callsBookedThisMonthCount = computeSalesCallStats(callsThisMonth, now).callsBookedCount;
 
       // Leads totaux = fetchAllLeadsCount (Instagram + YouTube), calculé plus haut —
       // même fonction que la fiche coach et Mes Stats, pour un chiffre garanti
