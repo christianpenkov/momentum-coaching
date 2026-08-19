@@ -8,7 +8,7 @@ import CoachMoreSheet from '@/components/layout/CoachMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import SplashHold from '@/components/ui/SplashHold';
 import { UserProvider, useUser } from '@/lib/UserContext';
-import { SupabaseClientsProvider } from '@/lib/SupabaseClientsContext';
+import { SupabaseClientsProvider, useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { GlobalPresenceCoachProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
@@ -23,13 +23,17 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
   navRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { user, loading: userLoading } = useUser();
+  // Les donnees de la page, pas seulement la session : sans ca l'ecran de
+  // lancement partait des la session resolue et laissait apparaitre le loader
+  // de la page pendant que ses donnees chargeaient encore.
+  const { loading: dataLoading } = useSupabaseClients();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
     <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
       {/* Voir (client)/layout.tsx : prolonge l'ecran de demarrage jusqu'a ce
           que la session soit resolue, pour eviter le loader qui clignote. */}
-      <SplashHold show={userLoading} owner />
+      <SplashHold show={userLoading || dataLoading} owner />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />

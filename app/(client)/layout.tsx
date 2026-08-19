@@ -8,7 +8,7 @@ import ClientMoreSheet from '@/components/layout/ClientMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import SplashHold from '@/components/ui/SplashHold';
 import { UserProvider, useUser } from '@/lib/UserContext';
-import { ClientSelfProvider } from '@/lib/ClientSelfContext';
+import { ClientSelfProvider, useClientSelf } from '@/lib/ClientSelfContext';
 import { GlobalPresenceClientProvider } from '@/lib/GlobalPresenceContext';
 import { usePushNotifications } from '@/lib/usePushNotifications';
 import { useViewportShellHeight } from '@/lib/useViewportShellHeight';
@@ -23,6 +23,10 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   navRef: React.RefObject<HTMLDivElement | null>;
 }) {
   const { user, loading: userLoading } = useUser();
+  // Les donnees de la page, pas seulement la session : sans ca l'ecran de
+  // lancement partait des la session resolue et laissait apparaitre le loader
+  // de la page pendant que ses donnees chargeaient encore.
+  const { loading: dataLoading } = useClientSelf();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
@@ -32,7 +36,7 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
           coup avec la page qui chargeait. Branché sur `loading` du contexte
           (et non sur la présence de `user`) : c'est le signal exact de "session
           résolue", il passe à false même quand il n'y a pas de session. */}
-      <SplashHold show={userLoading} owner />
+      <SplashHold show={userLoading || dataLoading} owner />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />
