@@ -38,10 +38,16 @@ export async function POST(request: Request) {
     desc_lm_short_id, desc_lm_short_url, desc_lm_lm_id,
     desc_custom_short_id, desc_custom_short_url,
     lm_id, lm_short_url, lm_url, lm_keyword, dm_opener_message, dm_lm_message, dm_button_text,
+    // DM2 (message qui porte le lien) — distinct du DM1 : ses deux boutons n'ont
+    // pas le même rôle (demander le lien / l'ouvrir).
+    dm_link_message, dm_link_button_text,
   } = body;
 
   if (!content_id || !platform) return NextResponse.json({ error: 'content_id et platform requis' }, { status: 400 });
   if (dm_opener_message && dm_opener_message.length > 1000) return NextResponse.json({ error: 'dm_opener_message trop long (max 1000)' }, { status: 400 });
+  if (dm_link_message && dm_link_message.length > 640) return NextResponse.json({ error: 'dm_link_message trop long (max 640)' }, { status: 400 });
+  // 20 caractères : limite Meta pour un libellé de bouton, tronqué au-delà.
+  if (dm_link_button_text && dm_link_button_text.length > 20) return NextResponse.json({ error: 'dm_link_button_text trop long (max 20)' }, { status: 400 });
   if (dm_lm_message && dm_lm_message.length > 1000) return NextResponse.json({ error: 'dm_lm_message trop long (max 1000)' }, { status: 400 });
   if (dm_button_text && dm_button_text.length > 20) return NextResponse.json({ error: 'dm_button_text trop long (max 20)' }, { status: 400 });
 
@@ -89,6 +95,8 @@ export async function POST(request: Request) {
       ...(dm_opener_message !== undefined && { dm_opener_message }),
       ...(dm_lm_message !== undefined && { dm_lm_message }),
       ...(dm_button_text !== undefined && { dm_button_text }),
+      ...(dm_link_message !== undefined && { dm_link_message }),
+      ...(dm_link_button_text !== undefined && { dm_link_button_text }),
       updated_at: new Date().toISOString(),
     }, { onConflict: 'profile_id,content_id' })
     .select()

@@ -32,6 +32,13 @@ const GREEN = 'var(--green)';
 const GREEN_SOFT = 'var(--green-soft)';
 const RED = 'var(--red)';
 const AMBER = 'var(--amber)';
+
+// Valeurs par défaut du DM2, affichées en placeholder quand le champ est vide.
+// DOIVENT rester identiques à DM2_DEFAULT_MESSAGE / DM2_DEFAULT_BUTTON dans
+// app/api/webhooks/instagram/route.ts : le placeholder montre ce qui sera
+// réellement envoyé si on ne remplit rien — s'ils divergent, il ment.
+const DM2_DEFAULT_MESSAGE = 'Voici ton lien 👇';
+const DM2_DEFAULT_BUTTON = '📖 Accéder au lien';
 const AMBER_SOFT = 'var(--amber-soft)';
 // Ardoise du design system (DESIGN.md) — remplace l'ancien bleu-violet #6b7cde qui
 // n'appartenait pas à la palette Momentum. BLUE/BLUE_SOFT gardés comme alias pour
@@ -69,6 +76,8 @@ interface Post {
   lmLmId?: string;
   dmOpenerMessage?: string;
   dmLmMessage?: string;
+  dmLinkMessage?: string;
+  dmLinkButtonText?: string;
   dmButtonText?: string;
   // Champs spécifiques platform === 'STORY' — le CTA d'une story vit toujours au
   // niveau de sa story_sequences (même une "séquence solo" à 1 story), jamais
@@ -99,6 +108,8 @@ interface ContentLink {
   dm_opener_message?: string | null;
   dm_lm_message?: string | null;
   dm_button_text?: string | null;
+  dm_link_message?: string | null;
+  dm_link_button_text?: string | null;
 }
 
 interface LeadMagnet {
@@ -946,14 +957,23 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   const [buttonSaved, setButtonSaved] = useState(true);
   const [buttonSaving, setButtonSaving] = useState(false);
 
+  // DM2 — texte et libellé de bouton. Vides = les placeholders (identiques aux
+  // défauts appliqués par le webhook) montrent ce qui sera réellement envoyé.
+  const [dmLinkMsg, setDmLinkMsg] = useState(post.dmLinkMessage || '');
+  const [dmLinkBtn, setDmLinkBtn] = useState(post.dmLinkButtonText || '');
+  const [dmLinkSaved, setDmLinkSaved] = useState(true);
+  const [dmLinkBtnSaved, setDmLinkBtnSaved] = useState(true);
+  const [dmLinkSaving, setDmLinkSaving] = useState(false);
+  const [dmLinkError, setDmLinkError] = useState<string | null>(null);
+
   const [dm1Error, setDm1Error] = useState<string | null>(null);
   const [dm2Error, setDm2Error] = useState<string | null>(null);
 
   // Signale au parent (guard de navigation) qu'il y a des changements non sauvegardés dans la séquence DM
   const unsavedGuard = useUnsavedGuard();
   useEffect(() => {
-    unsavedGuard?.setHasUnsaved(!dm1Saved || !dm2Saved || !buttonSaved);
-  }, [dm1Saved, dm2Saved, buttonSaved, unsavedGuard]);
+    unsavedGuard?.setHasUnsaved(!dm1Saved || !dm2Saved || !buttonSaved || !dmLinkSaved || !dmLinkBtnSaved);
+  }, [dm1Saved, dm2Saved, buttonSaved, dmLinkSaved, dmLinkBtnSaved, unsavedGuard]);
   useEffect(() => {
     return () => { unsavedGuard?.setHasUnsaved(false); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -984,6 +1004,27 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
       onPostUpdated(post.id, { dmOpenerMessage: msg });
       setDm2Saved(true);
     } catch (e: any) { setDm2Error(e.message || 'Erreur'); } finally { setDm2Saving(false); }
+  };
+
+  // Un seul bouton Sauvegarder pour les deux champs du DM2 : ils forment un tout
+  // (le message et son bouton), les séparer obligerait à cliquer deux fois.
+  const saveDmLink = async (msg: string, btn: string) => {
+    setDmLinkSaving(true); setDmLinkError(null);
+    try {
+      const res = await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          content_id: post.id, platform: post.platform,
+          // Vide → null : le webhook applique alors son défaut, celui-là même que
+          // le placeholder affiche.
+          dm_link_message: msg.trim() || null,
+          dm_link_button_text: btn.trim() || null,
+        }),
+      });
+      if (!res.ok) throw new Error('Erreur sauvegarde');
+      onPostUpdated(post.id, { dmLinkMessage: msg.trim() || undefined, dmLinkButtonText: btn.trim() || undefined });
+      setDmLinkSaved(true); setDmLinkBtnSaved(true);
+    } catch (e: any) { setDmLinkError(e.message || 'Erreur'); } finally { setDmLinkSaving(false); }
   };
 
   const saveButtonText = async (msg: string) => {
@@ -1079,19 +1120,58 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
             {buttonError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px' }}>{buttonError}</div>}
           </div>
 
-          {/* Bulle DM2 — le lien, envoyé après le clic. Non modifiable : dérivé automatiquement du LM associé */}
-          <ChatBubble tag="2" tagLabel="envoyé quand le prospect clique le bouton">
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, opacity: 0.55 }}><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-              <div style={{ fontSize: 13, color: '#000', wordBreak: 'break-all' }}>{lmUrl || '(lien généré après association du lead magnet)'}</div>
-            </div>
-          </ChatBubble>
-          <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 8, marginTop: 2, marginBottom: 4 }}>Non modifiable — généré automatiquement depuis le lead magnet associé</div>
-
-          {/* DM3 — message d'ouverture, envoyé juste après. Même style que le textarea DM1 */}
+          {/* DM2 — le lien, envoyé après le clic. Le lien lui-même reste dérivé du
+              lead magnet (non modifiable), mais le texte et le libellé du bouton
+              qui l'entourent sont configurables. */}
           <div style={{ marginTop: 2 }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé juste après, à la suite</span>
+              DM 2 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé quand le prospect clique le bouton</span>
+            </div>
+            <textarea
+              value={dmLinkMsg}
+              onChange={e => { setDmLinkMsg(e.target.value); setDmLinkSaved(false); }}
+              placeholder={DM2_DEFAULT_MESSAGE}
+              rows={2}
+              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${dmLinkSaved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+            />
+          </div>
+
+          {/* Bouton du DM2 — celui qui OUVRE le lien (le bouton du DM1 le demande) */}
+          <div style={{ marginTop: 6 }}>
+            <div style={{
+              border: `1px solid ${dmLinkBtnSaved ? BORDER : AMBER}`, borderRadius: 18,
+              padding: '7px 14px', background: '#fff', display: 'flex', alignItems: 'center', gap: 6,
+            }}>
+              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+              <input
+                value={dmLinkBtn}
+                onChange={e => { setDmLinkBtn(e.target.value.slice(0, 20)); setDmLinkBtnSaved(false); }}
+                placeholder={DM2_DEFAULT_BUTTON}
+                maxLength={20}
+                style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: INK, fontFamily: 'inherit', minWidth: 0 }}
+              />
+            </div>
+            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3 }}>
+              Le lien est caché derrière ce bouton — max 20 caractères
+            </div>
+          </div>
+
+          {dmLinkError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dmLinkError}</div>}
+          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
+            <button onClick={() => saveDmLink(dmLinkMsg, dmLinkBtn)} disabled={dmLinkSaving || (dmLinkSaved && dmLinkBtnSaved)}
+              style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: (dmLinkSaved && dmLinkBtnSaved) ? 'var(--green)' : BLUE, color: '#fff', cursor: (dmLinkSaved && dmLinkBtnSaved) ? 'default' : 'pointer', transition: 'background .2s' }}>
+              {dmLinkSaving ? '...' : (dmLinkSaved && dmLinkBtnSaved) ? '✓ Sauvegardé' : 'Sauvegarder'}
+            </button>
+          </div>
+
+          <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 8, marginTop: 6, marginBottom: 4 }}>
+            Lien envoyé : {lmUrl || '(généré après association du lead magnet)'} — non modifiable
+          </div>
+
+          {/* DM3 — message d'ouverture, envoyé 2 min après le DM2. */}
+          <div style={{ marginTop: 2 }}>
+            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
+              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé 2 minutes après le DM 2</span>
             </div>
             <textarea
               value={dm2Text}
@@ -2659,6 +2739,8 @@ export default function PageLiens() {
         dmOpenerMessage: cl.dm_opener_message || undefined,
         dmLmMessage: cl.dm_lm_message || undefined,
         dmButtonText: cl.dm_button_text || undefined,
+        dmLinkMessage: cl.dm_link_message || undefined,
+        dmLinkButtonText: cl.dm_link_button_text || undefined,
       };
     });
 

@@ -62,6 +62,34 @@ async function fetchAndStoreAvatar(igUserId: string, accessToken: string): Promi
   }
 }
 
+/**
+ * Délai entre le DM2 (lien) et le DM3 (question d'ouverture).
+ *
+ * Envoyer les deux dans la foulée fait mécanique : la personne vient de cliquer,
+ * elle lit le lien, et une question qui tombe dans la même seconde se voit.
+ *
+ * 2 minutes plutôt que quelques secondes (ManyChat utilise ~3 s entre messages
+ * d'un même flux) : ici le DM3 n'est pas la suite du DM2, c'est une relance qui
+ * doit ressembler à un vrai message de suivi. Les délais de 4-11 min qu'on
+ * trouve ailleurs visent la prospection à froid — hors sujet pour une séquence
+ * déclenchée par une action de l'utilisateur, qui a déjà quitté la conversation
+ * passé quelques minutes.
+ *
+ * Non ajustable par contenu (choix de Chris) : une seule valeur, tenue.
+ */
+const DM3_DELAY_MS = 2 * 60 * 1000;
+
+/**
+ * Valeurs par défaut du DM2 (le message qui porte le lien), utilisées quand les
+ * champs correspondants de `content_links` sont vides.
+ *
+ * Ces chaînes sont dupliquées à l'identique dans PageLiens.tsx comme
+ * placeholders : un champ laissé vide doit montrer exactement ce qui sera
+ * envoyé, sinon le placeholder ment.
+ */
+const DM2_DEFAULT_MESSAGE = 'Voici ton lien 👇';
+const DM2_DEFAULT_BUTTON = '📖 Accéder au lien';
+
 async function attemptShortioCreate(apiKey: string, payload: object): Promise<Response> {
   const opts: RequestInit = {
     method: 'POST',
@@ -575,19 +603,24 @@ export async function POST(request: Request) {
           // Seuls les prospects qui cliquent en consomment un (voir
           // createProspectLmLink pour le détail du quota).
           let lmLink: string | null = leadForDm2.pending_dm2 || null;
-          // Libellé du bouton : repris de dm_button_text (celui déjà configuré par
-          // contenu dans PageLiens) pour rester cohérent avec le bouton du DM1.
-          let lmButtonLabel = '📖 Accéder au lien';
+          // Textes du DM2 — configurables par contenu (PageLiens). Ces valeurs par
+          // défaut sont les mêmes que les placeholders affichés dans l'interface,
+          // pour qu'un champ laissé vide envoie exactement ce qui y est montré.
+          let lmButtonLabel = DM2_DEFAULT_BUTTON;
+          let lmMessageText = DM2_DEFAULT_MESSAGE;
           if (leadForDm2.pending_lm_content_id && leadForDm2.keyword_matched && leadForDm2.ig_username) {
             const { data: clForLink } = await serviceSupabase
               .from('content_links')
-              .select('lm_url, lm_short_url, lm_keyword, dm_button_text')
+              .select('lm_url, lm_short_url, lm_keyword, dm_link_message, dm_link_button_text')
               .eq('profile_id', pid)
               .eq('content_id', leadForDm2.pending_lm_content_id)
               .eq('lm_keyword', leadForDm2.keyword_matched)
               .maybeSingle();
 
-            if (clForLink?.dm_button_text) lmButtonLabel = clForLink.dm_button_text;
+            // Champs propres au DM2 — plus dm_button_text, qui est celui du DM1 :
+            // les deux boutons n'ont pas le même rôle (demander le lien / l'ouvrir).
+            if (clForLink?.dm_link_button_text) lmButtonLabel = clForLink.dm_link_button_text;
+            if (clForLink?.dm_link_message) lmMessageText = clForLink.dm_link_message;
 
             if (clForLink?.lm_url) {
               lmLink = await createProspectLmLink({
@@ -612,7 +645,7 @@ export async function POST(request: Request) {
           if (lmLink) {
             const dm2Data = await sendDmWithButton(
               lmLink,
-              'Voici ton lien 👇',
+              lmMessageText.replace(/{{username}}/gi, `@${leadForDm2.ig_username || 'toi'}`),
               lmButtonLabel
             );
             if (dm2Data.error) {
@@ -624,18 +657,27 @@ export async function POST(request: Request) {
             }
           }
 
-          if (leadForDm2.pending_dm3) {
-            const dm3Data = await sendDm(leadForDm2.pending_dm3);
-            if (dm3Data.error) {
-              console.error('[IG Webhook] Erreur DM3 (ouverture) après clic QR:', dm3Data.error);
-              pushEvent({ type: 'dm3_error', error: dm3Data.error });
-            } else {
-              console.log(`[IG Webhook] DM3 (ouverture) envoyé après clic QR — message_id: ${dm3Data.message_id}`);
-              pushEvent({ type: 'dm3_sent', message_id: dm3Data.message_id });
-            }
+          // DM3 (question d'ouverture) : PLANIFIÉ à +2 min, pas envoyé ici.
+          //
+          // Envoyer les deux messages dans la foulée fait mécanique — la personne
+          // vient de cliquer, elle lit le lien, et une question qui tombe dans la
+          // même seconde se voit. 2 minutes la font arriver comme un vrai message
+          // de suivi.
+          //
+          // Le délai NE PEUT PAS être une attente dans ce handler : Meta exige une
+          // réponse en moins de 30 s, et désabonne le webhook après 1 h d'échecs.
+          // D'où l'horodatage + le cron send-pending-dm3 qui dépile.
+          const dm3At = leadForDm2.pending_dm3
+            ? new Date(Date.now() + DM3_DELAY_MS).toISOString()
+            : null;
+          if (dm3At) {
+            pushEvent({ type: 'dm3_scheduled', at: dm3At });
           }
 
-          await serviceSupabase.from('instagram_leads').update({ pending_dm2: null, pending_dm3: null }).eq('id', leadForDm2.id);
+          // pending_dm2 consommé ; pending_dm3 conservé jusqu'à son envoi par le cron.
+          await serviceSupabase.from('instagram_leads')
+            .update({ pending_dm2: null, dm3_scheduled_at: dm3At })
+            .eq('id', leadForDm2.id);
         }
         continue;
       }
