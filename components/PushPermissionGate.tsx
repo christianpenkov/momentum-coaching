@@ -39,13 +39,20 @@ export default function PushPermissionGate({ userId }: { userId: string | null }
   async function handleActivate() {
     if (!userId) return;
     setRequesting(true);
-    await triggerPushSetup(userId);
-    setRequesting(false);
-    if (Notification.permission === 'granted') {
-      setVisible(false);
-    } else if (Notification.permission === 'denied') {
-      setDenied(true);
+    // triggerPushSetup renvoie désormais un statut et ne peut plus rester
+    // suspendu : navigator.serviceWorker.ready y est borné dans le temps. Sans
+    // ça, accepter les notifications juste après l'installation de la PWA
+    // laissait le bouton bloqué sur « Activation… » — le service worker n'était
+    // pas encore actif, donc la promesse ne se résolvait jamais.
+    let result: Awaited<ReturnType<typeof triggerPushSetup>> = 'unsupported';
+    try {
+      result = await triggerPushSetup(userId);
+    } finally {
+      // finally : l'interface se débloque même si un imprévu survient.
+      setRequesting(false);
     }
+    if (result === 'denied') setDenied(true);
+    else setVisible(false); // 'granted' comme 'unsupported' laissent passer
   }
 
   function handleSkip() {

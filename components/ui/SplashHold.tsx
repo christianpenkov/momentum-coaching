@@ -1,97 +1,77 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 
 /**
- * Prolonge visuellement l'écran de démarrage jusqu'à ce que l'app soit prête.
+ * Retire l'écran de lancement posé en HTML par app/layout.tsx (#app-splash).
  *
- * Sans lui, le lancement de la PWA enchaîne : splash iOS (logo sur fond crème)
- * → loader qui clignote → contenu. Ce loader intermédiaire casse l'illusion :
- * une app native garde son écran de lancement jusqu'à ce qu'il y ait quelque
- * chose à montrer.
+ * Ce composant ne REND rien : l'écran existe déjà dans le document avant que
+ * React ne démarre, c'est ce qui garantit qu'aucun blanc ni aucun loader
+ * n'apparaît entre le splash système et l'app. Une version React de l'écran
+ * créerait justement le trou qu'on veut supprimer (le rendu dépend du bundle
+ * JS), et un second écran superposé au premier.
  *
- * L'overlay reprend exactement le visuel des splash de public/splash/ (même
- * logo recadré, même fond --bg, même proportion), donc le raccord avec l'écran
- * système est invisible, puis il s'efface en fondu.
- *
- * IMPORTANT — l'état initial est `visible`, pas `caché`. Un useEffect ne
- * s'exécute qu'après le premier rendu et l'hydratation : si l'overlay attendait
- * un effet pour apparaître, il resterait un trou entre le splash système et
- * lui, pendant lequel on voit un écran blanc puis un flash du loader. C'est
- * exactement le bug qu'il doit supprimer.
+ * Ne fait donc que piloter des attributs sur ce nœud :
+ *   data-hide=1  → lance le fondu de sortie
+ *   data-done=1  → le retire du flux une fois le fondu fini
  */
 
-// Marqueur de session : sessionStorage et non un state React, car le composant
-// est remonté à chaque navigation. Lu de façon paresseuse au premier rendu.
+// Marqueur de session : une navigation vers l'accueil ne doit pas rejouer un
+// lancement. sessionStorage et non un state React, car le composant est
+// remonté à chaque changement de page.
 const SEEN_KEY = 'momentum:splash-held';
 
-function alreadySeen(): boolean {
+// Durée d'affichage minimale, à partir du premier rendu.
+// Sur mobile, l'écran système a déjà été affiché pendant le lancement : le
+// prolonger inutilement donnerait l'impression que l'app est lente.
+// Sur desktop il n'y a aucun splash système, l'écran apparaît donc à froid et
+// doit rester assez longtemps pour être lu comme une marque et non comme un
+// clignotement.
+const MIN_VISIBLE_MOBILE_MS = 260;
+const MIN_VISIBLE_DESKTOP_MS = 900;
+
+// Doit rester aligné sur la transition CSS de #app-splash.
+const FADE_MS = 240;
+
+function isDesktop(): boolean {
   if (typeof window === 'undefined') return false;
-  try {
-    return sessionStorage.getItem(SEEN_KEY) === '1';
-  } catch {
-    return false;
-  }
+  // Pointeur fin = souris/trackpad. Plus fiable qu'une largeur d'écran : une
+  // tablette large reste un appareil tactile avec splash système.
+  return window.matchMedia('(pointer: fine)').matches;
 }
 
 export default function SplashHold({ show }: { show: boolean }) {
-  // Initialiseur paresseux : décidé au tout premier rendu, avant tout effet,
-  // donc l'overlay est peint dès la première frame — pas de trou blanc.
-  //
-  // Volontairement sans lecture de sessionStorage ici : le serveur ne peut pas
-  // la faire, et un état initial différent entre serveur et client provoque une
-  // erreur d'hydratation. Le cas "déjà vu" est traité dans l'effet ci-dessous,
-  // qui s'exécute assez tôt pour que rien ne clignote.
-  const [mounted, setMounted] = useState(show);
-  const [fading, setFading] = useState(false);
-
-  // Retrait immédiat (sans fondu) si l'écran a déjà été montré dans cette
-  // session : une navigation vers l'accueil ne doit pas rejouer un lancement.
   useEffect(() => {
-    if (mounted && alreadySeen()) setMounted(false);
-  }, [mounted]);
+    const el = document.getElementById('app-splash');
+    if (!el) return;
 
-  useEffect(() => {
-    if (!mounted || show) return;
-    // L'app est prête : on lance le fondu, puis on démonte.
-    setFading(true);
-    try { sessionStorage.setItem(SEEN_KEY, '1'); } catch { /* mode privé */ }
-    const t = setTimeout(() => setMounted(false), 260);
-    return () => clearTimeout(t);
-  }, [show, mounted]);
+    // Déjà vu dans cette session : retrait sec, sans fondu ni délai.
+    let seen = false;
+    try { seen = sessionStorage.getItem(SEEN_KEY) === '1'; } catch { /* mode privé */ }
+    if (seen) {
+      el.setAttribute('data-done', '1');
+      return;
+    }
 
-  if (!mounted) return null;
+    if (show) return; // session pas encore résolue : on laisse l'écran
 
-  return (
-    <div
-      aria-hidden="true"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 3000,
-        background: 'var(--bg)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: fading ? 0 : 1,
-        // Fondu de sortie seul : l'écran est déjà là à l'arrivée (il prend la
-        // suite du splash système), l'animer en entrée créerait le flash qu'on
-        // veut justement supprimer.
-        transition: 'opacity 240ms ease-out',
-        pointerEvents: fading ? 'none' : 'auto',
-      }}
-    >
-      {/* Version recadrée (sans la marge transparente du PNG d'origine) et
-          largeur à 38vw : exactement ce qu'utilisent les splash de
-          public/splash/, pour que le logo ne bouge pas d'un pixel au raccord. */}
-      <img
-        src="/logo-momentum-trimmed.png"
-        alt=""
-        // fetchPriority : l'image doit être là dès la première frame, sinon on
-        // voit le fond crème nu avant que le logo n'apparaisse.
-        fetchPriority="high"
-        style={{ width: '38vw', maxWidth: 260, height: 'auto' }}
-      />
-    </div>
-  );
+    const minVisible = isDesktop() ? MIN_VISIBLE_DESKTOP_MS : MIN_VISIBLE_MOBILE_MS;
+    // performance.timeOrigin : temps écoulé depuis le début du chargement du
+    // document, donc depuis que l'écran est réellement à l'image.
+    const elapsed = performance.now();
+    const wait = Math.max(0, minVisible - elapsed);
+
+    const fadeTimer = setTimeout(() => {
+      el.setAttribute('data-hide', '1');
+      try { sessionStorage.setItem(SEEN_KEY, '1'); } catch { /* mode privé */ }
+    }, wait);
+
+    const doneTimer = setTimeout(() => {
+      el.setAttribute('data-done', '1');
+    }, wait + FADE_MS);
+
+    return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
+  }, [show]);
+
+  return null;
 }

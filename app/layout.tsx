@@ -93,6 +93,30 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <link rel="preconnect" href="https://fathom.video" />
       </head>
       <body>
+        {/* Écran de lancement, en HTML pur et non en composant React.
+            Il est peint par le navigateur AVANT que React ne démarre et
+            s'hydrate : c'est la seule façon de garantir qu'aucun blanc ni
+            aucun loader n'apparaisse entre le splash système et l'app. Un
+            composant React, lui, dépend du chargement du bundle JS.
+
+            Retiré par SplashHold (composant client) quand la session est
+            résolue. Si le JS ne charge pas du tout, le filet de sécurité
+            ci-dessous le retire quand même : mieux vaut une app nue qu'un
+            écran de logo figé. */}
+        <div id="app-splash" aria-hidden="true">
+          <img src="/logo-momentum-trimmed.png" alt="" fetchPriority="high" />
+        </div>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){
+  var MAX_MS = 6000;
+  setTimeout(function(){
+    var el = document.getElementById('app-splash');
+    if (el) el.setAttribute('data-force-hide', '1');
+  }, MAX_MS);
+})();`,
+          }}
+        />
         <Providers>{children}</Providers>
         <AppBootstrap />
       </body>

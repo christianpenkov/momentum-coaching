@@ -2874,6 +2874,54 @@ a { color: inherit; text-decoration: none; }
   line-height: 1.45;
 }
 
+/* ══ Écran de lancement ═════════════════════════════════════════════════════
+   Posé en HTML dans app/layout.tsx pour être peint avant le démarrage de React,
+   puis retiré par components/ui/SplashHold.tsx.
+
+   Le raccord avec le splash système iOS doit être invisible : celui-ci centre
+   le logo sur l'ÉCRAN ENTIER, barre de statut et indicateur d'accueil compris.
+   D'où position:fixed + inset:0 sur le viewport complet (et non dans le shell
+   de l'app, qui exclut ces zones) — sinon le logo « descend » d'un cran au
+   moment du raccord et on croit voir deux écrans successifs.
+   ────────────────────────────────────────────────────────────────────────── */
+#app-splash {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  background: var(--bg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Aucune animation d'entrée : l'écran prend la suite du splash système, il
+     est déjà là. L'animer ferait précisément le flash qu'on veut supprimer. */
+  opacity: 1;
+  transition: opacity 240ms ease-out;
+}
+#app-splash img {
+  /* Même proportion que les images de public/splash/ (38% de la largeur), pour
+     que le logo ne bouge pas d'un pixel entre les deux écrans. */
+  width: 38vw;
+  max-width: 260px;
+  height: auto;
+}
+/* Sur grand écran, 38vw serait démesuré : on borne à une taille de marque. */
+@media (min-width: 768px) {
+  #app-splash img { width: 200px; }
+}
+#app-splash[data-hide='1'],
+#app-splash[data-force-hide='1'] {
+  opacity: 0;
+  pointer-events: none;
+}
+/* Retiré du flux une fois le fondu terminé, pour ne plus jamais intercepter
+   d'événement même si un état restait figé. */
+#app-splash[data-done='1'] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  #app-splash { transition: none; }
+}
+
 /* ══ View Transitions ═══════════════════════════════════════════════════════
    Animations de navigation entre écrans (voir components/layout/PageTransition.tsx,
    activé par experimental.viewTransition dans next.config.ts).
