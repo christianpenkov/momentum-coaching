@@ -1202,7 +1202,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
           {/* DM3 — message d'ouverture, envoyé 2 min après le DM2. */}
           <div style={{ marginTop: 2 }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé 2 minutes après le DM 2</span>
+              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé automatiquement 2 min après le DM 2</span>
             </div>
             <textarea
               value={dm2Text}
@@ -1211,6 +1211,9 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
               rows={3}
               style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
             />
+            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3, lineHeight: 1.5 }}>
+              Le délai de 2 minutes évite que les deux messages arrivent dans la même seconde — la question paraît écrite après coup, pas automatique.
+            </div>
           </div>
           {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dm2Error}</div>}
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
@@ -1361,7 +1364,7 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
 
           <div style={{ marginTop: 4 }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé juste après, à la suite</span>
+              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé automatiquement 2 min après le DM 2</span>
             </div>
             <textarea
               value={dmMessage}
