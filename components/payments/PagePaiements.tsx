@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
@@ -28,6 +28,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
   const [tab, setTab] = useState<Tab>('deals');
   const [filter, setFilter] = useState<Filter>('all');
   const [search, setSearch] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
   const [openDeal, setOpenDeal] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const isMobile = useIsMobile();
@@ -101,26 +102,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
               deals, pas sur une fenêtre glissante. Le « · 30 derniers jours »
               affiché jusqu'ici décrivait un bornage qui n'a jamais existé côté
               serveur — seul l'onglet « À rattacher » est borné. */}
-          <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
-            {/* Valeurs reprises du prototype (Paiements.dc.html, KPI héros
-                mobile) : 34px / -1px d'interlettrage / line-height 1, barre de
-                4px de haut et 2px de rayon. */}
-            <div className="eyebrow-sm" style={{ marginBottom: 7 }}>Cash collecté</div>
-            <div className="tabular" style={{
-              fontSize: 34, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1,
-              color: 'var(--green)', marginBottom: 11,
-            }}>
-              {k ? fmtEur(k.collected) : '—'}
-            </div>
-            <div style={{ height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden' }}>
-              {(k?.collectedRate ?? 0) > 0 && (
-                <div style={{ height: '100%', width: `${k?.collectedRate}%`, background: 'var(--green)', borderRadius: 2 }} />
-              )}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
-              {k ? `${k.collectedRate} % de ${fmtEur(k.contracted)} contractés` : ''}
-            </div>
-          </div>
+          <CashCollectedHero k={k} />
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
             <MiniKpi label="Reste dû" value={k ? fmtEur(k.remaining) : '—'} />
             <MiniKpi label="Impayés" value={k ? fmtEur(k.unpaid) : '—'} color={k && k.unpaid > 0 ? 'var(--red)' : undefined} />
@@ -168,14 +150,22 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
                 passe à la ligne, où `marginLeft: auto` la laissait décalée à
                 droite sur une largeur fixe de 180px au lieu de prendre la
                 largeur disponible. */}
+            {/* Le focus se pose sur l'enveloppe, pas sur le champ : c'est elle
+                qui porte la bordure visible, et l'input a `outline: none`.
+                Sans ça, cliquer dans la zone n'affichait aucun retour — la
+                loupe restant en dehors de tout indicateur. */}
             <span style={{
               marginLeft: isMobile ? 0 : 'auto',
               width: isMobile ? '100%' : undefined,
               display: 'flex', alignItems: 'center', gap: 8,
-              border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--surface)',
+              border: `1px solid ${searchFocused ? 'var(--ink)' : 'var(--border)'}`,
+              boxShadow: searchFocused ? '0 0 0 3px var(--surface-2)' : undefined,
+              borderRadius: 8, padding: '8px 12px', background: 'var(--surface)',
+              transition: 'border-color .15s, box-shadow .15s',
             }}>
-              <Icon name="search" size={15} color="var(--faint)" />
+              <Icon name="search" size={15} color={searchFocused ? 'var(--muted)' : 'var(--faint)'} />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher une personne…"
+                onFocus={() => setSearchFocused(true)} onBlur={() => setSearchFocused(false)}
                 style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, color: 'var(--ink)', fontFamily: 'inherit', width: isMobile ? '100%' : 180, minWidth: 0 }} />
             </span>
           </div>
@@ -392,6 +382,99 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
       </td>
     </tr>
   );
+}
+
+/**
+ * Carte « Cash collecté » — le seul chiffre que l'élève lit en ouvrant la page
+ * sur son téléphone. Il répond à « combien j'ai vraiment encaissé », pas à
+ * « combien j'ai vendu » : c'est le collecté, jamais le contracté.
+ *
+ * Le vert est réservé à ce chiffre sur tout l'écran — il signifie « argent
+ * réellement arrivé ». La barre reste verte quel que soit le taux : un taux de
+ * collecte bas n'est pas une erreur, et les impayés ont déjà leur carte rouge
+ * juste en dessous.
+ *
+ * Sur desktop cette hiérarchie n'existe pas : les 4 KPI y sont à égalité. Le
+ * chiffre dominant est une réponse à la contrainte mobile, pas une règle.
+ */
+function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
+  const reduceMotion = usePrefersReducedMotion();
+  const target = k?.collected ?? 0;
+  const displayed = useCountUp(target, !!k && !reduceMotion);
+
+  // Plafonné à 100 % : un client qui paie d'avance (ou un upsell encaissé avant
+  // signature) donnerait un ratio > 100 et une barre débordant de sa piste. Le
+  // pourcentage en légende garde la vraie valeur, lui.
+  const rate = k?.collectedRate ?? 0;
+  const barWidth = Math.min(100, Math.max(0, rate));
+
+  // Un montant long (« 124 500 € ») revient à la ligne en 34px : on descend d'un
+  // cran plutôt que de tronquer un montant, qui deviendrait faux.
+  const text = k ? fmtEur(displayed) : '—';
+  const fontSize = text.length > 9 ? 30 : 34;
+
+  return (
+    <div className="card" style={{ padding: '16px 18px', marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 7 }}>Cash collecté</div>
+      <div className="tabular" style={{
+        fontSize, fontWeight: 700, letterSpacing: '-1px', lineHeight: 1,
+        color: k && k.collected > 0 ? 'var(--green)' : 'var(--muted)',
+        marginBottom: 11,
+      }}>
+        {k && k.collected > 0 ? text : '—'}
+      </div>
+      <div
+        role="progressbar"
+        aria-valuenow={rate} aria-valuemin={0} aria-valuemax={100}
+        aria-label="Part du contracté déjà encaissée"
+        style={{ height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden' }}
+      >
+        {/* La piste reste visible à 0 % : c'est elle qui donne l'échelle. */}
+        <div style={{
+          height: '100%', width: `${barWidth}%`, background: 'var(--green)', borderRadius: 2,
+          transition: reduceMotion ? undefined : 'width 900ms var(--ease-out)',
+        }} />
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 8 }}>
+        {!k ? ''
+          : k.collected === 0 ? 'aucun encaissement sur la période'
+          : rate >= 100 ? 'intégralement encaissé'
+          : `${rate} % de ${fmtEur(k.contracted)} contractés`}
+      </div>
+    </div>
+  );
+}
+
+/** Count-up ~1s, easing cubique sortant — le chiffre se pose au lieu d'apparaître. */
+function useCountUp(target: number, enabled: boolean): number {
+  const [value, setValue] = useState(enabled ? 0 : target);
+
+  useEffect(() => {
+    if (!enabled) { setValue(target); return; }
+    let raf = 0;
+    const start = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / 1000);
+      setValue(target * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [target, enabled]);
+
+  return value;
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reduce, setReduce] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReduce(mq.matches);
+    const on = () => setReduce(mq.matches);
+    mq.addEventListener('change', on);
+    return () => mq.removeEventListener('change', on);
+  }, []);
+  return reduce;
 }
 
 function MiniKpi({ label, value, color }: { label: string; value: string; color?: string }) {

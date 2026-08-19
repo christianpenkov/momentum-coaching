@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import { isValidContentId } from '@/lib/contentId';
+import { resolveUtmContent } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -280,15 +280,15 @@ export async function syncCalendlyEleve(
         // app/api/webhooks/calendly/route.ts — ne jamais remplacer un utm_content déjà
         // valide (vrai ID de contenu) par la valeur figée côté Calendly au moment du clic
         // initial (qui peut être un pseudo, cf. bug PageLiens.tsx corrigé).
-        if (!isValidContentId(utmContent)) {
-          const { data: existingUtm } = await serviceSupabase.from('calls')
-            .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
-          upsertData.utm_content = (existingUtm?.utm_content && isValidContentId(existingUtm.utm_content))
-            ? existingUtm.utm_content
-            : utmContent;
-        } else {
-          upsertData.utm_content = utmContent;
-        }
+        // Règle partagée (lib/contentId.ts) : une valeur invalide n'est JAMAIS
+        // écrite, même quand la base est vide. La branche « sinon j'écris quand
+        // même » réinscrivait le pseudo figé par Calendly — c'est ce qui a
+        // produit 40 anomalies après la migration UTM du 2026-08-19.
+        const { data: existingUtm } = await serviceSupabase.from('calls')
+          .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
+        const resolvedUtm = resolveUtmContent(utmContent, existingUtm?.utm_content);
+        // undefined = ne rien écrire (omettre la clé, pas poser null).
+        if (resolvedUtm !== undefined) upsertData.utm_content = resolvedUtm;
       }
       if (utmMedium)            upsertData.utm_medium      = utmMedium;
       if (utmTerm)              upsertData.utm_term        = utmTerm;

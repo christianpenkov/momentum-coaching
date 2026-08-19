@@ -338,10 +338,12 @@ async function syncCalendlyEleve(
     if (isCanceled && cancellation?.reason) upsertData.cancellation_reason = cancellation.reason;
     if (utmCampaign)         upsertData.utm_campaign    = utmCampaign;
     if (utmContent) {
-      // Garde anti-écrasement : voir commentaire équivalent dans
-      // app/api/webhooks/calendly/route.ts — ne jamais remplacer un utm_content déjà
-      // valide (vrai ID de contenu) par la valeur figée côté Calendly au moment du clic
-      // initial (qui peut être un pseudo, cf. bug PageLiens.tsx corrigé).
+      // ⚠️ Équivalent Deno de `resolveUtmContent` (lib/contentId.ts). Cette Edge
+      // Function ne peut pas importer depuis lib/ (pas d'import cross-runtime),
+      // d'où la duplication — les deux autres appelants (webhook et bouton
+      // Rafraîchir) utilisent bien la fonction partagée. TOUTE modification de la
+      // règle doit être répercutée ici : c'est cette divergence à trois copies qui
+      // a permis au bug du 2026-08-19 de passer inaperçu.
       if (!isValidContentId(utmContent)) {
         const { data: existingUtm } = await supabase.from('calls')
           .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();

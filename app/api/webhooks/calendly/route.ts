@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { upsertProspect } from '@/lib/prospects';
-import { isValidContentId } from '@/lib/contentId';
+import { resolveUtmContent } from '@/lib/contentId';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -265,16 +265,18 @@ export async function POST(request: NextRequest) {
     // pas, on garde l'ancienne — sinon chaque resync réécraserait silencieusement le
     // backfill par la valeur figée au moment du clic initial du prospect (comportement
     // UTM Calendly standard : capturée une fois pour toutes, jamais réévaluée).
-    if (newUtmContent && !isValidContentId(newUtmContent)) {
+    if (newUtmContent) {
+      // Règle partagée (lib/contentId.ts) : une valeur invalide n'est JAMAIS
+      // écrite, même quand la base est vide. Auparavant la branche « sinon
+      // j'écris quand même » réinscrivait le pseudo figé par Calendly — c'est
+      // ce qui a produit 40 anomalies après la migration UTM du 2026-08-19.
+      // Le pseudo a son propre champ : utm_term, écrit plus bas.
       const { data: existing } = await serviceSupabase.from('calls')
         .select('utm_content').eq('calendly_event_uuid', eventUuid).maybeSingle();
-      if (existing?.utm_content && isValidContentId(existing.utm_content)) {
-        baseUpsert.utm_content = existing.utm_content;
-      } else if (newUtmContent) {
-        baseUpsert.utm_content = newUtmContent;
-      }
-    } else if (newUtmContent) {
-      baseUpsert.utm_content = newUtmContent;
+      const resolved = resolveUtmContent(newUtmContent, existing?.utm_content);
+      // undefined = ne rien écrire (omettre la clé, surtout pas poser null qui
+      // écraserait une valeur correcte).
+      if (resolved !== undefined) baseUpsert.utm_content = resolved;
     }
     if (shortLinkPath || inheritedUtmContent) baseUpsert.short_link_path = shortLinkPath ?? inheritedUtmContent;
     if (igLeadId)      baseUpsert.ig_lead_id = igLeadId;

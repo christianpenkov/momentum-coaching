@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Icon from '@/components/ui/Icon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
-import ModalShell from '@/components/ui/ModalShell';
+import Portal from './Portal';
 import { useIsMobile } from '@/lib/useIsMobile';
 import { fmtEur } from './types';
 
@@ -52,6 +52,26 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose, submitting]);
+
+  // Une feuille ancrée en bas est recouverte par le clavier iOS/Android : 88vh
+  // ne rétrécit pas quand il s'ouvre (contrairement à visualViewport), donc le
+  // champ actif se retrouve dessous. On borne la hauteur à la zone réellement
+  // visible tant que le clavier est là. Même problème que ModalShell résout
+  // pour ses modales centrées.
+  const sheetRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isMobile) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      if (!sheetRef.current) return;
+      const keyboardOpen = window.screen.height - vv.height > 100;
+      sheetRef.current.style.maxHeight = keyboardOpen ? `${vv.height - 16}px` : '';
+    };
+    update();
+    vv.addEventListener('resize', update);
+    return () => vv.removeEventListener('resize', update);
+  }, [isMobile]);
 
   // Liste chargée dès l'ouverture, sans attendre une saisie : chercher suppose de
   // savoir qui on cherche, alors qu'on veut souvent juste « le prospect d'hier ».
@@ -119,16 +139,28 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
   }
 
   return (
-    // Bottom sheet sur mobile comme RapportModal, boîte centrée sur desktop.
-    // ModalShell porte déjà le recalage clavier iOS/Android et l'animation.
-    <ModalShell onClose={() => !submitting && onClose()} variant={isMobile ? 'sheet' : 'centered'} width={620}>
-      <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
+    // Mêmes valeurs que DealPanel (overlay, radius 18, 88vh, z-index, poignée
+    // 44×4) : les deux feuilles s'ouvrent depuis le même écran, un écart de
+    // teinte ou de rayon entre elles se voit immédiatement.
+    <Portal>
+      <div onClick={() => !submitting && onClose()} style={{ position: 'fixed', inset: 0, background: 'rgba(26,24,21,.42)', zIndex: 9998 }} />
+      <div ref={sheetRef} style={isMobile ? {
+        position: 'fixed', left: 0, right: 0, bottom: 0, maxHeight: '88vh', zIndex: 9999,
+        background: 'var(--surface)', boxShadow: 'var(--shadow-modal)',
+        borderTopLeftRadius: 18, borderTopRightRadius: 18,
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      } : {
+        position: 'fixed', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 9999,
+        width: 'min(620px, calc(100vw - 32px))', maxHeight: 'calc(100vh - 64px)',
+        background: 'var(--surface)', borderRadius: 'var(--r-modal)', boxShadow: 'var(--shadow-modal)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
         {isMobile && (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px', flexShrink: 0 }}>
-            <div style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border)' }} />
+          <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 10, flexShrink: 0 }}>
+            <span style={{ width: 44, height: 4, borderRadius: 2, background: 'var(--border)' }} />
           </div>
         )}
-        <div style={{ padding: '18px 24px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
+        <div style={{ padding: isMobile ? '14px 20px' : '18px 24px', borderBottom: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', gap: 12, flexShrink: 0 }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>Créer un lien de paiement</div>
             <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>Le lien est généré par Stripe.</div>
@@ -139,7 +171,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           </button>
         </div>
 
-        <div style={{ padding: '4px 24px 18px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
+        <div style={{ padding: isMobile ? '4px 20px 18px' : '4px 24px 18px', overflowY: 'auto', flex: 1, minHeight: 0 }}>
           {result ? (
             <Done result={result} copied={copied} onCopy={copy} onDone={onCreated} />
           ) : (
@@ -184,12 +216,23 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
                     <div style={{
                       border: '1px solid var(--border)', borderRadius: 8, marginTop: 6,
                       height: 180, overflowY: 'auto',
-                      background: options.length === 0 ? 'var(--surface-2)' : undefined,
+                      background: options.length === 0 && !loadingOptions ? 'var(--surface-2)' : undefined,
                     }}>
-                      {options.length === 0 ? (
+                      {loadingOptions ? (
+                        // Squelette de lignes plutôt qu'un mot : il montre déjà la
+                        // forme de ce qui arrive (avatar, nom, sous-titre).
+                        [0, 1, 2].map(i => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', borderBottom: '1px solid var(--border-soft)' }}>
+                            <span className="skeleton-shimmer" style={{ width: 24, height: 24, borderRadius: '50%', flexShrink: 0 }} />
+                            <span style={{ flex: 1, minWidth: 0 }}>
+                              <span className="skeleton-shimmer" style={{ display: 'block', width: `${52 + ((i * 15) % 26)}%`, height: 10, borderRadius: 4, marginBottom: 5 }} />
+                              <span className="skeleton-shimmer" style={{ display: 'block', width: `${34 + ((i * 11) % 20)}%`, height: 8, borderRadius: 4 }} />
+                            </span>
+                          </div>
+                        ))
+                      ) : options.length === 0 ? (
                         <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: 'var(--muted)', padding: '0 16px', textAlign: 'center' }}>
-                          {loadingOptions ? 'Chargement…'
-                            : query ? 'Aucun résultat'
+                          {query ? 'Aucun résultat'
                             : who === 'prospect' ? 'Aucun prospect' : 'Aucun client'}
                         </div>
                       ) : (
@@ -276,7 +319,7 @@ export default function CreateLinkModal({ onClose, onCreated }: { onClose: () =>
           </div>
         )}
       </div>
-    </ModalShell>
+    </Portal>
   );
 }
 
