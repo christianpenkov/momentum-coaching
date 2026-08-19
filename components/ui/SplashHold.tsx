@@ -44,8 +44,24 @@ function isDesktop(): boolean {
   return window.matchMedia('(pointer: fine)').matches && window.innerWidth >= 768;
 }
 
-export default function SplashHold({ show }: { show: boolean }) {
+// Un seul SplashHold doit décider du retrait. Le layout racine en monte un pour
+// couvrir /login, /signup, /invite et / (qui n'ont pas de layout d'app), mais il
+// doit s'effacer dès qu'un layout coach/élève en monte un piloté par la session.
+// Sans ça, le splash partirait avant que la session soit résolue.
+let sessionOwner = false;
+
+/**
+ * @param show true tant que l'app n'est pas prête à être montrée. Omis sur les
+ * écrans qui n'attendent aucune session : ils sont prêts dès leur rendu.
+ * @param owner true pour le SplashHold d'un layout d'app, qui a autorité sur
+ * celui du layout racine.
+ */
+export default function SplashHold({ show = false, owner = false }: { show?: boolean; owner?: boolean }) {
   useEffect(() => {
+    if (owner) sessionOwner = true;
+    // Le contrôleur racine se tait dès qu'un layout d'app a pris la main.
+    if (!owner && sessionOwner) return;
+
     const el = document.getElementById('app-splash');
     if (!el) return;
 
@@ -76,7 +92,7 @@ export default function SplashHold({ show }: { show: boolean }) {
     }, wait + FADE_MS);
 
     return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };
-  }, [show]);
+  }, [show, owner]);
 
   return null;
 }

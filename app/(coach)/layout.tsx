@@ -29,7 +29,7 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
     <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
       {/* Voir (client)/layout.tsx : prolonge l'ecran de demarrage jusqu'a ce
           que la session soit resolue, pour eviter le loader qui clignote. */}
-      <SplashHold show={userLoading} />
+      <SplashHold show={userLoading} owner />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />

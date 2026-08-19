@@ -2886,23 +2886,9 @@ a { color: inherit; text-decoration: none; }
    ────────────────────────────────────────────────────────────────────────── */
 #app-splash {
   position: fixed;
-  /* LE LOGO QUI DESCEND — cause exacte.
-     Le layout déclare apple-mobile-web-app-status-bar-style="default", et avec
-     cette valeur iOS affiche le contenu web SOUS la barre de statut : la
-     fenêtre de la PWA commence donc plus bas que l'écran. Le splash système,
-     lui, couvre l'écran ENTIER. Un élément centré sur la fenêtre se retrouve
-     ainsi plus bas que le logo du splash — d'où l'impression qu'il descend.
-
-     On remonte donc le splash de la hauteur exacte de cette barre.
-     env(safe-area-inset-top) est la valeur fournie par iOS (variable selon
-     encoche / Dynamic Island / anciens modèles) : un 20px codé en dur serait
-     faux sur la plupart des iPhone actuels. Le fallback 0 couvre Android et
-     le navigateur classique, où aucun décalage n'existe. */
   top: calc(env(safe-area-inset-top, 0px) * -1);
   left: 0;
   width: 100vw;
-  /* Hauteur de la fenêtre PLUS la barre récupérée au-dessus, pour que la boîte
-     couvre réellement l'écran entier et que le centrage tombe au bon endroit. */
   height: calc(100vh + env(safe-area-inset-top, 0px));
   z-index: 3000;
   background: var(--bg);
@@ -2925,6 +2911,27 @@ a { color: inherit; text-decoration: none; }
    La durée d'affichage est pilotée par SplashHold (voir MIN_VISIBLE_DESKTOP_MS). */
 @media (min-width: 768px) {
   #app-splash img { width: 200px; }
+}
+
+/* LE LOGO QUI DESCEND — correction définitive.
+   En PWA installée, iOS affiche déjà son propre écran de démarrage, logo
+   compris, centré sur l'ÉCRAN ENTIER. Notre overlay, lui, vit dans la fenêtre
+   de l'app, qui commence SOUS la barre de statut (conséquence de
+   apple-mobile-web-app-status-bar-style="default"). Deux logos centrés sur deux
+   surfaces différentes : le second apparaît plus bas, et on voit le logo
+   « descendre » au moment du raccord.
+
+   Compenser le décalage en CSS s'est révélé illusoire (trois tentatives : la
+   géométrie exacte dépend du modèle, de l'orientation et de la version d'iOS).
+   On supprime donc la cause plutôt que le symptôme : en standalone, l'overlay
+   ne montre plus de logo du tout. Il ne sert qu'à prolonger le fond crème
+   jusqu'à ce que l'app soit prête — le logo, c'est le splash système qui
+   l'affiche, et il ne bouge jamais.
+
+   Hors standalone (navigateur, desktop), il n'y a aucun splash système : le
+   logo de l'overlay reste affiché, c'est lui l'écran de lancement. */
+@media (display-mode: standalone) {
+  #app-splash img { display: none; }
 }
 #app-splash[data-hide='1'],
 #app-splash[data-force-hide='1'] {

@@ -3,6 +3,7 @@ import { Inter, IBM_Plex_Mono } from 'next/font/google';
 import './globals.css';
 import Providers from './Providers';
 import AppBootstrap from '@/components/AppBootstrap';
+import SplashHold from '@/components/ui/SplashHold';
 
 // display: 'swap' — le texte s'affiche immédiatement en police système puis bascule vers
 // Inter quand elle charge. Ce swap agrandit le contenu de la messagerie APRÈS le premier
@@ -118,6 +119,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           }}
         />
         <Providers>{children}</Providers>
+        {/* Filet de rendu : les layouts (client) et (coach) montent leur propre
+            SplashHold, piloté par l'état de session. Mais /login, /signup,
+            /invite et / n'ont aucun de ces layouts — sans celui-ci, l'écran de
+            lancement y restait affiché jusqu'au filet de 6s. Ces pages
+            n'attendent aucune session : elles sont prêtes dès le rendu, donc
+            show reste à false et le splash part après sa durée minimale. */}
+        <SplashHold />
         <AppBootstrap />
       </body>
     </html>

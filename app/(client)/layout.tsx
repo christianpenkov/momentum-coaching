@@ -32,7 +32,7 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
           coup avec la page qui chargeait. Branché sur `loading` du contexte
           (et non sur la présence de `user`) : c'est le signal exact de "session
           résolue", il passe à false même quand il n'y a pas de session. */}
-      <SplashHold show={userLoading} />
+      <SplashHold show={userLoading} owner />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />
