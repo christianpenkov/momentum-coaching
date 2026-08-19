@@ -136,7 +136,11 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
     .neq('ignored', true)
     .is('ig_lead_id', null)
     .neq('lead_deleted', true)
-    .in('source', ['ig_description', 'ig_bio']);
+    // Préfixe plutôt qu'une liste fermée : `ig_story` manquait, donc un rendez-vous
+    // venu d'une story n'était compté ni ici, ni dans Mes Stats, ni dans le pipeline
+    // (même défaut corrigé aux trois endroits le 2026-08-19). `like` sur 'ig\_%'
+    // — l'underscore est un joker SQL, d'où l'échappement.
+    .like('source', 'ig\\_%');
   if (since) directCallsQuery = directCallsQuery.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
 
   const [leadsRes, linksRes, directCallsRes] = await Promise.all([leadsQuery, linksQuery, directCallsQuery]);

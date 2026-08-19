@@ -408,7 +408,11 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
     if (c.lead_deleted) return false;
     if (c.ignored) return false;
     const src = c.source?.toLowerCase() ?? '';
-    if (src !== 'ig_description' && src !== 'ig_bio') return false;
+    // Préfixe plutôt qu'une liste fermée : `ig_story` manquait, donc un rendez-vous
+    // venu d'une story n'était compté ni ici ni dans le pipeline (même défaut corrigé
+    // dans PagePipeline.tsx le 2026-08-19). Doit rester aligné avec la requête
+    // équivalente de lib/salesCallStats.ts.
+    if (!src.startsWith('ig_')) return false;
     return isLeadInPeriod(c.booked_at || c.scheduled_at);
   });
   // Calls YouTube bookés (source commençant par "yt") — même formule que
