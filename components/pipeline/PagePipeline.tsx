@@ -299,8 +299,12 @@ export function resolveProspectContext(
       // On remonte d'abord vers l'amont (qui pointe sur moi ?) puis on redescend
       // vers l'aval (sur qui je pointe ?), pour reconstituer la chaîne complète
       // quel que soit le maillon d'entrée.
-      const uuidToCall = new Map<string, typeof call>();
-      const predecessorOf = new Map<string, typeof call>();
+      // Types explicites (et non `typeof call`) : TypeScript inférait sinon une
+      // référence circulaire sur `cur`, qui se déduit de ces Map alors que les
+      // Map se déduisaient de `call`.
+      type PipelineCall = (typeof data.calls)[number];
+      const uuidToCall = new Map<string, PipelineCall>();
+      const predecessorOf = new Map<string, PipelineCall>();
       for (const c of data.calls) {
         if (c.calendly_event_uuid) uuidToCall.set(c.calendly_event_uuid, c);
       }
@@ -313,16 +317,16 @@ export function resolveProspectContext(
         }
       }
 
-      const chain: typeof data.calls = [call];
+      const chain: PipelineCall[] = [call];
       const seen = new Set<string>([call.id]);
       // Amont
-      let cur: typeof call | undefined = predecessorOf.get(call.id);
+      let cur: PipelineCall | undefined = predecessorOf.get(call.id);
       while (cur && !seen.has(cur.id)) { chain.unshift(cur); seen.add(cur.id); cur = predecessorOf.get(cur.id); }
       // Aval
       cur = call;
       for (;;) {
-        const nextUuid = cur?.next_rescheduled_uri?.split('/scheduled_events/')[1]?.split('/')[0];
-        const next = nextUuid ? uuidToCall.get(nextUuid) : undefined;
+        const nextUuid: string | undefined = cur?.next_rescheduled_uri?.split('/scheduled_events/')[1]?.split('/')[0];
+        const next: PipelineCall | undefined = nextUuid ? uuidToCall.get(nextUuid) : undefined;
         if (!next || seen.has(next.id)) break;
         chain.push(next); seen.add(next.id); cur = next;
       }
