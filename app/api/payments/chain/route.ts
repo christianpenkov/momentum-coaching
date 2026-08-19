@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
 
   const { data: deal } = await supa
     .from('deals')
-    .select('profile_id, ig_lead_id, call_id, signed_at, first_touch_content_id, attribution_source')
+    .select('profile_id, ig_lead_id, call_id, signed_at, first_touch_content_id, attribution_source, short_url, stripe_payment_link_id, status')
     .eq('id', dealId)
     .maybeSingle();
 
@@ -96,7 +96,26 @@ export async function GET(request: NextRequest) {
     }
   }
 
-  steps.push({ label: 'Deal signé, lien de paiement envoyé', date: fmtDate(deal.signed_at) });
+  // Dernière étape : dire ce qui s'est RÉELLEMENT passé, pas ce que le parcours
+  // nominal supposerait. Les deals issus du backfill (anciens calls closés) n'ont
+  // jamais eu de lien de paiement — affirmer le contraire décrit une action qui
+  // n'a pas eu lieu.
+  const hasLink = !!deal.stripe_payment_link_id || !!deal.short_url;
+
+  const { count: paidCount } = await supa
+    .from('deal_payments')
+    .select('id', { count: 'exact', head: true })
+    .eq('deal_id', dealId)
+    .eq('status', 'succeeded');
+
+  steps.push({
+    label: !hasLink
+      ? 'Deal signé (aucun lien de paiement)'
+      : (paidCount ?? 0) > 0
+        ? 'Deal signé, lien de paiement payé'
+        : 'Deal signé, lien de paiement créé',
+    date: fmtDate(deal.signed_at),
+  });
 
   return NextResponse.json({ steps });
 }

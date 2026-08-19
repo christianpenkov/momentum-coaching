@@ -87,11 +87,19 @@ function RelanceRow({ item, first }: { item: Group['items'][number]; first: bool
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{item.sub}</span>
       </span>
       <span className="tabular" style={{ fontSize: 13, fontWeight: 600, width: 84, textAlign: 'right' }}>{fmtEur(item.amount)}</span>
-      <button className="btn-ghost" onClick={copy} disabled={!item.url}
-        style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6, opacity: item.url ? 1 : .5 }}>
-        <Icon name={copied ? 'check' : 'copy'} size={13} color={copied ? 'var(--green)' : 'var(--muted)'} />
-        {copied ? 'Copié' : 'Copier le lien'}
-      </button>
+      {/* Sans lien (deals repris de l'historique), un bouton « Copier le lien »
+          grisé serait trompeur : il n'y a rien à copier. On dit ce qui manque. */}
+      {item.url ? (
+        <button className="btn-ghost" onClick={copy}
+          style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name={copied ? 'check' : 'copy'} size={13} color={copied ? 'var(--green)' : 'var(--muted)'} />
+          {copied ? 'Copié' : 'Copier le lien'}
+        </button>
+      ) : (
+        <span style={{ fontSize: 11.5, color: 'var(--faint)', flexShrink: 0, width: 118, textAlign: 'right' }}>
+          Encaissé hors Momentum
+        </span>
+      )}
     </div>
   );
 }
@@ -139,11 +147,15 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
       continue;
     }
 
-    // Comptant jamais payé : le lien a été envoyé, rien n'est arrivé.
+    // Comptant impayé. Sans lien, ne rien affirmer sur un envoi : les deals issus
+    // du backfill (anciens calls closés) n'en ont jamais eu, et « lien envoyé »
+    // décrirait une action qui n'a pas eu lieu.
     if (d.collected === 0) {
       waiting.push({
         deal: d,
-        sub: `Lien envoyé ${fmtRelative(d.signedAt)} · aucun paiement`,
+        sub: d.shortUrl
+          ? `Lien créé ${fmtRelative(d.signedAt)} · aucun paiement`
+          : `Signé ${fmtRelative(d.signedAt)} · aucun lien de paiement`,
         url: d.shortUrl,
         amount: d.amountTotal,
       });
