@@ -3066,37 +3066,6 @@ html[data-splash='1'] .dot-wave {
   to { opacity: 1; filter: blur(0); }
 }
 
-/* Morph d'avatar liste -> fiche client. Les deux avatars portent le même
-   `name` (client-avatar-<id>, unique par élève : React interdit deux éléments
-   de même nom montés en même temps), React anime donc taille et position de
-   l'un vers l'autre. L'objet persiste à travers la navigation et dit « c'est
-   le même élève » au lieu de disparaître puis réapparaître.
-
-   Le nom étant dynamique, il n'est pas ciblable en CSS : d'où `share` sur le
-   composant, qui pose la classe `.avatar-morph` sur le groupe généré.
-
-   Trois réglages, tous nécessaires ici parce que le trajet est long — les
-   cartes sont en bas de l'accueil, l'avatar en haut de la fiche : */
-::view-transition-group(.avatar-morph) {
-  /* 1. Passe AU-DESSUS du contenu. Par défaut l'avatar glissait derrière la
-        nouvelle page, ce qui se lisait comme un défaut d'affichage. */
-  z-index: 500;
-  /* 2. Court. Sur un long trajet, une durée normale donne l'impression d'un
-        élément qui « voyage » à travers l'écran, voire d'un scroll parasite.
-        260ms : assez pour relier les deux écrans, trop rapide pour être suivi
-        du regard. */
-  animation-duration: 260ms;
-  /* 3. Décélération franche : le mouvement part vite et se pose, au lieu de
-        traverser à vitesse constante. */
-  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
-}
-
-/* Le morph simule un déplacement physique sur une longue distance — le cas le
-   plus sensible pour le mal des transports numérique. */
-@media (prefers-reduced-motion: reduce) {
-  ::view-transition-group(.avatar-morph) { animation-duration: 0s; }
-}
-
 /* Ancrage des chrome persistants (barre du haut, bottom nav, sidebar).
    Sans ça l'API capture la page entière et fait glisser TOUT le viewport,
    barres comprises : l'utilisateur perd son repère spatial et croit que
