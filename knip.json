@@ -1,0 +1,13 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "entry": [
+    "app/**/{page,layout,route,template,loading,error,not-found,global-error}.{ts,tsx}",
+    "middleware.ts",
+    "next.config.{js,ts,mjs}",
+    "supabase/functions/*/index.ts",
+    "public/sw.js"
+  ],
+  "project": ["**/*.{ts,tsx,js}"],
+  "ignore": ["supabase/functions/_shared/**"],
+  "ignoreDependencies": ["@supabase/realtime-js"]
+}
