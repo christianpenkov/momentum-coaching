@@ -2,7 +2,7 @@
 
 **À lire avant de toucher à un compteur de leads, de calls ou de revenus.**
 
-Ce document existe parce que la session du 2026-08-19 a corrigé **neuf** écarts entre
+Ce document existe parce que la session du 2026-08-19 a corrigé **onze** écarts entre
 écrans, tous causés par le même motif : une règle de périmètre écrite à plusieurs
 endroits, qui diverge dès que l'un des endroits bouge.
 
@@ -40,6 +40,32 @@ q.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`)
 
 Le repli couvre les calls anciens importés sans `booked_at`.
 
+Cette date sert aussi à la **découpe mensuelle** : un call réservé le 29 août pour un
+rendez-vous le 2 septembre compte dans **août**. C'est ce que font les CRM, qui traitent
+« date de réservation » et « date du rendez-vous » comme deux champs distincts — le
+premier crédite la génération du rendez-vous, le second l'interaction.
+
+Les métriques dérivées suivent chacune la date qui a du sens pour elle, et non une date
+unique imposée :
+
+| Métrique | Découpée sur | Signifie |
+|---|---|---|
+| Calls bookés | `booked_at` | rendez-vous générés ce mois |
+| Leads | `booked_at` | prospects arrivés ce mois |
+| Taux de closing | cohorte de `booked_at` | qualité des rendez-vous générés ce mois |
+| Cash contracté | `deals.signed_at` | argent engagé ce mois |
+| Cash collecté | date du paiement Stripe | argent encaissé ce mois |
+
+**Le taux de closing obéit à la règle de cohorte** : numérateur et dénominateur portent
+sur la même population — les deals issus des calls réservés ce mois, quelle que soit
+leur date de signature. Diviser les deals signés ce mois par les calls tenus ce mois
+mélange deux populations, et un deal signé en relance faisait dépasser 100 %.
+
+Contrepartie assumée : le taux du mois en cours est provisoire, il se stabilise à mesure
+que les rendez-vous se tiennent. Sur un cycle long, un taux par cohorte devient un
+indicateur retardé ; le cycle mesuré ici est de quelques heures (max 1 jour au
+2026-08-19), donc le décalage se résorbe en jours.
+
 ### 3. Un prospect est une PERSONNE, jamais une ligne de call
 
 Calendly crée un **nouvel événement** à chaque reprogrammation et annule l'ancien :
@@ -62,7 +88,7 @@ lendemain.
 
 ---
 
-## Les neuf écarts corrigés le 2026-08-19
+## Les onze écarts corrigés le 2026-08-19
 
 | # | Symptôme | Cause | Règle |
 |---|---|---|---|
@@ -75,6 +101,8 @@ lendemain.
 | 7 | Compteurs leads/stories de la fiche client sur une fenêtre plus large | `onboarding_completed_at` | 1 |
 | 8 | 18 leads au lieu de 17 | Un prospect ayant reporté comptait deux fois | 3 |
 | 9 | Un prospect YouTube annulé disparaissait des leads, pas un prospect Instagram | Filtre `status` sur un volet et pas l'autre | 4 |
+| 10 | Un call réservé le 29 août pour le 2 septembre comptait en septembre | Découpe mensuelle sur `scheduled_at` alors que le périmètre filtre sur `booked_at` | 2 |
+| 11 | Taux de closing pouvant dépasser 100 % | Numérateur sur `signed_at`, dénominateur sur `scheduled_at` — deux populations | 2 |
 
 Écarts 1, 2, 4 : pas d'une règle générale mais du même réflexe — une **liste fermée**
 ou une **fenêtre** qui n'a pas suivi l'évolution du produit.
@@ -112,9 +140,12 @@ Décision prise le 2026-08-19 : basculer les **totaux** sur `deals`, garder les 
 la performance du post qui a amené le client. Non implémenté : `PageClientStats` ne
 charge pas encore la table `deals` (seulement `deal_payments`).
 
-**Découpe mensuelle incohérente** (`lib/supabase/useCoachData.ts:206`) : périmètre
-délimité sur `booked_at`, découpe du mois sur `scheduled_at`. 0 call concerné à ce jour.
-Corriger changerait la définition de « calls de ce mois » — décision produit.
+**Divergence sur le cash contracté entre deux écrans.** L'accueil (`useCoachData`)
+rattache son cash au mois de **signature** du deal ; Mes Stats somme `calls.revenue` et
+le rattache donc au mois de **réservation** du call. Les deux divergent dès qu'une
+signature ne tombe pas dans le mois de son call. Aucun cas à ce jour (cycle de quelques
+heures). La convergence passe par le chantier « cash sur `deals` » ci-dessus — c'est le
+même correctif.
 
 **Le parcours lead magnet depuis une story n'a jamais été exercé.** Le code existe
 (`source = 'story_reply'`), la catégorie d'affichage existe, aucun lead de ce type en
@@ -132,5 +163,5 @@ Avant d'ajouter un compteur, se demander :
 4. Les annulés comptent-ils ?
 5. Ma borne haute couvre-t-elle la journée entière ?
 
-Et surtout : **cette règle existe-t-elle déjà ailleurs ?** Huit des neuf écarts
+Et surtout : **cette règle existe-t-elle déjà ailleurs ?** Dix des onze écarts
 venaient d'une règle déjà écrite quelque part, recopiée puis désynchronisée.
