@@ -1,4 +1,17 @@
-// SW v8-debug — logs push vers Supabase (pas de Mac = pas d'inspecteur Safari)
+// SW v9 — push + coquille hors ligne
+//
+// Strategie volontairement minimale, alignee sur les recommandations courantes :
+//   - navigations : RESEAU D'ABORD, repli sur /offline.html si le reseau echoue.
+//     Surtout PAS de cache-first sur le HTML — c'est le piege classique qui fige
+//     les utilisateurs sur une ancienne version. Le no-store pose dans
+//     next.config.ts reste donc la regle, le SW n'y touche pas.
+//   - assets statiques (_next/static, images, polices) : CACHE D'ABORD, ils sont
+//     hashes donc immuables : un nom de fichier = un contenu.
+//   - reste (API, Supabase) : non intercepte. Des donnees de coaching perimees
+//     servies hors ligne seraient pires qu'un ecran honnete "pas de connexion".
+
+const CACHE = 'momentum-v1';
+const OFFLINE_URL = '/offline.html';
 
 const SUPABASE_URL = 'https://nvjgwtetyuatnkjihmtw.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im52amd3dGV0eXVhdG5ramlobXR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMzc3ODUsImV4cCI6MjA5NDYxMzc4NX0.0apyZEDUtM6LFBX5uDK5amD_jhKAgrYsZ61JSrA9gxk';
@@ -21,8 +34,15 @@ function swLog(event, data) {
 }
 
 self.addEventListener('install', e => {
-  swLog('install', { msg: 'SW v8-debug installing', ts: Date.now() });
-  e.waitUntil(self.skipWaiting());
+  swLog('install', { msg: 'SW v9 installing', ts: Date.now() });
+  e.waitUntil(
+    // L'ecran hors ligne doit etre en cache AVANT d'en avoir besoin : au moment
+    // ou le reseau manque, il est trop tard pour le telecharger.
+    caches.open(CACHE)
+      .then(c => c.addAll([OFFLINE_URL, '/logo-momentum-trimmed.png']))
+      .catch(() => {})
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', e => {
@@ -30,26 +50,55 @@ self.addEventListener('activate', e => {
   e.waitUntil(
     self.clients.claim().then(() => {
       swLog('activate_claimed', { ts: Date.now() });
-      return caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+      // Purge les anciennes versions mais preserve le cache courant, sinon
+      // la coquille hors ligne serait effacee a chaque activation.
+      return caches.keys().then(keys => Promise.all(
+        keys.filter(k => k !== CACHE).map(k => caches.delete(k))
+      ));
     }).then(() => {
       swLog('activate_caches_cleared', { ts: Date.now() });
     })
   );
 });
 
-// Instrumentation temporaire — le SW tourne dans son propre processus,
-// indépendant du contexte de page. S'il survit au crash qui tue la page React,
-// ce listener peut révéler ce qui se passe réellement pendant la fenêtre de
-// silence observée côté client (aucune requête envoyée du tout ? une requête
-// fathom.video qui échoue silencieusement ? autre chose ?). Log uniquement les
-// requêtes de document HTML (navigation) et vers fathom.video — pas toutes les
-// requêtes, pour ne pas noyer les logs ni réintroduire le coût mesuré du fetch
-// listener sur tout le reste.
 self.addEventListener('fetch', e => {
-  const url = e.request.url;
-  if (e.request.mode === 'navigate' || url.includes('fathom.video')) {
-    swLog('fetch_observed', { url, mode: e.request.mode, destination: e.request.destination, ts: Date.now() });
+  const req = e.request;
+  if (req.method !== 'GET') return;
+
+  const url = new URL(req.url);
+  // Autres origines (Supabase, CDN Instagram...) : non intercepte. Mettre des
+  // donnees de coaching en cache les rendrait perimees sans que l'utilisateur
+  // le sache — un ecran honnete "pas de connexion" vaut mieux.
+  if (url.origin !== self.location.origin) return;
+
+  // NAVIGATIONS — reseau d'abord, repli sur la coquille hors ligne.
+  if (req.mode === 'navigate') {
+    e.respondWith(
+      fetch(req).catch(() => caches.match(OFFLINE_URL))
+    );
+    return;
   }
+
+  // ASSETS HASHES — cache d'abord. Un nom de fichier _next/static correspond a
+  // un contenu unique et immuable : aucun risque de servir une version perimee.
+  const isStatic = url.pathname.startsWith('/_next/static/')
+    || /\.(png|jpg|jpeg|svg|webp|woff2?|ico)$/.test(url.pathname);
+
+  if (isStatic) {
+    e.respondWith(
+      caches.match(req).then(hit => hit || fetch(req).then(res => {
+        // Ne met en cache que les reponses completes et valides : une reponse
+        // partielle ou en erreur figerait un asset casse.
+        if (res.ok && res.status === 200) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      }))
+    );
+  }
+  // Tout le reste (routes /api, documents non-navigation) passe au reseau
+  // normalement, sans interception.
 });
 
 self.addEventListener('push', e => {

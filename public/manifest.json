@@ -7,6 +7,29 @@
   "background_color": "#fbfbf7",
   "theme_color": "#fbfbf7",
   "orientation": "portrait",
+  "shortcuts": [
+    {
+      "name": "Messages",
+      "short_name": "Messages",
+      "description": "Ouvrir la messagerie avec ton coach",
+      "url": "/client/messages",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Calls",
+      "short_name": "Calls",
+      "description": "Voir tes prochains calls",
+      "url": "/client/calls",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Tâches",
+      "short_name": "Tâches",
+      "description": "Consulter tes tâches en cours",
+      "url": "/client/taches",
+      "icons": [{ "src": "/icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
   "icons": [
     {
       "src": "/icons/icon-192.png",

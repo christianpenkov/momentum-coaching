@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Momentum — hors connexion</title>
+<!--
+  Écran servi par le service worker quand une navigation échoue faute de réseau.
+  Fichier statique autonome (pas une route Next) : il doit s'afficher alors que
+  le serveur est précisément injoignable, donc aucune dépendance à un bundle JS
+  ou à une police distante.
+  Reprend les couleurs et le logo de l'app : sans lui, l'utilisateur tombait sur
+  l'écran d'erreur du navigateur, ce qui trahit immédiatement un site web.
+-->
+<style>
+  :root {
+    --bg: #fbfbf7;
+    --surface: #ffffff;
+    --border: #eeeae0;
+    --ink: #1a1815;
+    --muted: #797569;
+    --accent-brand: #3a6a86;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 32px;
+    padding-top: calc(env(safe-area-inset-top, 0px) + 32px);
+    text-align: center;
+  }
+  img { width: 132px; height: auto; margin-bottom: 28px; }
+  h1 { font-size: 18px; font-weight: 700; margin: 0 0 10px; letter-spacing: -0.2px; }
+  p { font-size: 13.5px; color: var(--muted); line-height: 1.6; margin: 0 0 26px; max-width: 300px; }
+  button {
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    background: var(--accent-brand);
+    border: none;
+    border-radius: 20px;
+    padding: 0 26px;
+    min-height: 44px;
+    cursor: pointer;
+    transition: background 120ms;
+  }
+  button:hover { background: #2f5670; }
+  button:active { transform: scale(0.98); }
+  .state {
+    margin-top: 18px;
+    font-size: 12px;
+    color: var(--muted);
+    min-height: 18px;
+  }
+</style>
+</head>
+<body>
+  <img src="/logo-momentum-trimmed.png" alt="Momentum" />
+  <h1>Pas de connexion</h1>
+  <p>Momentum a besoin d'internet pour afficher tes données à jour. Reconnecte-toi, la page se rechargera toute seule.</p>
+  <button type="button" onclick="location.reload()">Réessayer</button>
+  <div class="state" id="state"></div>
+
+<script>
+  // Rechargement automatique dès le retour du réseau : l'utilisateur n'a pas à
+  // surveiller l'écran ni à toucher le bouton.
+  var state = document.getElementById('state');
+  window.addEventListener('online', function () {
+    state.textContent = 'Connexion retrouvée, rechargement…';
+    location.reload();
+  });
+  // Certains réseaux (portails captifs, wifi sans internet) ne déclenchent pas
+  // l'événement 'online' : on sonde aussi le serveur à intervalle régulier.
+  setInterval(function () {
+    fetch('/manifest.json', { method: 'HEAD', cache: 'no-store' })
+      .then(function () { location.reload(); })
+      .catch(function () {});
+  }, 5000);
+</script>
+</body>
+</html>
