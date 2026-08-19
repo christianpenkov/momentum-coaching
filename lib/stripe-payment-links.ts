@@ -104,6 +104,12 @@ export async function createDealPaymentLink(
     // Sans 'always', Stripe ne crée un Customer que s'il en a besoin — or on en a
     // besoin pour rattacher les paiements suivants et pour l'écran de réconciliation.
     customer_creation: input.installments ? undefined : 'always',
+    // Les metadata d'un Payment Link s'arrêtent à la Checkout Session : le
+    // PaymentIntent et la Charge arrivent vides (constaté en réel le 19/08/2026).
+    // On les repose ici pour qu'elles descendent jusqu'à la Charge — le webhook
+    // n'en dépend pas (il lit la session), mais elles rendent le paiement
+    // identifiable depuis le dashboard Stripe et depuis un export comptable.
+    ...(input.installments ? {} : { payment_intent_data: { metadata } }),
     ...(input.installments ? {
       // Ces metadata-là sont indispensables : sans elles, les échéances 2 et 3
       // arrivent sans identifiant et tombent en paiements orphelins.

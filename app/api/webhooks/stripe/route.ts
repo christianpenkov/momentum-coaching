@@ -277,6 +277,31 @@ async function handleEvent(event: Stripe.Event) {
         ...(session.customer_details?.email ? { buyer_email: session.customer_details.email } : {}),
       }).eq('id', dealId);
 
+      // ⚠️ Paiement comptant : c'est ICI qu'on enregistre, pas dans charge.succeeded.
+      //
+      // Vérifié en conditions réelles le 19/08/2026 : les metadata d'un Payment Link
+      // s'arrêtent à la Checkout Session. Le PaymentIntent et la Charge qui en
+      // découlent arrivent avec `metadata: {}` — la propagation décrite par la doc
+      // vaut pour un PaymentIntent créé directement, pas via un Payment Link.
+      // S'en remettre à charge.succeeded laissait donc le paiement orphelin.
+      //
+      // La session porte les metadata ET le montant : tout ce qu'il faut.
+      if (!subscriptionId && session.payment_status === 'paid') {
+        const paymentRef = typeof session.payment_intent === 'string'
+          ? session.payment_intent
+          : session.payment_intent?.id ?? session.id;
+
+        await recordPayment(supabase, {
+          profileId,
+          stripePaymentId: paymentRef,
+          amountMinor: session.amount_total ?? 0,
+          currency: session.currency ?? 'eur',
+          paidAt: new Date(session.created * 1000).toISOString(),
+          status: 'succeeded',
+          metadata: session.metadata as Record<string, string> | null,
+        });
+      }
+
       // Chemin nominal du bornage : dès que la subscription existe.
       if (subscriptionId) await guardInstallments(supabase, dealId, profileId);
       break;
@@ -320,13 +345,22 @@ async function handleEvent(event: Stripe.Event) {
       break;
     }
 
-    // Paiement comptant : pas de facture, c'est la charge qui porte les metadata.
+    // Charge : filet pour les encaissements qui ne passent PAS par un Payment Link
+    // Momentum (virement enregistré dans Stripe, lien créé à la main). Les paiements
+    // Momentum sont déjà enregistrés par checkout.session.completed ci-dessus.
+    //
+    // On identifie la charge par son payment_intent, pas par son propre id : c'est
+    // la référence utilisée par le handler de session, donc la contrainte d'unicité
+    // sur (deal_id, stripe_payment_id) suffit à empêcher le doublon.
     case 'charge.succeeded': {
       const charge = event.data.object as Stripe.Charge;
       if (charge.refunded) break;
+      const paymentRef = typeof charge.payment_intent === 'string'
+        ? charge.payment_intent
+        : charge.payment_intent?.id ?? charge.id;
       await recordPayment(supabase, {
         profileId,
-        stripePaymentId: charge.id,
+        stripePaymentId: paymentRef,
         amountMinor: charge.amount,
         currency: charge.currency,
         paidAt: new Date(charge.created * 1000).toISOString(),
