@@ -384,7 +384,7 @@ export default function PageToday() {
                       ].filter(Boolean).join(' · ')}
                     </div>
                   </div>
-                  <Link href={`/clients/${client.id}`} className="btn-ghost" style={{ fontSize: 11 }}>
+                  <Link href={`/clients/${client.id}`} transitionTypes={['nav-forward']} className="btn-ghost" style={{ fontSize: 11 }}>
                     <Icon name="chevR" size={12} />
                   </Link>
                 </div>
@@ -418,7 +418,7 @@ export default function PageToday() {
                 {clients.slice(0, 5).map((client) => (
                   <tr key={client.id}>
                     <td>
-                      <Link href={`/clients/${client.id}`} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
+                      <Link href={`/clients/${client.id}`} transitionTypes={['nav-forward']} style={{ display: 'flex', alignItems: 'center', gap: 10, textDecoration: 'none' }}>
                         <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={30} seed={client.id} />
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 12, color: 'var(--accent)' }}>{client.name}</div>
@@ -436,7 +436,7 @@ export default function PageToday() {
                     </td>
                     <td style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}>S{getClientWeek(client.onboarding_completed_at)}</td>
                     <td>
-                      <Link href={`/clients/${client.id}`} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
+                      <Link href={`/clients/${client.id}`} transitionTypes={['nav-forward']} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
                         <Icon name="chevR" size={12} />
                       </Link>
                     </td>
@@ -449,8 +449,11 @@ export default function PageToday() {
           <div className="today-clients-cards">
             {clients.slice(0, 5).map((client) => {
               const s = getClientSignals(client.tasks, client.sessionReports);
+              // nav-forward : entrer dans une fiche fait glisser le contenu vers
+              // la gauche. L'horizontale encode la profondeur — on avance, on ne
+              // change pas d'onglet. Voir globals.css.
               return (
-                <Link key={client.id} href={`/clients/${client.id}`} className="today-client-card">
+                <Link key={client.id} href={`/clients/${client.id}`} transitionTypes={['nav-forward']} className="today-client-card">
                   <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={40} seed={client.id} />
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</div>

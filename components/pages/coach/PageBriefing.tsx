@@ -55,7 +55,8 @@ export default function PageBriefing({ id }: Props) {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <Link href={`/clients/${id}`} className="btn-ghost">
+          {/* nav-back : retour en arrière, le contenu glisse vers la droite. */}
+          <Link href={`/clients/${id}`} transitionTypes={['nav-back']} className="btn-ghost">
             ← Fiche
           </Link>
           <button className="btn-primary-brand" type="button" onClick={() => window.open('https://calendly.com/app/scheduled_events/upcoming', '_blank')}>

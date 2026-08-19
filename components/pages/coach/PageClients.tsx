@@ -226,7 +226,7 @@ export default function PageClients() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: 4 }}>
-                          <Link href={`/clients/${c.id}`} onClick={e => e.stopPropagation()} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
+                          <Link href={`/clients/${c.id}`} transitionTypes={['nav-forward']} onClick={e => e.stopPropagation()} className="btn-ghost" style={{ fontSize: 11, padding: '4px 8px' }}>
                             Fiche
                           </Link>
                         </div>

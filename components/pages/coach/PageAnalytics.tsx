@@ -4,6 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getClientSignals } from '@/lib/clientSignals';
 import Icon from '@/components/ui/Icon';
@@ -26,6 +27,9 @@ function clientColor(seed: string): string {
 export default function PageAnalytics() {
   const { clients, loading } = useSupabaseClients();
   const [platform, setPlatform] = useState<Platform>('ig');
+  // Navigation par le router plutôt que window.location.href : ce dernier
+  // rechargeait la page entière (JS relancé, écran blanc, transition annulée).
+  const router = useRouter();
 
   if (loading) return <InlineLoader fullPage />;
 
@@ -216,7 +220,7 @@ export default function PageAnalytics() {
                 </thead>
                 <tbody>
                   {tableRows.map(({ c, m, igGrowthPct, avgPosts, avgDms, totalCallsClient, color }) => (
-                    <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => window.location.href = `/clients/${c.id}/analytics`}>
+                    <tr key={c.id} style={{ cursor: 'pointer' }} onClick={() => router.push(`/clients/${c.id}/analytics`, { transitionTypes: ['nav-forward'] })}>
                       <td>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <div style={{
