@@ -3,6 +3,7 @@
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import HapticTap from '@/components/ui/HapticTap';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -2304,13 +2305,17 @@ export default function PageClientMessages() {
               </button>
             )}
 
+            {/* 'light' et pas 'success' : l'envoi est l'action la plus répétée
+                de l'app, un retour trop marqué finirait par fatiguer. */}
             {input.trim() && (
-              <button className="btn-primary btn-primary-brand tap-scale" onClick={() => sendMessage(input)} type="button" style={{
-                width: 40, height: 40, borderRadius: '50%', padding: 0,
-                display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-              }}>
-                <Icon name="send" size={15} />
-              </button>
+              <HapticTap intensity="light">
+                <button className="btn-primary btn-primary-brand tap-scale" onClick={() => sendMessage(input)} type="button" style={{
+                  width: 40, height: 40, borderRadius: '50%', padding: 0,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+                }}>
+                  <Icon name="send" size={15} />
+                </button>
+              </HapticTap>
             )}
           </div>
         )}

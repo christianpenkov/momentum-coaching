@@ -5,6 +5,7 @@ import { useReducedMotion } from 'framer-motion';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
+import HapticTap from '@/components/ui/HapticTap';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
 import { getTaskBucket, type TaskBucket } from '@/lib/clientSignals';
@@ -263,13 +264,18 @@ function TaskRow({ task, onToggle, onExpand, expanded, onSave, onDelete }: {
   return (
     <div style={{ padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)' }}>
       <div className="task-row-actions" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-        <button
-          type="button"
-          onClick={handleToggleClick}
-          className={`task-check${task.done ? ' checked' : ''}`}
-        >
-          {task.done && <Icon name="check" size={11} style={{ color: '#fff' }} />}
-        </button>
+        {/* Retour haptique : cocher une tâche est l'action la plus satisfaisante
+            de l'écran, et c'est un tap direct — le seul cas où iOS accepte
+            encore de jouer le tick (voir lib/haptics.ts). */}
+        <HapticTap intensity="success">
+          <button
+            type="button"
+            onClick={handleToggleClick}
+            className={`task-check${task.done ? ' checked' : ''}`}
+          >
+            {task.done && <Icon name="check" size={11} style={{ color: '#fff' }} />}
+          </button>
+        </HapticTap>
         <span style={{ flex: 1, fontSize: 13, color: task.done ? 'var(--muted)' : 'var(--accent)', textDecoration: task.done ? 'line-through' : 'none' }}>
           {task.label}
         </span>

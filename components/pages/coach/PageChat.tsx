@@ -4,6 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import HapticTap from '@/components/ui/HapticTap';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -2019,10 +2020,14 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="var(--ink)" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
               </button>
             )}
+            {/* Même retour haptique que côté élève : les deux rôles doivent
+                ressentir la même chose sur la même action. */}
             {input.trim() && (
-              <button className="btn-primary btn-primary-brand tap-scale" onClick={() => sendMessage(input)} type="button" style={{ width: 40, height: 40, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Icon name="send" size={15} />
-              </button>
+              <HapticTap intensity="light">
+                <button className="btn-primary btn-primary-brand tap-scale" onClick={() => sendMessage(input)} type="button" style={{ width: 40, height: 40, borderRadius: '50%', padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Icon name="send" size={15} />
+                </button>
+              </HapticTap>
             )}
           </div>
         )}
