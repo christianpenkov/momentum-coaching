@@ -72,10 +72,12 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
         </div>
         {/* Masqué tant que Stripe n'est pas connecté : proposer une action
             impossible fait perdre le temps de remplir un formulaire pour rien. */}
+        {/* Libellé court sur mobile : en toutes lettres, le bouton mange la
+            moitié de la largeur d'écran et écrase le titre de page. */}
         {data?.stripeConnected !== false && (
-          <button className="btn-primary-brand" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          <button className="btn-primary-brand" style={{ fontSize: 12, display: 'inline-flex', alignItems: 'center', gap: 6, flexShrink: 0 }}
             onClick={() => setCreating(true)}>
-            <Icon name="plus" size={13} /> Créer un lien de paiement
+            <Icon name="plus" size={13} /> {isMobile ? 'Lien' : 'Créer un lien de paiement'}
           </button>
         )}
       </div>
@@ -141,10 +143,19 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
                   borderRadius: 999, padding: '6px 13px', fontSize: 12.5, cursor: 'pointer', fontFamily: 'inherit',
                 }}>{label}</button>
             ))}
-            <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--surface)' }}>
+            {/* Desktop : poussée à droite de la rangée de filtres. Mobile : elle
+                passe à la ligne, où `marginLeft: auto` la laissait décalée à
+                droite sur une largeur fixe de 180px au lieu de prendre la
+                largeur disponible. */}
+            <span style={{
+              marginLeft: isMobile ? 0 : 'auto',
+              width: isMobile ? '100%' : undefined,
+              display: 'flex', alignItems: 'center', gap: 8,
+              border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px', background: 'var(--surface)',
+            }}>
               <Icon name="search" size={15} color="var(--faint)" />
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher une personne…"
-                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, color: 'var(--ink)', fontFamily: 'inherit', width: 180 }} />
+                style={{ border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, color: 'var(--ink)', fontFamily: 'inherit', width: isMobile ? '100%' : 180, minWidth: 0 }} />
             </span>
           </div>
 
@@ -270,7 +281,9 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
       </td>
       <td>
         <span style={{ display: 'block', height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden', minWidth: 90 }}>
-          <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: st.barColor }} />
+          {pct > 0 && (
+            <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: st.barColor }} />
+          )}
         </span>
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>{progressLabel(d)}</span>
       </td>
@@ -316,6 +329,9 @@ function DealCards({ rows, onOpen }: { rows: DealRow[]; onOpen: (id: string) => 
             style={{
               padding: '14px 16px', textAlign: 'left', border: '1px solid var(--border)',
               cursor: 'pointer', fontFamily: 'inherit', width: '100%', display: 'block',
+              // Sans couleur explicite, Safari iOS applique le bleu `buttontext`
+              // par défaut à tout le contenu de la carte (nom, montants, barre).
+              color: 'var(--ink)',
             }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 10 }}>
               <Avatar initials={getInitials(d.buyerName)} avatarUrl={d.avatarUrl} size={32} seed={d.id} />
@@ -329,15 +345,22 @@ function DealCards({ rows, onOpen }: { rows: DealRow[]; onOpen: (id: string) => 
             </div>
 
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 9 }}>
-              <span className="tabular" style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.4px' }}>
-                {d.collected > 0 ? fmtEur(d.collected) : '—'}
+              {/* Toujours un montant chiffré, jamais un tiret : « 0 € / 2 100 € »
+                  se lit d'un coup d'œil comme « rien encaissé sur 2 100 »,
+                  alors qu'un « — » oblige à interpréter. */}
+              <span className="tabular" style={{ fontSize: 20, fontWeight: 700, letterSpacing: '-0.4px', color: d.collected > 0 ? 'var(--ink)' : 'var(--muted)' }}>
+                {fmtEur(d.collected)}
               </span>
               <span className="tabular" style={{ fontSize: 13, color: 'var(--muted)' }}>/ {fmtEur(d.amountTotal)}</span>
               <span style={{ marginLeft: 'auto', fontSize: 11.5, color: 'var(--muted)' }}>{progressLabel(d)}</span>
             </div>
 
             <span style={{ display: 'block', height: 4, borderRadius: 2, background: 'var(--surface-2)', overflow: 'hidden' }}>
-              <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: st.barColor }} />
+              {/* Rien de peint à 0 % : un `width: 0` laissait un reliquat visible
+                  de la largeur du border-radius, collé à gauche. */}
+              {pct > 0 && (
+                <span style={{ display: 'block', height: '100%', width: `${pct}%`, borderRadius: 2, background: st.barColor }} />
+              )}
             </span>
           </button>
         );
