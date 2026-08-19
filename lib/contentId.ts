@@ -11,6 +11,11 @@ const isUuid = (s: string | null | undefined): s is string =>
 
 // Un utm_content valide est un vrai identifiant de contenu (post IG, vidéo YT, ou
 // séquence story) — jamais un pseudo Instagram slugifié ou une autre valeur libre.
+//
+// ⚠️ Cette règle a une COPIE SQL dans la vue utm_anomalies (migration
+// 20260819150000). Toute évolution ici doit y être répercutée : la vue avait
+// oublié la branche UUID, et signalait donc à tort tout rendez-vous venu d'une
+// story (détecté par le test story du 2026-08-19).
 export const isValidContentId = (s: string | null | undefined): boolean =>
   isIgPostId(s) || isYtVideoId(s) || isUuid(s);
 
