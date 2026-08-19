@@ -1183,7 +1183,11 @@ export default function PageClientDetail({ id }: Props) {
               </div>
               <span className="pill pill-amber session-row-pill"><span className="dot" />Rapport à remplir</span>
               <div className="session-row-actions">
-                {entry.call.fathom_status === 'matched' && (
+                {/* Pas encore de rapport sur cette entrée : la seule chose que la
+                    modale peut montrer est le contenu Fathom. On teste donc le
+                    replay ET le résumé, qui peut exister avant que le statut passe
+                    à "matched" — sinon le bouton ouvrirait une modale vide. */}
+                {(entry.call.fathom_status === 'matched' || entry.call.fathom_share_url || entry.call.fathom_summary) && (
                   <button type="button" className="btn-ghost call-action-infos" onClick={() => setInfosModalCall(entry.call)}>
                     Infos
                   </button>
@@ -1215,7 +1219,12 @@ export default function PageClientDetail({ id }: Props) {
                 </span>
                 {topicLabel && <span className="session-row-topic">{topicLabel}</span>}
                 <div className="session-row-actions">
-                  {reportCall?.fathom_status === 'matched' && (
+                  {/* Même règle que la page Calls : Infos s'affiche dès qu'il y a
+                      QUELQUE CHOSE à lire, pas seulement un replay Fathom. Avant,
+                      sur 24 coachings de cet élève, seuls 2 avaient un replay —
+                      donc 22 lignes sans bouton, alors que 13 avaient un rapport
+                      rempli et 7 des notes, inaccessibles depuis la modale. */}
+                  {(reportCall?.fathom_status === 'matched' || report.attended !== null || report.topic || report.notes || report.student_notes) && (
                     <button type="button" onClick={() => setInfosModalReport(report)} className="btn-ghost call-action-infos">
                       Infos
                     </button>
