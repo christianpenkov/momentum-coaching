@@ -76,6 +76,107 @@ async function attemptShortioCreate(apiKey: string, payload: object): Promise<Re
   return res;
 }
 
+/**
+ * Crée le lien Short.io personnalisé d'un prospect (lead magnet).
+ *
+ * Appelée AU MOMENT DU CLIC sur le bouton du DM1, plus à la réception du
+ * commentaire. Raison : le lien n'est envoyé qu'en DM2, donc uniquement aux
+ * prospects qui ont cliqué — or seuls 30 à 50 % cliquent. Le créer à chaque
+ * commentaire gaspillait la moitié à deux tiers du quota Short.io (plafond
+ * d'automation : 1 000 liens/an en gratuit, 10 000/an en Pro — un seul post
+ * viral consommait l'année entière), et ajoutait un appel réseau au chemin
+ * critique du webhook, celui qui est contraint par les 30 s de Meta.
+ *
+ * Le tracking est inchangé : le lien reste unique par prospect, donc
+ * l'attribution par chemin (`short_url like %/path`) fonctionne à l'identique.
+ *
+ * Retourne `fallbackUrl` si quoi que ce soit échoue — jamais d'exception : un
+ * lien générique vaut mieux qu'un DM2 non envoyé.
+ */
+async function createProspectLmLink(params: {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any;
+  profileId: string;
+  lmUrl: string;
+  lmKeyword: string;
+  username: string;
+  mediaId: string | null;
+  fallbackUrl: string;
+  /** 'lm' pour un commentaire, 'lm-story' pour une réponse à story. */
+  pathPrefix?: 'lm' | 'lm-story';
+  /** utm_medium : 'dm' depuis un commentaire, 'story' depuis une séquence story. */
+  utmMedium?: 'dm' | 'story';
+  /** Titre du lien dans Short.io — distingue les deux origines à la lecture. */
+  titlePrefix?: string;
+}): Promise<string> {
+  const {
+    supabase, profileId, lmUrl, lmKeyword, username, mediaId, fallbackUrl,
+    pathPrefix = 'lm', utmMedium = 'dm', titlePrefix = 'LM',
+  } = params;
+
+  if (!lmUrl || !username) return fallbackUrl;
+
+  const cleanUsername = sanitizeInstagramUsername(username);
+  const cleanKeyword = lmKeyword.toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const lmPath = `${pathPrefix}-${cleanKeyword}-${cleanUsername}`;
+
+  try {
+    const { data: shortioInteg } = await supabase
+      .from('integrations')
+      .select('api_key, metadata')
+      .eq('profile_id', profileId)
+      .eq('provider', 'shortio')
+      .single();
+
+    const apiKey = shortioInteg?.api_key;
+    const domain = shortioInteg?.metadata?.domain;
+    const domainId = shortioInteg?.metadata?.domain_id;
+    if (!apiKey || !domain || !domainId) return fallbackUrl;
+
+    // Nomenclature UTM : un rôle par champ, voir docs/utm-nomenclature.md.
+    // utm_content porte l'identifiant du CONTENU d'origine, jamais le pseudo :
+    // c'est ce que « Performance par contenu » compare à l'id du post pour
+    // rattacher le call. Le prospect va dans utm_term, son champ dédié.
+    const destUrl = new URL(lmUrl);
+    destUrl.searchParams.set('utm_source', 'ig');
+    destUrl.searchParams.set('utm_medium', utmMedium);
+    destUrl.searchParams.set('utm_campaign', `${pathPrefix}-${cleanKeyword}`);
+    if (mediaId) destUrl.searchParams.set('utm_content', mediaId);
+    destUrl.searchParams.set('utm_term', cleanUsername);
+
+    const res = await attemptShortioCreate(apiKey, {
+      domain,
+      originalURL: destUrl.toString(),
+      title: `${titlePrefix} — ${username}`,
+      path: lmPath,
+    });
+
+    if (res.status === 409) {
+      // Lien déjà existant pour ce prospect (re-clic, ou lien créé par l'ancien
+      // comportement) → récupérer l'URL existante plutôt qu'échouer.
+      const existingRes = await fetch(
+        `https://api.short.io/api/links?domain_id=${domainId}&limit=150`,
+        { headers: { authorization: apiKey, accept: 'application/json' } }
+      );
+      const existingData = await existingRes.json().catch(() => ({}));
+      const existing = (existingData?.links || []).find((l: { path?: string }) => l.path === lmPath);
+      if (existing) return existing.secureShortURL || existing.shortURL || fallbackUrl;
+      return fallbackUrl;
+    }
+
+    if (res.ok) {
+      const data = await res.json().catch(() => ({}));
+      return data.secureShortURL || data.shortURL || fallbackUrl;
+    }
+
+    console.warn('[IG Webhook] Short.io lien LM échoué, fallback générique, status:', res.status);
+    return fallbackUrl;
+  } catch (err) {
+    console.warn('[IG Webhook] Short.io lien LM exception, fallback générique:', err);
+    return fallbackUrl;
+  }
+}
+
 // Détecte un Cold DM générique (echo sans lien Calendly connu) : premier message
 // manuel envoyé par Chris depuis l'app Instagram à quelqu'un qui vient de le suivre.
 // Deux filtres avant de créer une fiche, dans l'ordre (rapide → lent) :
@@ -416,7 +517,7 @@ export async function POST(request: Request) {
       if (quickReplyPayload === 'LM_LINK_CLICKED' && senderId) {
         const { data: leadForDm2 } = await serviceSupabase
           .from('instagram_leads')
-          .select('id, ig_username, pending_dm2, pending_dm3')
+          .select('id, ig_username, pending_dm2, pending_dm3, keyword_matched, pending_lm_content_id, pending_lm_media_id')
           .eq('profile_id', pid)
           .eq('ig_user_id', senderId)
           .eq('lead_magnet_sent', true)
@@ -440,8 +541,80 @@ export async function POST(request: Request) {
             }
           ).then(r => r.json());
 
-          if (leadForDm2.pending_dm2) {
-            const dm2Data = await sendDm(leadForDm2.pending_dm2);
+          // DM2 sous forme de TEMPLATE avec bouton web_url : le prospect voit un
+          // libellé (« 📖 Accéder au guide »), jamais l'URL. Possible ici et pas en
+          // DM1 parce que le clic sur le postback du DM1 a déjà ouvert la fenêtre
+          // de 24 h — Meta documente que les clics hors plateforme (web_url) ne
+          // l'ouvrent PAS, d'où le postback obligatoire en DM1.
+          const sendDmWithButton = (url: string, text: string, label: string) => fetch(
+            `https://graph.instagram.com/v21.0/${canonicalIgAccountId ?? igAccountId}/messages`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                recipient: { id: senderId },
+                messaging_type: 'RESPONSE',
+                message: {
+                  attachment: {
+                    type: 'template',
+                    payload: {
+                      template_type: 'generic',
+                      elements: [{
+                        title: text.slice(0, 80),
+                        buttons: [{ type: 'web_url', url, title: label.slice(0, 20) }],
+                      }],
+                    },
+                  },
+                },
+                access_token: at,
+              }),
+            }
+          ).then(r => r.json());
+
+          // Création du lien Short.io personnalisé — MAINTENANT, pas au commentaire.
+          // Seuls les prospects qui cliquent en consomment un (voir
+          // createProspectLmLink pour le détail du quota).
+          let lmLink: string | null = leadForDm2.pending_dm2 || null;
+          // Libellé du bouton : repris de dm_button_text (celui déjà configuré par
+          // contenu dans PageLiens) pour rester cohérent avec le bouton du DM1.
+          let lmButtonLabel = '📖 Accéder au lien';
+          if (leadForDm2.pending_lm_content_id && leadForDm2.keyword_matched && leadForDm2.ig_username) {
+            const { data: clForLink } = await serviceSupabase
+              .from('content_links')
+              .select('lm_url, lm_short_url, lm_keyword, dm_button_text')
+              .eq('profile_id', pid)
+              .eq('content_id', leadForDm2.pending_lm_content_id)
+              .eq('lm_keyword', leadForDm2.keyword_matched)
+              .maybeSingle();
+
+            if (clForLink?.dm_button_text) lmButtonLabel = clForLink.dm_button_text;
+
+            if (clForLink?.lm_url) {
+              lmLink = await createProspectLmLink({
+                supabase: serviceSupabase,
+                profileId: pid,
+                lmUrl: clForLink.lm_url,
+                lmKeyword: clForLink.lm_keyword,
+                username: leadForDm2.ig_username,
+                mediaId: leadForDm2.pending_lm_media_id ?? null,
+                // Repli : le lien générique du contenu, puis ce qui avait été stocké.
+                fallbackUrl: clForLink.lm_short_url || leadForDm2.pending_dm2 || '',
+              });
+              // Le lien effectivement envoyé devient la valeur de référence du lead.
+              if (lmLink) {
+                await serviceSupabase.from('instagram_leads')
+                  .update({ tracking_link: lmLink })
+                  .eq('id', leadForDm2.id);
+              }
+            }
+          }
+
+          if (lmLink) {
+            const dm2Data = await sendDmWithButton(
+              lmLink,
+              'Voici ton lien 👇',
+              lmButtonLabel
+            );
             if (dm2Data.error) {
               console.error('[IG Webhook] Erreur DM2 (lien) après clic QR:', dm2Data.error);
               pushEvent({ type: 'dm2_error', error: dm2Data.error });
@@ -520,49 +693,29 @@ export async function POST(request: Request) {
               } catch { /* non bloquant — username restera vide si l'appel échoue */ }
             }
 
-            // Génère un lien Short.io perso (lead × séquence × keyword) — même logique
-            // que le flux commentaires (attemptShortioCreate + fallback 409)
+            // Lien Short.io perso (lead × séquence × keyword) — via la fonction
+            // partagée avec le flux commentaires.
+            //
+            // Contrairement aux commentaires, la création n'est PAS reportée ici :
+            // le prospect a déjà écrit (c'est lui qui répond à la story), donc il
+            // est engagé et le lien part immédiatement dans le DM1. Il n'y a pas
+            // d'étape de clic intermédiaire où la différer.
             let shortLink = seq.lm_url || null;
             if (seq.lm_url && senderUsername) {
-              const cleanUsername = sanitizeInstagramUsername(senderUsername);
-              const lmPath = `lm-story-${seq.lm_keyword.toLowerCase().replace(/[^a-z0-9-]/g, '')}-${cleanUsername}`;
-              try {
-                const { data: shortioInteg } = await serviceSupabase
-                  .from('integrations')
-                  .select('api_key, metadata')
-                  .eq('profile_id', pid)
-                  .eq('provider', 'shortio')
-                  .single();
-
-                if (shortioInteg?.api_key && shortioInteg?.metadata?.domain && shortioInteg?.metadata?.domain_id) {
-                  const apiKey = shortioInteg.api_key;
-                  const domainId = shortioInteg.metadata.domain_id;
-                  // Nomenclature : un rôle par champ, voir docs/utm-nomenclature.md.
-                  // utm_content porte l'identifiant du contenu d'origine — ici la
-                  // séquence story, comme le fait déjà le lien Calendly de séquence
-                  // (story-sequences/route.ts). Le prospect va dans utm_term.
-                  const destUrl = new URL(seq.lm_url);
-                  destUrl.searchParams.set('utm_source', 'ig');
-                  destUrl.searchParams.set('utm_medium', 'story');
-                  destUrl.searchParams.set('utm_campaign', `lm-story-${seq.lm_keyword.toLowerCase()}`);
-                  if (seq.id) destUrl.searchParams.set('utm_content', String(seq.id));
-                  destUrl.searchParams.set('utm_term', cleanUsername);
-
-                  const res = await attemptShortioCreate(apiKey, { domain: shortioInteg.metadata.domain, originalURL: destUrl.toString(), title: `LM Story — ${senderUsername}`, path: lmPath });
-
-                  if (res.status === 409) {
-                    const existingRes = await fetch(`https://api.short.io/api/links?domain_id=${domainId}&limit=150`, { headers: { authorization: apiKey, accept: 'application/json' } });
-                    const existingData = await existingRes.json().catch(() => ({}));
-                    const existing = (existingData?.links || []).find((l: any) => l.path === lmPath);
-                    if (existing) shortLink = existing.secureShortURL || existing.shortURL || shortLink;
-                  } else if (res.ok) {
-                    const data = await res.json().catch(() => ({}));
-                    if (data.secureShortURL || data.shortURL) shortLink = data.secureShortURL || data.shortURL;
-                  }
-                }
-              } catch (err) {
-                console.warn('[IG Webhook] Short.io lien LM story personnalisé exception, fallback lm_url:', err);
-              }
+              shortLink = await createProspectLmLink({
+                supabase: serviceSupabase,
+                profileId: pid,
+                lmUrl: seq.lm_url,
+                lmKeyword: seq.lm_keyword,
+                username: senderUsername,
+                // utm_content = la séquence story (et non un post), comme le fait
+                // déjà le lien Calendly de séquence (story-sequences/route.ts).
+                mediaId: seq.id ? String(seq.id) : null,
+                fallbackUrl: seq.lm_url,
+                pathPrefix: 'lm-story',
+                utmMedium: 'story',
+                titlePrefix: 'LM Story',
+              });
             }
 
             const dm1Text = (seq.dm1_message || '')
@@ -846,59 +999,20 @@ export async function POST(request: Request) {
 
       let leadMagnetSent = false;
 
-      // Génère un lien Short.io unique par (lead × post × keyword) si lm_url est disponible
-      let shortLink = cl.lm_short_url;
-      if (cl.lm_url && commenterUsername) {
-        const cleanUsername = sanitizeInstagramUsername(commenterUsername);
-        const lmPath = `lm-${cl.lm_keyword.toLowerCase().replace(/[^a-z0-9-]/g, '')}-${cleanUsername}`;
-        try {
-          // Appel direct Short.io — pas de fetch HTTP interne pour éviter les problèmes d'URL en prod
-          const { data: shortioInteg } = await serviceSupabase
-            .from('integrations')
-            .select('api_key, metadata')
-            .eq('profile_id', profile_id)
-            .eq('provider', 'shortio')
-            .single();
-
-          if (shortioInteg?.api_key && shortioInteg?.metadata?.domain && shortioInteg?.metadata?.domain_id) {
-            const apiKey = shortioInteg.api_key;
-            const domain = shortioInteg.metadata.domain;
-            const domainId = shortioInteg.metadata.domain_id;
-
-            // Construit l'URL avec UTMs — nomenclature : un rôle par champ, voir
-            // docs/utm-nomenclature.md. utm_content porte l'identifiant du CONTENU
-            // d'origine (ici le post commenté), jamais le pseudo : c'est ce que
-            // « Performance par contenu » compare à l'id du post pour rattacher le call.
-            // Le prospect va dans utm_term, son champ dédié.
-            const destUrl = new URL(cl.lm_url);
-            destUrl.searchParams.set('utm_source', 'ig');
-            destUrl.searchParams.set('utm_medium', 'dm');
-            destUrl.searchParams.set('utm_campaign', `lm-${cl.lm_keyword.toLowerCase()}`);
-            if (mediaId) destUrl.searchParams.set('utm_content', mediaId);
-            destUrl.searchParams.set('utm_term', cleanUsername);
-
-            const res = await attemptShortioCreate(apiKey, { domain, originalURL: destUrl.toString(), title: `LM — ${commenterUsername}`, path: lmPath });
-
-            if (res.status === 409) {
-              // Lien déjà existant pour ce lead → récupérer l'URL existante
-              const existingRes = await fetch(
-                `https://api.short.io/api/links?domain_id=${domainId}&limit=150`,
-                { headers: { authorization: apiKey, accept: 'application/json' } }
-              );
-              const existingData = await existingRes.json().catch(() => ({}));
-              const existing = (existingData?.links || []).find((l: any) => l.path === lmPath);
-              if (existing) shortLink = existing.secureShortURL || existing.shortURL || shortLink;
-            } else if (res.ok) {
-              const data = await res.json().catch(() => ({}));
-              if (data.secureShortURL || data.shortURL) shortLink = data.secureShortURL || data.shortURL;
-            } else {
-              console.warn('[IG Webhook] Short.io lien LM personnalisé échoué, fallback lm_short_url, status:', res.status);
-            }
-          }
-        } catch (err) {
-          console.warn('[IG Webhook] Short.io lien LM personnalisé exception, fallback lm_short_url:', err);
-        }
-      }
+      // Le lien Short.io personnalisé n'est PLUS créé ici.
+      //
+      // Il n'est envoyé qu'en DM2, c'est-à-dire uniquement aux prospects qui ont
+      // cliqué sur le bouton du DM1 — or seuls 30 à 50 % cliquent. Le créer dès le
+      // commentaire gaspillait la moitié à deux tiers du quota Short.io (plafond
+      // d'automation : 1 000 liens/an en gratuit, 10 000/an en Pro — un seul post
+      // viral consommait l'année entière) et ajoutait un appel réseau au chemin
+      // critique du webhook, celui qui doit répondre à Meta en moins de 30 s sous
+      // peine de désabonnement.
+      //
+      // La création est reportée au clic (bloc LM_LINK_CLICKED, voir
+      // createProspectLmLink). `shortLink` reste le lien générique : il sert de
+      // repli si la création échoue, et de valeur affichée en attendant le clic.
+      const shortLink = cl.lm_short_url;
 
       // DM1 : accroche SANS le lien — on retire {{lien_lm}} et on nettoie les espaces doubles
       const rawDm1 = cl.dm_lm_message || `👋 Clique sur le bouton pour recevoir le lien !`;
@@ -998,6 +1112,12 @@ export async function POST(request: Request) {
           tracking_link: shortLink || null,
           pending_dm2: dm2Text || null,
           pending_dm3: dm3Text || null,
+          // Conservés pour créer le lien Short.io personnalisé AU CLIC du DM1
+          // (voir createProspectLmLink). content_id retrouve la bonne ligne
+          // content_links ; media_id alimente utm_content et doit être figé
+          // maintenant — au moment du clic, on ne saurait plus d'où vient le lead.
+          pending_lm_content_id: mediaId,
+          pending_lm_media_id: mediaId,
           ig_account_id: canonicalIgAccountId,
         }, { onConflict: 'profile_id,ig_user_id', ignoreDuplicates: false })
         .select('id')
