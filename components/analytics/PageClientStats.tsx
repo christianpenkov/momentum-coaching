@@ -2665,8 +2665,12 @@ function TabFunnel({ msgs, calls, stripe, ig, yt, shortio, period, periodIndex, 
                         if (isFutureDayFunnel(date)) return { date, v: null as any };
                         const dayStart = new Date(date).getTime();
                         const dayEnd = dayStart + 86400000;
+                        // Même date que la fenêtre qui alimente `subset` (callPeriodDate,
+                        // donc booked_at) : découper le graphique sur scheduled_at
+                        // alors que le total filtre sur booked_at ferait sortir de la
+                        // courbe un call pourtant compté dans le total.
                         const daySubset = subset.filter(c => {
-                          const t = new Date(c.scheduled_at).getTime();
+                          const t = new Date(callPeriodDate(c)).getTime();
                           return t >= dayStart && t < dayEnd;
                         });
                         let v = 0;
@@ -3173,7 +3177,10 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       const iso = parisDateStr(d);
       if (iso > todayStr) break; // plafonne à aujourd'hui, comme avant (pas de jours futurs à 0€)
       const ca = succeeded.filter(p => p.date.startsWith(iso)).reduce((s, p) => s + p.amount, 0);
-      const contracte = dealsClosed.filter(c => c.scheduled_at.startsWith(iso)).reduce((s, c) => s + (c.revenue || 0), 0);
+      // Même date que callsInPeriod, qui alimente dealsClosed (callPeriodDate, donc
+      // booked_at) : sans ça, la somme des barres du graphique ne vaudrait plus le
+      // total « Cash contracté » affiché au-dessus.
+      const contracte = dealsClosed.filter(c => callPeriodDate(c).startsWith(iso)).reduce((s, c) => s + (c.revenue || 0), 0);
       rows.push({ date: iso, ca, contracte });
       d = parisAddDays(d, 1);
     }
