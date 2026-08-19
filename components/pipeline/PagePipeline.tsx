@@ -1427,15 +1427,20 @@ export default function PagePipeline() {
     }
   }
 
-  // ── Calls IG description / bio (sans ig_lead_id) ────────────────────────────
-  // Ces calls viennent d'un clic sur un lien Short.io en description de post IG ou en bio IG.
-  // Ils n'ont pas de lead DM mais apparaissent dans l'onglet IG directement en call_booked.
+  // ── Calls depuis un lien Instagram, sans lead DM (sans ig_lead_id) ──────────
+  // Ces calls viennent d'un clic sur un lien Short.io posé en description de post,
+  // en bio ou dans une story. Ils n'ont pas de lead DM mais apparaissent dans
+  // l'onglet IG directement en call_booked.
   if (data) {
     const igLinkCalls = data.calls.filter(c => {
       if (c.ig_lead_id) return false;
       if (c.lead_deleted) return false;
       const src = c.source?.toLowerCase() ?? '';
-      return src === 'ig_description' || src === 'ig_bio';
+      // Toute source Instagram, pas une liste figée : `ig_story` manquait ici
+      // (le canal story est postérieur à ce code), donc un rendez-vous venu
+      // d'une story tombait dans l'onglet « Autres » — constaté le 2026-08-19.
+      // Le préfixe couvre aussi ig_dm, dans le cas d'un call sans lead rattaché.
+      return src.startsWith('ig_');
     });
 
     // Regroupement des reprogrammations — même principe que pour les cartes
@@ -1502,7 +1507,13 @@ export default function PagePipeline() {
       const stageKey = resolveStage(natural, override?.stage, IG_STAGES);
       const stageIdx = IG_STAGES.findIndex(s => s.key === stageKey);
 
-      const srcLabel = call.source === 'ig_description' ? 'Lien description' : 'Lien bio';
+      // Libellé par canal. Le repli sur « Lien bio » ne vaut que pour ig_bio :
+      // avant, tout ce qui n'était pas ig_description héritait de ce libellé,
+      // donc une story se serait affichée « Lien bio ».
+      const srcLabel = call.source === 'ig_description' ? 'Lien description'
+        : call.source === 'ig_story' ? 'Story'
+        : call.source === 'ig_dm' ? 'DM'
+        : 'Lien bio';
 
       igCards.push({
         key: cardKey,

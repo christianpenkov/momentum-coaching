@@ -5272,7 +5272,11 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedA
         style={{ background: 'none', border: 'none', cursor: (sinceConnection || periodIndex >= maxIndex) ? 'default' : 'pointer', fontSize: 20, color: (sinceConnection || periodIndex >= maxIndex) ? 'var(--faint)' : 'var(--ink)', padding: '0 4px', lineHeight: 1 }}>‹</button>
       <div style={{ textAlign: 'center', minWidth: 120 }}>
         <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--ink)', whiteSpace: 'nowrap' }}>
-          {sinceConnection ? 'Depuis connexion' : (periodIndex === 0 ? 'Période actuelle' : `${period === 7 ? 'S' : 'M'}−${periodIndex}`)}
+          {/* « All-Time » plutôt que « Depuis connexion » : le nom du mode côté
+              utilisateur. La fenêtre reste techniquement [connectedAt, aujourd'hui]
+              — c'est bien tout l'historique disponible, la connexion étant le
+              premier jour où des données existent. */}
+          {sinceConnection ? 'All-Time' : (periodIndex === 0 ? 'Période actuelle' : `${period === 7 ? 'S' : 'M'}−${periodIndex}`)}
         </div>
         <div style={{ fontSize: 10, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{sinceConnection ? (connectedAt ? `depuis le ${new Date(connectedAt).toLocaleDateString('fr-FR')}` : '') : periodLabel(period, periodIndex)}</div>
       </div>
@@ -5300,7 +5304,7 @@ function PeriodPill({ period, setPeriod, periodIndex, setPeriodIndex, connectedA
               background: sinceConnection ? 'var(--ink)' : 'transparent',
               color: !connectedAt ? 'var(--faint)' : (sinceConnection ? 'var(--surface)' : 'var(--muted)'),
               transition: 'all .15s', whiteSpace: 'nowrap',
-            }}>Depuis connexion</button>
+            }}>All-Time</button>
         )}
       </div>
     </div>
