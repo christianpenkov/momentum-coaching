@@ -290,7 +290,44 @@ export function resolveProspectContext(
       const callId = cardKey.slice('ig_link_'.length);
       const call = data.calls.find(c => c.id === callId);
       if (!call) return null;
-      return { platform, cardKey, lead: null, prospect: null, calls: [call], events: [], lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta, storySequenceByMediaId: data.storySequenceByMediaId };
+
+      // TOUTE la chaîne de reprogrammations, pas seulement le call de la carte :
+      // sinon la timeline n'affiche que le dernier rendez-vous et l'historique
+      // des reports disparaît (« Call booké » puis « Call annulé », sans les
+      // étapes intermédiaires).
+      //
+      // On remonte d'abord vers l'amont (qui pointe sur moi ?) puis on redescend
+      // vers l'aval (sur qui je pointe ?), pour reconstituer la chaîne complète
+      // quel que soit le maillon d'entrée.
+      const uuidToCall = new Map<string, typeof call>();
+      const predecessorOf = new Map<string, typeof call>();
+      for (const c of data.calls) {
+        if (c.calendly_event_uuid) uuidToCall.set(c.calendly_event_uuid, c);
+      }
+      for (const c of data.calls) {
+        if (!c.next_rescheduled_uri) continue;
+        const nextUuid = c.next_rescheduled_uri.split('/scheduled_events/')[1]?.split('/')[0];
+        if (nextUuid) {
+          const target = uuidToCall.get(nextUuid);
+          if (target) predecessorOf.set(target.id, c);
+        }
+      }
+
+      const chain: typeof data.calls = [call];
+      const seen = new Set<string>([call.id]);
+      // Amont
+      let cur: typeof call | undefined = predecessorOf.get(call.id);
+      while (cur && !seen.has(cur.id)) { chain.unshift(cur); seen.add(cur.id); cur = predecessorOf.get(cur.id); }
+      // Aval
+      cur = call;
+      for (;;) {
+        const nextUuid = cur?.next_rescheduled_uri?.split('/scheduled_events/')[1]?.split('/')[0];
+        const next = nextUuid ? uuidToCall.get(nextUuid) : undefined;
+        if (!next || seen.has(next.id)) break;
+        chain.push(next); seen.add(next.id); cur = next;
+      }
+
+      return { platform, cardKey, lead: null, prospect: null, calls: chain, events: [], lmHistory: [], ytVideoTitles: data.ytVideoTitles, igPostMeta: data.igPostMeta, storySequenceByMediaId: data.storySequenceByMediaId };
     }
 
     const username = cardKey.toLowerCase();

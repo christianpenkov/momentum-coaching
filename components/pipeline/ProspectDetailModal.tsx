@@ -176,13 +176,21 @@ function buildProspectTimeline(ctx: ProspectContext): TimelineEvent[] {
         source: 'derived',
         label: 'No-show',
       });
-    } else if (call.rescheduled) {
+      // `next_rescheduled_uri` en plus de `rescheduled` : ce dernier n'est pas
+      // renseigné par le sync Calendly (constaté à false sur des calls pourtant
+      // reportés), donc un report était affiché comme une simple annulation et
+      // toute la chaîne de reprogrammations disparaissait de l'historique.
+      // next_rescheduled_uri, lui, porte l'URL du call qui remplace celui-ci.
+    } else if (call.rescheduled || call.next_rescheduled_uri) {
       events.push({
         id: `${call.id}-rescheduled`,
         type: 'rescheduled',
         occurredAt: call.rescheduled_at ?? call.scheduled_at ?? call.created_at,
         source: 'derived',
         label: 'Call reporté',
+        detail: call.scheduled_at
+          ? `Était prévu le ${new Date(call.scheduled_at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })}`
+          : undefined,
       });
     } else if (['canceled', 'cancelled'].includes(call.status ?? '')) {
       events.push({
