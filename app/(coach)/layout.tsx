@@ -7,6 +7,7 @@ import BottomNavCoach from '@/components/layout/BottomNavCoach';
 import CoachMoreSheet from '@/components/layout/CoachMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
 import SplashHold from '@/components/ui/SplashHold';
+import PullToRefresh from '@/components/ui/PullToRefresh';
 import { UserProvider, useUser } from '@/lib/UserContext';
 import { SupabaseClientsProvider, useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { GlobalPresenceCoachProvider } from '@/lib/GlobalPresenceContext';
@@ -26,7 +27,7 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
   // Les donnees de la page, pas seulement la session : sans ca l'ecran de
   // lancement partait des la session resolue et laissait apparaitre le loader
   // de la page pendant que ses donnees chargeaient encore.
-  const { loading: dataLoading } = useSupabaseClients();
+  const { loading: dataLoading, refetch } = useSupabaseClients();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
@@ -41,6 +42,9 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
         <div className="app-body-pwa">
           <Sidebar />
           <main className="main-content">
+            {/* Geste attendu par reflexe sur mobile : la seule facon de recharger
+                etait de fermer et rouvrir l'app. */}
+            <PullToRefresh onRefresh={refetch} />
             <PageTransition>{children}</PageTransition>
           </main>
         </div>

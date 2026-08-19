@@ -2974,11 +2974,16 @@ a { color: inherit; text-decoration: none; }
    entame son fondu : on aperçoit alors une fraction de seconde de spinner
    entre le logo et le contenu. Le body porte le marqueur pendant toute la
    durée d'affichage de l'écran (voir SplashHold). */
-body[data-splash='1'] .dot-wave {
+html[data-splash='1'] .dot-wave {
   visibility: hidden;
 }
 
 #app-splash img {
+  /* Remonte le logo de la moitié de l'écart écran/fenêtre, calculé au chargement
+     dans app/layout.tsx. Le logo tombe alors au même endroit que celui du splash
+     système, quel que soit le modèle. Vaut 0 par défaut : sur les appareils sans
+     décalage (desktop, Android en plein écran), rien ne bouge. */
+  transform: translateY(calc(var(--splash-logo-shift, 0px) * -1));
   animation: splash-logo-in 380ms ease-out both;
 }
 @keyframes splash-logo-in {
