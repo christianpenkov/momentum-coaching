@@ -89,8 +89,16 @@ export async function POST(request: NextRequest) {
     let inheritedIgLeadId: string | null = null;
     let inheritedProspectLinkId: string | null = null;
     let inheritedSource: string | null = null;
+    // utm_medium hérite comme source. Sans ça, un rendez-vous reprogrammé gardait la
+    // source du premier contact (« vient de la description ») mais recevait le canal du
+    // nouveau clic (« dm ») : les deux champs décrivaient deux moments différents, d'où
+    // 9 calls contradictoires en base. Décision : créditer le PREMIER contact, c'est le
+    // contenu qui a créé l'opportunité, le DM n'a servi qu'à replanifier un rendez-vous
+    // déjà acquis. Voir docs/utm-nomenclature.md.
+    let inheritedUtmMedium: string | null = null;
     let inheritedUtmCampaign: string | null = null;
     let inheritedUtmContent: string | null = null;
+    let inheritedUtmTerm: string | null = null;
     let inheritedCoachId: string | null = null;
 
     if (oldInviteeUrl) {
@@ -98,15 +106,17 @@ export async function POST(request: NextRequest) {
       if (oldEventUuid) {
         const { data: oldCall } = await serviceSupabase
           .from('calls')
-          .select('id, ig_lead_id, prospect_link_id, source, utm_campaign, utm_content, coach_id')
+          .select('id, ig_lead_id, prospect_link_id, source, utm_medium, utm_campaign, utm_content, utm_term, coach_id')
           .eq('calendly_event_uuid', oldEventUuid)
           .maybeSingle();
         if (oldCall) {
           inheritedIgLeadId = oldCall.ig_lead_id ?? null;
           inheritedProspectLinkId = oldCall.prospect_link_id ?? null;
           inheritedSource = oldCall.source ?? null;
+          inheritedUtmMedium = oldCall.utm_medium ?? null;
           inheritedUtmCampaign = oldCall.utm_campaign ?? null;
           inheritedUtmContent = oldCall.utm_content ?? null;
+          inheritedUtmTerm = oldCall.utm_term ?? null;
           inheritedCoachId = oldCall.coach_id ?? null;
           await serviceSupabase.from('calls').update({ status: 'canceled' }).eq('id', oldCall.id);
         }
@@ -202,7 +212,13 @@ export async function POST(request: NextRequest) {
     }
 
     // Upsert prospect non-IG (YT / Autres) — crée ou retrouve la fiche prospect
-    const effectiveSource = source ?? inheritedSource ?? null;
+    //
+    // Sur une reprogrammation, l'attribution décrit le PREMIER contact : c'est le
+    // contenu d'origine qui a créé l'opportunité, le nouveau clic n'a servi qu'à
+    // replanifier. inheritedSource prime donc sur source, et utm_medium suit la même
+    // règle plus bas — sans quoi les deux champs décriraient deux moments différents,
+    // ce qui a produit 9 calls contradictoires en base. Voir docs/utm-nomenclature.md.
+    const effectiveSource = inheritedSource ?? source ?? null;
     const effectivePlatform: 'yt' | 'other' = effectiveSource?.toLowerCase().startsWith('yt') ? 'yt' : 'other';
     let prospectId: string | null = null;
     if (!igLeadId) {
@@ -234,10 +250,14 @@ export async function POST(request: NextRequest) {
       ready: 'pending',
       reminder_sent: false,
     };
+    // Les quatre champs d'attribution suivent la MÊME règle : sur une reprogrammation,
+    // la valeur héritée prime, pour qu'ils décrivent tous le premier contact et jamais un
+    // mélange de deux moments (voir le commentaire sur inheritedUtmMedium plus haut).
+    // Toute divergence entre ces lignes recrée des calls contradictoires.
     if (effectiveSource)                     baseUpsert.source = effectiveSource;
-    if (utmCampaign || inheritedUtmCampaign) baseUpsert.utm_campaign = utmCampaign ?? inheritedUtmCampaign;
-    if (utmMedium)                           baseUpsert.utm_medium = utmMedium;
-    if (utmTerm)                             baseUpsert.utm_term = utmTerm;
+    if (utmCampaign || inheritedUtmCampaign) baseUpsert.utm_campaign = inheritedUtmCampaign ?? utmCampaign;
+    if (utmMedium || inheritedUtmMedium)     baseUpsert.utm_medium = inheritedUtmMedium ?? utmMedium;
+    if (utmTerm || inheritedUtmTerm)         baseUpsert.utm_term = inheritedUtmTerm ?? utmTerm;
     const newUtmContent = utmContent ?? inheritedUtmContent;
     // Garde anti-écrasement : si la ligne existante a déjà un utm_content valide (vrai
     // ID de post/vidéo/séquence, ex: backfillé après le bug de PageLiens.tsx qui posait

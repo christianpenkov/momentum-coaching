@@ -136,18 +136,44 @@ contenant un pseudo que la comparaison ne pouvait pas satisfaire.
 
 ---
 
-## Ce qui reste à traiter
+## Reprogrammation : le premier contact fait foi
 
-**Contradiction `source` / `utm_medium` sur 9 rendez-vous.** Quand un rendez-vous est
-reprogrammé, le webhook Calendly fait hériter `source` de l'ancien mais reprend
-`utm_medium` du nouveau clic. Les deux champs décrivent alors deux moments différents :
-d'où vient le prospect, et par où il a replanifié.
+Quand un prospect reprogramme son rendez-vous, Calendly envoie un nouvel événement. Le
+webhook retrouve alors l'ancien rendez-vous et **hérite de toute son attribution**.
 
-Décision prise : **créditer le premier contact**. C'est le contenu qui a créé
-l'opportunité ; le DM n'a servi qu'à replanifier un rendez-vous déjà acquis. `utm_medium`
-doit donc hériter comme `source`. Correction du webhook et mise à jour des 9 rendez-vous
-existants à faire.
+Règle : c'est le contenu d'origine qui a créé l'opportunité ; le canal utilisé pour
+replanifier n'a rien généré. Un prospect venu d'un post et qui reprogramme via son lien
+DM reste crédité au post.
 
-**Valeurs hors nomenclature laissées en l'état** : `linkedin_post`, `test_bio`,
-`utm_medium = post`. Ce sont des essais manuels ou un canal non encore formalisé. Les
-réécrire inventerait une attribution qui n'a jamais existé.
+Les **quatre** champs d'attribution suivent la même règle, la valeur héritée primant sur
+celle du nouveau clic :
+
+```ts
+source       = inheritedSource       ?? source
+utm_campaign = inheritedUtmCampaign  ?? utmCampaign
+utm_medium   = inheritedUtmMedium    ?? utmMedium
+utm_term     = inheritedUtmTerm      ?? utmTerm
+```
+
+**Toute divergence entre ces quatre lignes recrée des rendez-vous contradictoires.**
+Auparavant seuls `source` et `utm_campaign` héritaient : `utm_medium` venait du nouveau
+clic, ce qui produisait 9 rendez-vous disant à la fois « vient de la description » et
+« canal = DM ». Corrigé le 2026-08-19, code et données.
+
+`utm_content` a sa propre garde anti-écrasement, plus stricte : un identifiant de contenu
+valide déjà en base n'est jamais remplacé.
+
+---
+
+## Ce qui reste, volontairement
+
+Deux rendez-vous du 25 mai portent des valeurs hors nomenclature : `source = test_bio` et
+`source = linkedin_post` avec `utm_medium = post`. Ce sont des essais manuels, sans
+contenu ni chiffre d'affaires.
+
+Ils sont laissés en l'état : les réécrire inventerait une attribution qui n'a jamais
+existé. La vue `utm_anomalies` les signale, ce qui est le comportement voulu — elle rend
+visible sans imposer.
+
+Si LinkedIn devient un canal réel, il suffira d'ajouter `linkedin` aux plateformes
+reconnues dans la vue et dans ce document.
