@@ -3068,6 +3068,14 @@ body[data-splash='1'] .dot-wave {
   to { opacity: 1; filter: blur(0); }
 }
 
+/* Morph d'avatar liste -> fiche client. Les deux avatars portent le même
+   `name` (client-avatar-<id>), React anime donc leur taille et leur position
+   de l'un vers l'autre : l'objet persiste à travers la navigation et dit
+   « c'est le même élève », au lieu de disparaître puis réapparaître.
+   Aucune règle CSS n'est nécessaire — React génère le groupe et l'anime tout
+   seul à partir du `name`. La durée par défaut convient : plus lent, le
+   déplacement se remarquerait au lieu de se ressentir. */
+
 /* Ancrage des chrome persistants (barre du haut, bottom nav, sidebar).
    Sans ça l'API capture la page entière et fait glisser TOUT le viewport,
    barres comprises : l'utilisateur perd son repère spatial et croit que

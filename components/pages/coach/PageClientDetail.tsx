@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, ViewTransition } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { AnimatePresence } from 'framer-motion';
 import Link from 'next/link';
@@ -641,7 +641,12 @@ export default function PageClientDetail({ id }: Props) {
       {/* Header */}
       <div className="page-header">
         <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
-          <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={48} seed={client.id} />
+          {/* Même `name` que l'avatar de la liste (PageToday) : l'élément
+              grandit et se déplace de la carte vers cet en-tête au lieu de
+              disparaître puis réapparaître. Voir globals.css pour la durée. */}
+          <ViewTransition name={`client-avatar-${client.id}`}>
+            <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={48} seed={client.id} />
+          </ViewTransition>
           <div>
             <h1 className="page-title" style={{ marginBottom: 4 }}>{client.name}</h1>
             <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>

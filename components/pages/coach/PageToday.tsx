@@ -1,7 +1,7 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, ViewTransition } from 'react';
 import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
@@ -454,7 +454,14 @@ export default function PageToday() {
               // change pas d'onglet. Voir globals.css.
               return (
                 <Link key={client.id} href={`/clients/${client.id}`} transitionTypes={['nav-forward']} className="today-client-card">
-                  <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={40} seed={client.id} />
+                  {/* Même `name` que l'avatar de la fiche client : React relie
+                      les deux et anime la taille et la position de l'un vers
+                      l'autre au lieu de les faire disparaître/réapparaître.
+                      L'objet persiste à travers la navigation, ce qui dit
+                      « c'est le même élève, on entre dans sa fiche ». */}
+                  <ViewTransition name={`client-avatar-${client.id}`}>
+                    <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={40} seed={client.id} />
+                  </ViewTransition>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>
