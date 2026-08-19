@@ -95,6 +95,7 @@ export default function SplashHold({ show = false, owner = false }: { show?: boo
     }
     if (seen) {
       el.setAttribute('data-done', '1');
+      document.body.removeAttribute('data-splash');
       return;
     }
 
@@ -113,6 +114,9 @@ export default function SplashHold({ show = false, owner = false }: { show?: boo
 
     const doneTimer = setTimeout(() => {
       el.setAttribute('data-done', '1');
+      // Les loaders de page redeviennent visibles seulement maintenant : entre
+      // le debut du fondu et ce point, l'ecran couvre encore la page.
+      document.body.removeAttribute('data-splash');
     }, wait + FADE_MS);
 
     return () => { clearTimeout(fadeTimer); clearTimeout(doneTimer); };

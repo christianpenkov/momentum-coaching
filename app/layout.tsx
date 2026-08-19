@@ -110,11 +110,55 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script
           dangerouslySetInnerHTML={{
             __html: `(function(){
+  // Marqueur posé avant React : masque les loaders de page tant que l'écran de
+  // lancement couvre l'écran (voir la règle body[data-splash] dans globals.css).
+  // Sans lui, on aperçoit une fraction de seconde de spinner quand la page rend
+  // son loader pendant que l'overlay entame son fondu.
+  document.body.setAttribute('data-splash', '1');
+
   var MAX_MS = 6000;
   setTimeout(function(){
     var el = document.getElementById('app-splash');
     if (el) el.setAttribute('data-force-hide', '1');
+    // Le marqueur part avec l'écran, sinon les loaders resteraient masqués
+    // pour toute la session si le JS applicatif n'a jamais démarré.
+    document.body.removeAttribute('data-splash');
   }, MAX_MS);
+
+  // Instrumentation temporaire du raccord splash système -> overlay.
+  // Il n'y a pas de console accessible en PWA installée : on écrit en base
+  // (webhook_debug_log), conformément à la méthode de debug du projet.
+  // À retirer une fois la géométrie comprise.
+  if (!localStorage.getItem('splash-debug')) return;
+  function measure(tag){
+    try {
+      var el = document.getElementById('app-splash');
+      var img = el && el.querySelector('img');
+      var r = img && img.getBoundingClientRect();
+      var cs = getComputedStyle(document.documentElement);
+      navigator.sendBeacon('/api/client-log', new Blob([JSON.stringify({
+        message: '[SPLASH] ' + tag,
+        data: {
+          t: Math.round(performance.now()),
+          standalone: window.matchMedia('(display-mode: standalone)').matches,
+          innerH: window.innerHeight,
+          screenH: window.screen.height,
+          availH: window.screen.availHeight,
+          outerH: window.outerHeight,
+          dpr: window.devicePixelRatio,
+          safeTop: cs.getPropertyValue('--probe-safe-top').trim(),
+          visualH: window.visualViewport ? Math.round(window.visualViewport.height) : null,
+          visualOffTop: window.visualViewport ? Math.round(window.visualViewport.offsetTop) : null,
+          logoTop: r ? Math.round(r.top) : null,
+          logoCenterY: r ? Math.round(r.top + r.height / 2) : null,
+          scrollY: Math.round(window.scrollY)
+        }
+      })], { type: 'application/json' }));
+    } catch (e) {}
+  }
+  measure('boot');
+  window.addEventListener('load', function(){ measure('load'); });
+  setTimeout(function(){ measure('t1000'); }, 1000);
 })();`,
           }}
         />

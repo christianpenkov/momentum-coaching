@@ -2930,6 +2930,22 @@ a { color: inherit; text-decoration: none; }
 
    Le fond, lui, est exactement la même couleur que le splash système : la
    surface ne présente donc aucune rupture, seul le logo se ré-affiche. */
+/* Sonde de mesure : expose la valeur réelle de safe-area-inset-top au JS
+   d'instrumentation (voir app/layout.tsx). Plusieurs rapports indiquent qu'elle
+   vaut 0px en portrait sur iPhone, ce qui rendrait toute compensation inopérante
+   — il faut le vérifier sur l'appareil plutôt que le supposer.
+   À retirer avec l'instrumentation. */
+:root { --probe-safe-top: env(safe-area-inset-top, 0px); }
+
+/* Tant que l'écran de lancement est là, aucun loader de page ne doit se voir.
+   Sans cette règle, la page peut rendre son loader pendant que l'overlay
+   entame son fondu : on aperçoit alors une fraction de seconde de spinner
+   entre le logo et le contenu. Le body porte le marqueur pendant toute la
+   durée d'affichage de l'écran (voir SplashHold). */
+body[data-splash='1'] .dot-wave {
+  visibility: hidden;
+}
+
 #app-splash img {
   animation: splash-logo-in 380ms ease-out both;
 }
