@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
-import Stripe from 'stripe';
 import { createClient } from '@/lib/supabase/server';
 import { createClient as createServiceClient } from '@supabase/supabase-js';
+import { getStripeAccess } from '@/lib/stripe-account';
 
 const serviceSupabase = createServiceClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -29,25 +29,24 @@ export async function GET(request: Request) {
     targetProfileId = profileId;
   }
 
-  // Lire les tokens avec le service role (permet au coach de lire les intégrations du client)
-  const { data: integration } = await serviceSupabase
-    .from('integrations')
-    .select('api_key')
-    .eq('profile_id', targetProfileId)
-    .eq('provider', 'stripe')
-    .single();
-
-  if (!integration?.api_key) {
+  // getStripeAccess résout les DEUX chemins de connexion : OAuth Connect
+  // (access_token + acct_xxx) et clé API restreinte. Cette route ne lisait que
+  // `api_key` et renvoyait no_key à tout compte branché en OAuth, alors que
+  // c'est le chemin nominal depuis l'ajout de Connect.
+  const access = await getStripeAccess(targetProfileId);
+  if (!access) {
     return NextResponse.json({ error: 'no_key' }, { status: 404 });
   }
 
   try {
-    const stripe = new Stripe(integration.api_key, { apiVersion: '2026-04-22.dahlia' });
+    const { stripe, opts } = access;
 
+    // `opts` porte le Stripe-Account en mode OAuth : sans lui, ces appels
+    // interrogeraient le compte de la plateforme au lieu de celui de l'élève.
     const [subscriptions, charges, balance] = await Promise.all([
-      stripe.subscriptions.list({ limit: 100, status: 'active', expand: ['data.items.data.price'] }),
-      stripe.charges.list({ limit: 50 }),
-      stripe.balance.retrieve(),
+      stripe.subscriptions.list({ limit: 100, status: 'active', expand: ['data.items.data.price'] }, opts),
+      stripe.charges.list({ limit: 50 }, opts),
+      stripe.balance.retrieve({}, opts),
     ]);
 
     let mrr = 0;

@@ -3116,12 +3116,13 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   if (!stripe) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
+      {/* La connexion se fait en un clic via Stripe Connect. La clé secrète
+          n'est plus le chemin nominal — elle ne sert que de repli aux comptes
+          Standard pilotés par une autre plateforme, qu'OAuth ne peut pas
+          atteindre. Détailler `sk_live_...` ici envoyait tout le monde vers
+          la procédure la plus laborieuse. */}
       <div style={{ fontSize: 12, color: 'var(--faint)', lineHeight: 1.8 }}>
-        Va dans <strong>Réglages → Stripe</strong>, entre ta clé secrète (<code>sk_live_...</code> ou <code>sk_test_...</code>)<br />
-        disponible sur{' '}
-        <a href="https://dashboard.stripe.com/apikeys" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>
-          dashboard.stripe.com/apikeys
-        </a>
+        Va dans <strong>Réglages → Stripe</strong> et clique sur <strong>Connecter</strong>.
       </div>
     </div>
   );
