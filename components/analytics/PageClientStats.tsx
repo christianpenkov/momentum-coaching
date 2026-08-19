@@ -5875,14 +5875,20 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   if (!user) return null;
   const targetId = profileId || user.id;
 
-  // Lire onboarding_completed_at (borne basse historique pour les calls de cette page)
-  // et integrations_ready_at (référence stable "toutes les intégrations obligatoires
-  // connectées pour la 1ère fois", utilisée pour les LEADS en mode Depuis connexion —
-  // voir docs/integrations-ready-at-vs-onboarding-completed-at.md. Un lead détecté sur
-  // Instagram avant que Calendly/une autre intégration soit connectée reste un vrai
-  // lead, il ne doit pas dépendre de la date de connexion d'une intégration précise).
-  const { data: clientRow } = await supabase.from('clients').select('onboarding_completed_at, integrations_ready_at').eq('profile_id', targetId).maybeSingle();
-  const onboardingFloor: string | null = clientRow?.onboarding_completed_at ?? null;
+  // integrations_ready_at : référence unique « depuis quand le pipeline Momentum de cet
+  // élève est opérationnel », posée par trigger quand les 7 intégrations obligatoires
+  // sont connectées pour la première fois. Sert ici aux CALLS, aux LEADS et à la fenêtre
+  // All-Time — les trois, pour que cette page compte le même périmètre que la fiche
+  // client coach et le pipeline.
+  //
+  // onboarding_completed_at (date du choix de mot de passe) n'est PLUS lu : la doc
+  // dédiée dit explicitement de ne jamais s'en servir comme filtre de date pour des
+  // calls ou des leads. Il servait pourtant de borne aux calls de cette page, ce qui
+  // produisait un périmètre différent de la fiche client coach.
+  //
+  // Voir docs/integrations-ready-at-vs-onboarding-completed-at.md — ce document décrit
+  // déjà le bug « deux écrans, deux chiffres » que cette page reproduisait encore.
+  const { data: clientRow } = await supabase.from('clients').select('integrations_ready_at').eq('profile_id', targetId).maybeSingle();
   const integrationsReadyAt: string | null = clientRow?.integrations_ready_at ?? null;
 
   // ── shortioChartHistory* (BUG RÉSOLU 2026-07-21, à relire avant de toucher à ce
@@ -6038,7 +6044,19 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
       .neq('ignored', true)
       .eq('call_type', 'calendly')
       .order('scheduled_at', { ascending: false });
-    return onboardingFloor ? q.gte('scheduled_at', onboardingFloor) : q;
+    // Même borne que la fiche client coach (app/api/coach/clients/[id]/sales-calls)
+    // et le pipeline : integrations_ready_at, filtré sur booked_at (date de RÉSERVATION)
+    // avec repli sur scheduled_at quand booked_at manque.
+    //
+    // Deux corrections d'un coup, toutes deux sources d'écarts entre écrans :
+    // - la référence était onboarding_completed_at (08/06 contre 09/06 sur le profil
+    //   de test) au lieu de integrations_ready_at ;
+    // - le filtre portait sur scheduled_at, donc un call RÉSERVÉ avant la mise en
+    //   route mais PLANIFIÉ après entrait ici et pas dans la fiche client.
+    // Constaté le 2026-08-19 en comparant les trois écrans.
+    return integrationsReadyAt
+      ? q.or(`booked_at.gte.${integrationsReadyAt},and(booked_at.is.null,scheduled_at.gte.${integrationsReadyAt})`)
+      : q;
   });
   const callsRes = { data: callsRawRows };
 
@@ -6491,17 +6509,31 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
     ? (new Date(igConnectedAt!).getTime() > new Date(ytConnectedAt!).getTime() ? { name: 'Instagram', date: igConnectedAt } : { name: 'YouTube', date: ytConnectedAt })
     : null;
 
-  const sinceConnWindow = connectedAt ? { start: parisDateStr(new Date(connectedAt)), end: parisDateStr(new Date()) } : undefined;
+  // Départ de l'All-Time : integrations_ready_at, la même référence que le pipeline
+  // (app/api/client/pipeline/route.ts) et les routes sales-calls. C'est le moment où
+  // les intégrations de l'élève sont opérationnelles, donc où Momentum commence à
+  // pouvoir générer et mesurer quoi que ce soit.
+  //
+  // Avant, cette fenêtre partait de la plus ancienne connexion IG/YT — une date
+  // ANTÉRIEURE (29/05 contre 09/06 sur le profil de test, 11 jours d'écart), qui
+  // faisait entrer dans l'All-Time des jours de reach et de vues précédant la mise en
+  // route. Les calls n'étaient pas touchés sur ces données-là (aucun dans l'intervalle),
+  // mais 11 jours de snapshots IG/YT l'étaient. Constaté le 2026-08-19.
+  //
+  // Repli sur connectedAt quand integrations_ready_at est absent (clients antérieurs
+  // à cette colonne) : mieux vaut la fenêtre large d'avant que pas d'All-Time du tout.
+  const allTimeStart = integrationsReadyAt ?? connectedAt;
+  const sinceConnWindow = allTimeStart ? { start: parisDateStr(new Date(allTimeStart)), end: parisDateStr(new Date()) } : undefined;
   const { data: sinceConnSnap, isLoading: sinceConnSnapLoading } = useQuery({
-    queryKey: ['stats-since-connection-snap', profileId, connectedAt],
+    queryKey: ['stats-since-connection-snap', profileId, allTimeStart],
     queryFn: () => fetchSnapshot(profileId, 1 /* ignoré, customWindow fourni */, 30, sinceConnWindow),
-    enabled: sinceConnection && !!connectedAt,
+    enabled: sinceConnection && !!allTimeStart,
     staleTime: 30 * 60 * 1000,
   });
   const { data: sinceConnSupa, isLoading: sinceConnSupaLoading } = useQuery({
-    queryKey: ['stats-since-connection-supa', profileId, connectedAt],
+    queryKey: ['stats-since-connection-supa', profileId, allTimeStart],
     queryFn: () => fetchSupabaseStats(profileId, 30, sinceConnWindow),
-    enabled: sinceConnection && !!connectedAt,
+    enabled: sinceConnection && !!allTimeStart,
     staleTime: 30 * 60 * 1000,
   });
   const sinceConnLoading = sinceConnSnapLoading || sinceConnSupaLoading;
