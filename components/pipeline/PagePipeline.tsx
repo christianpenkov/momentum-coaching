@@ -1393,11 +1393,57 @@ export default function PagePipeline() {
       return src === 'ig_description' || src === 'ig_bio';
     });
 
-    for (const call of igLinkCalls) {
+    // Regroupement des reprogrammations — même principe que pour les cartes
+    // YT/Autres plus bas, mais ce chemin-ci n'avait AUCUN regroupement : il
+    // faisait une carte par call. Un prospect qui déplaçait son rendez-vous
+    // apparaissait donc deux fois (constaté sur un lien bio, même email).
+    //
+    // Calendly crée un nouvel événement à chaque report et annule l'ancien ;
+    // next_rescheduled_uri porte l'URL de l'invitee du remplaçant, dont on
+    // extrait l'UUID pour relier les maillons.
+    const igLinkUuidToId = new Map<string, string>();
+    for (const c of igLinkCalls) {
+      if (c.calendly_event_uuid) igLinkUuidToId.set(c.calendly_event_uuid, c.id);
+    }
+    const igLinkSuccessor = new Map<string, string>();
+    for (const c of igLinkCalls) {
+      if (!c.next_rescheduled_uri) continue;
+      const nextUuid = c.next_rescheduled_uri.split('/scheduled_events/')[1]?.split('/')[0];
+      const nextId = nextUuid ? igLinkUuidToId.get(nextUuid) : undefined;
+      if (nextId && nextId !== c.id) igLinkSuccessor.set(c.id, nextId);
+    }
+    const igLinkChainRoot = (callId: string): string => {
+      const seen = new Set<string>([callId]);
+      let cur = callId;
+      for (;;) {
+        const next = igLinkSuccessor.get(cur);
+        if (!next || seen.has(next)) return cur;
+        seen.add(next);
+        cur = next;
+      }
+    };
+
+    const igLinkGroups = new Map<string, typeof igLinkCalls>();
+    for (const c of igLinkCalls) {
+      const k = igLinkChainRoot(c.id);
+      if (!igLinkGroups.has(k)) igLinkGroups.set(k, []);
+      igLinkGroups.get(k)!.push(c);
+    }
+
+    for (const groupCalls of igLinkGroups.values()) {
+      // Call affiché : le dernier RÉSERVÉ, pas celui dont la date est la plus
+      // tardive — un report vers une date antérieure inverse les deux.
+      const call = groupCalls.slice().sort((a, b) =>
+        new Date(b.booked_at ?? b.scheduled_at).getTime()
+        - new Date(a.booked_at ?? a.scheduled_at).getTime()
+      )[0];
+
       const cardKey = `ig_link_${call.id}`;
+      // Étape naturelle : la plus avancée de TOUTE la chaîne. Un deal conclu sur
+      // le 1er rendez-vous ne doit pas être perdu parce que le dernier a été annulé.
       let natural: IgStageKey = 'call_booked';
-      if (call.deal_closed) natural = 'closed';
-      else if (isCallHonored(call, new Date())) natural = 'showed_up';
+      if (groupCalls.some(c => c.deal_closed)) natural = 'closed';
+      else if (groupCalls.some(c => isCallHonored(c, new Date()))) natural = 'showed_up';
       else if (call.no_show) natural = 'call_booked';
       else if (['canceled', 'cancelled'].includes(call.status ?? '')) natural = 'call_booked';
 
