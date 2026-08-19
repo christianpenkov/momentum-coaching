@@ -26,7 +26,7 @@ const NAV: { href: string; icon: IconName; label: string; highlight?: boolean }[
 ];
 
 const NAV_BOTTOM: { href: string; icon: IconName; label: string }[] = [
-  { href: '/liens', icon: 'link', label: 'Gérer mes liens' },
+  { href: '/liens', icon: 'link', label: 'Mes liens' },
   { href: '/settings', icon: 'settings', label: 'Réglages' },
 ];
 

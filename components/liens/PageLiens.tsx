@@ -47,10 +47,6 @@ const ACCENT = 'var(--accent-brand)';
 const ACCENT_SOFT = 'var(--accent-brand-soft)';
 const BLUE = ACCENT;
 const BLUE_SOFT = ACCENT_SOFT;
-// Les stories n'ont pas de couleur de marque comme IG et YT : ce violet les
-// distingue dans les listes et les pastilles de séquence.
-const STORY_COLOR = '#8b5cf6';
-const STORY_SOFT = '#8b5cf612';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -2509,112 +2505,6 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
   );
 }
 
-/** Vignette d'un contenu, avec repli sur le logo de la plateforme. */
-function VignetteContenu({ post, size }: { post: Post; size: number }) {
-  const icon = post.platform === 'IG'
-    ? <svg width="14" height="14" viewBox="0 0 24 24" fill={MUTED}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
-    : post.platform === 'YT'
-    ? <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-    : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>;
-
-  return (
-    <div style={{ width: size, height: size, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
-      {post.thumbnail
-        ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-        : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>}
-    </div>
-  );
-}
-
-/** Le petit point gris qui marque l'absence d'un CTA — plus discret qu'un texte. */
-function PointAbsence({ title }: { title: string }) {
-  return <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title={title} />;
-}
-
-/**
- * Une ligne de la liste de contenus.
- *
- * Le mobile affichait une carte pauvre (plateforme + deux mentions en texte)
- * là où le desktop portait les pastilles de mot-clé, de séquence et les points
- * d'absence de CTA. C'est la version desktop qui est retenue : l'information
- * « cette séquence tourne-t-elle ? » doit se lire sans ouvrir le contenu, et
- * c'est encore plus vrai sur mobile où l'ouverture coûte un écran entier.
- */
-function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere, compact, onClick }: {
-  post: Post;
-  selected: boolean;
-  checked: boolean;
-  selectionMode: boolean;
-  groupedElsewhere: boolean;
-  compact: boolean;
-  onClick: () => void;
-}) {
-  const isStory = post.platform === 'STORY';
-  const inert = groupedElsewhere && selectionMode;
-
-  return (
-    <div onClick={onClick} style={{
-      display: 'flex', alignItems: 'center', gap: 10,
-      cursor: inert ? 'default' : 'pointer',
-      opacity: inert ? 0.45 : 1,
-      transition: `all var(--dur-instant) var(--ease-out)`,
-      ...(compact
-        ? { padding: '8px 14px', background: selected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${selected ? BLUE : 'transparent'}` }
-        : { padding: '12px 14px', borderRadius: 10, border: `1px solid ${BORDER}`, background: selected ? BLUE_SOFT : SURFACE }),
-    }}>
-      {isStory && selectionMode && (
-        <div style={{
-          width: compact ? 16 : 18, height: compact ? 16 : 18, borderRadius: 4,
-          border: `1.5px solid ${checked ? BLUE : BORDER}`, background: checked ? BLUE : 'transparent',
-          flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center',
-        }}>
-          {checked && <svg width={compact ? 10 : 11} height={compact ? 10 : 11} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
-        </div>
-      )}
-
-      <VignetteContenu post={post} size={compact ? 36 : 48} />
-
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{
-          fontSize: compact ? 12 : 13, fontWeight: compact ? 500 : 600,
-          color: selected ? BLUE : INK, lineHeight: 1.3,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3,
-        }}>{post.caption}</div>
-
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.8, color: post.platform === 'IG' ? 'var(--ig-color)' : post.platform === 'YT' ? 'var(--yt-color)' : STORY_COLOR }}>{post.platform}</span>
-
-          {isStory ? (
-            (post.sequenceStoryCount ?? 0) > 1
-              ? <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
-              : post.lmKeyword || post.calendlyShortUrl
-                ? <span style={{ display: 'flex', gap: 4 }}>
-                    {post.lmKeyword && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{post.lmKeyword}</span>}
-                    {post.calendlyShortUrl && <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>}
-                  </span>
-                : <PointAbsence title="Pas de CTA" />
-          ) : (
-            <>
-              {post.hasDescLink
-                ? <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
-                : <PointAbsence title="Pas de lien description" />}
-              {post.platform === 'IG' && (
-                post.hasLeadMagnet
-                  ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</span>
-                  : <PointAbsence title="Pas de lead magnet" />
-              )}
-            </>
-          )}
-        </div>
-      </div>
-
-      {!compact && !(isStory && selectionMode) && (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
-      )}
-    </div>
-  );
-}
-
 // ─── Validation LM avant génération ──────────────────────────────────────────
 
 function validateLmParams(params: {
@@ -3225,27 +3115,56 @@ export default function PageLiens() {
                 </div>
               ) : filteredPosts.map(post => {
                 const isStory = post.platform === 'STORY';
+                const hasDesc = !!post.hasDescLink;
+                const hasLm = !!post.hasLeadMagnet;
+                const isChecked = isStory && selectedStoryIds.has(post.id);
                 const isGroupedElsewhere = isStory && !!post.sequenceId;
+                const handleClick = () => {
+                  if (isStory && selectionMode) {
+                    if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
+                    setSelectedStoryIds(prev => {
+                      const next = new Set(prev);
+                      if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
+                      return next;
+                    });
+                    return;
+                  }
+                  openMobileDetail(isStory ? { type: 'story', post } : { type: 'post', post });
+                };
                 return (
-                  <LigneContenu
-                    key={post.id} post={post} compact={false}
-                    selected={false}
-                    checked={isStory && selectedStoryIds.has(post.id)}
-                    selectionMode={selectionMode}
-                    groupedElsewhere={isGroupedElsewhere}
-                    onClick={() => {
-                      if (isStory && selectionMode) {
-                        if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
-                        setSelectedStoryIds(prev => {
-                          const next = new Set(prev);
-                          if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
-                          return next;
-                        });
-                        return;
-                      }
-                      openMobileDetail(isStory ? { type: 'story', post } : { type: 'post', post });
-                    }}
-                  />
+                  <button key={post.id} onClick={handleClick} style={{
+                    width: '100%', padding: '12px 14px', fontSize: 13, fontWeight: 500, borderRadius: 10, cursor: isGroupedElsewhere && selectionMode ? 'default' : 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 10,
+                    border: `1px solid ${BORDER}`, background: SURFACE, color: INK, opacity: isGroupedElsewhere && selectionMode ? 0.45 : 1,
+                  }}>
+                    {isStory && selectionMode && (
+                      <div style={{ width: 18, height: 18, borderRadius: 4, border: `1.5px solid ${isChecked ? BLUE : BORDER}`, background: isChecked ? BLUE : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {isChecked && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </div>
+                    )}
+                    {post.thumbnail && <img src={post.thumbnail} alt="" style={{ width: 48, height: 48, borderRadius: 8, objectFit: 'cover', flexShrink: 0 }} />}
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, fontWeight: 600 }}>{post.caption}</div>
+                      <div style={{ fontSize: 12, color: MUTED, marginTop: 2, display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <span>{post.platform}</span>
+                        {isStory ? (
+                          (post.sequenceStoryCount ?? 0) > 1
+                            ? <span style={{ color: '#8b5cf6' }}>· {post.sequenceName}</span>
+                            : <>
+                                {post.lmKeyword && <span style={{ color: 'var(--green)' }}>· #{post.lmKeyword}</span>}
+                                {post.calendlyShortUrl && <span style={{ color: MUTED }}>· Calendly</span>}
+                              </>
+                        ) : (
+                          <>
+                            {hasDesc && <span style={{ color: 'var(--green)' }}>· Lien desc.</span>}
+                            {hasLm && <span style={{ color: 'var(--amber)' }}>· Lead Magnet</span>}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    {!(isStory && selectionMode) && (
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+                    )}
+                  </button>
                 );
               })}
             </div>
@@ -3445,27 +3364,73 @@ export default function PageLiens() {
                 </div>
               ) : filteredPosts.map(post => {
                 const isStory = post.platform === 'STORY';
+                const isSelected = isStory ? (selectionMode ? false : selectedStory?.id === post.id) : selectedPost?.id === post.id;
+                const hasDesc = !!post.hasDescLink;
+                const hasLm = !!post.hasLeadMagnet;
+                const isChecked = isStory && selectedStoryIds.has(post.id);
                 const isGroupedElsewhere = isStory && !!post.sequenceId;
+                const handleClick = () => {
+                  if (isStory && selectionMode) {
+                    if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
+                    setSelectedStoryIds(prev => {
+                      const next = new Set(prev);
+                      if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
+                      return next;
+                    });
+                    return;
+                  }
+                  unsavedGuardApi.guard(() => setRightView(isStory ? { type: 'story', post } : { type: 'post', post }));
+                };
                 return (
-                  <LigneContenu
-                    key={post.id} post={post} compact
-                    selected={isStory ? (selectionMode ? false : selectedStory?.id === post.id) : selectedPost?.id === post.id}
-                    checked={isStory && selectedStoryIds.has(post.id)}
-                    selectionMode={selectionMode}
-                    groupedElsewhere={isGroupedElsewhere}
-                    onClick={() => {
-                      if (isStory && selectionMode) {
-                        if (isGroupedElsewhere) return; // déjà dans une séquence (même solo), non cochable
-                        setSelectedStoryIds(prev => {
-                          const next = new Set(prev);
-                          if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
-                          return next;
-                        });
-                        return;
+                  <div key={post.id} onClick={handleClick}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 14px', cursor: isGroupedElsewhere && selectionMode ? 'default' : 'pointer', background: isSelected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${isSelected ? BLUE : 'transparent'}`, opacity: isGroupedElsewhere && selectionMode ? 0.45 : 1, transition: 'all .1s' }}>
+                    {isStory && selectionMode && (
+                      <div style={{ width: 16, height: 16, borderRadius: 4, border: `1.5px solid ${isChecked ? BLUE : BORDER}`, background: isChecked ? BLUE : 'transparent', flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        {isChecked && <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>}
+                      </div>
+                    )}
+                    <div style={{ width: 36, height: 36, borderRadius: 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
+                      {post.thumbnail
+                        ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            {post.platform === 'IG'
+                              ? <svg width="14" height="14" viewBox="0 0 24 24" fill={MUTED}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
+                              : post.platform === 'YT'
+                              ? <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                              : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+                            }
+                          </div>
                       }
-                      unsavedGuardApi.guard(() => setRightView(isStory ? { type: 'story', post } : { type: 'post', post }));
-                    }}
-                  />
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 500, color: isSelected ? BLUE : INK, lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3 }}>{post.caption}</div>
+                      <div style={{ display: 'flex', gap: 5, alignItems: 'center' }}>
+                        <span style={{ fontSize: 10, fontWeight: 700, color: post.platform === 'IG' ? '#c2185b' : post.platform === 'YT' ? '#d32f2f' : '#8b5cf6', opacity: 0.8 }}>{post.platform}</span>
+                        {isStory ? (
+                          (post.sequenceStoryCount ?? 0) > 1
+                            ? <span style={{ fontSize: 10, fontWeight: 600, color: '#8b5cf6', background: '#8b5cf612', borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
+                            : post.lmKeyword || post.calendlyShortUrl
+                              ? <span style={{ display: 'flex', gap: 4 }}>
+                                  {post.lmKeyword && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{post.lmKeyword}</span>}
+                                  {post.calendlyShortUrl && <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>}
+                                </span>
+                              : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de CTA" />
+                        ) : (
+                          <>
+                            {hasDesc
+                              ? <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
+                              : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lien description" />
+                            }
+                            {post.platform === 'IG' && (
+                              hasLm
+                                ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</span>
+                                : <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title="Pas de lead magnet" />
+                            )}
+                          </>
+                        )}
+                      </div>
+                    </div>
+                  </div>
                 );
               })}
             </div>
