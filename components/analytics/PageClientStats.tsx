@@ -5341,8 +5341,16 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   // rencontrée par le passé (cf. bug remonté 2026-07-06).
   // Si customWindow est fourni (mode "Depuis connexion"), il prime — comportement
   // strictement identique à avant sinon (getPeriodWindow).
+  // customWindow porte des dates SANS heure ('2026-08-19'), que `new Date` interprète
+  // à MINUIT. La borne haute excluait donc toute la journée en cours : un rendez-vous
+  // du jour restait invisible dans Mes Stats jusqu'au lendemain, alors que le pipeline
+  // et la fiche client le comptaient — c'est ce qui produisait 12 calls ici contre 16
+  // ailleurs (constaté le 2026-08-19). On étend la borne à la fin de la journée.
   const { periodStart, periodEnd } = customWindow
-    ? { periodStart: new Date(customWindow.start), periodEnd: new Date(customWindow.end) }
+    ? {
+        periodStart: new Date(customWindow.start),
+        periodEnd: new Date(`${customWindow.end}T23:59:59.999`),
+      }
     : getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month');
 
   // parisDateStr (pas toISOString) : les colonnes date/snapshot_date filtrées ci-dessous
