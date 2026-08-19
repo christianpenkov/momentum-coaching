@@ -22,16 +22,17 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   shellRef: React.RefObject<HTMLDivElement | null>;
   navRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
     <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
       {/* Monté ici et non dans la page : le layout survit aux navigations, donc
           l'overlay peut jouer son fondu de sortie au lieu d'être démonté d'un
-          coup avec la page qui chargeait. `user` arrive quand la session est
-          résolue — c'est le signal que l'app est prête à afficher. */}
-      <SplashHold show={!user} />
+          coup avec la page qui chargeait. Branché sur `loading` du contexte
+          (et non sur la présence de `user`) : c'est le signal exact de "session
+          résolue", il passe à false même quand il n'y a pas de session. */}
+      <SplashHold show={userLoading} />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />

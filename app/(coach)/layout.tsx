@@ -22,14 +22,14 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
   shellRef: React.RefObject<HTMLDivElement | null>;
   navRef: React.RefObject<HTMLDivElement | null>;
 }) {
-  const { user } = useUser();
+  const { user, loading: userLoading } = useUser();
   usePushNotifications(user?.id ?? null);
   const [moreOpen, setMoreOpen] = useState(false);
   return (
     <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
       {/* Voir (client)/layout.tsx : prolonge l'ecran de demarrage jusqu'a ce
           que la session soit resolue, pour eviter le loader qui clignote. */}
-      <SplashHold show={!user} />
+      <SplashHold show={userLoading} />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />

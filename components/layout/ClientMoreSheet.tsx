@@ -19,7 +19,11 @@ const MORE_NAV: { href: string; icon: IconName; label: string }[] = [
 // Doit rester aligné sur la transition CSS ci-dessous : le composant reste monté
 // le temps de l'animation de sortie, sinon React le démonte instantanément et
 // le panneau saute au lieu de redescendre.
-const EXIT_MS = 220;
+//
+// Volontairement court : au-delà, la descente se fait sentir comme un délai
+// avant l'écran suivant. Une sortie est toujours plus rapide qu'une entrée —
+// l'utilisateur a déjà décidé, on ne le fait pas patienter.
+const EXIT_MS = 160;
 
 export default function ClientMoreSheet({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
@@ -40,14 +44,17 @@ export default function ClientMoreSheet({ onClose }: { onClose: () => void }) {
     setTimeout(onClose, EXIT_MS);
   }, [onClose]);
 
-  // Même chose, mais navigue une fois le panneau redescendu. L'ordre compte :
-  // naviguer d'abord ferait démonter le panneau par le re-rendu du layout.
+  // Navigation lancée TOUT DE SUITE, panneau qui redescend par-dessus : la page
+  // charge pendant l'animation au lieu d'attendre sa fin. Attendre rendait le
+  // menu perceptiblement plus lent que la navigation directe.
+  //
+  // Le démontage reste différé (onClose après l'animation) pour que la descente
+  // ait le temps de se jouer : c'est le re-rendu du layout par la navigation
+  // qui, sinon, retirerait le panneau instantanément.
   const closeThen = useCallback((href: string) => {
     setPhase('closing');
-    setTimeout(() => {
-      onClose();
-      router.push(href);
-    }, EXIT_MS);
+    router.push(href);
+    setTimeout(onClose, EXIT_MS);
   }, [onClose, router]);
 
   useEffect(() => {
@@ -101,7 +108,7 @@ export default function ClientMoreSheet({ onClose }: { onClose: () => void }) {
           // l'utilisateur a déjà décidé, inutile de le faire attendre.
           transform: shown ? 'translateY(0)' : 'translateY(100%)',
           transition: shown
-            ? 'transform 280ms cubic-bezier(0.16, 1, 0.3, 1)'
+            ? 'transform 200ms cubic-bezier(0.16, 1, 0.3, 1)'
             : `transform ${EXIT_MS}ms cubic-bezier(0.4, 0, 1, 1)`,
         }}
       >
@@ -115,10 +122,10 @@ export default function ClientMoreSheet({ onClose }: { onClose: () => void }) {
               <Link
                 key={href}
                 href={href}
-                // La navigation est différée le temps que le panneau redescende.
-                // Sans ça, le Link re-rend le layout, qui démonte le panneau
-                // instantanément : l'animation de sortie n'a jamais lieu et le
-                // menu disparaît d'un coup.
+                // preventDefault + closeThen : la navigation part tout de
+                // suite, mais le démontage du panneau est différé pour qu'il ait
+                // le temps de redescendre. Laisser le Link agir seul ferait
+                // démonter le panneau par le re-rendu, sans aucune animation.
                 onClick={(e) => { e.preventDefault(); closeThen(href); }}
                 className={`nav-item${active ? ' active' : ''}`}
                 style={{ padding: '14px 12px', fontSize: 15 }}
