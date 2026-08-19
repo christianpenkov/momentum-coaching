@@ -1507,6 +1507,88 @@ a { color: inherit; text-decoration: none; }
   .call-confirm-btn { min-height: 44px; min-width: 60px; }
 }
 
+/* ── Timeline des rapports de session (fiche élève) ──────────────────
+   Aligné sur le gabarit des cartes de call : mêmes pastilles, mêmes hauteurs de
+   bouton, même rayon. La structure reste une LIGNE et non une carte à rail : ces
+   entrées sont des rapports, pas des calls — elles portent des notes de longueur
+   libre et des actions propres (Éditer, Compris). */
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+}
+/* Une entrée en attente se signale par une barre latérale ambre, pas par un fond
+   plein : plusieurs à la suite formaient une bande orange qui écrasait la liste.
+   Même logique que les cartes de call, où seul le bouton porte l'ambre. */
+.session-row-pending {
+  background: var(--surface);
+  border-color: var(--border);
+  border-left: 3px solid var(--amber);
+}
+.session-row-date {
+  font-size: 13px;
+  font-weight: 620;
+  color: var(--ink);
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+}
+.session-row-time {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.session-row-topic { font-size: 12px; color: var(--muted); }
+/* Même gabarit que la rangée d'actions des cartes de call (32px, rayon --r-md). */
+.session-row-actions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.session-row .pill,
+.session-row-actions .btn-ghost {
+  min-height: 32px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-md);
+  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+}
+.session-row-edit { border: 1px solid var(--border) !important; }
+.session-row-pending .session-row-extra { border-top-color: var(--border); }
+/* Notes et actions de suivi passent sous la ligne, pleine largeur. */
+.session-row-extra {
+  flex-basis: 100%;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+@media (max-width: 767px) {
+  .session-row-actions { margin-left: 0; width: 100%; }
+  .session-row-actions .btn-ghost { min-height: 34px; height: 34px; }
+}
+
+/* Bouton "Infos" — encadré en encre plutôt qu'en --border : avec la bordure claire
+   par défaut, il se confondait avec le fond de la carte et ne se lisait plus comme
+   un bouton. Reste secondaire (fond transparent), mais devient repérable. */
+.call-action-infos {
+  font-size: 12px;
+  color: var(--ink) !important;
+  border: 1px solid var(--ink) !important;
+  background: transparent !important;
+}
+.call-action-infos:hover { background: var(--ink) !important; color: var(--surface) !important; }
+
 /* Bouton "Rapport" : un rapport non rempli est une ALERTE, pas une navigation.
    En bleu plein il ressemblait à l'action principale de la carte et écrasait
    Infos juste à côté. Contour neutre + point ambre = même poids visuel que ses

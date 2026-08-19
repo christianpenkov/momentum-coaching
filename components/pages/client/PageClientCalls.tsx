@@ -457,8 +457,7 @@ export default function PageClientCalls() {
         {showInfos && (
           <button
             type="button"
-            className="btn-ghost"
-            style={{ fontSize: 12, border: '1px solid var(--border)' }}
+            className="btn-ghost call-action-infos"
             onClick={() => setInfosModalCall(call)}
           >
             Infos

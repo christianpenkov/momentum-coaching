@@ -220,7 +220,7 @@ export default function PageCalls() {
           </button>
         )}
         {showInfos && (
-          <button type="button" className="btn-ghost" style={{ fontSize: 12, border: '1px solid var(--border)' }}
+          <button type="button" className="btn-ghost call-action-infos"
             onClick={() => setInfosModalCall({ call, clientName: cl?.name ?? null })}>
             Infos
           </button>

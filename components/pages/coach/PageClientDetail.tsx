@@ -23,6 +23,8 @@ import { getClientWeek } from '@/lib/clientWeek';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import { CALL_COLUMNS } from '@/lib/supabase/types';
 import type { Task, SessionReport, Call, Client } from '@/lib/supabase/types';
+import { formatCallLongDate, formatCallTime } from '@/lib/callFormat';
+import { useViewerTimeZone } from '@/lib/UserContext';
 
 interface ClientDetailData extends Client {
   tasks: Task[];
@@ -228,6 +230,7 @@ const PRIORITY_CONFIG = {
 interface Props { id: string }
 
 export default function PageClientDetail({ id }: Props) {
+  const viewerTz = useViewerTimeZone();
   const queryClient = useQueryClient();
 
   const { data: client, isLoading: clientLoading } = useQuery({
@@ -1158,29 +1161,37 @@ export default function PageClientDetail({ id }: Props) {
             <div style={{ fontSize: 13, color: 'var(--muted)' }}>Aucune session rapportée pour l'instant.</div>
           )}
           {[
-            ...sessionReports.map(report => ({ type: 'report' as const, date: report.created_at, report })),
+            // Tri et affichage sur la date du CALL, pas celle de rédaction du rapport.
+            // Avant : report.created_at, qui affichait le jour où le coach avait tapé
+            // ses notes. Sur les données réelles, 4 rapports sur 12 tombaient un autre
+            // jour que leur séance (jusqu'à 4 jours d'écart), et le tri plaçait un
+            // rapport rempli en retard après des séances postérieures.
+            // Repli sur created_at si le call a été supprimé entre-temps.
+            ...sessionReports.map(report => ({
+              type: 'report' as const,
+              date: calls.find(c => c.id === report.call_id)?.scheduled_at || report.created_at,
+              report,
+            })),
             ...pendingSessionRapports.map(call => ({ type: 'pending' as const, date: call.scheduled_at || call.created_at, call })),
           ]
             .sort((a, b) => new Date(b.date!).getTime() - new Date(a.date!).getTime())
             .map(entry => entry.type === 'pending' ? (
-            <div key={entry.call.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '10px 12px', background: 'var(--amber-soft)', borderRadius: 10, border: '1px solid var(--amber)' }}>
-              <Icon name="phone-call" size={14} style={{ color: 'var(--amber)', flexShrink: 0 }} />
-              <span style={{ flex: 1, fontSize: 12, color: 'var(--accent)' }}>
-                Call du {entry.call.scheduled_at ? new Date(entry.call.scheduled_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' }) : '—'} — en attente de rapport
-              </span>
-              {entry.call.fathom_status === 'matched' && (
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ fontSize: 11, border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
-                  onClick={() => setInfosModalCall(entry.call)}
-                >
-                  Infos
+            <div key={entry.call.id} className="session-row session-row-pending">
+              <div className="session-row-date">
+                {entry.call.scheduled_at ? formatCallLongDate(entry.call.scheduled_at, viewerTz) : '—'}
+                {entry.call.scheduled_at && <span className="session-row-time">{formatCallTime(entry.call.scheduled_at, viewerTz)}</span>}
+              </div>
+              <span className="pill pill-amber session-row-pill"><span className="dot" />Rapport à remplir</span>
+              <div className="session-row-actions">
+                {entry.call.fathom_status === 'matched' && (
+                  <button type="button" className="btn-ghost call-action-infos" onClick={() => setInfosModalCall(entry.call)}>
+                    Infos
+                  </button>
+                )}
+                <button type="button" className="btn-ghost call-action-rapport" onClick={() => setSessionRapportCallId(entry.call.id)}>
+                  <Icon name="alert-triangle" size={13} />Remplir
                 </button>
-              )}
-              <button type="button" className="btn-ghost" style={{ fontSize: 11 }} onClick={() => setSessionRapportCallId(entry.call.id)}>
-                Remplir
-              </button>
+              </div>
             </div>
           ) : (() => {
             const report = entry.report;
@@ -1189,60 +1200,54 @@ export default function PageClientDetail({ id }: Props) {
               : SESSION_TOPICS.find(t => t.value === report.topic)?.label;
             const isNoShow = report.attended === false;
             const acknowledged = !!report.acknowledged_at;
+            const reportCall = calls.find(c => c.id === report.call_id);
+            const callDate = reportCall?.scheduled_at ?? null;
             return (
-              <div key={report.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 10, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 10, border: '1px solid var(--border)', opacity: isNoShow && acknowledged ? 0.55 : 1 }}>
-                <Icon name={isNoShow ? 'x' : 'check'} size={14} style={{ color: isNoShow ? 'var(--red)' : 'var(--green)', marginTop: 2, flexShrink: 0 }} />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--accent)' }}>
-                      {new Date(report.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
-                    </span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20,
-                      background: isNoShow ? 'var(--red-soft)' : 'var(--green-soft)',
-                      color: isNoShow ? 'var(--red)' : 'var(--green)',
-                    }}>
-                      {isNoShow ? 'No-show' : 'Présent'}
-                    </span>
-                    {topicLabel && <span style={{ fontSize: 11, color: 'var(--muted)' }}>{topicLabel}</span>}
-                    <div style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}>
-                      {calls.find(c => c.id === report.call_id)?.fathom_status === 'matched' && (
-                        <button
-                          type="button"
-                          onClick={() => setInfosModalReport(report)}
-                          className="btn-ghost"
-                          style={{ fontSize: 11, padding: '2px 8px', border: '1px solid var(--ink)', borderRadius: 8, color: 'var(--ink)' }}
-                        >
-                          Infos
-                        </button>
-                      )}
-                      {!isNoShow && (
-                        <button
-                          type="button"
-                          onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
-                          className="btn-ghost"
-                          style={{ fontSize: 11, padding: '2px 8px' }}
-                        >
-                          Éditer
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {report.notes && (
-                    <div style={{ fontSize: 12, color: 'var(--ink-2)', marginTop: 6, whiteSpace: 'pre-wrap' }}>{report.notes}</div>
+              <div key={report.id} className="session-row" style={{ opacity: isNoShow && acknowledged ? 0.55 : 1 }}>
+                <div className="session-row-date">
+                  {callDate ? formatCallLongDate(callDate, viewerTz) : new Date(report.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  {callDate && <span className="session-row-time">{formatCallTime(callDate, viewerTz)}</span>}
+                </div>
+                {/* Mêmes pastilles que la page Calls : point coloré + libellé, et
+                    "Pas présent" plutôt que "No-show" sur un call de coaching. */}
+                <span className={`pill ${isNoShow ? 'pill-neutral' : 'pill-green'} session-row-pill`}>
+                  <span className="dot" />{isNoShow ? 'Pas présent' : 'Présent'}
+                </span>
+                {topicLabel && <span className="session-row-topic">{topicLabel}</span>}
+                <div className="session-row-actions">
+                  {reportCall?.fathom_status === 'matched' && (
+                    <button type="button" onClick={() => setInfosModalReport(report)} className="btn-ghost call-action-infos">
+                      Infos
+                    </button>
                   )}
-                  {isNoShow && (
-                    acknowledged ? (
-                      <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 6 }}>
-                        Pris en compte le {new Date(report.acknowledged_at!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => acknowledgeNoShow(report.id)} className="btn-ghost" style={{ fontSize: 11, marginTop: 6, padding: '4px 10px' }}>
-                        Compris
-                      </button>
-                    )
+                  {!isNoShow && (
+                    <button
+                      type="button"
+                      onClick={() => { setEditingReport(report); setSessionRapportCallId(report.call_id); }}
+                      className="btn-ghost session-row-edit"
+                    >
+                      Éditer
+                    </button>
                   )}
                 </div>
+                {(report.notes || isNoShow) && (
+                  <div className="session-row-extra">
+                    {report.notes && (
+                      <div style={{ fontSize: 12, color: 'var(--ink-2)', whiteSpace: 'pre-wrap' }}>{report.notes}</div>
+                    )}
+                    {isNoShow && (
+                      acknowledged ? (
+                        <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: report.notes ? 6 : 0 }}>
+                          Pris en compte le {new Date(report.acknowledged_at!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                        </div>
+                      ) : (
+                        <button type="button" onClick={() => acknowledgeNoShow(report.id)} className="btn-ghost" style={{ fontSize: 11, marginTop: report.notes ? 6 : 0, padding: '4px 10px' }}>
+                          Compris
+                        </button>
+                      )
+                    )}
+                  </div>
+                )}
               </div>
             );
           })())}
