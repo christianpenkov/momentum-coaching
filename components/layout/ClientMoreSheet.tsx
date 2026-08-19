@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import Icon, { IconName } from '../ui/Icon';
 
 const MORE_NAV: { href: string; icon: IconName; label: string }[] = [
@@ -16,23 +16,76 @@ const MORE_NAV: { href: string; icon: IconName; label: string }[] = [
   { href: '/client/settings', icon: 'settings', label: 'Réglages' },
 ];
 
+// Doit rester aligné sur la transition CSS ci-dessous : le composant reste monté
+// le temps de l'animation de sortie, sinon React le démonte instantanément et
+// le panneau saute au lieu de redescendre.
+const EXIT_MS = 220;
+
 export default function ClientMoreSheet({ onClose }: { onClose: () => void }) {
   const pathname = usePathname();
+  const router = useRouter();
   const sheetRef = useRef<HTMLDivElement>(null);
+  // 'entering' le temps d'un frame pour que la transition CSS ait un état de
+  // départ à animer ; 'open' ensuite ; 'closing' pendant la sortie.
+  const [phase, setPhase] = useState<'entering' | 'open' | 'closing'>('entering');
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setPhase('open'));
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  // Ferme en jouant l'animation de sortie, puis prévient le parent qui démonte.
+  const close = useCallback(() => {
+    setPhase('closing');
+    setTimeout(onClose, EXIT_MS);
+  }, [onClose]);
+
+  // Même chose, mais navigue une fois le panneau redescendu. L'ordre compte :
+  // naviguer d'abord ferait démonter le panneau par le re-rendu du layout.
+  const closeThen = useCallback((href: string) => {
+    setPhase('closing');
+    setTimeout(() => {
+      onClose();
+      router.push(href);
+    }, EXIT_MS);
+  }, [onClose, router]);
 
   useEffect(() => {
     function handler(e: MouseEvent) {
-      if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) onClose();
+      if (sheetRef.current && !sheetRef.current.contains(e.target as Node)) close();
     }
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [onClose]);
+  }, [close]);
+
+  // Échap ferme aussi : le panneau est une couche modale, elle doit se comporter
+  // comme telle au clavier.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape') close();
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [close]);
+
+  const shown = phase === 'open';
 
   return createPortal(
     <>
-      <div style={{ position: 'fixed', inset: 0, zIndex: 1999, background: 'rgba(0,0,0,0.25)' }} onClick={onClose} />
+      <div
+        style={{
+          position: 'fixed', inset: 0, zIndex: 1999,
+          background: 'rgba(0,0,0,0.25)',
+          opacity: shown ? 1 : 0,
+          transition: `opacity ${EXIT_MS}ms ease-out`,
+        }}
+        onClick={close}
+      />
       <div
         ref={sheetRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
         style={{
           position: 'fixed',
           left: 0, right: 0, bottom: 0,
@@ -43,6 +96,13 @@ export default function ClientMoreSheet({ onClose }: { onClose: () => void }) {
           borderTopRightRadius: 16,
           paddingBottom: 'calc(env(safe-area-inset-bottom) + 8px)',
           boxShadow: '0 -4px 24px rgba(0,0,0,0.12)',
+          // Glisse depuis le bas : une bottom sheet native monte, elle
+          // n'apparaît jamais d'un coup. Sortie plus rapide que l'entrée —
+          // l'utilisateur a déjà décidé, inutile de le faire attendre.
+          transform: shown ? 'translateY(0)' : 'translateY(100%)',
+          transition: shown
+            ? 'transform 280ms cubic-bezier(0.16, 1, 0.3, 1)'
+            : `transform ${EXIT_MS}ms cubic-bezier(0.4, 0, 1, 1)`,
         }}
       >
         <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
@@ -55,7 +115,11 @@ export default function ClientMoreSheet({ onClose }: { onClose: () => void }) {
               <Link
                 key={href}
                 href={href}
-                onClick={onClose}
+                // La navigation est différée le temps que le panneau redescende.
+                // Sans ça, le Link re-rend le layout, qui démonte le panneau
+                // instantanément : l'animation de sortie n'a jamais lieu et le
+                // menu disparaît d'un coup.
+                onClick={(e) => { e.preventDefault(); closeThen(href); }}
                 className={`nav-item${active ? ' active' : ''}`}
                 style={{ padding: '14px 12px', fontSize: 15 }}
               >

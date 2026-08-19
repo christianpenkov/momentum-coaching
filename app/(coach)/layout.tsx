@@ -6,6 +6,7 @@ import Sidebar from '@/components/layout/Sidebar';
 import BottomNavCoach from '@/components/layout/BottomNavCoach';
 import CoachMoreSheet from '@/components/layout/CoachMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
+import SplashHold from '@/components/ui/SplashHold';
 import { UserProvider, useUser } from '@/lib/UserContext';
 import { SupabaseClientsProvider } from '@/lib/SupabaseClientsContext';
 import { GlobalPresenceCoachProvider } from '@/lib/GlobalPresenceContext';
@@ -26,6 +27,9 @@ function CoachLayoutInner({ children, shellRef, navRef }: {
   const [moreOpen, setMoreOpen] = useState(false);
   return (
     <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
+      {/* Voir (client)/layout.tsx : prolonge l'ecran de demarrage jusqu'a ce
+          que la session soit resolue, pour eviter le loader qui clignote. */}
+      <SplashHold show={!user} />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />

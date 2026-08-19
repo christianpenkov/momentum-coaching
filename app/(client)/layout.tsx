@@ -6,6 +6,7 @@ import SidebarClient from '@/components/layout/SidebarClient';
 import BottomNav from '@/components/layout/BottomNav';
 import ClientMoreSheet from '@/components/layout/ClientMoreSheet';
 import PageTransition from '@/components/layout/PageTransition';
+import SplashHold from '@/components/ui/SplashHold';
 import { UserProvider, useUser } from '@/lib/UserContext';
 import { ClientSelfProvider } from '@/lib/ClientSelfContext';
 import { GlobalPresenceClientProvider } from '@/lib/GlobalPresenceContext';
@@ -26,6 +27,11 @@ function ClientLayoutInner({ children, shellRef, navRef }: {
   const [moreOpen, setMoreOpen] = useState(false);
   return (
     <OnboardingWizardProvider autoOpen={user?.onboardingStep === 'not_started'}>
+      {/* Monté ici et non dans la page : le layout survit aux navigations, donc
+          l'overlay peut jouer son fondu de sortie au lieu d'être démonté d'un
+          coup avec la page qui chargeait. `user` arrive quand la session est
+          résolue — c'est le signal que l'app est prête à afficher. */}
+      <SplashHold show={!user} />
       <div ref={shellRef} className="app-shell-pwa">
         <OrientationLockOverlay />
         <PushPermissionGate userId={user?.id ?? null} />
