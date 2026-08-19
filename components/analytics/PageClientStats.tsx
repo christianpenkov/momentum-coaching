@@ -145,6 +145,16 @@ const isYTCall = (c: { source?: string | null }) => {
   return s.startsWith('yt') || s.startsWith('youtube');
 };
 
+/** Un deal, tel que le cash contracté en a besoin. `call_id` est null pour un deal
+ *  créé hors pipeline (upsell, vente directe) — c'est précisément le cas que la somme
+ *  des `calls.revenue` ne voyait pas. */
+type DealRecord = {
+  amount_total: number | string;
+  status?: string | null;
+  signed_at?: string | null;
+  call_id?: string | null;
+};
+
 // Date de rattachement d'un call à une période : la RÉSERVATION, pas la tenue du
 // rendez-vous. « Booké » désigne l'acte de réserver — c'est la production commerciale
 // du mois, et c'est la date que le périmètre global utilise déjà (le fetch borne sur
@@ -3112,7 +3122,7 @@ function CashByOrigin({ profileId, periodStart, periodEnd, sinceConnection }: {
   );
 }
 
-function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId }: { stripe: StripeStats | null; calls: CallRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string }) {
+function TabRevenues({ stripe, calls, deals, period, periodIndex, onRefresh, refreshing, sinceConnection, profileId }: { stripe: StripeStats | null; calls: CallRecord[]; deals?: DealRecord[]; period: Period; periodIndex: number; onRefresh?: () => void; refreshing?: boolean; sinceConnection?: boolean; profileId?: string }) {
   if (!stripe) return (
     <div style={{ textAlign: 'center', padding: '48px 24px' }}>
       <div style={{ fontSize: 14, color: 'var(--muted)', marginBottom: 16 }}>Connecte ton compte Stripe pour voir les revenus.</div>
@@ -3154,8 +3164,30 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
   // La convergence passe par le chantier « cash sur la table deals » (les deals sans
   // call, upsells, sont aussi invisibles ici) — voir docs/perimetre-stats-referentiel.md,
   // section « Ce qui reste ouvert ».
+  // Cash contracté : somme des DEALS signés dans la période, plus des `calls.revenue`.
+  //
+  // Un deal peut exister SANS call — upsell, vente hors pipeline. Le sommer depuis les
+  // calls le rendait invisible : c'était le dernier écart à impact financier réel
+  // (identifié le 2026-08-19 ; 0 cas en base à cette date, 6 600 € des deux côtés,
+  // donc aucun chiffre ne bouge aujourd'hui).
+  //
+  // Découpé sur `signed_at`, volontairement une AUTRE date que les calls : un deal
+  // signé ce mois sur un call du mois dernier appartient au cash de ce mois — c'est le
+  // mois où l'argent a été engagé. Même règle que useCoachData : les deux écrans
+  // convergent désormais sur la même source ET la même date.
+  //
+  // Deals annulés exclus (une vente annulée n'a pas été signée), même filtre que
+  // computeDealTotals dans lib/salesCallStats.ts.
+  const dealsInPeriod = (deals ?? []).filter(d => {
+    if (d.status === 'canceled') return false;
+    if (sinceConnection) return true;
+    if (!d.signed_at) return false;
+    const ds = new Date(d.signed_at);
+    return ds >= periodStart && ds <= periodEnd;
+  });
+  const cashContracte = dealsInPeriod.reduce((s, d) => s + Number(d.amount_total || 0), 0);
+  // Conservé : le panier moyen et le compte de ventes raisonnent en calls closés.
   const dealsClosed = callsInPeriod.filter(c => c.deal_closed);
-  const cashContracte = dealsClosed.reduce((s, c) => s + (c.revenue || 0), 0);
 
   // Number() explicite : les numeric Postgres arrivent en chaîne, et une
   // concaténation silencieuse ("10" + "20" = "1020") passerait le typage.
@@ -3181,7 +3213,12 @@ function TabRevenues({ stripe, calls, period, periodIndex, onRefresh, refreshing
       // Même date que callsInPeriod, qui alimente dealsClosed (callPeriodDate, donc
       // booked_at) : sans ça, la somme des barres du graphique ne vaudrait plus le
       // total « Cash contracté » affiché au-dessus.
-      const contracte = dealsClosed.filter(c => callPeriodDate(c).startsWith(iso)).reduce((s, c) => s + (c.revenue || 0), 0);
+      // Même source ET même date que le total affiché au-dessus : les deals, découpés
+      // sur signed_at. Garder les calls ici ferait diverger la somme des barres du
+      // total dès qu'un deal existe sans call.
+      const contracte = dealsInPeriod
+        .filter(d => (d.signed_at ?? '').startsWith(iso))
+        .reduce((s, d) => s + Number(d.amount_total || 0), 0);
       rows.push({ date: iso, ca, contracte });
       d = parisAddDays(d, 1);
     }
@@ -5454,6 +5491,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     stripeRes,
     shortioResult,
     shortioClicksRes,
+    dealsRes,
   ] = await Promise.allSettled([
     supabase
       .from('analytics_daily_snapshots')
@@ -5481,10 +5519,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       p_start_date: startDateStr,
       p_end_date: endDateStr,
     }),
+    // Borné sur booked_at (date de RÉSERVATION) comme le reste de la page : cette
+    // requête filtrait encore sur scheduled_at, donc un call réservé le 29/08 pour le
+    // 02/09 sortait du snapshot d'août alors que le mode live l'y comptait.
+    // Repli sur scheduled_at pour les calls importés sans booked_at.
     supabase.from('calls').select('*')
       .eq('coach_id', targetId)
-      .gte('scheduled_at', periodStart.toISOString())
-      .lte('scheduled_at', periodEnd.toISOString())
+      .or(`and(booked_at.gte.${periodStart.toISOString()},booked_at.lte.${periodEnd.toISOString()}),and(booked_at.is.null,scheduled_at.gte.${periodStart.toISOString()},scheduled_at.lte.${periodEnd.toISOString()})`)
       .eq('call_type', 'calendly')
       .neq('ignored', true)
       .order('scheduled_at', { ascending: false }),
@@ -5510,6 +5551,19 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       p_start_date: startDateStr,
       p_end_date: endDateStr,
     }),
+    // Deals signés dans la période — source du CASH CONTRACTÉ, en remplacement de la
+    // somme des `calls.revenue`. Un deal peut exister SANS call (upsell, vente hors
+    // pipeline) : le sommer depuis les calls le rendait invisible.
+    //
+    // Découpé sur `signed_at`, volontairement une autre date que les calls : un deal
+    // signé ce mois sur un call du mois dernier appartient au cash de ce mois — c'est
+    // le mois où l'argent a été engagé. Même règle que useCoachData.
+    supabase
+      .from('deals')
+      .select('amount_total, status, signed_at, call_id')
+      .eq('profile_id', targetId)
+      .gte('signed_at', periodStart.toISOString())
+      .lte('signed_at', periodEnd.toISOString()),
   ]);
 
   const snaps = snapsRes.status === 'fulfilled' ? (snapsRes.value.data ?? []) : [];
@@ -5803,6 +5857,7 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     ytHist,
     shortioHist,
     callsHist: callsRes.status === 'fulfilled' ? (callsRes.value.data ?? []) : [],
+    dealsHist: dealsRes.status === 'fulfilled' ? (dealsRes.value.data ?? []) : [],
     stripeHist,
     msgsHist,
     snapshotDate: endDateStr,
@@ -6111,6 +6166,19 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
   });
   const callsRes = { data: callsRawRows };
 
+  // Deals — source du CASH CONTRACTÉ, en remplacement de la somme des `calls.revenue`.
+  // Un deal peut exister SANS call (upsell, vente hors pipeline) : le sommer depuis les
+  // calls le rendait invisible. Même périmètre que les calls (integrations_ready_at),
+  // mais découpé sur `signed_at` : un deal signé ce mois sur un call du mois dernier
+  // appartient au cash de ce mois. Voir docs/perimetre-stats-referentiel.md.
+  const dealsRows = await fetchAllPages<any>(() => {
+    const q = supabase.from('deals')
+      .select('amount_total, status, signed_at, call_id')
+      .eq('profile_id', targetId)
+      .order('signed_at', { ascending: false });
+    return integrationsReadyAt ? q.gte('signed_at', integrationsReadyAt) : q;
+  });
+
   // Déduplique leads par ig_user_id — dernière interaction
   const seen = new Set<string>();
   const igLeads: MockLead[] = leadsRows
@@ -6326,7 +6394,7 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     }
   }
 
-  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, integrationsReadyAt };
+  return { igLeads, leadMagnets: lmData, destinations, calls: callsData, deals: dealsRows, lmHistory, leadIdToMediaId, prospectLinksData, clicksByPath, clicksByUrl, urlToCategoryFromDb, calendlyStaticClicsFromDb, businessClicsFromDb, totalClicsChangePct, altKwToLmId, lmClickedByLeadId, linkClickedByLeadId, shortioChartHistory, shortioChartHistoryBio, shortioChartHistoryContent, shortioChartHistoryDm, integrationsReadyAt };
   } catch { return null; }
 }
 
@@ -6430,6 +6498,9 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const leadMagnets: LeadMagnet[] = supaData?.leadMagnets ?? [];
   const destinations: DestinationLink[] = supaData?.destinations ?? [];
   const calls: CallRecord[] = supaData?.calls ?? [];
+  // Deals du mode courant. En All-Time et sur les périodes passées, dealsEff bascule
+  // sur le snapshot (voir plus bas) — même mécanique que callsEff.
+  const deals: DealRecord[] = supaData?.deals ?? [];
   const lmHistory: { ig_user_id: string; keyword_matched: string; media_id: string | null; lead_magnet_sent: boolean; detected_at: string }[] = supaData?.lmHistory ?? [];
   const integrationsReadyAt: string | null = supaData?.integrationsReadyAt ?? null;
   const leadIdToMediaId: Map<string, string> = supaData?.leadIdToMediaId ?? new Map();
@@ -6678,6 +6749,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const stripeEff  = (sinceConnection ? (sinceConnSnap?.stripeHist  ?? null) : (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe))  as StripeStats | null;
   const msgsEff    = (sinceConnection ? (sinceConnSnap?.msgsHist    ?? null) : (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs))    as IGMessages | null;
   const callsEff   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
+  const dealsEff   = (sinceConnection ? (sinceConnSnap?.dealsHist ?? []) : (periodIndex > 0 ? (snapData?.dealsHist ?? []) : deals)) as DealRecord[];
   // Alias pour compat. TabFunnel (déjà existant)
   const funnelIg      = igEff;
   const funnelYt      = ytEff;
@@ -6776,7 +6848,7 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
           {tab === 2 && <TabYouTube yt={ytEff} period={period} profileId={profileId} periodIndex={periodIndex} ytIsFallback={ytIsFallback} sinceConnection={sinceConnection} />}
           {tab === 3 && <TabFunnel msgs={msgs} calls={funnelCalls} stripe={stripe} ig={funnelIg} yt={funnelYt} shortio={funnelShortio} period={period} periodIndex={periodIndex} onModalChange={setModalOpen} leads={igLeads} prospectLinksData={prospectLinksData} linkClickedByLeadId={linkClickedByLeadId} clicksByUrl={clicksByUrl} sinceConnection={sinceConnection} />}
           {tab === 4 && <TabShortioB shortio={shortioEff} shortioLoading={shortioLoading} ig={igEff} yt={ytEff} leads={igLeads} leadMagnets={leadMagnets} destinations={destinations} lmHistory={lmHistory} period={period} periodIndex={periodIndex} profileId={profileId} prospectLinksData={prospectLinksData} clicksByPath={clicksByPath} clicksByUrl={clicksByUrl} urlToCategoryFromDb={urlToCategoryFromDb} businessClicsFromDb={businessClicsFromDb} totalClicsChangePct={totalClicsChangePct} altKwToLmId={altKwToLmId} lmClickedByLeadId={lmClickedByLeadId} linkClickedByLeadId={linkClickedByLeadId} calls={callsEff} callsAllTime={calls} leadIdToMediaId={leadIdToMediaId} igLive={ig} ytLive={yt} shortioChartHistory={shortioChartHistory} shortioChartHistoryBio={shortioChartHistoryBio} shortioChartHistoryContent={shortioChartHistoryContent} shortioChartHistoryDm={shortioChartHistoryDm} selectedMetric={shortioBMetric} setSelectedMetric={setShortioBMetric} chartFilter={shortioBChartFilter} setChartFilter={setShortioBChartFilter} sinceConnection={sinceConnection} />}
-          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
+          {tab === 5 && <TabRevenues stripe={stripeEff} calls={callsEff} deals={dealsEff} period={period} periodIndex={periodIndex} onRefresh={handleStripeRefresh} refreshing={stripeRefreshing} sinceConnection={sinceConnection} profileId={profileId} />}
         </>
       )}
     </div>
