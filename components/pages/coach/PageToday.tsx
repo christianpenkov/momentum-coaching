@@ -460,7 +460,14 @@ export default function PageToday() {
                       L'objet persiste à travers la navigation, ce qui dit
                       « c'est le même élève, on entre dans sa fiche ». */}
                   <ViewTransition name={`client-avatar-${client.id}`}>
-                    <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={40} seed={client.id} />
+                    {/* <span> intermédiaire : ViewTransition doit s'appliquer à un
+                        élément DOM réel. Avant, il enveloppait directement <Avatar>,
+                        un composant qui ne transmet pas de ref — React ne pouvait
+                        alors poser aucun view-transition-name et le morph ne se
+                        jouait pas (vérifié : nom 'none' pendant la transition). */}
+                    <span style={{ display: 'flex', flexShrink: 0 }}>
+                      <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={40} seed={client.id} />
+                    </span>
                   </ViewTransition>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 13, color: 'var(--accent)' }}>{client.name}</div>

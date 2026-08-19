@@ -135,10 +135,18 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   // disponibles partout — aucune constante par modèle, aucun cas particulier
   // iOS ou Android : là où les deux hauteurs coïncident, le décalage vaut zéro
   // et rien ne bouge.
+  // UNIQUEMENT en app installée : dans un navigateur, l'écart entre l'écran
+  // physique et la fenêtre vaut la barre d'onglets, la barre des tâches et les
+  // bordures — rien à voir avec un splash système, qui n'existe pas là. Y
+  // appliquer le décalage remontait le logo hors du centre.
   try {
-    var gap = (window.screen.height - window.innerHeight) / 2;
-    if (gap > 0 && gap < 120) {
-      document.documentElement.style.setProperty('--splash-logo-shift', gap + 'px');
+    var installed = window.matchMedia('(display-mode: standalone)').matches
+      || window.navigator.standalone === true;
+    if (installed) {
+      var gap = (window.screen.height - window.innerHeight) / 2;
+      if (gap > 0 && gap < 120) {
+        document.documentElement.style.setProperty('--splash-logo-shift', gap + 'px');
+      }
     }
   } catch (e) {}
 

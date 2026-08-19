@@ -645,7 +645,10 @@ export default function PageClientDetail({ id }: Props) {
               grandit et se déplace de la carte vers cet en-tête au lieu de
               disparaître puis réapparaître. Voir globals.css pour la durée. */}
           <ViewTransition name={`client-avatar-${client.id}`}>
-            <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={48} seed={client.id} />
+            {/* Voir PageToday : ViewTransition a besoin d'un élément DOM réel. */}
+            <span style={{ display: 'flex', flexShrink: 0 }}>
+              <Avatar initials={client.initials || getInitials(client.name)} avatarUrl={client.avatar_url} size={48} seed={client.id} />
+            </span>
           </ViewTransition>
           <div>
             <h1 className="page-title" style={{ marginBottom: 4 }}>{client.name}</h1>
