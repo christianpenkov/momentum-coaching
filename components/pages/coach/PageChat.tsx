@@ -4,6 +4,7 @@ import InlineLoader from '@/components/ui/InlineLoader';
 import { useState, useRef, useEffect, useLayoutEffect, useCallback, createContext, useContext, Fragment } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import { isOnlineNow } from '@/lib/useOnline';
 import HapticTap from '@/components/ui/HapticTap';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import { createClient } from '@/lib/supabase/client';
@@ -1400,10 +1401,19 @@ function ConversationThread({ clientId, userId, clientName, clientInitials, clie
     const optimistic: Msg = { id: optimisticId, client_id: clientId, sender_id: userId, text: text.trim(), created_at: new Date().toISOString(), type: 'text', reply_to_id: replyId };
     setMessages(prev => [...prev, optimistic]);
     setReplyingTo(null);
-    const { data } = await supabase.from('messages')
+    const { data, error } = await supabase.from('messages')
       .insert({ client_id: clientId, sender_id: userId, text: text.trim(), type: 'text', read: false, reply_to_id: replyId })
       .select('id, text, sender_id, created_at, type, audio_url, duration_s, read_at, read, listened_at, caption, reply_to_id, reaction_emoji, reaction_by, file_size_bytes, page_count, thumbnail_url').single();
     if (data) setMessages(prev => prev.map(m => m.id === optimisticId ? data as Msg : m));
+    else if (error) {
+      // Sans ce rollback, un échec (réseau, RLS, contrainte DB) laissait le
+      // message optimiste affiché indéfiniment : le coach croyait avoir écrit à
+      // son élève alors que rien n'était parti. Même garantie que côté élève
+      // (PageClientMessages.sendMessage).
+      setMessages(prev => prev.filter(m => m.id !== optimisticId));
+      setInput(text);
+      setActionError(isOnlineNow() ? 'Message non envoyé — réessaie.' : "Pas de connexion — ton message n'a pas été envoyé.");
+    }
   }
 
   async function copyMessageText(text: string) {
