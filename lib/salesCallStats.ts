@@ -130,7 +130,7 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
   // call) — un call réservé avant `since` n'a pas pu être généré par le pipeline
   // Momentum même si son scheduled_at tombe après. Fallback sur scheduled_at si
   // booked_at manque (anciens calls importés sans cette donnée).
-  let directCallsQuery = supabase.from('calls').select('id')
+  let directCallsQuery = supabase.from('calls').select('id, invitee_email, invitee_name')
     .eq('coach_id', profileId)
     .eq('call_type', 'calendly')
     .neq('ignored', true)
@@ -164,7 +164,16 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
     ? Array.from(earliestByUsername.values()).filter(d => d >= since).length
     : earliestByUsername.size;
 
-  return count + ((directCallsRes.data as { id: string }[] | null)?.length ?? 0);
+  // Dédoublonné par personne, pas par call : Calendly crée un NOUVEL événement à
+  // chaque reprogrammation, donc un prospect qui déplace son rendez-vous a deux lignes
+  // dans `calls`. Les compter séparément faisait afficher 18 leads là où le pipeline
+  // en montrait 17 (constaté le 2026-08-19). Même clé que la partie leads/liens
+  // ci-dessus : une personne compte une fois, quel que soit son nombre de calls.
+  const directCallProspects = new Set(
+    ((directCallsRes.data ?? []) as { id: string; invitee_email: string | null; invitee_name: string | null }[])
+      .map(c => (c.invitee_email || c.invitee_name || c.id).toLowerCase())
+  );
+  return count + directCallProspects.size;
 }
 
 // Leads toutes sources = fetchIgLeadsCount (Instagram) + calls YouTube bookés (source
@@ -172,7 +181,7 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
 // (accueil élève, fiche coach, Mes stats) — évite que chacun recolle IG + YT séparément
 // et diverge silencieusement (déjà arrivé : Mes Stats oubliait YouTube).
 export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: string, since: string | null): Promise<number> {
-  let ytCallsQuery = supabase.from('calls').select('id, status')
+  let ytCallsQuery = supabase.from('calls').select('id, status, invitee_email, invitee_name')
     .eq('coach_id', profileId)
     .eq('call_type', 'calendly')
     .neq('ignored', true)
@@ -184,8 +193,25 @@ export async function fetchAllLeadsCount(supabase: SupabaseClient, profileId: st
     ytCallsQuery,
   ]);
 
-  const ytBookedCount = ((ytCallsRes.data ?? []) as { id: string; status: string | null }[])
-    .filter(c => !['cancelled', 'canceled', 'declined'].includes(c.status ?? '')).length;
+  // Dédoublonné par personne, même raison que pour les calls IG directs ci-dessus.
+  //
+  // Les calls ANNULÉS sont comptés : un prospect qui annule reste un prospect (il a
+  // manifesté un intérêt, il figure dans le pipeline, qui en fait même un filtre
+  // dédié « Annulés »). Ce qu'une annulation retire, c'est un call BOOKÉ — pas un
+  // lead. Les deux notions sont distinctes et ne se filtrent pas pareil.
+  //
+  // Avant, ce volet YouTube excluait les annulés alors que le volet Instagram de
+  // fetchIgLeadsCount les gardait : deux plateformes, deux règles, dans la même
+  // fonction. Un prospect YouTube qui annulait disparaissait donc des leads, là où un
+  // prospect Instagram dans la même situation y restait. Aligné le 2026-08-19 (0 call
+  // YouTube annulé en base à cette date, donc aucun chiffre ne bouge aujourd'hui).
+  //
+  // Le comptage des calls bookés, lui, continue d'exclure les annulés — c'est
+  // computeSalesCallStats/isNotCanceled qui s'en charge, et c'est sa place.
+  const ytLeadCount = new Set(
+    ((ytCallsRes.data ?? []) as { id: string; status: string | null; invitee_email: string | null; invitee_name: string | null }[])
+      .map(c => (c.invitee_email || c.invitee_name || c.id).toLowerCase())
+  ).size;
 
-  return igCount + ytBookedCount;
+  return igCount + ytLeadCount;
 }

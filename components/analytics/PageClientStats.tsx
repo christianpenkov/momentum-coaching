@@ -421,14 +421,30 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   // par rapport à l'accueil (7 au lieu de 9).
   const ytBookedCallsInPeriod = (callsAllTime ?? []).filter(c => {
     if (c.ignored) return false;
-    if (['cancelled', 'canceled', 'declined'].includes(c.status ?? '')) return false;
+    // Les annulés sont GARDÉS : un prospect qui annule reste un prospect. Ce qu'une
+    // annulation retire, c'est un call booké — pas un lead ; ce filtre-là vit dans
+    // computeSalesCallStats. Le volet Instagram juste au-dessus les gardait déjà,
+    // ce filtre créait donc deux règles selon la plateforme (aligné le 2026-08-19,
+    // même correction dans fetchAllLeadsCount).
     const src = c.source?.toLowerCase() ?? '';
     if (!src.startsWith('yt')) return false;
     return isLeadInPeriod(c.booked_at || c.scheduled_at);
   });
+  // Un prospect = UNE personne, jamais un call. Sans dédoublonnage, quelqu'un qui
+  // reprogramme son rendez-vous compte double : Calendly crée un nouvel événement à
+  // chaque report, donc deux lignes dans `calls` pour la même personne. C'est ce qui
+  // faisait afficher 18 leads ici contre 17 dans le pipeline, lequel regroupe bien par
+  // prospect (constaté le 2026-08-19 sur « Test JSP 2 », reporté du 18 au 19 août).
+  //
+  // Clé de regroupement : l'email de l'invité, avec repli sur son nom — même critère
+  // que le pipeline quand il n'a ni prospect_id ni chaîne de reprogrammation.
+  const prospectKeyOf = (c: CallRecord) =>
+    ((c as any).invitee_email || (c as any).invitee_name || (c as any).id || '').toLowerCase();
+  const directIgProspects = new Set(directIgCallsInPeriod.map(prospectKeyOf));
+  const ytBookedProspects = new Set(ytBookedCallsInPeriod.map(prospectKeyOf));
   const leadsCount = new Set(
     (lmHistory ?? []).filter(h => isLeadInPeriod(h.detected_at)).map(h => h.ig_user_id)
-  ).size + directIgCallsInPeriod.length + ytBookedCallsInPeriod.length;
+  ).size + directIgProspects.size + ytBookedProspects.size;
   // Les calls directs comptent aussi comme "nouveaux" dans le badge : par construction
   // (ig_lead_id null), ils n'ont jamais été vus ailleurs avant ce call. Idem pour les
   // calls YouTube bookés — pas de notion de "lead" préalable pour cette source.
@@ -438,10 +454,13 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
   const ytBookedCallsNew = sinceConnection
     ? ytBookedCallsInPeriod.filter(c => isNewThisMonth(c.booked_at || c.scheduled_at))
     : ytBookedCallsInPeriod;
+  // Même dédoublonnage par personne que pour leadsCount ci-dessus : un report de
+  // rendez-vous ne crée pas un second prospect.
   const newLeadsCount = (sinceConnection
     ? (leads ?? []).filter(l => isNewThisMonth(l.commentedAt)).length
     : (leads ?? []).filter(l => isLeadInPeriod(l.commentedAt)).length
-  ) + directIgCallsNew.length + ytBookedCallsNew.length;
+  ) + new Set(directIgCallsNew.map(prospectKeyOf)).size
+    + new Set(ytBookedCallsNew.map(prospectKeyOf)).size;
   const newLeadsBadgeLabel = sinceConnection ? 'ce mois' : 'nouveaux';
   const newLeadsBadgeTitle = sinceConnection
     ? 'Prospects jamais vus avant, détectés ce mois-ci (différent des leads actifs ce mois, qui incluraient aussi les anciens prospects réactivés)'
