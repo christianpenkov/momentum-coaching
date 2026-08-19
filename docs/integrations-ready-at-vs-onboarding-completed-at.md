@@ -58,3 +58,10 @@ Ne jamais filtrer sur `integrations.connected_at` (réécrit à chaque reconnexi
 Le calcul du nombre de leads (`lib/salesCallStats.ts`) a la même exigence de cohérence. Trois écrans (accueil élève, fiche coach, "Mes stats") doivent afficher le même total pour le même élève — voir `docs/pipeline-leads-ig-sources.md` pour le détail des sources cumulées (Instagram + calls YouTube bookés).
 
 `fetchIgLeadsCount` reste Instagram seul (nom honnête). `fetchAllLeadsCount` l'enveloppe et ajoute les calls YouTube bookés — c'est cette dernière qu'il faut appeler pour tout total "Leads" affiché à l'utilisateur, dans les écrans qui n'ont pas besoin d'une fenêtre calendaire navigable (semaine/mois glissant). "Mes stats" garde son propre calcul local car il gère aussi ce mode période (dédup dans une fenêtre bornée des deux côtés, badge "nouveaux" contextuel) — non couvert par `fetchAllLeadsCount`, qui ne gère qu'un simple seuil "depuis telle date". Les deux implémentations partagent la même logique métier (dédup par username sur la date la plus ancienne connue, filtre `booked_at`/fallback, inclusion YouTube) — si l'une évolue, vérifier que l'autre suit.
+
+> **Cet avertissement a lâché.** Le 2026-08-19, les deux implémentations avaient
+> divergé sur quatre points à la fois (date de démarrage, date de référence, dédup par
+> personne, traitement des annulés), produisant 18 leads d'un côté et 17 de l'autre.
+> Les cinq règles de périmètre qui doivent rester communes sont désormais écrites une
+> seule fois dans **`docs/perimetre-stats-referentiel.md`** — à lire avant de toucher à
+> un compteur de leads, de calls ou de revenus.

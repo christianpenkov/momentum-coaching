@@ -1,3 +1,10 @@
+// Calculs de vente partagés — calls bookés/honorés/closés, cash, comptage des leads.
+//
+// ⚠️ Les règles de PÉRIMÈTRE (quelle date de démarrage, quelle date de référence,
+// personnes vs lignes, traitement des annulés, bornes de journée) sont communes à
+// tous les écrans et documentées dans docs/perimetre-stats-referentiel.md.
+// Neuf écarts entre écrans ont été corrigés le 2026-08-19, tous causés par une de
+// ces règles appliquée ici mais pas là. À lire avant de modifier un compteur.
 import { isCallHonored } from '@/lib/callHonored';
 import type { Call } from '@/lib/supabase/types';
 import type { SupabaseClient } from '@supabase/supabase-js';
