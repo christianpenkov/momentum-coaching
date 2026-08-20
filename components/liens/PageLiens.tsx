@@ -2791,13 +2791,18 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: compact ? 'nowrap' : 'wrap' }}>
       {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
         const active = value === f;
+        // Chips fines, sur fond blanc bordé — la version pleine hauteur à 44px
+        // faisait des pavés qui pesaient plus que la liste qu'ils filtrent.
+        // L'actif prend l'ardoise de marque, jamais le noir d'encre : c'est une
+        // sélection, pas une action.
         return (
           <button key={f} onClick={() => onChange(f)} style={{
-            display: 'flex', alignItems: 'center', gap: 5, borderRadius: 20, cursor: 'pointer', border: 'none', fontWeight: 600,
-            ...(compact
-              ? { padding: '4px 11px', fontSize: 11 }
-              : { minHeight: 44, padding: '0 14px', fontSize: 13 }),
-            background: active ? INK : SURFACE2, color: active ? 'var(--bg)' : MUTED,
+            display: 'flex', alignItems: 'center', gap: 5, borderRadius: 999, cursor: 'pointer', fontWeight: 600,
+            padding: compact ? '4px 11px' : '6px 13px',
+            fontSize: compact ? 11 : 12.5,
+            border: `1px solid ${active ? BLUE : BORDER}`,
+            background: active ? BLUE : SURFACE,
+            color: active ? '#fff' : MUTED,
             transition: `all var(--dur-instant) var(--ease-out)`,
           }}>
             {/* Les logos de plateforme ne tiennent qu'en desktop : en mobile les
@@ -2805,7 +2810,13 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
             {compact && f === 'IG' && <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>}
             {compact && f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
             {compact && f === 'STORY' && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>}
-            {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
+            {/* Sigles courts dans le menu déplié : à 250px, « Instagram » et
+                « YouTube » se faisaient tronquer. Le hi-fi écrit « Tous · IG ·
+                YT · Stories » dans cette colonne, et les noms complets en
+                pleine largeur. */}
+            {compact
+              ? (f === 'all' ? 'Tous' : f === 'STORY' ? 'Stories' : f)
+              : (f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories')}
             {compteurs && <span style={{ opacity: 0.55, fontSize: compact ? 10 : 11 }}>{compteurs[f]}</span>}
           </button>
         );
@@ -2818,11 +2829,11 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
         <>
           <span style={{ width: 1, height: compact ? 20 : 26, background: BORDER, margin: '0 3px', flexShrink: 0 }} />
           <button onClick={() => onSansSequence(!sansSequence)} style={{
-            display: 'flex', alignItems: 'center', gap: 5, borderRadius: 20, cursor: 'pointer', border: 'none', fontWeight: 600,
-            ...(compact
-              ? { padding: '4px 11px', fontSize: 11 }
-              : { minHeight: 44, padding: '0 14px', fontSize: 13 }),
-            background: sansSequence ? 'var(--amber)' : SURFACE2,
+            display: 'flex', alignItems: 'center', gap: 5, borderRadius: 999, cursor: 'pointer', fontWeight: 600,
+            padding: compact ? '4px 11px' : '6px 13px',
+            fontSize: compact ? 11 : 12.5,
+            border: `1px solid ${sansSequence ? 'var(--amber)' : BORDER}`,
+            background: sansSequence ? 'var(--amber)' : SURFACE,
             color: sansSequence ? '#fff' : MUTED,
             transition: `all var(--dur-instant) var(--ease-out)`,
           }}>
@@ -2847,15 +2858,18 @@ function SousOngletsStories({ value, onChange, compact }: {
   onChange: (t: 'stories' | 'sequences') => void;
   compact: boolean;
 }) {
+  // Sous-onglets en retrait, rayon plus faible que les filtres au-dessus : ils
+  // sont subordonnés au filtre Stories, la forme doit le dire.
   return (
     <div style={{ display: 'flex', gap: 4 }}>
       {(['stories', 'sequences'] as const).map(t => (
         <button key={t} onClick={() => onChange(t)} style={{
-          borderRadius: 20, cursor: 'pointer', border: 'none', fontWeight: 600,
-          ...(compact
-            ? { padding: '4px 11px', fontSize: 11 }
-            : { minHeight: 44, padding: '0 14px', fontSize: 13 }),
-          background: value === t ? INK : SURFACE2, color: value === t ? 'var(--bg)' : MUTED,
+          borderRadius: 8, cursor: 'pointer', fontWeight: 600,
+          padding: compact ? '4px 11px' : '6px 13px',
+          fontSize: compact ? 11 : 12.5,
+          border: `1px solid ${value === t ? INK : BORDER}`,
+          background: value === t ? INK : SURFACE,
+          color: value === t ? 'var(--bg)' : MUTED,
           transition: `all var(--dur-instant) var(--ease-out)`,
         }}>{t === 'stories' ? 'Stories' : 'Séquences'}</button>
       ))}
@@ -2940,7 +2954,7 @@ function RailBouton({ children, title, actif, accent, onClick }: {
  * Rail de 56px — l'état ② du parcours, celui par défaut quand on ouvre un
  * contenu : la séquence dispose alors de toute la largeur restante.
  */
-function RailContenus({ posts, rightView, onRetour, onDeplier, onProspect, onLmLibrary, onOuvrirPost }: {
+function RailContenus({ posts, rightView, onRetour, onDeplier, onProspect, onLmLibrary, onOuvrirPost, onSurvol }: {
   posts: Post[];
   rightView: RightView;
   onRetour: () => void;
@@ -2948,20 +2962,25 @@ function RailContenus({ posts, rightView, onRetour, onDeplier, onProspect, onLmL
   onProspect: () => void;
   onLmLibrary: () => void;
   onOuvrirPost: (post: Post) => void;
+  onSurvol?: (dedans: boolean) => void;
 }) {
   const idCourant = rightView && (rightView.type === 'post' || rightView.type === 'story') ? rightView.post.id : null;
 
   return (
-    <div style={{
-      width: 56, flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG,
-      padding: '11px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
-      boxSizing: 'border-box', overflowY: 'auto',
-    }}>
+    <div
+      onMouseEnter={() => onSurvol?.(true)}
+      onMouseLeave={() => onSurvol?.(false)}
+      style={{
+        width: 56, flexShrink: 0, borderRight: `1px solid ${BORDER}`, background: BG,
+        padding: '11px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8,
+        boxSizing: 'border-box', overflowY: 'auto',
+      }}>
       <RailBouton title="Revenir à tous les contenus" onClick={onRetour}>{IcoRetour}</RailBouton>
       <RailBouton title="Déplier la liste" onClick={onDeplier}>{IcoMenu}</RailBouton>
-      <RailBouton title="Lien Calendly prospect" accent actif={rightView?.type === 'prospect'} onClick={onProspect}>{IcoAvion}</RailBouton>
-      <RailBouton title="Lead magnets" accent actif={rightView?.type === 'lm-library'} onClick={onLmLibrary}>{IcoLm}</RailBouton>
-
+      {/* Pas d'entrées Calendly / Lead magnets ici : la ligne de titre reste
+          visible au-dessus du rail avec ses CTA, les répéter en icônes ferait
+          deux chemins vers la même vue à quelques centimètres d'écart. Le rail
+          ne porte donc que la navigation entre contenus. */}
       <span style={{ width: 26, height: 1, background: BORDER, margin: '2px 0', flexShrink: 0 }} />
 
       {posts.map(post => {
@@ -3241,11 +3260,21 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
             <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
           )}
 
-          {/* Mot-clé : ce qui déclenche la séquence. C'est l'information qu'on ne
-              peut pas deviner en regardant le contenu. */}
+          {/* Mot-clé : ce qui déclenche la séquence DM. Un point gris quand il
+              manque plutôt qu'une pastille écrite — « Pas de séquence » en ambre
+              sur chaque ligne non configurée transformait la liste en mur
+              d'avertissements. Le filtre « Sans séquence » sert à les isoler. */}
           {post.lmKeyword
             ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword.toUpperCase()}</span>
-            : <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--amber)', background: 'var(--amber-soft)', borderRadius: 4, padding: '1px 5px' }}>Pas de séquence</span>}
+            : post.platform === 'YT'
+              ? null   /* le DM automatique est propre à Instagram — sur YouTube seul le lien description existe */
+              : <PointAbsence title="Pas de séquence" />}
+
+          {/* Lien de description : présent sur toutes les plateformes, y compris
+              YouTube où c'est le seul moyen de tracker le trafic. */}
+          {post.hasDescLink && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
+          )}
 
           {/* L'état ne concerne que les stories, qui périment en 24 h. */}
           <PastilleEtatStory post={post} />
@@ -3752,7 +3781,36 @@ export default function PageLiens() {
   //                                     séquence a besoin de la largeur)
   //   ③ rightView + menu déplié      → liste 250px + détail
   // Déplier est une action volontaire, quand on cherche un autre contenu.
-  const [menuDeplie, setMenuDeplie] = useState(false);
+  // Survol du rail : le menu s'ouvre après un temps d'arrêt, se referme après un
+  // temps de sortie. Sans ces délais, il clignote dès qu'on traverse le rail en
+  // diagonale pour atteindre autre chose — Baymard mesure ce défaut sur 60 % des
+  // sites à menu déroulant.
+  //
+  // Fermeture plus longue que l'ouverture : elle doit laisser franchir l'espace
+  // entre le rail et le panneau sans que celui-ci se dérobe.
+  //
+  // `menuEpingle` distingue les deux façons d'ouvrir : le ☰ épingle (ça reste),
+  // le survol non (ça se referme quand la souris part). Sinon un menu ouvert au
+  // clic disparaîtrait au premier mouvement de souris.
+  const [menuEpingle, setMenuEpingle] = useState(false);
+  const [survolMenu, setSurvolMenu] = useState(false);
+  const timerSurvol = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const OUVERTURE_MS = 250;
+  const FERMETURE_MS = 320;
+
+  const survolRail = useCallback((dedans: boolean) => {
+    if (timerSurvol.current) clearTimeout(timerSurvol.current);
+    timerSurvol.current = setTimeout(
+      () => setSurvolMenu(dedans),
+      dedans ? OUVERTURE_MS : FERMETURE_MS,
+    );
+  }, []);
+
+  useEffect(() => () => { if (timerSurvol.current) clearTimeout(timerSurvol.current); }, []);
+
+  // Le menu est déplié s'il est épinglé OU survolé.
+  const menuOuvert = menuEpingle || survolMenu;
 
   const sequences: any[] = sequencesData?.sequences ?? [];
   const [highlightedSequenceId, setHighlightedSequenceId] = useState<string | null>(null);
@@ -3859,14 +3917,16 @@ export default function PageLiens() {
             </div>
           </div>
           <div className="liens-header-actions" style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
-            {/* ↻ en icône seule : action fréquente juste après une publication,
-                elle doit rester à un clic sans manger la ligne de titre. */}
-            <button onClick={handleRefreshPosts} disabled={refreshingPosts} title="Actualiser les posts" aria-label="Actualiser les posts" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 8,
-              cursor: refreshingPosts ? 'default' : 'pointer', transition: `all var(--dur-quick) var(--ease-out)`,
-              border: `1px solid ${BORDER}`, background: SURFACE, color: MUTED, opacity: refreshingPosts ? 0.6 : 1, flexShrink: 0,
+            {/* Texte gardé en desktop, icône seule en mobile (la media query
+                masque .liens-btn-label) : l'action est fréquente juste après une
+                publication, un ↻ nu n'aurait pas dit ce qu'il rafraîchit. */}
+            <button onClick={handleRefreshPosts} disabled={refreshingPosts} aria-label="Actualiser les posts" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 15px', fontSize: 12.5, fontWeight: 600,
+              borderRadius: 8, cursor: refreshingPosts ? 'default' : 'pointer', transition: `all var(--dur-quick) var(--ease-out)`,
+              border: `1px solid ${BORDER}`, background: SURFACE, color: INK, opacity: refreshingPosts ? 0.6 : 1, flexShrink: 0,
             }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshingPosts ? { animation: 'spin 1s linear infinite' } : undefined}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshingPosts ? { animation: 'spin 1s linear infinite' } : undefined}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+              <span className="liens-btn-label">{refreshingPosts ? 'Actualisation…' : 'Actualiser'}</span>
             </button>
 
             <button onClick={() => setParamOpen(true)} aria-label="Paramètres des liens" style={{
@@ -3884,7 +3944,7 @@ export default function PageLiens() {
 
             {/* Ardoise : c'est une vue de même niveau qu'un contenu, pas une action
                 secondaire. Le hi-fi lui réserve l'accent de marque. */}
-            <button onClick={() => unsavedGuardApi.guard(() => { setRightView({ type: 'prospect' }); setMenuDeplie(false); })} aria-label="Lien Calendly prospect" style={{
+            <button onClick={() => unsavedGuardApi.guard(() => { setRightView({ type: 'prospect' }); setMenuEpingle(false); setSurvolMenu(false); })} aria-label="Lien Calendly prospect" style={{
               display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 15px', fontSize: 12.5, fontWeight: 600,
               borderRadius: 8, cursor: 'pointer', border: 'none', flexShrink: 0,
               background: BLUE, color: '#fff', transition: `all var(--dur-quick) var(--ease-out)`,
@@ -3898,7 +3958,7 @@ export default function PageLiens() {
               borderRadius: 8, cursor: 'pointer', border: 'none', position: 'relative', flexShrink: 0,
               background: INK, color: '#fff', transition: `all var(--dur-quick) var(--ease-out)`,
             }}>
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               <span className="liens-btn-label">Lead magnet</span>
               {leadMagnets.length > 0 && <span style={{ position: 'absolute', top: -6, right: -6, fontSize: 10, fontWeight: 700, background: SURFACE2, color: MUTED, borderRadius: 10, padding: '1px 5px', minWidth: 16, textAlign: 'center', border: '2px solid var(--surface)' }}>{leadMagnets.length}</span>}
             </button>
@@ -4091,70 +4151,68 @@ export default function PageLiens() {
 
         {/* Body desktop — trois états : ① liste pleine largeur · ② rail + détail
              (défaut à l'ouverture) · ③ menu déplié + détail */}
-        <div className="liens-desktop-only" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        {/* position:relative — le menu de 250px se superpose au détail en absolu,
+            il lui faut ce conteneur comme repère. */}
+        <div className="liens-desktop-only" style={{ display: 'flex', flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
 
-          {/* ② le rail, quand un contenu est ouvert et le menu replié */}
-          {rightView !== null && !menuDeplie && (
+          {/* ② le rail — toujours rendu quand un contenu est ouvert : c'est lui
+              qui porte la zone de survol, et il reste visible sous le menu qui
+              se superpose. */}
+          {rightView !== null && (
             <RailContenus
               posts={filteredPosts} rightView={rightView}
-              onRetour={() => unsavedGuardApi.guard(() => setRightView(null))}
-              onDeplier={() => setMenuDeplie(true)}
+              onRetour={() => unsavedGuardApi.guard(() => { setRightView(null); setMenuEpingle(false); setSurvolMenu(false); })}
+              onDeplier={() => setMenuEpingle(v => !v)}
               onProspect={() => unsavedGuardApi.guard(() => setRightView({ type: 'prospect' }))}
               onLmLibrary={() => unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }))}
               onOuvrirPost={post => unsavedGuardApi.guard(() => setRightView(post.platform === 'STORY' ? { type: 'story', post } : { type: 'post', post }))}
+              onSurvol={survolRail}
             />
           )}
 
-          {/* Colonne gauche — ① pleine largeur, ③ repliée à 250px */}
-          {(rightView === null || menuDeplie) && (
-          <div style={{
-            width: rightView === null ? '100%' : 250,
-            flexShrink: 0,
-            borderRight: rightView === null ? 'none' : `1px solid ${BORDER}`,
-            background: BG, display: 'flex', flexDirection: 'column', minHeight: 0,
-          }}>
+          {/* Colonne gauche — ① pleine largeur, ③ panneau de 250px.
+              En ③ le panneau se SUPERPOSE au détail au lieu de le pousser : sans
+              ça, la séquence DM en cours d'écriture se réorganiserait à chaque
+              fois que la souris frôle le rail. C'est la variante que les
+              wireframes du handoff retenaient pour ce cas. */}
+          {(rightView === null || menuOuvert) && (
+          <div
+            onMouseEnter={() => rightView !== null && survolRail(true)}
+            onMouseLeave={() => rightView !== null && survolRail(false)}
+            style={{
+              ...(rightView === null
+                ? { width: '100%', flexShrink: 0, borderRight: 'none' }
+                : {
+                    position: 'absolute', top: 0, bottom: 0, left: 56, zIndex: 20,
+                    width: 250, borderRight: `1px solid ${BORDER}`,
+                    boxShadow: 'var(--shadow-elev)',
+                  }),
+              background: BG, display: 'flex', flexDirection: 'column', minHeight: 0,
+            }}>
 
-            {/* En ③, la tête de menu porte le retour à ① et le repli du menu —
-                sans elle, on ne pourrait plus ni revenir ni retrouver la largeur. */}
-            {menuDeplie && (
+            {/* En ③, la tête de menu porte le retour à ① et l'épinglage —
+                sans elle, on ne pourrait plus ni revenir ni garder le menu ouvert. */}
+            {rightView !== null && (
               <div style={{ padding: '12px 13px 9px', display: 'flex', alignItems: 'center', gap: 9, flexShrink: 0, borderBottom: `1px solid ${BORDER_SOFT}` }}>
-                <button onClick={() => unsavedGuardApi.guard(() => { setRightView(null); setMenuDeplie(false); })} title="Revenir à tous les contenus" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: BLUE, fontSize: 12, fontWeight: 700 }}>
+                <button onClick={() => unsavedGuardApi.guard(() => { setRightView(null); setMenuEpingle(false); setSurvolMenu(false); })} title="Revenir à tous les contenus" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: BLUE, fontSize: 12, fontWeight: 700 }}>
                   {IcoRetour}<span>Gérer mes liens</span>
                 </button>
-                <button onClick={() => setMenuDeplie(false)} title="Replier la liste" aria-label="Replier la liste" style={{
+                <button onClick={() => { setMenuEpingle(v => !v); setSurvolMenu(false); }}
+                  title={menuEpingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
+                  aria-label={menuEpingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'} style={{
                   marginLeft: 'auto', width: 26, height: 24, borderRadius: 6, flexShrink: 0, cursor: 'pointer',
-                  background: SURFACE, border: `1px solid ${BORDER}`, color: INK,
+                  background: menuEpingle ? BLUE : SURFACE, border: `1px solid ${menuEpingle ? BLUE : BORDER}`,
+                  color: menuEpingle ? '#fff' : INK,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                 }}>{IcoMenu}</button>
               </div>
             )}
 
-            {/* Entrées épinglées — seulement dans le MENU DÉPLIÉ (③). En état ①
-                elles vivent sur la ligne de titre, comme le hi-fi : deux gros
-                boutons pleine largeur au-dessus des filtres poussaient la liste
-                vers le bas et doublonnaient les CTA du haut. Le rail (②) a ses
-                propres icônes. */}
-            {menuDeplie && (
-            <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
-              <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'prospect' }))} style={{
-                width: '100%', padding: '8px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
-                border: `1px solid ${rightView?.type === 'prospect' ? BLUE : '#cfdce4'}`,
-                background: BLUE_SOFT, color: BLUE, transition: `all var(--dur-quick) var(--ease-out)`,
-              }}>
-                {IcoAvion}
-                <span>Lien Calendly prospect</span>
-              </button>
-              <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }))} style={{
-                width: '100%', padding: '8px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
-                border: `1px solid ${rightView?.type === 'lm-library' ? BLUE : BORDER}`,
-                background: rightView?.type === 'lm-library' ? BLUE_SOFT : 'transparent',
-                color: rightView?.type === 'lm-library' ? BLUE : MUTED, transition: `all var(--dur-quick) var(--ease-out)`,
-              }}>
-                {IcoLm}
-                <span>Lead magnets{leadMagnets.length > 0 ? ` · ${leadMagnets.length}` : ''}</span>
-              </button>
-            </div>
-            )}
+            {/* Pas d'entrées épinglées ici : la ligne de titre reste visible en
+                permanence avec ses CTA « Lien Calendly prospect » et « Lead
+                magnet ». Les répéter dans le menu déplié ne ferait que doubler
+                les mêmes actions à 200px d'écart. Le rail (②), lui, en a besoin :
+                sa colonne masque justement ces boutons. */}
 
             {/* Entonnoir — état ① seulement : une fois dans un contenu, la question
                 n'est plus « où ça casse ? » mais « que dit CE contenu ». */}
