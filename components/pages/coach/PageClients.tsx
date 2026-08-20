@@ -8,6 +8,7 @@ import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Chip from '@/components/ui/Chip';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon from '@/components/ui/Icon';
+import { Skeleton } from '@/components/ui/Skeleton';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { getClientSignals, isTaskOverdue } from '@/lib/clientSignals';
 import { getClientWeek } from '@/lib/clientWeek';
@@ -83,7 +84,30 @@ export default function PageClients() {
     noshow: clients.filter(c => (signalsByClient.get(c.id)?.activeNoShowsCount ?? 0) > 0).length,
   };
 
-  if (loading) return <InlineLoader fullPage />;
+  // Squelette plutot qu'un loader centre : la page montre sa structure (en-tete
+  // + lignes de clients), donc elle parait deja la et le contenu remplace des
+  // formes de memes dimensions au lieu de surgir dans le vide.
+  if (loading) return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <Skeleton width={120} height={22} />
+          <Skeleton width={160} height={12} style={{ marginTop: 8 }} />
+        </div>
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10, marginTop: 18 }}>
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="card" style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px' }}>
+            <Skeleton width={40} height={40} radius={20} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width="35%" height={13} />
+              <Skeleton width="22%" height={11} style={{ marginTop: 7 }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   return (
     <div className="page-content">

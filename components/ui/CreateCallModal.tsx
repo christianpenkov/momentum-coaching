@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
@@ -32,6 +33,7 @@ interface Props {
 }
 
 export default function CreateCallModal({ open, onClose, onCreated }: Props) {
+  useEscapeKey(onClose, open);
   const { clients } = useSupabaseClients();
   const viewerTz = useViewerTimeZone();
   const [form, setForm] = useState<CreateCallForm>(EMPTY_FORM);

@@ -6,6 +6,7 @@ import Link from 'next/link';
 import KpiRibbon from '@/components/ui/KpiRibbon';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import Icon from '@/components/ui/Icon';
+import { Skeleton } from '@/components/ui/Skeleton';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import CallStack from '@/components/ui/CallStack';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
@@ -146,7 +147,35 @@ export default function PageToday() {
   const dayCapitalized = dayLabel.charAt(0).toUpperCase() + dayLabel.slice(1);
   const firstName = (user?.full_name || '').split(' ')[0];
 
-  if (loading) return <InlineLoader fullPage />;
+  // Squelette plutot qu'un loader centre : reproduit la structure reelle de
+  // l'accueil (en-tete, ruban de 4 KPI, carte du prochain call).
+  if (loading) return (
+    <div className="page-content">
+      <div className="page-header">
+        <div>
+          <Skeleton width={180} height={22} />
+          <Skeleton width={140} height={12} style={{ marginTop: 8 }} />
+        </div>
+      </div>
+      <div className="grid-4" style={{ marginTop: 20 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card" style={{ padding: '16px 20px' }}>
+            <Skeleton width="65%" height={11} />
+            <Skeleton width="45%" height={24} style={{ marginTop: 10 }} />
+          </div>
+        ))}
+      </div>
+      <div className="card" style={{ marginTop: 20, padding: '18px 20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+          <Skeleton width={40} height={40} radius={20} />
+          <div style={{ flex: 1 }}>
+            <Skeleton width="40%" height={14} />
+            <Skeleton width="26%" height={11} style={{ marginTop: 7 }} />
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="page-content">

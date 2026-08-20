@@ -1,6 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import Lottie from 'lottie-react';
 import Icon from '@/components/ui/Icon';
@@ -96,6 +97,7 @@ function CelebrationOverlay({ onDone }: { onDone: () => void }) {
 }
 
 export default function RapportModal({ callId, inviteeName, scheduledAt, isFollowUp, existing, onClose }: Props) {
+  useEscapeKey(onClose);
   const viewerTz = useViewerTimeZone();
   const isCorrection = !!existing;
   const [step, setStep] = useState<RapportStep>('show_up');

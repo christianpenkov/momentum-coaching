@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
 import { AppNotif } from '@/lib/useNotifications';
@@ -18,6 +19,7 @@ interface Props {
 type RespondState = 'idle' | 'accepting' | 'declining' | 'done' | 'stale';
 
 export default function NotifCenter({ notifs, onClose, onRapportDone, onRefresh }: Props) {
+  useEscapeKey(onClose);
   const ref = useRef<HTMLDivElement>(null);
   const [rapportNotif, setRapportNotif] = useState<AppNotif | null>(null);
   const [sessionRapportNotif, setSessionRapportNotif] = useState<AppNotif | null>(null);
