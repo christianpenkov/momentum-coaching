@@ -1968,7 +1968,9 @@ export default function PagePipeline() {
       {/* flexWrap : sur 375px, le titre et le groupe d'actions ne tiennent pas
           cote a cote — sans repli le titre se coupait en deux lignes et le
           sous-titre s'etirait en colonne d'un mot. */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, flexWrap: 'wrap', rowGap: 10 }}>
+      {/* position relative : ancre le bouton "Rafraichir" que la vue mobile
+          sort du flux pour le remonter en haut a droite. */}
+      <div className="pipeline-header" style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, flexWrap: 'wrap', rowGap: 10 }}>
         <div style={{ minWidth: 0 }}>
           <h1 className="page-title" style={{ marginBottom: 2 }}>Pipeline Leads</h1>
           <p className="page-sub" style={{ fontSize: 12 }}>
@@ -1982,8 +1984,10 @@ export default function PagePipeline() {
         </div>
 
         {/* pipeline-actions : sur mobile, "Rafraichir" et les 3 onglets ne
-            tiennent pas cote a cote (mesure a 375px : 388px de contenu). Le
-            groupe passe en colonne pleine largeur, onglets sous le bouton. */}
+            tiennent pas cote a cote (mesure a 375px : 388px de contenu).
+            Plutot que de compresser les onglets, le bouton remonte a cote du
+            titre (order: -1 + position absolue) et les onglets prennent toute
+            la largeur en pilules. */}
         <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={handleRefresh}
@@ -2002,28 +2006,31 @@ export default function PagePipeline() {
           {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
               egales. En flex simple, les trois libelles cumulaient plus de
               375px et "Autres" sortait de l'ecran (constate au navigateur). */}
-          <div className="pipeline-tabs" style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+          <div className="pipeline-tabs" style={{ display: 'flex', borderRadius: 8, padding: 3, gap: 2 }}>
             {([
               { key: 'ig', label: 'Instagram', count: igCards.length },
               { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
               { key: 'other', label: 'Autres', count: filteredOtherCards.length },
             ] as const).map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} className="pipeline-tab" style={{
-                padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6,
-                cursor: 'pointer', border: 'none', transition: 'all .12s',
-                background: tab === t.key ? 'var(--surface)' : 'transparent',
-                color: tab === t.key ? 'var(--ink)' : 'var(--muted)',
-                boxShadow: tab === t.key ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
-                display: 'flex', alignItems: 'center', gap: 6,
-              }}>
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                // is-active plutot qu'un style inline conditionnel : sur mobile
+                // l'onglet actif devient une pilule pleine en accent, ce qu'une
+                // media query ne pourrait pas surcharger depuis l'inline.
+                className={`pipeline-tab${tab === t.key ? ' is-active' : ''}`}
+                style={{
+                  fontSize: 12, fontWeight: 600, borderRadius: 6,
+                  cursor: 'pointer', border: 'none', transition: 'all .12s',
+                  display: 'flex', alignItems: 'center', gap: 6,
+                }}
+              >
                 {/* Enveloppe pour que la troncature mobile puisse s'y appliquer :
                     un noeud texte nu n'est pas atteignable en CSS. */}
                 <span className="pipeline-tab-label">{t.label}</span>
-                <span style={{
+                <span className="pipeline-tab-count" style={{
                   fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
                   borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
-                  background: tab === t.key ? 'var(--surface-2)' : 'transparent',
-                  color: tab === t.key ? 'var(--ink)' : 'var(--faint)',
                 }}>{t.count}</span>
               </button>
             ))}

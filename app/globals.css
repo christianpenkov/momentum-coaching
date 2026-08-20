@@ -2101,6 +2101,20 @@ a { color: inherit; text-decoration: none; }
 /* Entonnoir mobile — valeurs de base, surchargees sur ecran court. */
 .funnel-row { min-height: 56px; padding: 15px 14px; }
 .funnel-list { gap: 7px; }
+
+/* Onglets de plateforme — valeurs de base (desktop). Elles vivaient en style
+   inline ; deplacees ici pour que la vue mobile puisse les surcharger, ce
+   qu'une media query ne peut pas faire sur de l'inline. Rendu desktop
+   strictement identique a l'avant. */
+.pipeline-tabs { background: var(--surface-2); }
+.pipeline-tab { padding: 5px 14px; background: transparent; color: var(--muted); }
+.pipeline-tab.is-active {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 1px 3px rgba(0,0,0,.08);
+}
+.pipeline-tab-count { background: transparent; color: var(--faint); }
+.pipeline-tab.is-active .pipeline-tab-count { background: var(--surface-2); color: var(--ink); }
 .pipeline-tab { justify-content: flex-start; }
 .clients-card {
   cursor: pointer;
@@ -2534,49 +2548,67 @@ a { color: inherit; text-decoration: none; }
   .pipeline-desktop { display: none !important; }
   .pipeline-mobile { display: block !important; }
 
-  /* Onglets de plateforme : grille 3 colonnes egales, pleine largeur.
-     En flex, "Instagram" + "YouTube" + "Autres" et leurs compteurs cumulaient
-     plus que la largeur d'ecran et "Autres" sortait a droite, non atteignable.
-     La grille repartit l'espace au lieu de le reclamer. */
-  .pipeline-tabs {
-    /* Colonnes egales, mais dimensionnees sur le contenu tant qu'il rentre :
-       les libelles restent entiers des qu'il y a la place. A 320px la regle
-       ci-dessous prend le relais et les tronque. */
-    display: grid !important;
-    grid-template-columns: repeat(3, auto);
-    gap: 3px !important;
-  }
-  .pipeline-tab {
-    /* Cible tactile a 40px, comme les autres barres d'onglets de l'app.
-       justify-content centre le couple libelle+compteur dans sa colonne. */
-    min-height: 40px;
-    padding: 5px 6px !important;
-    justify-content: center;
-    white-space: nowrap;
-  }
-
-  /* Filtres : cibles plus generreuses, deux rangees qui respirent.
-     Le padding vit ici et non en inline, sinon cette regle ne l'atteint pas. */
-  /* "Rafraichir" + 3 onglets faisaient 388px de large pour 375px d'ecran, et
-     "Autres" sortait a droite. Plutot que d'empiler (l'en-tete passait de 104
-     a 152px, reprenant a l'entonnoir ce qu'on venait de lui donner), on garde
-     la ligne unique et on autorise la compression : min-width 0 leve la
-     largeur plancher implicite des elements flex, sans quoi ils refusent de
-     retrecir sous leur contenu et debordent. */
+  /* EN-TETE MOBILE — "Rafraichir" + 3 onglets faisaient 388px de large pour
+     375px d'ecran, et "Autres" sortait a droite, non atteignable. Le bouton
+     quitte la ligne des onglets et remonte en haut a droite, a hauteur du
+     titre ; les onglets prennent alors toute la largeur. Ils cessent d'etre
+     un segmented control compresse pour devenir trois pilules autonomes, au
+     format des chips du reste de l'app. */
   .pipeline-actions {
     width: 100%;
     min-width: 0;
-    gap: 6px !important;
+    gap: 0 !important;
   }
+  /* Sorti du flux et remonte a hauteur du titre. Le parent est en position
+     relative (.pipeline-header). */
   .pipeline-refresh {
-    flex-shrink: 0;
-    min-height: 40px;
-    padding: 6px 10px !important;
+    position: absolute;
+    top: 0;
+    right: 0;
+    min-height: 36px;
+    padding: 7px 13px !important;
+    border-radius: 999px !important;
   }
   .pipeline-tabs {
-    flex: 1;
-    min-width: 0;
+    /* Trois pilules egales sur toute la largeur. minmax(0, 1fr) et non 1fr :
+       "1fr" vaut minmax(auto, 1fr), dont le plancher est la taille du contenu
+       — les colonnes refusaient de retrecir et le 3e onglet sortait de
+       l'ecran a 320px (mesure : 249px de colonnes pour 193px disponibles). */
+    display: grid !important;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+    background: transparent !important;
+    padding: 0 !important;
+    gap: 7px !important;
   }
+  .pipeline-tab {
+    /* Pilule autonome : 44px de cible tactile, contour au repos, accent plein
+       quand active — comme dans la maquette. */
+    min-height: 44px;
+    min-width: 0;
+    padding: 8px 10px !important;
+    justify-content: center;
+    white-space: nowrap;
+    overflow: hidden;
+    border-radius: 999px !important;
+    border: 1px solid var(--border) !important;
+    background: var(--surface);
+    color: var(--muted);
+    font-size: 12.5px !important;
+  }
+  /* accent-brand et non accent : c'est la couleur des onglets actifs partout
+     ailleurs sur mobile (.chip-active). --accent est le noir-brun de l'UI. */
+  .pipeline-tab.is-active {
+    background: var(--accent-brand) !important;
+    border-color: var(--accent-brand) !important;
+    color: #fff !important;
+    box-shadow: none !important;
+  }
+  .pipeline-tab.is-active .pipeline-tab-count {
+    background: rgba(255,255,255,0.22) !important;
+    color: #fff !important;
+  }
+  .pipeline-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
   /* Ecarts resserres : 3 gaps a 16px coutaient 48px de hauteur. */
   .pipeline-page { gap: 10px; }
@@ -2588,8 +2620,8 @@ a { color: inherit; text-decoration: none; }
     gap: 8px;
     width: 100%;
     min-height: 40px;
-    padding: 9px 13px;
-    border-radius: 8px;
+    padding: 9px 14px;
+    border-radius: 999px;
     border: 1px solid var(--border);
     background: var(--surface);
     color: var(--ink-2);
@@ -2611,9 +2643,11 @@ a { color: inherit; text-decoration: none; }
   .pipeline-filters.is-open { display: flex !important; }
   .pipeline-filters { row-gap: 8px !important; }
   .pipeline-filter {
+    /* Pilules, comme les onglets et les chips du reste de l'app. */
     min-height: 36px;
-    padding: 7px 13px !important;
+    padding: 8px 14px !important;
     font-size: 12px !important;
+    border-radius: 999px !important;
   }
 
   /* PageCalls (coach) — la carte de call "à venir" empile jusqu'à 6 éléments
@@ -3251,17 +3285,3 @@ html[data-splash='1'] .dot-wave {
   .pipeline-page { gap: 8px !important; }
 }
 
-/* Ecrans tres etroits (iPhone SE 1re gen, vieux Android) : les 3 libelles
-   d'onglet ne tiennent plus, meme tronques individuellement. On force alors
-   des colonnes egales compressibles — minmax(0, 1fr) et non 1fr, dont le
-   plancher implicite est la taille du contenu : sans cela les colonnes
-   refusent de retrecir et le 3e onglet sort de l'ecran (mesure a 320px :
-   249px de colonnes pour 193px disponibles). */
-@media (max-width: 374px) {
-  .pipeline-tabs {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    width: 100%;
-  }
-  .pipeline-tab { min-width: 0; overflow: hidden; }
-  .pipeline-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
-}
