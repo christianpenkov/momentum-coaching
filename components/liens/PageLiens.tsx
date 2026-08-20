@@ -3045,14 +3045,22 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
     : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>;
 
   const h = hauteur ?? size;
+  // Pastille de plateforme posée sur la vignette, comme le hi-fi : le logo en
+  // repli n'apparaît que sans miniature, or elles en ont presque toutes une —
+  // sans cette pastille, retirer le texte « IG / YT / STORY » de la ligne ferait
+  // perdre l'information au lieu de la déplacer.
+  const couleurPlateforme = post.platform === 'IG' ? 'var(--ig-color)'
+    : post.platform === 'YT' ? 'var(--yt-color)' : STORY_COLOR;
   // Le compteur de stories groupées : sans lui, quatre vignettes identiques
   // dans le rail ne disent pas qu'elles forment une seule séquence.
   const nbStories = post.platform === 'STORY' ? (post.sequenceStoryCount ?? 0) : 0;
 
+  // Pas d'overflow:hidden ici : la pastille de plateforme déborde volontairement du
+  // coin bas-droit, comme dans le hi-fi. Le rognage est porté par l'image elle-même.
   return (
-    <div style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
+    <div style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0 }}>
       {post.thumbnail
-        ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+        ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
         : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>}
       {nbStories > 1 && (
         <span style={{
@@ -3060,6 +3068,14 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
           fontSize: 8, fontWeight: 700, borderRadius: 8, padding: '0 4px', lineHeight: 1.5,
         }}>{nbStories}</span>
       )}
+      <span
+        title={post.platform === 'IG' ? 'Instagram' : post.platform === 'YT' ? 'YouTube' : 'Story'}
+        style={{
+          position: 'absolute', bottom: -2, right: -2,
+          width: 9, height: 9, borderRadius: '50%',
+          background: couleurPlateforme, border: '1.5px solid var(--surface)', boxSizing: 'border-box',
+        }}
+      />
     </div>
   );
 }
@@ -3120,7 +3136,10 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
         }}>{post.caption}</div>
 
         <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: 10, fontWeight: 700, opacity: 0.8, color: post.platform === 'IG' ? 'var(--ig-color)' : post.platform === 'YT' ? 'var(--yt-color)' : STORY_COLOR }}>{post.platform}</span>
+          {/* La plateforme n'est plus écrite ici : « IG » / « YT » / « STORY » en
+              majuscules colorées volait l'attention aux pastilles qui, elles,
+              portent une information qu'on ne peut pas deviner (mot-clé, séquence
+              active). Elle est devenue une pastille sur le coin de la vignette. */}
 
           {isStory ? (
             (post.sequenceStoryCount ?? 0) > 1
