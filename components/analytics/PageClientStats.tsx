@@ -75,7 +75,7 @@ interface YTStats {
   // (colonnes yt_avg_duration_shorts_sec / _long_sec, alimentées depuis la dimension
   // creatorContentType de l'API). null quand le format n'a eu aucune vue ce jour-là —
   // jamais 0, qui se lirait « personne n'a regardé ».
-  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null }[];
+  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null }[];
   videos: YTVideo[]; trafficSources: { source: string; views: number; watchMinutes: number }[];
   devices: { device: string; views: number; watchMinutes: number }[];
   demographics: { ageGroup: string; gender: string; viewerPct: number }[];
@@ -1356,7 +1356,11 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               const statModalTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(statModal.data.length / 9) - 1);
               return (
             <ResponsiveContainer width="100%" height={220}>
-              {statModal.label === 'Abonnés nets' ? (
+              {/* Rendu « abonnés nets » : axe pouvant descendre sous zéro, signe + explicite
+                  dans l'infobulle, courbe linéaire sans lissage. Les DEUX cartes y ont
+                  droit — Instagram et YouTube mesurent la même chose, il n'y a aucune
+                  raison que l'une soit rendue différemment de l'autre. */}
+              {(statModal.label === 'Abonnés nets' || statModal.label === 'Abonnés nets YT') ? (
                 <ReAreaChart data={statModal.data} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                   <defs>
                     <linearGradient id="grad-ig-stat-modal-net" x1="0" y1="0" x2="0" y2="1">
@@ -1762,9 +1766,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       })),
       color: '#f43f5e', unit: 's',
     },
-    'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
-    'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
-    'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
+    'Abonnés gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
+    'Abonnés perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
+    'Abonnés nets YT':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
     'Likes':              { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.likes ?? 0) })), color: 'var(--accent-brand)' },
     'Commentaires':       { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.comments ?? 0) })), color: BLUE },
     'Partages':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.shares ?? 0) })), color: GREEN },
@@ -1772,7 +1776,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     // du total. mockFromTotalYT répartissait le taux global avec un sinus : la courbe
     // dessinait des variations là où la réalité peut être parfaitement plate (0 abonné
     // gagné sur les 62 jours du profil de test). Corrigé le 2026-08-20.
-    'Conv. vue→sub': {
+    'Conv. vue→abonné': {
       data: ytDays.map(d => ({
         date: d.date,
         v: ytDaysNoDataSet.has(d.date)
@@ -1781,7 +1785,12 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       })),
       color: 'var(--accent-brand)', unit: '%',
     },
-    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: RED },
+    // La carte affiche le TOTAL d'abonnés (49), sa courbe doit donc suivre ce total —
+    // exactement comme la carte « Abonnés » d'Instagram, qui trace followerCount.
+    // Elle traçait subsGained (les abonnés GAGNÉS par jour, à 0 sur cette chaîne) : on
+    // cliquait sur « 49 abonnés » et on voyait une courbe plate à zéro. Deux métriques
+    // différentes sous le même nom. Corrigé le 2026-08-21.
+    'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).subscribers ?? null) })), color: RED },
   };
 
   const openStatModal = (label: string, value: string) => {
@@ -1840,14 +1849,14 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         {[
           { label: 'Abonnés', value: fmt(yt.subscribers), sub: 'all time', color: 'var(--ink)', key: 'Abonnés YT' },
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
-          { label: 'Subs nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Subs nets' },
+          { label: 'Abonnés nets YT', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
           { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
           null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
           if (s === null) return (
             <div key="vues-sub" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div style={{ marginBottom: 10 }}>
-                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 sub gagné</span>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 abonné gagné</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
               </div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
@@ -1873,7 +1882,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
               {s.value}
-              {s.label === 'Subs nets' && (
+              {s.label === 'Abonnés nets YT' && (
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {' ('}
                   <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP)}</span>
@@ -2020,7 +2029,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
                 <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                 <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="netSubs" name="Subs nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
+                <Area type="monotone" dataKey="netSubs" name="Abonnés nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
               </ReAreaChart>
             </ResponsiveContainer>
           );
@@ -5909,6 +5918,10 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       shares:     r.yt_shares ?? 0,
       // ?? null et non ?? 0 : un format sans vue ce jour-là n'a pas de durée moyenne,
       // et un 0 se lirait « regardé 0 seconde » au lieu de « pas de vue sur ce format ».
+      // Total d'abonnés du jour — équivalent YouTube de followerCount côté Instagram.
+      // Sert la courbe de la carte « Abonnés », qui doit suivre le TOTAL et non les
+      // abonnés gagnés (voir le commentaire sur la série plus bas).
+      subscribers: r.yt_subscribers ?? null,
       avgViewDurationSec: r.yt_avg_view_duration_sec ?? null,
       avgDurationShorts: r.yt_avg_duration_shorts_sec ?? null,
       avgDurationLong:   r.yt_avg_duration_long_sec ?? null,

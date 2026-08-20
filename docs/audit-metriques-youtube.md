@@ -38,15 +38,35 @@ Comparaison base ↔ API sur 30 jours :
 
 ## Trois fausses pistes — ne pas « corriger »
 
-**`avg_view_pct` dépasse 100 %** (145 lignes, jusqu'à 113,98 %). **Ce n'est pas un bug** :
-sur un Short, dépasser 100 % signifie que les spectateurs **rejouent** la vidéo, et c'est
-l'un des signaux les plus positifs que YouTube reconnaisse. Vérifié par la répartition :
-117 dépassements sur les Shorts (max 114 %) contre 28 sur les vidéos longues, plafonnées
-à 100,6 % — soit une simple marge d'arrondi.
+**`avg_view_pct` dépasse 100 %** (145 lignes, jusqu'à 113,98 %). **Ce n'est pas un bug.**
 
-**14 vidéos sur 30 ont leurs champs de période à `null`.** Elles ont toutes plus d'un an
-(444 à 578 jours) et n'ont eu aucune vue sur la fenêtre : l'API n'émet alors pas de ligne.
-`null` est le bon comportement — « pas de données », pas « zéro vue ».
+`averageViewPercentage` compare le temps réellement visionné à la durée de la vidéo. Sur
+un Short, qui reboucle automatiquement, un spectateur peut voir 100 % de la vidéo **puis
+recommencer** — le compteur dépasse alors 100 %. Un Short à 114 % signifie qu'en moyenne,
+les spectateurs l'ont vu en entier plus un septième de plus.
+
+C'est l'un des signaux les plus positifs que YouTube reconnaisse : l'algorithme l'interprète
+comme un contenu addictif et élargit la diffusion. Le « hook de boucle » — terminer la
+vidéo de façon à ce qu'elle enchaîne naturellement sur son début — est une technique
+courante précisément pour ça.
+
+Vérifié sur les données plutôt que supposé : **117 dépassements sur les Shorts**
+(max 113,98 %) contre **28 sur les vidéos longues**, celles-ci plafonnées à 100,6 %. Une
+vidéo longue ne reboucle pas, donc son dépassement se limite à une marge d'arrondi — la
+répartition confirme l'explication.
+
+**Ne pas plafonner cette valeur à 100 %** : ce serait détruire l'information la plus utile
+de la métrique. Un Short au-dessus de 100 % est une réussite, pas une anomalie.
+
+**14 vidéos sur 30 ont leurs champs de période à `null`.** Elles n'ont eu aucune vue **sur
+la fenêtre de 30 jours**, et l'API n'émet alors pas de ligne pour elles. `null` est le bon
+comportement — « pas de données sur cette fenêtre », pas « zéro vue ».
+
+⚠️ **Cela ne veut PAS dire que ces vidéos ne sont plus suivies.** Leur total lifetime
+continue d'être mis à jour chaque jour : `awrGQJIdthA` est passée de 2 011 à 2 012 vues,
+`uzbDb_yehI8` de 49 à 50, sur la même période. Et une vidéo réapparaît dans les métriques
+de période dès qu'elle reçoit une vue — `awrGQJIdthA` alterne : 37 jours avec données de
+période, 29 sans. Le `null` est un état transitoire, jamais un abandon du suivi.
 
 **`views` (1 970) ≠ `views_period` (13).** Deux mesures différentes, toutes deux justes :
 total depuis la publication contre vues des 30 derniers jours.
