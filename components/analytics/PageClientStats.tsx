@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -6822,8 +6822,36 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const shortioEff = (sinceConnection ? (sinceConnSnap?.shortioHist ?? null) : (periodIndex > 0 ? (snapData?.shortioHist ?? null) : shortio)) as ShortioStats | null;
   const stripeEff  = (sinceConnection ? (sinceConnSnap?.stripeHist  ?? null) : (periodIndex > 0 ? (snapData?.stripeHist  ?? null) : stripe))  as StripeStats | null;
   const msgsEff    = (sinceConnection ? (sinceConnSnap?.msgsHist    ?? null) : (periodIndex > 0 ? (snapData?.msgsHist    ?? null) : msgs))    as IGMessages | null;
-  const callsEff   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
+  const callsRaw   = sinceConnection ? (sinceConnSnap?.callsHist ?? []) : (periodIndex > 0 ? (snapData?.callsHist ?? []) : calls);
   const dealsEff   = (sinceConnection ? (sinceConnSnap?.dealsHist ?? []) : (periodIndex > 0 ? (snapData?.dealsHist ?? []) : deals)) as DealRecord[];
+
+  // `deals` est la source du cash depuis la migration ; `calls.revenue` n'est
+  // plus qu'une écriture miroir en attendant de disparaître. Plutôt que de
+  // réécrire la vingtaine d'agrégations de cet écran (revenu par post, par
+  // séquence, par jour, par source…), on injecte le montant du deal DANS le
+  // call : leur logique de filtrage — souvent subtile, croisée avec utm_content
+  // et media_id — reste intacte, seule la valeur sommée change de source.
+  //
+  // Somme et non premier deal trouvé : un call peut en porter plusieurs (upsell
+  // signé sur le même rendez-vous). Aucun cas en base aujourd'hui, mais rien ne
+  // l'interdit.
+  //
+  // Un deal SANS call (upsell, vente directe) reste absent de ces agrégations,
+  // et c'est voulu : « revenu par post » ou « cash par call honoré » n'ont pas
+  // de sens pour une vente qui n'a ni contenu d'origine ni rendez-vous. Ce cash
+  // est compté dans l'onglet Revenus et la page Paiements, qui lisent `deals`
+  // directement — voir le bloc « Cash encaissé par origine ».
+  const callsEff = useMemo(() => {
+    const byCall = new Map<string, number>();
+    for (const d of dealsEff) {
+      if (!d.call_id || d.status === 'canceled') continue;
+      byCall.set(d.call_id, (byCall.get(d.call_id) ?? 0) + Number(d.amount_total || 0));
+    }
+    if (byCall.size === 0) return callsRaw;
+    return callsRaw.map((c: CallRecord) =>
+      byCall.has(c.id) ? { ...c, revenue: byCall.get(c.id)! } : c
+    );
+  }, [callsRaw, dealsEff]);
   // Alias pour compat. TabFunnel (déjà existant)
   const funnelIg      = igEff;
   const funnelYt      = ytEff;

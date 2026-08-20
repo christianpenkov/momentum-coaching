@@ -372,6 +372,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setSaving(true);
     setError(null);
     try {
+      // `revenue` reste écrit sur le call, mais n'est plus la source du cash —
+      // c'est `deals` (créé à l'étape suivante) que lisent tous les écrans.
+      // On le conserve parce qu'il est la trace du montant SAISI dans ce
+      // rapport : si la création du deal échoue ensuite (Stripe indisponible,
+      // réseau coupé), le rapport garde le chiffre au lieu de le perdre.
       await patchRapport({ no_show: false, deal_closed: true, revenue: amount, outcome: 'closed' });
       // En correction, le deal existe déjà : le recréer ferait un doublon.
       if (isCorrection) {

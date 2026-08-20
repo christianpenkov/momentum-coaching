@@ -51,3 +51,6 @@ next-env.d.ts
 
 # supabase CLI cache local (régénéré à chaque `supabase link`/déploiement)
 supabase/.temp/
+
+# Worktrees de sessions parallèles — dépôts git imbriqués, jamais à committer
+.claude/worktrees/
