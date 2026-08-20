@@ -2806,9 +2806,32 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
             {compact && f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
             {compact && f === 'STORY' && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>}
             {f === 'all' ? 'Tous' : f === 'IG' ? 'Instagram' : f === 'YT' ? 'YouTube' : 'Stories'}
+            {compteurs && <span style={{ opacity: 0.55, fontSize: compact ? 10 : 11 }}>{compteurs[f]}</span>}
           </button>
         );
       })}
+
+      {/* « Sans séquence » se combine aux filtres de plateforme au lieu de les
+          remplacer : « lesquels de mes Reels ne sont pas configurés ? » est la
+          question qui fait ouvrir cette page. D'où le filet de séparation. */}
+      {onSansSequence && compteurs && compteurs.sansSequence > 0 && (
+        <>
+          <span style={{ width: 1, height: compact ? 20 : 26, background: BORDER, margin: '0 3px', flexShrink: 0 }} />
+          <button onClick={() => onSansSequence(!sansSequence)} style={{
+            display: 'flex', alignItems: 'center', gap: 5, borderRadius: 20, cursor: 'pointer', border: 'none', fontWeight: 600,
+            ...(compact
+              ? { padding: '4px 11px', fontSize: 11 }
+              : { minHeight: 44, padding: '0 14px', fontSize: 13 }),
+            background: sansSequence ? 'var(--amber)' : SURFACE2,
+            color: sansSequence ? '#fff' : MUTED,
+            transition: `all var(--dur-instant) var(--ease-out)`,
+          }}>
+            Sans séquence
+            <span style={{ opacity: 0.55, fontSize: compact ? 10 : 11 }}>{compteurs.sansSequence}</span>
+          </button>
+        </>
+      )}
+
       {compact && contentCount !== undefined && (
         <span style={{ marginLeft: 'auto', fontSize: 10, color: FAINT }}>
           {contentCount} contenu{contentCount !== 1 ? 's' : ''}
@@ -2998,6 +3021,9 @@ function Entonnoir({ data, ouvert, onToggle, compact }: {
       background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 'var(--r-card)',
       boxShadow: 'var(--shadow-card)', padding: compact ? '11px 15px' : '11px 16px', flexShrink: 0,
     }}>
+      {/* Le bandeau entier est cliquable — pas de bouton « déplier / replier » : un
+          libellé d'action à côté d'un titre qui fait déjà la même chose est du
+          bruit. Le chevron suffit à dire que ça s'ouvre. */}
       <button onClick={onToggle} style={{
         display: 'flex', alignItems: 'center', gap: 10, width: '100%',
         background: 'none', border: 'none', cursor: 'pointer', padding: 0,
@@ -3008,13 +3034,10 @@ function Entonnoir({ data, ouvert, onToggle, compact }: {
           flex: 1, font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em',
           textTransform: 'uppercase', color: MUTED,
         }}>Du contenu au prospect</span>
-        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: MUTED }}>
-          {ouvert ? 'replier' : 'déplier'}
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            style={{ transform: ouvert ? 'rotate(180deg)' : 'none', transition: `transform var(--dur-quick) var(--ease-out)` }}>
-            <polyline points="6 9 12 15 18 9"/>
-          </svg>
-        </span>
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+          style={{ flexShrink: 0, transform: ouvert ? 'rotate(180deg)' : 'none', transition: `transform var(--dur-quick) var(--ease-out)` }}>
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
       </button>
 
       {ouvert && (
@@ -3824,34 +3847,60 @@ export default function PageLiens() {
         {/* Header */}
         <div style={{ display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
         <div className="liens-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 20px', borderBottom: domainsLoaded && domains.length === 0 ? 'none' : `1px solid ${BORDER}`, background: SURFACE }}>
+          {/* Ligne de titre du hi-fi : titre 22px, sous-titre chiffré, et les CTA
+              À DROITE SUR CETTE LIGNE — jamais dans la rangée de filtres, où ils
+              débordent (le README insiste sur ce point). */}
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 15, fontWeight: 700, color: INK, letterSpacing: '-0.01em' }}>Gérer mes liens</div>
-            <div className="liens-header-title-sub" style={{ fontSize: 11, color: FAINT, marginTop: 1 }}>Liens Short.io trackés pour chaque contenu et chaque prospect.</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: INK, letterSpacing: '-0.4px' }}>Gérer mes liens</div>
+            <div className="liens-header-title-sub" style={{ fontSize: 12, color: MUTED, marginTop: 4 }}>
+              {posts.length} contenu{posts.length !== 1 ? 's' : ''}
+              {' · '}{leadMagnets.length} lead magnet{leadMagnets.length !== 1 ? 's' : ''}
+              {activeDomain?.hostname ? ` · ${activeDomain.hostname}` : ''}
+            </div>
           </div>
-          <div className="liens-header-actions" style={{ display: 'flex', gap: 6 }}>
-            <button onClick={handleRefreshPosts} disabled={refreshingPosts} aria-label="Actualiser les posts" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: refreshingPosts ? 'default' : 'pointer', transition: 'all .15s',
-              border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED, opacity: refreshingPosts ? 0.6 : 1,
+          <div className="liens-header-actions" style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
+            {/* ↻ en icône seule : action fréquente juste après une publication,
+                elle doit rester à un clic sans manger la ligne de titre. */}
+            <button onClick={handleRefreshPosts} disabled={refreshingPosts} title="Actualiser les posts" aria-label="Actualiser les posts" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', width: 34, height: 34, borderRadius: 8,
+              cursor: refreshingPosts ? 'default' : 'pointer', transition: `all var(--dur-quick) var(--ease-out)`,
+              border: `1px solid ${BORDER}`, background: SURFACE, color: MUTED, opacity: refreshingPosts ? 0.6 : 1, flexShrink: 0,
             }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshingPosts ? { animation: 'spin 1s linear infinite' } : undefined}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
-              <span className="liens-btn-label">Actualiser Posts</span>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshingPosts ? { animation: 'spin 1s linear infinite' } : undefined}><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
             </button>
-            <button onClick={handleHeaderLmLibrary} aria-label="Lead Magnets" style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, cursor: 'pointer', transition: 'all .15s', position: 'relative',
-              border: `1.5px solid ${rightView?.type === 'lm-library' ? 'var(--green)' : BORDER}`,
-              background: rightView?.type === 'lm-library' ? 'var(--green-soft)' : 'transparent',
-              color: rightView?.type === 'lm-library' ? 'var(--green)' : MUTED,
+
+            <button onClick={() => setParamOpen(true)} aria-label="Paramètres des liens" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 15px', fontSize: 12.5, fontWeight: 600,
+              borderRadius: 8, cursor: 'pointer', position: 'relative', transition: `all var(--dur-quick) var(--ease-out)`, flexShrink: 0,
+              border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`,
+              background: SURFACE, color: INK,
             }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-              <span className="liens-btn-label">Lead Magnets</span>
-              {leadMagnets.length > 0 && <span style={{ position: 'absolute', top: -6, right: -6, fontSize: 10, fontWeight: 700, background: rightView?.type === 'lm-library' ? 'var(--green)' : SURFACE2, color: rightView?.type === 'lm-library' ? '#fff' : MUTED, borderRadius: 10, padding: '1px 5px', minWidth: 16, textAlign: 'center', border: '2px solid var(--surface)' }}>{leadMagnets.length}</span>}
-            </button>
-            <button onClick={() => setParamOpen(true)} aria-label="Paramètres des liens" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '6px 12px', fontSize: 12, fontWeight: 600, borderRadius: 7, border: `1px solid ${leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) ? AMBER : BORDER}`, background: 'transparent', color: MUTED, cursor: 'pointer', position: 'relative', transition: 'all .15s' }}>
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
               <span className="liens-btn-label">Paramètres</span>
               {leadMagnets.some(lm => (lm.bio_ig_url && lm.bio_ig_source_url && lm.bio_ig_source_url !== lm.url) || (lm.bio_yt_url && lm.bio_yt_source_url && lm.bio_yt_source_url !== lm.url)) && (
                 <span style={{ position: 'absolute', top: -6, right: -6, width: 14, height: 14, borderRadius: '50%', background: AMBER, border: '2px solid var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 8, color: '#fff', fontWeight: 700 }}>!</span>
               )}
+            </button>
+
+            {/* Ardoise : c'est une vue de même niveau qu'un contenu, pas une action
+                secondaire. Le hi-fi lui réserve l'accent de marque. */}
+            <button onClick={() => unsavedGuardApi.guard(() => { setRightView({ type: 'prospect' }); setMenuDeplie(false); })} aria-label="Lien Calendly prospect" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 15px', fontSize: 12.5, fontWeight: 600,
+              borderRadius: 8, cursor: 'pointer', border: 'none', flexShrink: 0,
+              background: BLUE, color: '#fff', transition: `all var(--dur-quick) var(--ease-out)`,
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+              <span className="liens-btn-label">Lien Calendly prospect</span>
+            </button>
+
+            <button onClick={handleHeaderLmLibrary} aria-label="Lead magnets" style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, padding: '9px 15px', fontSize: 12.5, fontWeight: 600,
+              borderRadius: 8, cursor: 'pointer', border: 'none', position: 'relative', flexShrink: 0,
+              background: INK, color: '#fff', transition: `all var(--dur-quick) var(--ease-out)`,
+            }}>
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              <span className="liens-btn-label">Lead magnet</span>
+              {leadMagnets.length > 0 && <span style={{ position: 'absolute', top: -6, right: -6, fontSize: 10, fontWeight: 700, background: SURFACE2, color: MUTED, borderRadius: 10, padding: '1px 5px', minWidth: 16, textAlign: 'center', border: '2px solid var(--surface)' }}>{leadMagnets.length}</span>}
             </button>
           </div>
         </div>
@@ -3882,7 +3931,10 @@ export default function PageLiens() {
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', minHeight: 44, padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
 
-              <FiltresPlateforme value={filterPlatform} onChange={setFilterPlatform} compact={false} />
+              <FiltresPlateforme
+                value={filterPlatform} onChange={setFilterPlatform} compact={false}
+                compteurs={compteurs} sansSequence={sansSequence} onSansSequence={setSansSequence}
+              />
 
               {filterPlatform === 'STORY' && (
                 <SousOngletsStories
@@ -4077,20 +4129,23 @@ export default function PageLiens() {
               </div>
             )}
 
-            {/* Entrées épinglées — présentes dans le rail ET ici : sans ça, elles
-                disparaîtraient dès qu'on déplie le menu. */}
+            {/* Entrées épinglées — seulement dans le MENU DÉPLIÉ (③). En état ①
+                elles vivent sur la ligne de titre, comme le hi-fi : deux gros
+                boutons pleine largeur au-dessus des filtres poussaient la liste
+                vers le bas et doublonnaient les CTA du haut. Le rail (②) a ses
+                propres icônes. */}
+            {menuDeplie && (
             <div style={{ padding: '8px 12px', borderBottom: `1px solid ${BORDER}`, flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
               <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'prospect' }))} style={{
-                width: '100%', padding: '9px 11px', fontSize: menuDeplie ? 11.5 : 13, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                width: '100%', padding: '8px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
                 border: `1px solid ${rightView?.type === 'prospect' ? BLUE : '#cfdce4'}`,
-                background: rightView?.type === 'prospect' ? BLUE_SOFT : BLUE_SOFT,
-                color: BLUE, transition: `all var(--dur-quick) var(--ease-out)`,
+                background: BLUE_SOFT, color: BLUE, transition: `all var(--dur-quick) var(--ease-out)`,
               }}>
                 {IcoAvion}
                 <span>Lien Calendly prospect</span>
               </button>
               <button onClick={() => unsavedGuardApi.guard(() => setRightView({ type: 'lm-library' }))} style={{
-                width: '100%', padding: '9px 11px', fontSize: menuDeplie ? 11.5 : 13, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
+                width: '100%', padding: '8px 11px', fontSize: 11.5, fontWeight: 600, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
                 border: `1px solid ${rightView?.type === 'lm-library' ? BLUE : BORDER}`,
                 background: rightView?.type === 'lm-library' ? BLUE_SOFT : 'transparent',
                 color: rightView?.type === 'lm-library' ? BLUE : MUTED, transition: `all var(--dur-quick) var(--ease-out)`,
@@ -4099,6 +4154,7 @@ export default function PageLiens() {
                 <span>Lead magnets{leadMagnets.length > 0 ? ` · ${leadMagnets.length}` : ''}</span>
               </button>
             </div>
+            )}
 
             {/* Entonnoir — état ① seulement : une fois dans un contenu, la question
                 n'est plus « où ça casse ? » mais « que dit CE contenu ». */}
@@ -4112,7 +4168,11 @@ export default function PageLiens() {
             <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-              <FiltresPlateforme value={filterPlatform} onChange={setFilterPlatform} compact contentCount={filteredPosts.length} />
+              <FiltresPlateforme
+                value={filterPlatform} onChange={setFilterPlatform} compact
+                contentCount={filteredPosts.length} compteurs={compteurs}
+                sansSequence={sansSequence} onSansSequence={setSansSequence}
+              />
 
               {filterPlatform === 'STORY' && (
                 <SousOngletsStories
