@@ -192,7 +192,63 @@ export default function PageClients() {
           </div>
         </div>
       ) : (
-        <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <>
+        {/* Cartes mobiles : le tableau fait 9 colonnes et 838px de large, il
+            faut le faire defiler lateralement pour le lire sur 375px. Meme
+            bascule que l'accueil coach (.today-clients-table / -cards), qui
+            avait deja ce traitement. On garde l'identite, l'onboarding, les
+            signaux et les deux chiffres qui comptent. */}
+        <div className="clients-cards">
+          {filtered.map((c) => {
+            const m = c.currentStats;
+            return (
+              <div
+                key={c.id}
+                className="card clients-card"
+                onClick={() => router.push(`/clients/${c.id}`)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <Avatar initials={c.initials || getInitials(c.name)} avatarUrl={c.avatar_url} size={38} seed={c.id} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.name}</div>
+                    <div style={{ fontSize: 11, color: 'var(--muted)' }}>
+                      {c.niche || 'Infopreneur'} · S{getClientWeek(c.onboarding_completed_at)}
+                    </div>
+                  </div>
+                  <Icon name="chevR" size={14} color="var(--faint)" />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+                  <OnboardingBadge status={c.onboardingStatus} />
+                  <div onClick={e => e.stopPropagation()}>
+                    <SignalsCell client={c} signals={signalsByClient.get(c.id)} onResolved={refetch} />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: 18, marginTop: 12, paddingTop: 10, borderTop: '1px solid var(--border-soft)' }}>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Cash</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>
+                      {(m?.cashContracted || 0).toLocaleString('fr-FR')} €
+                    </div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Closing</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>{m ? `${m.closingRate}%` : '—'}</div>
+                  </div>
+                  <div>
+                    <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>IG</div>
+                    <div style={{ fontFamily: 'var(--font-mono)', fontSize: 13, fontWeight: 600 }}>
+                      {(m?.followersIg || 0).toLocaleString('fr-FR')}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="card clients-table-wrap" style={{ padding: 0, overflow: 'hidden' }}>
           <div style={{ overflowX: 'auto' }}>
             <table className="data-table" style={{ minWidth: 800 }}>
               <thead>
@@ -262,6 +318,7 @@ export default function PageClients() {
             </table>
           </div>
         </div>
+        </>
       )}
     </div>
   );

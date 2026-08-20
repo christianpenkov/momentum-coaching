@@ -2079,6 +2079,18 @@ a { color: inherit; text-decoration: none; }
 /* PageToday — "Tous tes clients" : cards mobile, masquées par défaut (desktop garde
    le tableau .today-clients-table) ; basculées à 767px, voir bloc Mobile PWA plus bas. */
 .today-clients-cards { display: none; }
+
+/* Page Clients : meme bascule que l'accueil ci-dessus. Le tableau fait 9
+   colonnes et 838px de large — sur 375px il faut le faire defiler lateralement
+   pour le lire, ce qui n'est pas une lecture mobile acceptable. */
+.clients-cards { display: none; }
+.clients-card {
+  cursor: pointer;
+  padding: 14px 16px;
+  margin-bottom: 10px;
+  transition: background 120ms;
+}
+.clients-card:active { background: var(--surface-2); }
 .today-client-card {
   display: flex; align-items: center; gap: 12px;
   padding: 12px 4px;
@@ -2411,6 +2423,13 @@ a { color: inherit; text-decoration: none; }
   .page-header > div:first-child { min-width: 0; }
   .page-header > div:first-child > div { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .page-header > button, .page-header .btn-primary-brand { flex-shrink: 0; }
+  /* Le groupe d'actions est souvent enveloppe dans un <div> plutot que pose
+     directement dans le header : sans cette regle, flex-shrink ne s'appliquait
+     pas et deux boutons larges ecrasaient le titre (observe sur /clients, ou
+     "Clients" chevauchait "Voir les archives"). Le groupe passe sous le titre
+     quand la place manque. */
+  .page-header { flex-wrap: wrap !important; row-gap: 10px; }
+  .page-header > div:last-child:not(:first-child) { flex-shrink: 0; }
 
   /* Feedback tactile léger sur les boutons */
   .btn-primary:active, .btn-primary-brand:active, .btn-ghost:active, .bottom-nav-item:active {
@@ -2488,6 +2507,10 @@ a { color: inherit; text-decoration: none; }
   /* PageToday — "Tous tes clients" : cards au lieu du tableau à scroll horizontal */
   .today-clients-table { display: none !important; }
   .today-clients-cards { display: block !important; }
+
+  /* Page Clients — tableau remplace par des cartes lisibles. */
+  .clients-table-wrap { display: none !important; }
+  .clients-cards { display: block !important; }
 
   /* PageCalls (coach) — la carte de call "à venir" empile jusqu'à 6 éléments
      de largeur fixe sur une seule ligne flex (heure, séparateur, avatar, nom,
