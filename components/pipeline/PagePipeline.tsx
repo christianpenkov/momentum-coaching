@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -423,10 +424,19 @@ function PipelineCard({
   onNotALead?: (key: string, callId?: string | null) => void;
 }) {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  // Trois couches peuvent etre ouvertes en meme temps (menu contextuel, puis une
+  // confirmation par-dessus). Echap ne doit fermer que celle du dessus, sinon on
+  // perd tout le contexte d'un coup — d'ou l'ordre de priorite ci-dessous.
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [deleteConfirmed, setDeleteConfirmed] = useState(false);
   const [confirmNotALead, setConfirmNotALead] = useState(false);
   const [notALeadConfirmed, setNotALeadConfirmed] = useState(false);
+
+  useEscapeKey(() => {
+    if (confirmDelete) { setConfirmDelete(false); return; }
+    if (confirmNotALead) { setConfirmNotALead(false); return; }
+    if (ctxMenu) setCtxMenu(null);
+  }, !!ctxMenu || confirmDelete || confirmNotALead);
   const stage = stages[card.stageIdx] ?? stages[0];
   const ac = avatarColor(card.name);
   const dragStartedRef = useRef(false);
@@ -904,6 +914,7 @@ function getAdvanceConfirmations(currentStage: string, targetStage: string): { i
 
 function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetStageLabel, currentStageKey, callId, onConfirm, onCancel }: ConfirmMoveModalProps) {
   const viewerTz = useViewerTimeZone();
+  useEscapeKey(onCancel);
   const [reason, setReason] = useState('');
   const [irreversibleChecked, setIrreversibleChecked] = useState(false);
   const [advanceChecked, setAdvanceChecked] = useState<Set<string>>(new Set());

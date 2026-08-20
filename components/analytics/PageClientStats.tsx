@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import { createClient } from '@/lib/supabase/client';
 import { isOnlineNow } from '@/lib/useOnline';
 import AreaChart, { todayDotFactory, lastRealPointKey } from '@/components/charts/AreaChart';
@@ -3425,6 +3426,10 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   const [filterHas, setFilterHas] = useState<Set<SortKey>>(new Set());
   const [filterSearch, setFilterSearch] = useState('');
   const [showAllTable, setShowAllTable] = useState(false);
+  // Modale "Voir tout" (performance par contenu) : Echap la ferme. Les autres
+  // couches de cette page (post, video, story selectionnes) vivent dans des
+  // sous-composants distincts et sont a traiter separement.
+  useEscapeKey(() => setShowAllTable(false), showAllTable);
   // Modal détail contenu
   const [detailModal, setDetailModal] = useState<any | null>(null);
 

@@ -5,6 +5,7 @@ import { useReducedMotion } from 'framer-motion';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Icon from '@/components/ui/Icon';
 import InlineLoader from '@/components/ui/InlineLoader';
+import { Skeleton } from '@/components/ui/Skeleton';
 import HapticTap from '@/components/ui/HapticTap';
 import type { Task, TaskAttachment } from '@/lib/supabase/types';
 import { formatFileSize, formatRelativeDate } from '@/lib/formatFileSize';
@@ -403,7 +404,36 @@ export default function PageClientTasks() {
   const totalCount = visibleTasks.length;
   const activePct = totalCount > 0 ? Math.round((doneCount / totalCount) * 100) : 0;
 
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
+  // Squelette calque sur la vraie page : titre, carte "Progression de la
+  // semaine" (libelle + compteur + barre pleine largeur), puis les lignes de
+  // taches avec leur case a cocher. Memes dimensions que le contenu reel, donc
+  // aucun saut de mise en page a l'arrivee des donnees.
+  if (loading) return (
+    <div className="page-content">
+      <div className="page-header">
+        <Skeleton width={110} height={22} />
+      </div>
+
+      <div className="card" style={{ marginBottom: 16, padding: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+          <Skeleton width={175} height={13} />
+          <Skeleton width={34} height={12} />
+        </div>
+        <Skeleton width="100%" height={8} radius={999} />
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+              <Skeleton width={22} height={22} radius={6} />
+              <Skeleton width={`${72 - i * 9}%`} height={13} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 
   return (
     <div className="page-content">
