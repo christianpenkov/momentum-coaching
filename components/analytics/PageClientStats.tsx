@@ -71,7 +71,11 @@ interface YTStats {
   totalViews: number; videoCount: number;
   views30d: number; watchTime30d: number; avgViewDurationSec?: number; likes30d: number; comments30d: number;
   shares30d: number; subsGained30d: number; subsLost30d: number; netSubs30d: number;
-  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number }[];
+  // avgDurationShorts/Long : durée moyenne de visionnage du jour, par format
+  // (colonnes yt_avg_duration_shorts_sec / _long_sec, alimentées depuis la dimension
+  // creatorContentType de l'API). null quand le format n'a eu aucune vue ce jour-là —
+  // jamais 0, qui se lirait « personne n'a regardé ».
+  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null }[];
   videos: YTVideo[]; trafficSources: { source: string; views: number; watchMinutes: number }[];
   devices: { device: string; views: number; watchMinutes: number }[];
   demographics: { ageGroup: string; gender: string; viewerPct: number }[];
@@ -146,6 +150,39 @@ const isYTCall = (c: { source?: string | null }) => {
   const s = (c.source || '').toLowerCase();
   return s.startsWith('yt') || s.startsWith('youtube');
 };
+
+/**
+ * Bandeau « données disponibles depuis le … ».
+ *
+ * Les graphiques s'arrêtent à la date de démarrage de l'élève (un trou, pas un zéro),
+ * mais un graphique tronqué ne dit pas POURQUOI il est tronqué. Les élèves arrivent en
+ * milieu de mois — le 9, 28, 13 et 16 pour les quatre en base au 2026-08-20 — donc un
+ * mois où l'élève n'était là que quatre jours se lit comme un mois faible.
+ *
+ * Posé UNE FOIS au niveau du conteneur d'onglets plutôt que recopié dans chacun : c'est
+ * la même règle pour tous, et une règle recopiée finit toujours par diverger.
+ * Ne s'affiche que si la période commence réellement avant l'arrivée.
+ */
+function CoverageNotice({ periodStartStr, integrationsReadyAt }: {
+  periodStartStr: string | null;
+  integrationsReadyAt?: string | null;
+}) {
+  if (!integrationsReadyAt || !periodStartStr) return null;
+  const arrival = new Date(integrationsReadyAt).toISOString().slice(0, 10);
+  if (periodStartStr >= arrival) return null;
+  return (
+    <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, padding: '0 2px 10px' }}>
+      <span aria-hidden style={{ opacity: .6 }}>◷</span>
+      <span>
+        Données disponibles depuis le{' '}
+        <strong style={{ color: 'var(--ink-2)' }}>
+          {new Date(arrival).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' })}
+        </strong>
+        {' '}— le début de la période affichée n'est pas couvert.
+      </span>
+    </div>
+  );
+}
 
 /** Un deal, tel que le cash contracté en a besoin. `call_id` est null pour un deal
  *  créé hors pipeline (upsell, vente directe) — c'est précisément le cas que la somme
@@ -1677,23 +1714,6 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const subsRef = ytSubsGainedP > 0 ? ytSubsGainedP : (yt.subsGained30d > 0 ? yt.subsGained30d : 0);
   const viewsPerSubShorts = subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
   const viewsPerSubLong = subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
-  const mockFromTotalYT = (total: number, seed: number) => {
-    // Répartition (simulée) uniquement sur les jours déjà écoulés — sans ça, une part du
-    // total se retrouvait étalée sur des jours futurs, et la ligne continuait au-delà
-    // du point pulsant jusqu'à la fin du mois/semaine calendaire.
-    const pastDays = ytDays.filter(d => !isFutureDayYT(d.date));
-    if (total === 0 || pastDays.length === 0) return ytDays.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : 0 }));
-    const pts = pastDays.map((_, i) => Math.max(0, Math.sin(i * 1.7 + seed) * 0.5 + 0.5));
-    const sum = pts.reduce((a, b) => a + b, 0);
-    let vals = pts.map(p => Math.round((p / sum) * total));
-    // Le résidu d'arrondi compense la somme sur le dernier jour — jamais en-dessous de 0
-    // (compteur de likes/vues, jamais négatif), sinon un petit total réparti sur peu de
-    // jours peut générer un résidu négatif qui plonge le dernier point.
-    const residual = total - vals.reduce((a, b) => a + b, 0);
-    vals[vals.length - 1] = Math.max(0, vals[vals.length - 1] + residual);
-    const valByDate = new Map(pastDays.map((d, i) => [d.date, vals[i]]));
-    return ytDays.map(d => ({ date: d.date, v: valByDate.has(d.date) ? valByDate.get(d.date)! : (null as any) }));
-  };
 
   const videosInPeriod = yt.videos.filter(v => {
     const t = new Date(v.publishedAt).getTime();
@@ -1724,19 +1744,20 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / longVideos.reduce((s,v) => s + v.views30d, 0))
     : null;
 
-  const mockAroundAvgYT = (avg: number, seed: number, variancePct = 0.2) => {
-    if (!avg) return ytDays.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : 0 }));
-    return ytDays.map((d, i) => ({
-      date: d.date,
-      v: isFutureDayYT(d.date) ? (null as any) : Math.round(avg * (1 + Math.sin(i * 1.7 + seed) * variancePct)),
-    }));
-  };
-
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {
     'Vidéos publiées':    { data: ytPubsByDay.map(d => ({ date: d.date, v: isFutureDayYT(d.date) ? (null as any) : d.shorts + d.longues })), color: YT_COLOR },
     'Vues 30j':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views })), color: RED },
     'Watch time':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : Math.round(d.watchTime / 60) })), color: AMBER, unit: 'h' },
-    'Watch time moyen':   { data: mockFromTotalYT(avgWatchShorts ?? 0, 5), color: '#f43f5e', unit: 's' },
+    // Vignette : durée moyenne réelle du jour, tous formats confondus
+    // (yt_avg_view_duration_sec). La ventilation Shorts / longues est dans la modale,
+    // au clic. Remplace mockFromTotalYT, qui étalait le total avec un sinus.
+    'Watch time moyen':   {
+      data: ytDays.map(d => ({
+        date: d.date,
+        v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgViewDurationSec ?? null),
+      })),
+      color: '#f43f5e', unit: 's',
+    },
     'Subs gagnés':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: GREEN },
     'Subs perdus':        { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsLost ?? 0) })), color: RED },
     'Subs nets':          { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0) })), color: yt.netSubs30d >= 0 ? GREEN : RED },
@@ -1763,10 +1784,30 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     const s = ytStatSeries[label];
     if (!s) return;
     if (label === 'Watch time moyen') {
+      // Vraies durées moyennes par jour et par format (colonnes yt_avg_duration_*_sec,
+      // alimentées depuis la dimension creatorContentType de l'API — vérifiée sur une
+      // vraie chaîne le 2026-08-20).
+      //
+      // Remplace mockAroundAvgYT, qui dessinait un sinus autour de la moyenne globale et
+      // se rabattait sur des valeurs INVENTÉES quand la donnée manquait (45 s pour les
+      // Shorts, 480 s pour les longues — des chiffres sans source).
+      //
+      // null hors couverture ET quand le format n'a eu aucune vue : la courbe fait un
+      // trou plutôt que de descendre à 0, qui se lirait « regardé 0 seconde ».
       setStatModal({
-        label: 'Watch time moyen / vue', value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
-        color: '#e8a838', data: mockAroundAvgYT(avgWatchShorts ?? 45, 5),
-        label2: 'Vidéos longues', data2: mockAroundAvgYT(avgWatchLong ?? 480, 6), color2: '#64748b',
+        label: 'Watch time moyen / vue — Shorts',
+        value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
+        color: '#e8a838',
+        data: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? null),
+        })),
+        label2: 'Vidéos longues',
+        data2: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? null),
+        })),
+        color2: '#64748b',
         unit: 's',
       });
       return;
@@ -3947,24 +3988,6 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
   return (
     <div className="stack">
 
-      {/* Période qui commence avant l'arrivée de l'élève : les graphiques s'arrêtent
-          à sa date de démarrage (trou, pas zéro), mais un graphique tronqué ne dit pas
-          POURQUOI il est tronqué. Les élèves arrivent en milieu de mois (le 9, 28, 13,
-          16 pour les quatre en base) : sans cette mention, un mois où l'élève n'était
-          là que 4 jours se lit comme un mois faible. */}
-      {arrivalDayStr && dayRange.length > 0 && dayRange[0] < arrivalDayStr && (
-        <div style={{ fontSize: 12, color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: 6, padding: '2px 2px 0' }}>
-          <span aria-hidden style={{ opacity: .6 }}>◷</span>
-          <span>
-            Données disponibles depuis le{' '}
-            <strong style={{ color: 'var(--ink-2)' }}>
-              {new Date(arrivalDayStr).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}
-            </strong>
-            {' '}— début de la période non couvert.
-          </span>
-        </div>
-      )}
-
       {/* ── Section 0 : Stats globales ── */}
       <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 22px' }}>
         <SectionHead title="Vue d'ensemble" sub="Tracking complet — tous liens confondus" />
@@ -5874,6 +5897,13 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       likes:      r.yt_likes ?? 0,
       comments:   r.yt_comments ?? 0,
       shares:     r.yt_shares ?? 0,
+      // ?? null et non ?? 0 : un format sans vue ce jour-là n'a pas de durée moyenne,
+      // et un 0 se lirait « regardé 0 seconde » au lieu de « pas de vue sur ce format ».
+      avgViewDurationSec: r.yt_avg_view_duration_sec ?? null,
+      avgDurationShorts: r.yt_avg_duration_shorts_sec ?? null,
+      avgDurationLong:   r.yt_avg_duration_long_sec ?? null,
+      viewsShorts:       r.yt_views_shorts ?? null,
+      viewsLong:         r.yt_views_long ?? null,
     })),
     videos: ytVideos,
     trafficSources: lastSnap?.yt_traffic_sources ?? [],
@@ -6967,6 +6997,17 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
       )}
 
       <Tabs tabs={TABS} active={tab} onChange={setTab} />
+
+      {/* Bandeau commun à tous les onglets : posé ici plutôt que recopié dans chacun.
+          En All-Time la fenêtre part déjà de integrations_ready_at, donc jamais avant
+          l'arrivée — le bandeau ne s'affiche que sur une période calendaire (mois ou
+          semaine) qui commence avant. */}
+      {!loading && (
+        <CoverageNotice
+          periodStartStr={sinceConnection ? null : parisDateStr(getPeriodWindow(periodIndex, period === 7 ? 'week' : 'month').periodStart)}
+          integrationsReadyAt={integrationsReadyAt}
+        />
+      )}
 
       {loading ? <InlineLoader /> : (
         <>
