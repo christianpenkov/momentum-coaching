@@ -18,6 +18,14 @@ export interface YtDaySnapshot {
   yt_comments: number | null;
   yt_shares: number | null;
   yt_avg_view_duration_sec: number | null;
+  // Ventilation Shorts / vidéos longues (dimension creatorContentType). Sert la courbe
+  // « Watch time moyen », qui distingue les deux formats — distinction que
+  // yt_avg_view_duration_sec (tous formats confondus) ne permet pas, et qui était donc
+  // simulée jusqu'au 2026-08-20.
+  yt_avg_duration_shorts_sec: number | null;
+  yt_avg_duration_long_sec: number | null;
+  yt_views_shorts: number | null;
+  yt_views_long: number | null;
 }
 
 // ── Token (avec refresh OAuth) ────────────────────────────────────────────────
@@ -75,18 +83,40 @@ export async function fetchYtDayMetrics(
 ): Promise<YtDaySnapshot[]> {
   const auth = { Authorization: `Bearer ${accessToken}` };
 
-  const [channelRes, analyticsRes] = await Promise.all([
+  const [channelRes, analyticsRes, byTypeRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(
       `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`,
       { headers: auth }
     ),
+    // Même fenêtre, ventilée par format (creatorContentType : shorts | videoOnDemand |
+    // liveStream | story). Vérifié sur une vraie chaîne le 2026-08-20 : HTTP 200, et la
+    // somme des vues par format égale exactement le total du rapport `day` seul.
+    // Requête séparée car mélanger les deux dimensions dans un seul appel renverrait des
+    // lignes par (jour × format) pour TOUTES les métriques, dont certaines n'ont pas de
+    // sens ventilées (subscribers est un total de chaîne).
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration&dimensions=day,creatorContentType&sort=day`,
+      { headers: auth }
+    ),
   ]);
 
-  const [channelData, analyticsData] = await Promise.all([
+  const [channelData, analyticsData, byTypeData] = await Promise.all([
     channelRes.json().catch(() => ({})),
     analyticsRes.json().catch(() => ({})),
+    byTypeRes.json().catch(() => ({})),
   ]);
+
+  // day -> { shorts, long } — l'API n'émet une ligne que pour les formats ayant eu des
+  // vues ce jour-là, d'où le null quand le format est absent (pas de faux zéro).
+  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null }>();
+  for (const r of (byTypeData?.rows ?? []) as any[]) {
+    const [day, type, views, avgDur] = r;
+    const cur = byType.get(day) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null };
+    if (type === 'shorts') { cur.shortsDur = avgDur ?? null; cur.shortsViews = views ?? null; }
+    else if (type === 'videoOnDemand') { cur.longDur = avgDur ?? null; cur.longViews = views ?? null; }
+    byType.set(day, cur);
+  }
 
   const subscribers = parseInt(channelData?.items?.[0]?.statistics?.subscriberCount || '0') || null;
   const rows: any[] = analyticsData?.rows || [];
@@ -117,6 +147,13 @@ export async function fetchYtDayMetrics(
       yt_comments:             r[6] || 0,
       yt_shares:               r[7] || 0,
       yt_avg_view_duration_sec: avgDur,
+      // null (pas 0) quand le format n'a eu aucune vue ce jour-là : une durée moyenne
+      // de 0 s se lirait « personne n'a regardé », alors que la réalité est « aucune
+      // vue sur ce format », ce que la courbe doit rendre par un trou.
+      yt_avg_duration_shorts_sec: byType.get(r[0])?.shortsDur ?? null,
+      yt_avg_duration_long_sec:   byType.get(r[0])?.longDur ?? null,
+      yt_views_shorts:            byType.get(r[0])?.shortsViews ?? null,
+      yt_views_long:              byType.get(r[0])?.longViews ?? null,
     };
   });
 }
@@ -143,6 +180,10 @@ export async function upsertYtSnapshot(
       yt_comments:              snapshot.yt_comments,
       yt_shares:                snapshot.yt_shares,
       yt_avg_view_duration_sec: snapshot.yt_avg_view_duration_sec,
+      yt_avg_duration_shorts_sec: snapshot.yt_avg_duration_shorts_sec,
+      yt_avg_duration_long_sec:   snapshot.yt_avg_duration_long_sec,
+      yt_views_shorts:            snapshot.yt_views_shorts,
+      yt_views_long:              snapshot.yt_views_long,
       backfill_source:          source,
     }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
 
