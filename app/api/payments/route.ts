@@ -191,8 +191,37 @@ export async function GET(request: NextRequest) {
     .eq('deals.profile_id', profileId);
 
   const attachedIds = new Set((attachedPayments ?? []).map((p: any) => p.stripe_payment_id));
-  const orphans = (allPayments ?? [])
-    .filter(p => p.status === 'succeeded' && !attachedIds.has(p.payment_id));
+
+  // Une même transaction d'abonnement arrive DEUX fois dans stripe_payments :
+  // sous son id d'invoice (`in_…`) et sous celui de son PaymentIntent (`pi_…`),
+  // au même montant et à la même seconde. Constaté en test le 20/08/2026 sur
+  // TestBIO. Ne comparer que les identifiants faisait donc remonter la moitié
+  // non retenue comme un faux orphelin — et la rattacher aurait dupliqué
+  // 1 000 € dans le cash collecté.
+  //
+  // On écarte donc aussi tout paiement dont le montant ET l'instant coïncident
+  // avec un paiement déjà rattaché. Deux vrais paiements distincts du même
+  // montant à la même seconde n'existent pas en pratique ; et dans ce cas
+  // improbable, mieux vaut un orphelin manquant qu'un doublon de cash.
+  const { data: attachedDetail } = await supa
+    .from('deal_payments')
+    .select('amount, paid_at, deals!inner(profile_id)')
+    .eq('deals.profile_id', profileId)
+    .eq('status', 'succeeded');
+
+  const attachedFingerprints = new Set(
+    (attachedDetail ?? [])
+      .filter((p: any) => p.paid_at)
+      .map((p: any) => `${Number(p.amount)}@${new Date(p.paid_at).toISOString().slice(0, 19)}`)
+  );
+
+  const orphans = (allPayments ?? []).filter(p => {
+    if (p.status !== 'succeeded') return false;
+    if (attachedIds.has(p.payment_id)) return false;
+    if (!p.date) return true;
+    const fp = `${Number(p.amount)}@${new Date(p.date).toISOString().slice(0, 19)}`;
+    return !attachedFingerprints.has(fp);
+  });
 
   return NextResponse.json({
     profileId,
