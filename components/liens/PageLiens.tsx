@@ -101,6 +101,12 @@ interface Post {
   views?: number | null;
   postedAt?: string;
   expiredAt?: string | null;
+  // Méta de la ligne : « Reel · 28 juillet · 142 clics ». Le type et la date
+  // étaient déjà renvoyés par /api/instagram/stats et /api/youtube/stats, ils
+  // n'étaient simplement pas repris au mapping.
+  mediaType?: string | null;
+  publishedAt?: string | null;
+  clics?: number | null;
 }
 
 interface ContentLink {
@@ -2772,11 +2778,14 @@ function PanneauLeadMagnets({ leadMagnets, lmLoading, onCreated, onDeleted, onUp
 // exigence du handoff), `true` = desktop.
 
 /** Filtres de plateforme — les 4 valeurs du modèle : all / IG / YT / STORY. */
-function FiltresPlateforme({ value, onChange, compact, contentCount }: {
+function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, sansSequence, onSansSequence }: {
   value: 'all' | 'IG' | 'YT' | 'STORY';
   onChange: (f: 'all' | 'IG' | 'YT' | 'STORY') => void;
   compact: boolean;
   contentCount?: number;
+  compteurs?: { all: number; IG: number; YT: number; STORY: number; sansSequence: number };
+  sansSequence?: boolean;
+  onSansSequence?: (v: boolean) => void;
 }) {
   return (
     <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: compact ? 'nowrap' : 'wrap' }}>
@@ -3086,6 +3095,62 @@ function PointAbsence({ title }: { title: string }) {
 }
 
 /**
+ * Méta d'une ligne de contenu : « Reel · 28 juillet · 142 clics ».
+ *
+ * Chaque morceau n'apparaît que s'il existe. Pas de « 0 clic » ni de tiret de
+ * remplacement : afficher zéro sur un contenu qui n'a même pas de lien généré se
+ * lit comme un échec, alors qu'il n'y a simplement rien à mesurer.
+ *
+ * `court` sert au menu déplié de 250px, où seule la plateforme tient.
+ */
+function metaContenu(post: Post, court = false): string {
+  const type = post.platform === 'YT' ? 'YouTube'
+    : post.platform === 'STORY' ? 'Story'
+    : post.mediaType === 'VIDEO' || post.mediaType === 'REEL' ? 'Reel'
+    : post.mediaType === 'CAROUSEL_ALBUM' ? 'Carrousel'
+    : 'Post';
+
+  if (court) return post.platform === 'STORY' ? 'Story' : post.platform;
+
+  const morceaux: string[] = [type];
+
+  const date = post.publishedAt || post.postedAt;
+  if (date) {
+    const d = new Date(date);
+    if (!isNaN(d.getTime())) {
+      morceaux.push(d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }));
+    }
+  }
+
+  if (post.clics != null) morceaux.push(`${post.clics} clic${post.clics > 1 ? 's' : ''}`);
+
+  return morceaux.join(' · ');
+}
+
+/**
+ * Pastille d'état — réservée aux STORIES.
+ *
+ * Une story périme en 24 h : savoir si elle tourne encore a un sens. Un Reel ou
+ * une vidéo YouTube restent en ligne indéfiniment, leur séquence tourne tant
+ * qu'un mot-clé est configuré — un badge « Active » n'y dirait rien.
+ */
+function PastilleEtatStory({ post }: { post: Post }) {
+  if (post.platform !== 'STORY') return null;
+  const expiree = !!post.expiredAt;
+  return (
+    <span style={{
+      fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '1px 5px',
+      display: 'inline-flex', alignItems: 'center', gap: 4,
+      color: expiree ? MUTED : 'var(--green)',
+      background: expiree ? SURFACE2 : 'var(--green-soft)',
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: 'currentColor' }} />
+      {expiree ? 'Expirée' : 'Active'}
+    </span>
+  );
+}
+
+/**
  * Une ligne de la liste de contenus.
  *
  * Le mobile affichait une carte pauvre (plateforme + deux mentions en texte)
@@ -3126,47 +3191,50 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
         </div>
       )}
 
-      <VignetteContenu post={post} size={compact ? 36 : 48} />
+      {/* 44px de haut, et 9/16 pour les stories : une vignette carrée déformerait
+          un format vertical. Le menu déplié (compact) reste à 34px, sa colonne
+          n'ayant que 250px. */}
+      <VignetteContenu
+        post={post}
+        size={compact ? 34 : 44}
+        hauteur={isStory ? (compact ? 44 : 58) : (compact ? 34 : 44)}
+      />
 
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{
-          fontSize: compact ? 12 : 13, fontWeight: compact ? 500 : 600,
+          fontSize: compact ? 12 : 13, fontWeight: 600,
           color: selected ? BLUE : INK, lineHeight: 1.3,
-          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginBottom: 3,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>{post.caption}</div>
 
-        <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
-          {/* La plateforme n'est plus écrite ici : « IG » / « YT » / « STORY » en
-              majuscules colorées volait l'attention aux pastilles qui, elles,
-              portent une information qu'on ne peut pas deviner (mot-clé, séquence
-              active). Elle est devenue une pastille sur le coin de la vignette. */}
+        {/* Méta complète en pleine largeur, sigle seul dans le menu déplié où la
+            place manque. La plateforme se lit aussi sur la pastille de vignette. */}
+        <div style={{ fontSize: 11, color: MUTED, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {metaContenu(post, compact)}
+        </div>
 
-          {isStory ? (
-            (post.sequenceStoryCount ?? 0) > 1
-              ? <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
-              : post.lmKeyword || post.calendlyShortUrl
-                ? <span style={{ display: 'flex', gap: 4 }}>
-                    {post.lmKeyword && <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>#{post.lmKeyword}</span>}
-                    {post.calendlyShortUrl && <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>}
-                  </span>
-                : <PointAbsence title="Pas de CTA" />
-          ) : (
-            <>
-              {post.hasDescLink
-                ? <span style={{ fontSize: 10, fontWeight: 600, color: BLUE, background: BLUE_SOFT, borderRadius: 4, padding: '1px 5px' }}>Lien desc ✓</span>
-                : <PointAbsence title="Pas de lien description" />}
-              {post.platform === 'IG' && (
-                post.hasLeadMagnet
-                  ? <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--green)', background: 'var(--green-soft)', borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM'}</span>
-                  : <PointAbsence title="Pas de lead magnet" />
-              )}
-            </>
+        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 5 }}>
+          {isStory && (post.sequenceStoryCount ?? 0) > 1 && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '1px 5px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 140 }}>📎 {post.sequenceName}</span>
+          )}
+
+          {/* Mot-clé : ce qui déclenche la séquence. C'est l'information qu'on ne
+              peut pas deviner en regardant le contenu. */}
+          {post.lmKeyword
+            ? <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>{post.lmKeyword.toUpperCase()}</span>
+            : <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--amber)', background: 'var(--amber-soft)', borderRadius: 4, padding: '1px 5px' }}>Pas de séquence</span>}
+
+          {/* L'état ne concerne que les stories, qui périment en 24 h. */}
+          <PastilleEtatStory post={post} />
+
+          {post.calendlyShortUrl && (
+            <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px' }}>Calendly</span>
           )}
         </div>
       </div>
 
-      {!compact && !(isStory && selectionMode) && (
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      {!(isStory && selectionMode) && (
+        <svg width={compact ? 14 : 17} height={compact ? 14 : 17} viewBox="0 0 24 24" fill="none" stroke="#c9c3b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
       )}
     </div>
   );
@@ -3409,6 +3477,8 @@ export default function PageLiens() {
         platform: 'IG' as const,
         thumbnail: p.thumbnail,
         permalink: p.permalink || null,
+        mediaType: p.type ?? null,
+        publishedAt: p.timestamp ?? null,
       }));
 
     const ytPosts: Post[] = (ytData?.videos || []).map((v: any) => ({
@@ -3416,6 +3486,7 @@ export default function PageLiens() {
       caption: (v.title || 'Vidéo YouTube').slice(0, 60),
       platform: 'YT' as const,
       thumbnail: v.thumbnail,
+      publishedAt: v.publishedAt ?? v.timestamp ?? null,
     }));
 
     const shortioLinks = (shortioData?.links || []).map((l: any) => {
@@ -3433,12 +3504,22 @@ export default function PageLiens() {
     const enrichedFromShortio = [...igPosts, ...ytPosts].map(post => {
       const descLink = shortioLinks.find((l: any) => l.postId === post.id && l.linkType === 'post');
       const lmLink = shortioLinks.find((l: any) => l.postId === post.id && l.linkType === 'leadmagnet');
+      // Clics cumulés des deux liens du contenu (description + lead magnet) :
+      // c'est le trafic que ce contenu a généré, quel que soit le lien cliqué.
+      // null plutôt que 0 quand aucun lien n'existe — « 0 clic » sur un contenu
+      // sans lien se lirait comme un échec, alors qu'il n'y a rien à mesurer.
+      const clicsDesc = descLink?.humanClicks ?? descLink?.clicks ?? null;
+      const clicsLm = lmLink?.humanClicks ?? lmLink?.clicks ?? null;
+      const clics = clicsDesc === null && clicsLm === null
+        ? null
+        : (clicsDesc ?? 0) + (clicsLm ?? 0);
       return {
         ...post,
         hasDescLink: !!descLink,
         descLinkUrl: descLink?.shortUrl || undefined,
         hasLeadMagnet: !!lmLink,
         lmKeyword: lmLink?.utmCampaign?.replace('lm-', '') || undefined,
+        clics,
       };
     });
 
@@ -3573,8 +3654,25 @@ export default function PageLiens() {
 
     const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
 
+    // « Contenus » compte aussi ceux qui ont été SUPPRIMÉS d'Instagram mais qui ont
+    // déjà généré des leads. La liste, elle, ne montre que les contenus encore en
+    // ligne — on ne configure pas une séquence sur un post disparu.
+    //
+    // Sans ça, supprimer un Reel performant faisait baisser le dénominateur en
+    // laissant ses leads au numérateur : le taux de conversion devenait faux, et
+    // d'autant plus faux que le contenu supprimé avait bien marché.
+    //
+    // C'est le principe des outils du domaine : Buffer garde les publications
+    // supprimées dans ses analytics, et conserve la version d'origine d'un post
+    // modifié. L'analytics journalise ce qui a eu lieu, il ne reflète pas l'état
+    // présent du réseau.
+    const idsAffiches = new Set(posts.map(p => p.id));
+    const mediasDisparus = new Set(
+      leads.map(l => l.media_id).filter(m => m && !idsAffiches.has(m))
+    );
+
     return {
-      contenus: posts.length,
+      contenus: posts.length + mediasDisparus.size,
       commentaires,
       accroches,
       liensCliques,
@@ -3582,15 +3680,31 @@ export default function PageLiens() {
       tauxClics: taux(liensCliques, accroches),
       pret: !!pipelineData,
     };
-  }, [pipelineData, posts.length]);
+  }, [pipelineData, posts]);
 
   const [funnelOuvert, setFunnelOuvert] = useState(true);
 
+  // « Sans séquence » se combine aux filtres de plateforme plutôt que de les
+  // remplacer : la question « lesquels de mes Reels ne sont pas configurés ? »
+  // est justement celle qui fait ouvrir cette page.
+  const [sansSequence, setSansSequence] = useState(false);
+
   const filteredPosts = posts.filter(p => {
     if (filterPlatform !== 'all' && p.platform !== filterPlatform) return false;
+    if (sansSequence && p.lmKeyword) return false;
     if (search.trim() && !p.caption.toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
+
+  // Compteurs des chips : calculés sur `posts`, pas sur `filteredPosts` — un
+  // compteur qui change quand on clique dessus ne compte plus rien.
+  const compteurs = useMemo(() => ({
+    all: posts.length,
+    IG: posts.filter(p => p.platform === 'IG').length,
+    YT: posts.filter(p => p.platform === 'YT').length,
+    STORY: posts.filter(p => p.platform === 'STORY').length,
+    sansSequence: posts.filter(p => !p.lmKeyword).length,
+  }), [posts]);
 
   // Résout le post depuis l'array live (enrichi) plutôt que rightView (copie figée)
   const selectedPost = rightView?.type === 'post'
