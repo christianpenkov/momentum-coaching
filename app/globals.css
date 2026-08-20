@@ -2089,6 +2089,19 @@ a { color: inherit; text-decoration: none; }
    ajout, le kanban n'est pas modifie — important tant que la review Meta est en
    cours, la video ayant ete filmee avec le pipeline desktop actuel. */
 .pipeline-mobile { display: none; }
+
+/* Pipeline — valeurs de base des filtres et onglets, hors media query.
+   Elles vivaient en style inline ; deplacees ici pour que la regle mobile
+   (max-width 767px) puisse les surcharger — un style inline ne l'est jamais.
+   Ces deux regles reproduisent a l'identique l'ancien rendu desktop. */
+.pipeline-filter { padding: 4px 10px; font-size: 11px; }
+.pipeline-filters-toggle { display: none; }
+/* Reprend la valeur qui etait en style inline : desktop inchange. */
+.pipeline-page { gap: 16px; }
+/* Entonnoir mobile — valeurs de base, surchargees sur ecran court. */
+.funnel-row { min-height: 56px; padding: 15px 14px; }
+.funnel-list { gap: 7px; }
+.pipeline-tab { justify-content: flex-start; }
 .clients-card {
   cursor: pointer;
   padding: 14px 16px;
@@ -2520,6 +2533,88 @@ a { color: inherit; text-decoration: none; }
   /* Pipeline — le kanban cede la place a l'entonnoir. */
   .pipeline-desktop { display: none !important; }
   .pipeline-mobile { display: block !important; }
+
+  /* Onglets de plateforme : grille 3 colonnes egales, pleine largeur.
+     En flex, "Instagram" + "YouTube" + "Autres" et leurs compteurs cumulaient
+     plus que la largeur d'ecran et "Autres" sortait a droite, non atteignable.
+     La grille repartit l'espace au lieu de le reclamer. */
+  .pipeline-tabs {
+    /* Colonnes egales, mais dimensionnees sur le contenu tant qu'il rentre :
+       les libelles restent entiers des qu'il y a la place. A 320px la regle
+       ci-dessous prend le relais et les tronque. */
+    display: grid !important;
+    grid-template-columns: repeat(3, auto);
+    gap: 3px !important;
+  }
+  .pipeline-tab {
+    /* Cible tactile a 40px, comme les autres barres d'onglets de l'app.
+       justify-content centre le couple libelle+compteur dans sa colonne. */
+    min-height: 40px;
+    padding: 5px 6px !important;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  /* Filtres : cibles plus generreuses, deux rangees qui respirent.
+     Le padding vit ici et non en inline, sinon cette regle ne l'atteint pas. */
+  /* "Rafraichir" + 3 onglets faisaient 388px de large pour 375px d'ecran, et
+     "Autres" sortait a droite. Plutot que d'empiler (l'en-tete passait de 104
+     a 152px, reprenant a l'entonnoir ce qu'on venait de lui donner), on garde
+     la ligne unique et on autorise la compression : min-width 0 leve la
+     largeur plancher implicite des elements flex, sans quoi ils refusent de
+     retrecir sous leur contenu et debordent. */
+  .pipeline-actions {
+    width: 100%;
+    min-width: 0;
+    gap: 6px !important;
+  }
+  .pipeline-refresh {
+    flex-shrink: 0;
+    min-height: 40px;
+    padding: 6px 10px !important;
+  }
+  .pipeline-tabs {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* Ecarts resserres : 3 gaps a 16px coutaient 48px de hauteur. */
+  .pipeline-page { gap: 10px; }
+
+  /* Bouton de repli des filtres — mobile seulement. */
+  .pipeline-filters-toggle {
+    display: flex !important;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    min-height: 40px;
+    padding: 9px 13px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--ink-2);
+    font-size: 12.5px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .pipeline-filters-count {
+    display: inline-flex; align-items: center; justify-content: center;
+    min-width: 18px; height: 18px; padding: 0 5px;
+    border-radius: 5px;
+    background: var(--accent); color: #fff;
+    font-size: 10.5px; font-weight: 700;
+  }
+  /* Replies par defaut : la place va a l'entonnoir. */
+  .pipeline-filters { display: none !important; }
+  .pipeline-filters.is-open { display: flex !important; }
+  .pipeline-filters { row-gap: 8px !important; }
+  .pipeline-filter {
+    min-height: 36px;
+    padding: 7px 13px !important;
+    font-size: 12px !important;
+  }
 
   /* PageCalls (coach) — la carte de call "à venir" empile jusqu'à 6 éléments
      de largeur fixe sur une seule ligne flex (heure, séparateur, avatar, nom,
@@ -3144,4 +3239,29 @@ html[data-splash='1'] .dot-wave {
     animation-duration: 0s !important;
     animation-delay: 0s !important;
   }
+}
+
+/* Ecrans courts (iPhone SE/8 et paysage) : 8 lignes a 56px plus l'en-tete
+   depassent la hauteur utile. Mesure a 375x667 : il manquait 174px. On
+   compacte l'entonnoir la, plutot que d'imposer un defilement partout.
+   Les cibles restent au-dessus du minimum tactile de 44px. */
+@media (max-width: 767px) and (max-height: 750px) {
+  .funnel-row { min-height: 46px !important; padding: 10px 13px !important; }
+  .funnel-list { gap: 5px !important; }
+  .pipeline-page { gap: 8px !important; }
+}
+
+/* Ecrans tres etroits (iPhone SE 1re gen, vieux Android) : les 3 libelles
+   d'onglet ne tiennent plus, meme tronques individuellement. On force alors
+   des colonnes egales compressibles — minmax(0, 1fr) et non 1fr, dont le
+   plancher implicite est la taille du contenu : sans cela les colonnes
+   refusent de retrecir et le 3e onglet sort de l'ecran (mesure a 320px :
+   249px de colonnes pour 193px disponibles). */
+@media (max-width: 374px) {
+  .pipeline-tabs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+  .pipeline-tab { min-width: 0; overflow: hidden; }
+  .pipeline-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 }

@@ -186,11 +186,13 @@ export default function PipelineFunnelMobile({
     <button
       type="button"
       onClick={() => setOpenStage(b.stage.key)}
+      className="funnel-row"
       style={{
-        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-        // 48px : au-dessus du minimum tactile de 44px appliqué partout ailleurs
-        // dans l'app (.btn-primary, .chip, .icon-btn).
-        padding: '13px 14px', minHeight: 48, borderRadius: 'var(--r-lg)',
+        display: 'flex', alignItems: 'center', gap: 11, width: '100%',
+        // Hauteur et padding vivent dans .funnel-row (globals.css) : sur les
+        // ecrans courts une media query les compacte, ce qu'un style inline
+        // ne permettrait pas.
+        borderRadius: 'var(--r-lg)',
         background: 'var(--surface)', border: '1px solid var(--border)',
         boxShadow: 'var(--shadow-card)', cursor: 'pointer',
         font: 'inherit', color: 'inherit', textAlign: 'left',
@@ -200,13 +202,13 @@ export default function PipelineFunnelMobile({
       {/* Tout sur une ligne : libellé court, barre, compteur. Empiler la barre
           sous le texte rallongeait chaque ligne et forçait à faire défiler pour
           voir la fin du tunnel. */}
-      <span style={{ fontSize: 13.5, fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap' }}>
+      <span style={{ fontSize: 14.5, fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap' }}>
         {shortLabel(b.stage.key, b.stage.label)}
       </span>
-      <span style={{ flex: 1, minWidth: 20, height: 7, borderRadius: 20, background: 'var(--surface-2)', overflow: 'hidden' }}>
+      <span style={{ flex: 1, minWidth: 20, height: 9, borderRadius: 20, background: 'var(--surface-2)', overflow: 'hidden' }}>
         <span style={{ display: 'block', height: '100%', borderRadius: 20, background: b.stage.color, width: `${(b.list.length / max) * 100}%` }} />
       </span>
-      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
+      <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', flexShrink: 0, minWidth: 18, textAlign: 'right' }}>
         {b.list.length}
       </span>
       <Icon name="chevR" size={14} color="var(--faint)" />
@@ -223,9 +225,10 @@ export default function PipelineFunnelMobile({
       type="button"
       onClick={onOpen}
       disabled={!onOpen || count === 0}
+      className="funnel-row"
       style={{
-        flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8,
-        padding: '13px 12px', minHeight: 48, borderRadius: 'var(--r-lg)',
+        flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 9,
+        borderRadius: 'var(--r-lg)',
         background: count > 0 ? bg : 'var(--surface)',
         border: `1px solid ${count > 0 ? color + '4d' : 'var(--border)'}`,
         boxShadow: 'var(--shadow-card)',
@@ -235,20 +238,20 @@ export default function PipelineFunnelMobile({
       }}
     >
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: count > 0 ? color : 'var(--border)', flexShrink: 0 }} />
-      <span style={{ fontSize: 13.5, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{count}</span>
+      <span style={{ fontSize: 14.5, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ fontSize: 16, fontWeight: 700, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{count}</span>
     </button>
   );
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+    <div className="funnel-list" style={{ display: 'flex', flexDirection: 'column' }}>
       {linear.map(b => <StageRow key={b.stage.key} b={b} />)}
 
       {/* Bifurcation : après le call, deux issues opposées. Les empiler les
           ferait lire comme deux étapes successives, alors que c'en est une qui
           se scinde. No-show à gauche (l'échec, sur lequel on agit), Show up à
           droite (la progression, qui continue vers Closé juste en dessous). */}
-      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+      <div style={{ display: 'flex', gap: 7, marginTop: 3 }}>
         <OutcomeRow
           label="No-show"
           count={noShows.length}
@@ -267,7 +270,7 @@ export default function PipelineFunnelMobile({
         )}
       </div>
 
-      {closed && <div style={{ marginTop: 2 }}><StageRow b={closed} /></div>}
+      {closed && <div style={{ marginTop: 3 }}><StageRow b={closed} /></div>}
     </div>
   );
 }

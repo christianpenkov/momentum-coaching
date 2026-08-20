@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
 import PipelineFunnelMobile from './PipelineFunnelMobile';
+import Icon from '@/components/ui/Icon';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -1217,6 +1218,8 @@ export default function PagePipeline() {
 
   // Filtres
   const [filterNoShow, setFilterNoShow] = useState(false);
+  // Repli des filtres sur mobile uniquement (le desktop les affiche toujours).
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [filterArchived, setFilterArchived] = useState(false);
   const [filterCanceled, setFilterCanceled] = useState(false);
   const [filterRescheduled, setFilterRescheduled] = useState(false);
@@ -1949,12 +1952,16 @@ export default function PagePipeline() {
   // changer quand on passe d'un onglet à l'autre, sinon il se lit comme un total alors
   // qu'il ne compte que l'onglet courant (demande Chris, 2026-08-19).
   const totalProspects = filteredIgCards.length + filteredYtCards.length + filteredOtherCards.length;
-  const anyFilter = filterNoShow || filterArchived || filterCanceled || filterRescheduled || filterNotQualified || filterToRecontact;
+  const activeFilterCount = [filterNoShow, filterArchived, filterCanceled, filterRescheduled, filterNotQualified, filterToRecontact].filter(Boolean).length;
+  const anyFilter = activeFilterCount > 0;
 
   return (
     <div
-      className="page-content"
-      style={{ display: 'flex', flexDirection: 'column', gap: 16, height: '100%', overflow: 'hidden' }}
+      className="page-content pipeline-page"
+      // gap en CSS et non en inline : sur mobile il descend a 10px pour rendre
+      // ~18px a l'entonnoir. Un style inline ne serait jamais atteint par la
+      // media query.
+      style={{ display: 'flex', flexDirection: 'column', height: '100%', overflow: 'hidden' }}
       onDragEnd={handleDragEnd}
     >
       {/* Header */}
@@ -1974,10 +1981,14 @@ export default function PagePipeline() {
           )}
         </div>
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        {/* pipeline-actions : sur mobile, "Rafraichir" et les 3 onglets ne
+            tiennent pas cote a cote (mesure a 375px : 388px de contenu). Le
+            groupe passe en colonne pleine largeur, onglets sous le bouton. */}
+        <div className="pipeline-actions" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <button
             onClick={handleRefresh}
             disabled={refreshing}
+            className="pipeline-refresh"
             style={{
               padding: '6px 14px', fontSize: 12, fontWeight: 600, borderRadius: 8,
               border: '1px solid var(--border)', background: 'var(--surface)',
@@ -1988,13 +1999,16 @@ export default function PagePipeline() {
             <span style={{ display: 'inline-block', animation: refreshing ? 'spin 1s linear infinite' : 'none' }}>↻</span>
             {refreshing ? 'Maj…' : 'Rafraîchir'}
           </button>
-          <div style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
+          {/* pipeline-tabs : sur mobile ce groupe passe en grille 3 colonnes
+              egales. En flex simple, les trois libelles cumulaient plus de
+              375px et "Autres" sortait de l'ecran (constate au navigateur). */}
+          <div className="pipeline-tabs" style={{ display: 'flex', background: 'var(--surface-2)', borderRadius: 8, padding: 3, gap: 2 }}>
             {([
               { key: 'ig', label: 'Instagram', count: igCards.length },
               { key: 'yt', label: 'YouTube', count: filteredYtCards.length },
               { key: 'other', label: 'Autres', count: filteredOtherCards.length },
             ] as const).map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} style={{
+              <button key={t.key} onClick={() => setTab(t.key)} className="pipeline-tab" style={{
                 padding: '5px 14px', fontSize: 12, fontWeight: 600, borderRadius: 6,
                 cursor: 'pointer', border: 'none', transition: 'all .12s',
                 background: tab === t.key ? 'var(--surface)' : 'transparent',
@@ -2002,7 +2016,9 @@ export default function PagePipeline() {
                 boxShadow: tab === t.key ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
                 display: 'flex', alignItems: 'center', gap: 6,
               }}>
-                {t.label}
+                {/* Enveloppe pour que la troncature mobile puisse s'y appliquer :
+                    un noeud texte nu n'est pas atteignable en CSS. */}
+                <span className="pipeline-tab-label">{t.label}</span>
                 <span style={{
                   fontSize: 10, fontWeight: 700, minWidth: 16, height: 16,
                   borderRadius: 4, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 4px',
@@ -2016,8 +2032,31 @@ export default function PagePipeline() {
       </div>
 
       {/* Filtres IG */}
+      {/* Sur mobile les 6 filtres occupent deux rangees pleines, soit ~80px pris
+          sur un budget vertical de ~620px — assez pour pousser la fin de
+          l'entonnoir hors ecran. Ils sont secondaires : on vient lire
+          l'entonnoir, pas filtrer. D'ou le repli, avec le nombre de filtres
+          actifs sur le bouton pour qu'un filtrage en cours reste visible meme
+          replie. Le desktop les affiche toujours (.pipeline-desktop). */}
       {tab === 'ig' && (
-        <div style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}>
+        <button
+          type="button"
+          className="pipeline-filters-toggle"
+          onClick={() => setFiltersOpen(o => !o)}
+          aria-expanded={filtersOpen}
+        >
+          <span>Filtres</span>
+          {activeFilterCount > 0 && (
+            <span className="pipeline-filters-count">{activeFilterCount}</span>
+          )}
+          <Icon name="chevR" size={13} style={{ transform: filtersOpen ? 'rotate(90deg)' : 'none', transition: 'transform .15s', marginLeft: 'auto' }} />
+        </button>
+      )}
+      {tab === 'ig' && (
+        <div
+          className={`pipeline-filters${filtersOpen ? ' is-open' : ''}`}
+          style={{ display: 'flex', gap: 6, flexShrink: 0, flexWrap: 'wrap' }}
+        >
           {[
             { key: 'no_show', label: 'No-shows', value: filterNoShow, set: setFilterNoShow, color: '#dc2626', bg: '#fef2f2' },
             { key: 'archived', label: 'Archivés', value: filterArchived, set: setFilterArchived, color: '#6b7280', bg: '#f3f4f6' },
@@ -2029,8 +2068,9 @@ export default function PagePipeline() {
             <button
               key={f.key}
               onClick={() => f.set(!f.value)}
+              className="pipeline-filter"
               style={{
-                padding: '4px 10px', fontSize: 11, fontWeight: 600, borderRadius: 6, cursor: 'pointer',
+                fontWeight: 600, borderRadius: 6, cursor: 'pointer',
                 border: `1px solid ${f.value ? f.color : 'var(--border)'}`,
                 background: f.value ? f.bg : 'transparent',
                 color: f.value ? f.color : 'var(--muted)',
@@ -2043,7 +2083,8 @@ export default function PagePipeline() {
           {anyFilter && (
             <button
               onClick={() => { setFilterNoShow(false); setFilterArchived(false); setFilterCanceled(false); setFilterRescheduled(false); setFilterNotQualified(false); setFilterToRecontact(false); }}
-              style={{ padding: '4px 10px', fontSize: 11, fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
+              className="pipeline-filter"
+              style={{ fontWeight: 500, borderRadius: 6, cursor: 'pointer', border: '1px solid var(--border)', background: 'transparent', color: 'var(--muted)' }}
             >
               Effacer filtres
             </button>
