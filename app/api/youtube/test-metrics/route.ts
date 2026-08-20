@@ -13,6 +13,24 @@ function getStartDate(daysAgo: number) {
   return d.toISOString().split('T')[0];
 }
 
+// ── Metriques YouTube indisponibles sur ce compte (verifie le 2026-08-20) ───────
+//
+// Trois requetes de cette route echouent, et c'est NORMAL — aucune n'alimente Mes Stats :
+//
+//   ctr_standard            « Unknown identifier (impressions) » — la metrique
+//                           `impressions` exige le scope yt-analytics-monetary, donc une
+//                           chaine monetisee. Celle-ci ne l'est pas
+//                           (isChannelMonetizationEnabled: false).
+//   ctr_video_method        « query is not supported » — videoThumbnailImpressionsClickRate
+//                           n'est pas disponible sur les rapports de cette chaine.
+//   relative_retention_...  « query is not supported » AVEC dimensions=video, mais
+//                           FONCTIONNE avec dimensions=elapsedVideoTimeRatio (100 points
+//                           reels renvoyes) — la retention se lit a l'interieur d'une
+//                           video, pas jour par jour.
+//
+// Le CTR affiche dans Mes Stats ne vient pas de la : il passe par l'API Reporting
+// (rapport channel_reach_basic_a1, table youtube_video_ctr), qui fonctionne sans
+// monetisation. Ces trois requetes restent ici comme trace de ce qui a ete teste.
 export async function GET(request: Request) {
   const supabase = await createServerClient();
   const { data: { user } } = await supabase.auth.getUser();
