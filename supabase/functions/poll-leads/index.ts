@@ -439,7 +439,15 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   }
   return rows.map((r: any) => ({
     date: r[0], yt_views: r[1] ?? null,
-    yt_watch_time_min: Math.round((r[2] ?? 0) / 60) ?? null,
+    // `estimatedMinutesWatched` est DÉJÀ en minutes (le nom de la métrique le dit).
+    // Le /60 qui était ici la traitait comme des secondes : tout jour sous 30 minutes
+    // de visionnage était arrondi à 0. Sur le profil de test, 45 jours avec des vues
+    // affichaient 0 min pour ~82 min réelles. Corrigé le 2026-08-20 ; deux autres
+    // chemins traitaient déjà cette valeur sans diviser (poll-leads:1045 par vidéo,
+    // app/api/youtube/stats:177).
+    // Pas d'arrondi : la colonne est numeric(12,2). Arrondir à l'entier reperdrait
+    // toute journée sous 1 minute — le défaut même qu'on corrige.
+    yt_watch_time_min: r[2] ?? null,
     yt_subscribers: subscribers, yt_subs_gained: r[3] ?? null, yt_subs_lost: r[4] ?? null,
     yt_net_subs: ((r[3] ?? 0) - (r[4] ?? 0)) ?? null, yt_likes: r[5] ?? null,
     yt_comments: r[6] ?? null, yt_shares: r[7] ?? null, yt_avg_view_duration_sec: r[8] ?? null,

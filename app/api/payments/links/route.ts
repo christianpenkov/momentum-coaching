@@ -56,8 +56,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nombre d\'échéances invalide' }, { status: 400 });
   }
 
-  const access = await getStripeAccess(profileId);
-  if (!access) {
+  // `skipLink` : enregistrer le deal SANS créer de lien Stripe — encaissement
+  // par virement, espèces, ou argent déjà reçu. Le deal doit exister quand
+  // même : sans lui il manquerait au cash et à l'attribution par contenu,
+  // alors que la vente a bien eu lieu.
+  const skipLink = body.skipLink === true;
+
+  const access = skipLink ? null : await getStripeAccess(profileId);
+  if (!skipLink && !access) {
     return NextResponse.json(
       { error: 'Stripe non connecté', code: 'stripe_disconnected' },
       { status: 409 },
@@ -138,6 +144,15 @@ export async function POST(request: NextRequest) {
 
   if (dealErr) return NextResponse.json({ error: dealErr.message }, { status: 500 });
 
+  // Deal enregistré, rien à générer côté Stripe : il apparaîtra dans Paiements
+  // avec « aucun lien de paiement », et l'élève pourra en créer un plus tard.
+  if (skipLink || !access) {
+    return NextResponse.json({ dealId: deal.id, mode: 'no_link', url: null });
+  }
+
+  // Au-delà d'ici `access` est garanti non-null par le retour ci-dessus ; la
+  // constante le rend explicite pour le typage des appels Stripe.
+  const stripeAccess = access;
   const productName = `Accompagnement — ${buyerName}`;
 
   try {
@@ -173,7 +188,7 @@ export async function POST(request: NextRequest) {
           installmentId: inst.id,
           contentId: firstTouch,
           prospectHandle: body.prospectHandle ?? null,
-        }, access);
+        }, stripeAccess);
 
         await supa.from('deal_installments').update({
           stripe_payment_link_id: link.paymentLinkId,
@@ -210,7 +225,7 @@ export async function POST(request: NextRequest) {
       installments: plan === 'installments_auto' && count
         ? { count, interval }
         : null,
-    }, access);
+    }, stripeAccess);
 
     await supa.from('deals').update({
       stripe_payment_link_id: link.paymentLinkId,

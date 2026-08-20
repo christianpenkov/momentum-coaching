@@ -284,7 +284,8 @@ export async function GET(request: Request) {
     for (const row of analyticsVideosData?.rows || []) {
       analyticsByVideo[row[0]] = {
         views30d: row[1] || 0,
-        watchTime30d: Math.round((row[2] || 0) / 60),
+        // Déjà en minutes — même correction que poll-leads/index.ts et yt-fetch.ts.
+        watchTime30d: Math.round(row[2] || 0),
         avgViewPct: parseFloat(((row[3] || 0)).toFixed(1)),
         likes30d: row[4] || 0,
         comments30d: row[5] || 0,

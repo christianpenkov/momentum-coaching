@@ -29,6 +29,9 @@ type RapportStep =
   | 'qualified'
   | 'closed'
   | 'revenue'
+  // Plan de paiement + génération du lien Stripe, juste après le montant : c'est
+  // le moment où l'élève a le prospect au téléphone et peut lui envoyer le lien.
+  | 'payment'
   | 'celebration'
   // Appel reporté
   | 'rescheduled_check'       // vérification en cours (refresh Calendly)
@@ -107,6 +110,14 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
   const [error, setError] = useState<string | null>(null);
   const [confirmClose, setConfirmClose] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Plan de paiement — le défaut « comptant » couvre la majorité des ventes ;
+  // le prélèvement automatique est le défaut dès qu'on passe en plusieurs fois
+  // (c'est le seul mode où l'élève n'a rien à relancer).
+  const [plan, setPlan] = useState<1 | 2 | 3 | 4>(1);
+  const [autoDebit, setAutoDebit] = useState(true);
+  const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
+  const [linkCopied, setLinkCopied] = useState(false);
 
   // Commentaire facultatif — étape intermédiaire commune avant la fermeture définitive
   // (pas closé, closé, 2ème call). afterComment indique où aller une fois cette étape
@@ -362,10 +373,58 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     setError(null);
     try {
       await patchRapport({ no_show: false, deal_closed: true, revenue: amount, outcome: 'closed' });
-      setAfterComment('celebration');
-      setStep('comment');
+      // En correction, le deal existe déjà : le recréer ferait un doublon.
+      if (isCorrection) {
+        setAfterComment('celebration');
+        setStep('comment');
+      } else {
+        setStep('payment');
+      }
     } catch (e: any) {
       setError(e.message || 'Erreur lors de l\'enregistrement');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /**
+   * Crée le deal, avec ou sans lien Stripe.
+   *
+   * Le deal est enregistré dans les DEUX cas : c'est lui qui porte le cash et
+   * l'attribution au contenu. Un encaissement hors Momentum (virement, espèces,
+   * argent déjà reçu) reste une vente, elle doit compter.
+   */
+  async function createDeal(skipLink: boolean) {
+    const amount = parseFloat(revenue.replace(',', '.')) || 0;
+    setSaving(true);
+    setError(null);
+    try {
+      const r = await fetch('/api/payments/links', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          buyerName: inviteeName || 'Client',
+          amount,
+          callId,
+          skipLink,
+          paymentPlan: skipLink || plan === 1
+            ? 'one_shot'
+            : (autoDebit ? 'installments_auto' : 'installments_manual'),
+          installmentsCount: plan === 1 ? null : plan,
+          installmentInterval: 'month',
+        }),
+      });
+      const d = await r.json();
+      if (!r.ok) throw new Error(d.error || 'Création impossible');
+
+      if (skipLink || !d.url) {
+        setAfterComment('celebration');
+        setStep('comment');
+      } else {
+        setPaymentUrl(d.url);
+      }
+    } catch (e: any) {
+      setError(e.message || 'Erreur lors de la création du lien');
     } finally {
       setSaving(false);
     }
@@ -436,7 +495,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           onClose={onClose}
           onOverlayClick={requestClose}
           variant="sheet"
-          fullScreen={step === 'revenue' || step === 'comment'}
+          fullScreen={step === 'revenue' || step === 'payment' || step === 'comment'}
           width={520}
         >
         <div style={{ padding: '48px 24px 32px', overflowY: 'auto' }}>
@@ -680,6 +739,97 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={handleRevenue}>
                 {saving ? 'Enregistrement…' : 'Enregistrer'}
               </button>
+            </div>
+          )}
+
+          {/* ── Plan de paiement + lien Stripe ──────────────────────────────── */}
+          {step === 'payment' && (
+            <div>
+              {paymentUrl ? (
+                <>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Lien prêt à envoyer</div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
+                    Copie-le et envoie-le à {inviteeName || 'ton client'} depuis ton canal habituel.
+                  </div>
+                  <div style={{ padding: '12px 14px', background: 'var(--surface-2)', borderRadius: 10, fontSize: 12, wordBreak: 'break-all', marginBottom: 14, fontFamily: 'monospace' }}>
+                    {paymentUrl}
+                  </div>
+                  <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginBottom: 10 }}
+                    onClick={async () => {
+                      await navigator.clipboard.writeText(paymentUrl);
+                      setLinkCopied(true);
+                      setTimeout(() => setLinkCopied(false), 2000);
+                    }}>
+                    {linkCopied ? 'Copié ✓' : 'Copier le lien'}
+                  </button>
+                  <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, border: '1px solid var(--border)' }}
+                    onClick={() => { setAfterComment('celebration'); setStep('comment'); }}>
+                    Continuer
+                  </button>
+                </>
+              ) : (
+                <>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>En combien de fois ?</div>
+                  <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
+                    Momentum génère le lien de paiement Stripe.
+                  </div>
+
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
+                    {([[1, 'Comptant'], [2, '2×'], [3, '3×'], [4, '4×']] as const).map(([n, label]) => (
+                      <button key={n} type="button" onClick={() => setPlan(n)}
+                        style={{
+                          border: `1px solid ${plan === n ? 'var(--accent)' : 'var(--border)'}`,
+                          background: plan === n ? 'var(--accent)' : 'var(--surface)',
+                          color: plan === n ? '#fff' : 'var(--ink-2)',
+                          fontWeight: plan === n ? 600 : 400,
+                          borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                        }}>{label}</button>
+                    ))}
+                  </div>
+
+                  {plan > 1 && (
+                    <>
+                      <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
+                        <button type="button" onClick={() => setAutoDebit(true)}
+                          style={{
+                            border: `1px solid ${autoDebit ? 'var(--accent)' : 'var(--border)'}`,
+                            background: autoDebit ? 'var(--accent)' : 'var(--surface)',
+                            color: autoDebit ? '#fff' : 'var(--ink-2)',
+                            fontWeight: autoDebit ? 600 : 400,
+                            borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                          }}>Prélèvement auto</button>
+                        <button type="button" onClick={() => setAutoDebit(false)}
+                          style={{
+                            border: `1px solid ${!autoDebit ? 'var(--accent)' : 'var(--border)'}`,
+                            background: !autoDebit ? 'var(--accent)' : 'var(--surface)',
+                            color: !autoDebit ? '#fff' : 'var(--ink-2)',
+                            fontWeight: !autoDebit ? 600 : 400,
+                            borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
+                          }}>Un lien par échéance</button>
+                      </div>
+                      {/* C'est ici que se joue le compromis : ce que l'élève aura
+                          à faire ensuite, mois après mois. */}
+                      <div style={{ padding: '12px 14px', background: 'var(--surface-2)', borderRadius: 10, fontSize: 12.5, color: 'var(--ink-2)', lineHeight: 1.55, marginBottom: 18 }}>
+                        {plan} × {Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100} € par mois.{' '}
+                        {autoDebit
+                          ? 'Le client saisit sa carte une fois, Stripe prélève ensuite tout seul.'
+                          : `Tu enverras ${plan} liens, un par échéance. Momentum te rappellera lesquels.`}
+                      </div>
+                    </>
+                  )}
+
+                  <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, marginBottom: 10 }}
+                    disabled={saving} onClick={() => createDeal(false)}>
+                    {saving ? 'Création…' : 'Générer le lien de paiement'}
+                  </button>
+                  {/* Le deal est enregistré dans les deux cas — c'est lui qui
+                      porte le cash et l'attribution, pas le lien Stripe. */}
+                  <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, border: '1px solid var(--border)' }}
+                    disabled={saving} onClick={() => createDeal(true)}>
+                    Déjà encaissé, pas besoin de lien
+                  </button>
+                </>
+              )}
             </div>
           )}
 

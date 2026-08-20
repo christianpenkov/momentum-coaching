@@ -94,7 +94,9 @@ export async function fetchYtDayMetrics(
   // colonnes : day(0), views(1), estMinutesWatched(2), subsGained(3), subsLost(4), likes(5), comments(6), shares(7), avgViewDuration(8)
   return rows.map((r: any) => {
     const views = r[1] || 0;
-    const watchMin = Math.round((r[2] || 0) / 60);
+    // Déjà en minutes — voir commentaire équivalent dans poll-leads/index.ts.
+    // Pas d'arrondi : colonne numeric(12,2), voir poll-leads/index.ts.
+    const watchMin = r[2] || 0;
     const subsGained = r[3] || 0;
     const subsLost = r[4] || 0;
     const avgDur = r[8] || 0;
