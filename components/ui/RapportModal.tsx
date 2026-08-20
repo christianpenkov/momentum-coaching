@@ -508,7 +508,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
             <div>
               <div className="eyebrow-lg" style={{ color: 'var(--muted)', marginBottom: 4 }}>
-                {isCorrection ? 'Corriger le rapport' : 'Rapport de call'}
+                {/* « de vente » explicite : « Rapport de call » ne disait pas de quel
+                    type de call il s'agissait, face au « Rapport de session » du
+                    coaching. Le libellé de correction reste court — il est déjà clair,
+                    et l'allonger n'apporterait rien. */}
+                {isCorrection ? 'Corriger le rapport' : 'Rapport de call de vente'}
               </div>
               <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--accent)' }}>
                 {inviteeName ? `Appel avec ${inviteeName}` : 'Appel découverte'}

@@ -114,9 +114,23 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
             <Icon name="phone-call" size={20} />
             <div style={{ minWidth: 0 }}>
-              <div style={{ fontWeight: 700, fontSize: 18, color: 'var(--accent)' }}>
-                {isEdit ? 'Modifier le rapport' : 'Rapport de session'}{studentName ? ` — ${studentName}` : ''}
+              {/* Titre et nom sur DEUX lignes, comme RapportModal.tsx:510-515.
+                  Sur une seule ligne, « Modifier le rapport — Christian Penkov »
+                  occupait déjà 2 lignes à 375 px (mesuré : 216 px de large pour
+                  52 px de haut) ; « Rapport de session de coaching — … » serait
+                  passé à trois. Le nom porte une ellipsis : un nom composé long
+                  ne peut plus repousser le sujet du call hors de vue.
+                  `text-wrap: balance` équilibre la coupure quand le titre tient
+                  quand même sur deux lignes — sans lui elle tombait après « de »,
+                  laissant « coaching » seul sur la seconde. */}
+              <div style={{ fontWeight: 700, fontSize: 16, color: 'var(--accent)', textWrap: 'balance' }}>
+                {isEdit ? 'Modifier le rapport' : 'Rapport de session de coaching'}
               </div>
+              {studentName && (
+                <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {studentName}
+                </div>
+              )}
               {callTopic && (
                 <div style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>{callTopic}</div>
               )}
