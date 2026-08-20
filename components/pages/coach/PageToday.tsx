@@ -9,7 +9,7 @@ import Icon from '@/components/ui/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import CallStack from '@/components/ui/CallStack';
-import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import RapportModal from '@/components/ui/RapportModal';
 import PendingRapportCard from '@/components/ui/PendingRapportCard';
 import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';

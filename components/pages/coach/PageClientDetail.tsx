@@ -12,7 +12,7 @@ import Ring from '@/components/ui/Ring';
 import Sparkbars from '@/components/ui/Sparkbars';
 import Icon, { type IconName } from '@/components/ui/Icon';
 import TaskModal from '@/components/ui/TaskModal';
-import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import CallInfosModal from '@/components/ui/CallInfosModal';
 import ModalShell from '@/components/ui/ModalShell';
 import { useUser } from '@/lib/UserContext';

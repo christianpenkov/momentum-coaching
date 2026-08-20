@@ -411,10 +411,13 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           buyerName: inviteeName || 'Client',
           amount,
           callId,
-          skipLink,
-          paymentPlan: skipLink || plan === 1
+          // `offline` : hors Stripe. Le plan reste transmis tel quel — un
+          // encaissement en 3 virements est bien un échéancier, il a juste
+          // besoin d'être coché à la main plutôt que payé par lien.
+          offline: skipLink,
+          paymentPlan: plan === 1
             ? 'one_shot'
-            : (autoDebit ? 'installments_auto' : 'installments_manual'),
+            : (skipLink || !autoDebit) ? 'installments_manual' : 'installments_auto',
           installmentsCount: plan === 1 ? null : plan,
           installmentInterval: 'month',
         }),
@@ -840,11 +843,20 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                     {saving ? 'Création…' : 'Générer le lien de paiement'}
                   </button>
                   {/* Le deal est enregistré dans les deux cas — c'est lui qui
-                      porte le cash et l'attribution, pas le lien Stripe. */}
+                      porte le cash et l'attribution, pas le lien Stripe.
+                      Le libellé dit ce qui va se passer : comptant, l'argent
+                      est déjà là ; en plusieurs fois, Momentum crée
+                      l'échéancier et rappellera chaque versement. */}
                   <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, border: '1px solid var(--border)' }}
                     disabled={saving} onClick={() => createDeal(true)}>
-                    Déjà encaissé, pas besoin de lien
+                    {plan === 1 ? 'Déjà encaissé (virement, espèces)' : 'Encaissé hors Stripe'}
                   </button>
+                  {plan > 1 && (
+                    <div style={{ fontSize: 11.5, color: 'var(--muted)', marginTop: 8, lineHeight: 1.5, textAlign: 'center' }}>
+                      Momentum créera les {plan} échéances et te rappellera chacune
+                      à sa date dans l&apos;onglet Relances.
+                    </div>
+                  )}
                 </>
               )}
             </div>

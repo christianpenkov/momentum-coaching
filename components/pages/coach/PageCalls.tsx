@@ -6,7 +6,7 @@ import { useEscapeKey } from '@/lib/useEscapeKey';
 import Icon from '@/components/ui/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
-import SessionRapportModal from '@/components/ui/SessionRapportModal';
+import SessionRapportModal from '@/components/ui/SessionRapportModalLoader';
 import RapportModal from '@/components/ui/RapportModal';
 import CreateCallModal from '@/components/ui/CreateCallModal';
 import FathomUnmatchedTab from '@/components/ui/FathomUnmatchedTab';

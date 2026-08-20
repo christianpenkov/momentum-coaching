@@ -56,14 +56,20 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Nombre d\'échéances invalide' }, { status: 400 });
   }
 
-  // `skipLink` : enregistrer le deal SANS créer de lien Stripe — encaissement
-  // par virement, espèces, ou argent déjà reçu. Le deal doit exister quand
-  // même : sans lui il manquerait au cash et à l'attribution par contenu,
-  // alors que la vente a bien eu lieu.
-  const skipLink = body.skipLink === true;
+  // Encaissement HORS Stripe — virement, espèces, tout ce qui ne transite pas
+  // par la plateforme. Personne ne peut alors confirmer le paiement
+  // automatiquement : c'est l'élève qui déclare.
+  //
+  // Comptant  → le paiement est enregistré tout de suite (l'argent est là).
+  // Plusieurs → l'échéancier est créé sans lien Stripe, et chaque échéance
+  //             remonte dans Relances à sa date pour être cochée « reçu ».
+  //
+  // Le deal existe dans tous les cas : sans lui il manquerait au cash et à
+  // l'attribution par contenu, alors que la vente a bien eu lieu.
+  const offline = body.offline === true || body.skipLink === true;
 
-  const access = skipLink ? null : await getStripeAccess(profileId);
-  if (!skipLink && !access) {
+  const access = offline ? null : await getStripeAccess(profileId);
+  if (!offline && !access) {
     return NextResponse.json(
       { error: 'Stripe non connecté', code: 'stripe_disconnected' },
       { status: 409 },
@@ -144,10 +150,50 @@ export async function POST(request: NextRequest) {
 
   if (dealErr) return NextResponse.json({ error: dealErr.message }, { status: 500 });
 
-  // Deal enregistré, rien à générer côté Stripe : il apparaîtra dans Paiements
-  // avec « aucun lien de paiement », et l'élève pourra en créer un plus tard.
-  if (skipLink || !access) {
-    return NextResponse.json({ dealId: deal.id, mode: 'no_link', url: null });
+  // ── Encaissement hors Stripe ───────────────────────────────────────────────
+  if (offline || !access) {
+    // Comptant : l'argent est déjà là, on l'enregistre. `match_method = manual`
+    // distingue pour toujours ce paiement déclaré d'un paiement constaté par
+    // Stripe — la distinction certain/déclaré ne doit jamais se perdre.
+    if (plan === 'one_shot' || !count) {
+      await supa.from('deal_payments').insert({
+        deal_id: deal.id,
+        // Pas d'id Stripe puisqu'il n'y a pas de transaction Stripe ; l'id du
+        // deal garantit l'unicité de la clé (deal_id, stripe_payment_id).
+        stripe_payment_id: `offline_${deal.id}`,
+        amount,
+        currency: 'eur',
+        paid_at: new Date().toISOString(),
+        status: 'succeeded',
+        match_method: 'manual',
+      });
+      await supa.from('deals').update({ status: 'paid' }).eq('id', deal.id);
+      return NextResponse.json({ dealId: deal.id, mode: 'offline_paid', url: null });
+    }
+
+    // Plusieurs fois : Momentum porte l'échéancier, puisque ni Stripe ni
+    // personne d'autre ne le détient. Sans lui, impossible de savoir quelle
+    // échéance reste à encaisser.
+    const per = Math.round((amount / count) * 100) / 100;
+    const first = Math.round((amount - per * (count - 1)) * 100) / 100;
+    const signedAt = new Date();
+    const rows = Array.from({ length: count }, (_, i) => {
+      const rank = i + 1;
+      const due = new Date(signedAt.getTime() + i * INTERVAL_DAYS[interval] * 86400_000);
+      return {
+        deal_id: deal.id,
+        rank,
+        amount: rank === 1 ? first : per,
+        due_on: due.toISOString().slice(0, 10),
+        status: 'pending',
+      };
+    });
+    const { error: instErr } = await supa.from('deal_installments').insert(rows);
+    if (instErr) return NextResponse.json({ error: instErr.message }, { status: 500 });
+
+    return NextResponse.json({
+      dealId: deal.id, mode: 'offline_installments', url: null, installments: count,
+    });
   }
 
   // Au-delà d'ici `access` est garanti non-null par le retour ci-dessus ; la

@@ -86,6 +86,7 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
   // paraît cassé sur une connexion lente.
   const [sent, setSent] = useState(!!item.sentAt);
   const [saving, setSaving] = useState(false);
+  const [marking, setMarking] = useState(false);
 
   async function copy() {
     if (!item.url) return;
@@ -114,6 +115,29 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
     }
   }
 
+  /**
+   * Échéance encaissée hors Stripe : l'élève déclare l'avoir reçue.
+   *
+   * Pas d'optimisme ici, contrairement à la case « Envoyé » : cette action
+   * fait entrer de l'argent dans le cash collecté. Afficher un encaissement
+   * qui n'a pas été écrit serait pire que d'attendre une seconde.
+   */
+  async function markReceived() {
+    if (!item.installmentId || marking) return;
+    setMarking(true);
+    try {
+      const r = await fetch('/api/payments/installments', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ installmentId: item.installmentId, received: true }),
+      });
+      if (!r.ok) throw new Error();
+      onChange?.();
+    } catch {
+      setMarking(false);
+    }
+  }
+
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 14, padding: '14px 18px',
@@ -130,8 +154,10 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
 
       {/* Momentum ne peut pas savoir qu'un lien a été envoyé — l'élève le colle
           dans son DM, hors de la plateforme. Seule sa déclaration fait foi, d'où
-          cette case, réversible parce qu'on se trompe de ligne. */}
-      {item.installmentId && (
+          cette case, réversible parce qu'on se trompe de ligne.
+          Sans lien (encaissement hors Stripe), il n'y a rien à envoyer : la
+          case n'aurait aucun sens, seul « Marquer reçu » s'applique. */}
+      {item.installmentId && item.url && (
         <button onClick={toggleSent} disabled={saving}
           style={{
             display: 'inline-flex', alignItems: 'center', gap: 7, background: 'none', border: 'none',
@@ -157,6 +183,14 @@ function RelanceRow({ item, first, onChange }: { item: Item; first: boolean; onC
           style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
           <Icon name={copied ? 'check' : 'copy'} size={13} color={copied ? 'var(--green)' : 'var(--muted)'} />
           {copied ? 'Copié' : 'Copier le lien'}
+        </button>
+      ) : item.installmentId ? (
+        // Échéance hors Stripe : personne ne peut confirmer le paiement à la
+        // place de l'élève, c'est lui qui déclare l'avoir reçu.
+        <button className="btn-ghost" onClick={markReceived} disabled={marking}
+          style={{ fontSize: 12, flexShrink: 0, border: '1px solid var(--border)', borderRadius: 7, padding: '7px 13px', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Icon name="check" size={13} color="var(--green)" />
+          {marking ? '…' : 'Marquer reçu'}
         </button>
       ) : (
         <span style={{ fontSize: 11.5, color: 'var(--faint)', flexShrink: 0, width: 118, textAlign: 'right' }}>
@@ -210,19 +244,29 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
     const next = detail?.installments.find(i => i.status !== 'paid');
     if (next) {
       const late = next.due_on <= today;
+      // Sans lien Stripe, l'échéance est encaissée hors plateforme : il n'y a
+      // rien à envoyer, seulement un versement à confirmer quand il arrive.
+      const offline = !next.short_url;
+      const rang = `Échéance ${next.rank}/${detail!.installments.length}`;
       const item: Item = {
         deal: d,
-        sub: late
-          ? `Échéance ${next.rank}/${detail!.installments.length} · à envoyer depuis le ${fmtDateLong(next.due_on)}`
-          : `Échéance ${next.rank}/${detail!.installments.length} · à envoyer le ${fmtDateLong(next.due_on)}`,
+        sub: offline
+          ? (late
+              ? `${rang} · attendue depuis le ${fmtDateLong(next.due_on)}`
+              : `${rang} · attendue le ${fmtDateLong(next.due_on)}`)
+          : (late
+              ? `${rang} · à envoyer depuis le ${fmtDateLong(next.due_on)}`
+              : `${rang} · à envoyer le ${fmtDateLong(next.due_on)}`),
         url: next.short_url,
         amount: Number(next.amount),
         installmentId: next.id,
         sentAt: next.sent_at,
       };
       // Une échéance déjà marquée envoyée n'est plus une action à faire : elle
-      // passe en attente de paiement, même si sa date est dépassée.
-      (late && !next.sent_at ? dueNow : waiting).push(item);
+      // passe en attente de paiement, même si sa date est dépassée. En mode
+      // hors Stripe il n'y a pas d'envoi, donc `sent_at` ne s'applique pas :
+      // seule la date compte.
+      ((late && (offline || !next.sent_at)) ? dueNow : waiting).push(item);
       continue;
     }
 
@@ -248,8 +292,19 @@ function buildGroups(deals: DealRow[], details: Record<string, DealDetail>): Gro
       items: failed,
     },
     {
-      key: 'due', title: 'Échéance à envoyer', tone: 'amber',
-      help: 'La date est passée et le lien n\'a pas encore été envoyé.',
+      // Le groupe mélange deux natures d'échéances : celles dont le lien
+      // Stripe reste à envoyer, et celles encaissées hors plateforme dont le
+      // versement est à confirmer. Le titre suit ce qu'il contient vraiment.
+      key: 'due',
+      title: dueNow.every(i => !i.url) && dueNow.length > 0
+        ? 'Échéance à encaisser'
+        : dueNow.some(i => !i.url)
+          ? 'Échéance à traiter'
+          : 'Échéance à envoyer',
+      tone: 'amber',
+      help: dueNow.every(i => !i.url) && dueNow.length > 0
+        ? 'La date est passée. Vérifie que le virement est bien arrivé, puis marque-le comme reçu.'
+        : 'La date est passée et le lien n\'a pas encore été envoyé.',
       items: dueNow,
     },
     {
