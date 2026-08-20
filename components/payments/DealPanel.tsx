@@ -128,9 +128,14 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
                 <Line key={i.id}
                   dot={i.status === 'paid' ? 'green' : i.sent_at ? 'amber' : 'neutral'}
                   title={`Versement ${i.rank} · ${fmtDateLong(i.due_on)}`}
-                  sub={i.status === 'paid' ? 'payé' : i.sent_at ? 'lien envoyé, en attente' : 'à envoyer'}
+                  sub={i.status === 'paid' ? 'payé' : i.sent_at ? 'lien envoyé, en attente' : i.short_url ? 'à envoyer' : 'à encaisser'}
                   amount={fmtEur(Number(i.amount))}
                   dim={i.status !== 'paid'}
+                  // Chaque échéance non payée a son propre lien : un client peut
+                  // payer la 2 avant la 1, ou régler deux versements d'avance.
+                  // N'exposer que la suivante bloquait ces cas — et empêchait
+                  // simplement de tester le rattachement par échéance.
+                  copyUrl={i.status !== 'paid' ? i.short_url ?? undefined : undefined}
                 />
               ))
             : payments.length > 0
@@ -207,10 +212,14 @@ function Total({ label, value, color }: { label: string; value: string; color?: 
   );
 }
 
-function Line({ dot, title, sub, amount, dim }: {
+function Line({ dot, title, sub, amount, dim, copyUrl }: {
   dot: 'green' | 'red' | 'amber' | 'neutral'; title: string; sub: string; amount: string; dim?: boolean;
+  /** Lien de cette ligne — affiche une icône de copie discrète à droite. */
+  copyUrl?: string;
 }) {
   const color = dot === 'green' ? 'var(--green)' : dot === 'red' ? 'var(--red)' : dot === 'amber' ? 'var(--amber)' : '#d8d2c5';
+  const [copied, setCopied] = useState(false);
+
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '7px 0' }}>
       <span style={{ width: 7, height: 7, borderRadius: '50%', background: color, flexShrink: 0 }} />
@@ -219,6 +228,18 @@ function Line({ dot, title, sub, amount, dim }: {
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 1 }}>{sub}</span>
       </span>
       <span className="tabular" style={{ fontSize: 13, fontWeight: 600, color: dim ? 'var(--muted)' : 'var(--ink)' }}>{amount}</span>
+      {copyUrl && (
+        <button
+          onClick={async () => {
+            await navigator.clipboard.writeText(copyUrl);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          }}
+          aria-label="Copier le lien de ce versement"
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, display: 'flex', flexShrink: 0 }}>
+          <Icon name={copied ? 'check' : 'copy'} size={14} color={copied ? 'var(--green)' : 'var(--faint)'} />
+        </button>
+      )}
     </div>
   );
 }

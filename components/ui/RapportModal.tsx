@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import Lottie from 'lottie-react';
 import Icon from '@/components/ui/Icon';
 import ModalShell from '@/components/ui/ModalShell';
+import RapportChoiceStep from '@/components/ui/RapportChoiceStep';
 import celebrationAnimation from '@/public/animations/celebration.json';
 import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
@@ -540,45 +541,40 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
           {/* ── Étape 1 — présent ? ─────────────────────────────────────────── */}
           {step === 'show_up' && (
-            <div>
-              {/* Le nom de la personne plutôt que « Le lead » : on rapporte un appel
-                  avec quelqu'un de précis, pas une entrée de pipeline. Nom complet
-                  tel que Calendly l'a enregistré — le découper au premier mot
-                  supposerait un « prénom nom » que les données ne garantissent pas
-                  (beaucoup de noms en un seul mot). Repli sur « Le lead » quand
-                  invitee_name est absent. */}
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
-                {inviteeName?.trim() ? `${inviteeName.trim()} s'est présenté ?` : "Le lead s'est présenté ?"}
-              </div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Était-il au rendez-vous ?</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleShowUp(true)}>
-                  Oui, il était là
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)' }} disabled={saving} onClick={() => handleShowUp(false)}>
-                  No-show
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: '#d97706', border: '1px solid #fcd34d' }} disabled={saving} onClick={handleRescheduled}>
-                  Appel reporté — nouvelle date à planifier
-                </button>
-              </div>
-            </div>
+            /* Le nom de la personne plutôt que « Le lead » : on rapporte un appel
+               avec quelqu'un de précis, pas une entrée de pipeline. Nom complet tel
+               que Calendly l'a enregistré — le découper au premier mot supposerait
+               un « prénom nom » que les données ne garantissent pas (beaucoup de
+               noms en un seul mot). Repli sur « Le lead » si invitee_name est absent. */
+            <RapportChoiceStep
+              question={inviteeName?.trim() ? `${inviteeName.trim()} s'est présenté ?` : "Le lead s'est présenté ?"}
+              hint="Était-il au rendez-vous ?"
+              disabled={saving}
+              choices={[
+                { value: 'yes', label: 'Oui, il était là', tone: 'primary' },
+                { value: 'no', label: 'No-show', tone: 'borderless' },
+                { value: 'rescheduled', label: 'Appel reporté — nouvelle date à planifier', tone: 'warning' },
+              ]}
+              onChoose={v => {
+                if (v === 'yes') handleShowUp(true);
+                else if (v === 'no') handleShowUp(false);
+                else handleRescheduled();
+              }}
+            />
           )}
 
           {/* ── Étape 1.5 — qualifié ? ──────────────────────────────────────── */}
           {step === 'qualified' && (
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Le prospect était-il qualifié ?</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Correspond-il au profil recherché (besoin, budget, timing) ?</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleQualified(true)}>
-                  Oui, qualifié
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving} onClick={() => handleQualified(false)}>
-                  Non, pas qualifié
-                </button>
-              </div>
-            </div>
+            <RapportChoiceStep
+              question="Le prospect était-il qualifié ?"
+              hint="Correspond-il au profil recherché (besoin, budget, timing) ?"
+              disabled={saving}
+              choices={[
+                { value: 'yes', label: 'Oui, qualifié', tone: 'primary' },
+                { value: 'no', label: 'Non, pas qualifié', tone: 'neutral' },
+              ]}
+              onChoose={v => handleQualified(v === 'yes')}
+            />
           )}
 
           {/* ── Vérification Calendly en cours ──────────────────────────────── */}
@@ -609,24 +605,20 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
           {/* ── Appel reporté : comment va-t-il reréserver ? ────────────────── */}
           {step === 'rescheduled_how' && (
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Comment va-t-il reréserver ?</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Aucun nouveau créneau n'a été détecté sur Calendly.</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={() => confirmRescheduled()}>
-                  Via Calendly — il va reréserver lui-même
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={() => setStep('rescheduled_manual_date')}>
-                  Manuellement — je vais saisir la date
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--muted)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={() => confirmRescheduled()}>
-                  Date pas encore connue
-                </button>
-              </div>
-            </div>
+            <RapportChoiceStep
+              question="Comment va-t-il reréserver ?"
+              hint="Aucun nouveau créneau n'a été détecté sur Calendly."
+              disabled={saving}
+              choices={[
+                { value: 'calendly', label: 'Via Calendly — il va reréserver lui-même' },
+                { value: 'manual', label: 'Manuellement — je vais saisir la date' },
+                { value: 'unknown', label: 'Date pas encore connue', tone: 'muted' },
+              ]}
+              onChoose={v => {
+                if (v === 'manual') setStep('rescheduled_manual_date');
+                else confirmRescheduled();
+              }}
+            />
           )}
 
           {/* ── Appel reporté : saisie manuelle ─────────────────────────────── */}
@@ -656,23 +648,21 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
           {/* ── Étape 2 — outcome ───────────────────────────────────────────── */}
           {step === 'closed' && (
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Résultat du call ?</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Qu'est-ce qui s'est passé ?</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => setStep('revenue')}>
-                  Oui, lead closé !
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={handleSecondCall}>
-                  {isFollowUp ? 'Prochain call prévu' : '2ème call prévu'}
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={handleToRecontact}>
-                  Pas closé — à recontacter
-                </button>
-              </div>
-            </div>
+            <RapportChoiceStep
+              question="Résultat du call ?"
+              hint="Qu'est-ce qui s'est passé ?"
+              disabled={saving}
+              choices={[
+                { value: 'closed', label: 'Oui, lead closé !', tone: 'primary' },
+                { value: 'second_call', label: isFollowUp ? 'Prochain call prévu' : '2ème call prévu' },
+                { value: 'to_recontact', label: 'Pas closé — à recontacter' },
+              ]}
+              onChoose={v => {
+                if (v === 'closed') setStep('revenue');
+                else if (v === 'second_call') handleSecondCall();
+                else handleToRecontact();
+              }}
+            />
           )}
 
           {/* ── Prochain call : trouvé auto ─────────────────────────────────── */}
@@ -697,24 +687,20 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
 
           {/* ── Prochain call : comment va-t-il reréserver ? ────────────────── */}
           {step === 'second_call_how' && (
-            <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Comment va-t-il reréserver ?</div>
-              <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Aucun prochain call n'a été détecté sur Calendly.</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={confirmSecondCallViaCalendly}>
-                  Via Calendly — il va reréserver lui-même
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--accent)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={() => setStep('second_call_manual_date')}>
-                  Manuellement — je connais la date
-                </button>
-                <button className="btn-ghost" type="button" style={{ width: '100%', padding: '14px', fontSize: 14, color: 'var(--muted)', border: '1px solid var(--border)' }} disabled={saving}
-                  onClick={confirmSecondCallViaCalendly}>
-                  Date pas encore connue
-                </button>
-              </div>
-            </div>
+            <RapportChoiceStep
+              question="Comment va-t-il reréserver ?"
+              hint="Aucun prochain call n'a été détecté sur Calendly."
+              disabled={saving}
+              choices={[
+                { value: 'calendly', label: 'Via Calendly — il va reréserver lui-même' },
+                { value: 'manual', label: 'Manuellement — je connais la date' },
+                { value: 'unknown', label: 'Date pas encore connue', tone: 'muted' },
+              ]}
+              onChoose={v => {
+                if (v === 'manual') setStep('second_call_manual_date');
+                else confirmSecondCallViaCalendly();
+              }}
+            />
           )}
 
           {/* ── Prochain call : saisie manuelle ─────────────────────────────── */}
