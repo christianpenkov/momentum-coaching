@@ -264,6 +264,9 @@ export default function PageToday() {
           const client = call ? clients.find(c => c.id === call.client_id) : null;
           return {
             id: notif.id,
+            // `notif.id` vaut `session_rapport_<uuid>` : c'est le callId, distinct,
+            // qui permet de retrouver le brouillon.
+            callId: notif.callId ?? '',
             title: isSession
               ? (client?.name ? `Session avec ${client.name}` : 'Session de coaching')
               : (notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte'),

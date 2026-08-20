@@ -12,6 +12,11 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "jsx": "react-jsx",
+    // Les fichiers *.test.ts sont exécutés par `node --test`, qui exige
+    // l'extension dans le chemin d'import. Sans cette option, TypeScript la
+    // refuse et le typecheck échoue sur des tests par ailleurs valides.
+    // Sans effet sur le build : Next ne compile pas ces fichiers.
+    "allowImportingTsExtensions": true,
     "incremental": true,
     "plugins": [
       {

@@ -676,6 +676,9 @@ export default function PageClientCalls() {
         marginBottom={24}
         items={pendingRapports.map(call => ({
           id: call.id,
+          // Ici l'item EST un call : les deux coïncident, contrairement aux accueils
+          // qui partent de notifications.
+          callId: call.id,
           title: call.invitee_name ? `Appel avec ${call.invitee_name}` : call.topic || 'Appel découverte',
           scheduledAt: call.scheduled_at,
           duration: call.duration,

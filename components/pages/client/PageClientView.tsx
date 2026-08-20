@@ -285,6 +285,9 @@ export default function PageClientView() {
       <PendingRapportCard
         items={rapportNotifs.map(notif => ({
           id: notif.id,
+          // `notif.id` vaut `rapport_<uuid>` : le callId est distinct, et c'est lui
+          // qui permet de retrouver le brouillon.
+          callId: notif.callId ?? '',
           title: notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte',
           scheduledAt: notif.scheduledAt,
           duration: notif.duration,

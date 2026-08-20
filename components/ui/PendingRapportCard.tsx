@@ -3,6 +3,8 @@
 import { useState } from 'react';
 import { useViewerTimeZone } from '@/lib/UserContext';
 import { formatDateIn, formatTimeIn } from '@/lib/timezone';
+import { formatDraftAge } from '@/lib/draftAge';
+import { usePendingDrafts } from '@/lib/usePendingDrafts';
 
 /**
  * Carrousel « N rapports en attente », partagé par les trois écrans qui l'affichent :
@@ -26,8 +28,17 @@ import { formatDateIn, formatTimeIn } from '@/lib/timezone';
  */
 
 export interface PendingRapportItem {
-  /** Clé de rendu et identité de l'élément — l'id du call suffit partout. */
+  /**
+   * Clé de rendu. ATTENTION : côté accueils c'est l'id de la NOTIFICATION
+   * (`session_rapport_<uuid>`), pas celui du call — d'où `callId` séparé.
+   */
   id: string;
+  /**
+   * Identifiant du call, indispensable pour retrouver son brouillon. Le confondre
+   * avec `id` faisait échouer le rapprochement en silence : le listing ne renvoyait
+   * rien et la mention « Commencé » n'apparaissait jamais.
+   */
+  callId: string;
   /** Ligne principale : « Session avec Marie », « Appel avec Julien »… */
   title: string;
   /** Ligne grise sous le titre. Aujourd'hui : le sujet du call, côté coach seulement. */
@@ -36,6 +47,12 @@ export interface PendingRapportItem {
   duration?: string | null;
   /** Absent chez l'élève, qui n'a que des rapports de vente. */
   badge?: { label: string; tone: 'coaching' | 'sales' } | null;
+  /**
+   * Rapport commencé mais pas soumis. Ne change RIEN au fait qu'il soit en
+   * attente : un brouillon ne compte jamais nulle part, il ajoute seulement un
+   * repère de progression et bascule le bouton sur « Reprendre ».
+   */
+  draft?: { stepIndex: number; stepTotal: number; updatedAt: string } | null;
 }
 
 interface Props {
@@ -49,13 +66,23 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
   const [idx, setIdx] = useState(0);
   const viewerTz = useViewerTimeZone();
 
+  // Les brouillons sont chargés ICI et non par les trois appelants : une seule
+  // requête, un seul endroit à maintenir. Les appelants n'ont rien à savoir des
+  // brouillons — ils passent juste leurs items.
+  //
+  // Le hook est appelé avant tout `return` conditionnel : la règle des hooks
+  // interdit d'en sauter un selon la longueur de la liste.
+  const drafts = usePendingDrafts(items.map(i => i.callId));
+
   if (items.length === 0) return null;
 
   // `idx` peut dépasser après qu'un rapport a été rempli (la liste raccourcit sans
   // que l'index bouge). On borne au rendu plutôt que de synchroniser dans un effet :
   // pas de rendu intermédiaire sur une carte vide.
   const safeIdx = Math.min(idx, items.length - 1);
-  const item = items[safeIdx];
+  // Le brouillon vient du listing, jamais de l'appelant : `item.draft` reste
+  // disponible comme échappatoire si un écran devait un jour le fournir lui-même.
+  const item = { ...items[safeIdx], draft: items[safeIdx].draft ?? drafts[items[safeIdx].callId] ?? null };
   const atStart = safeIdx === 0;
   const atEnd = safeIdx === items.length - 1;
   const single = items.length <= 1;
@@ -130,6 +157,30 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
                   {item.duration && <span style={{ marginLeft: 8 }}>· {item.duration}</span>}
                 </div>
               )}
+
+              {/* Progression d'un rapport commencé. L'ancienneté n'apparaît qu'au-delà
+                  du seuil de lib/draftAge.ts : au quotidien on se souvient de sa
+                  saisie, la mention serait du bruit ; passé quelques jours elle
+                  prévient qu'on risque de ne plus reconnaître ses propres réponses.
+                  En retrait (poids et opacité) pour que l'étape reste lue en premier. */}
+              {item.draft && (
+                <div style={{
+                  display: 'inline-flex', alignItems: 'center', gap: 5, marginTop: 6,
+                  fontSize: 10.5, fontWeight: 700, padding: '3px 8px', borderRadius: 20,
+                  background: 'var(--accent-brand-soft)', color: 'var(--accent-brand)',
+                }}>
+                  Commencé · étape {item.draft.stepIndex}/{item.draft.stepTotal}
+                  {(() => {
+                    const age = formatDraftAge(item.draft.updatedAt);
+                    return age ? (
+                      <>
+                        <span style={{ opacity: 0.45, fontWeight: 400 }}>·</span>
+                        <span style={{ fontWeight: 600, opacity: 0.8 }}>{age}</span>
+                      </>
+                    ) : null;
+                  })()}
+                </div>
+              )}
             </div>
 
             <button
@@ -138,7 +189,7 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
               style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
               onClick={() => onOpen(item, safeIdx)}
             >
-              Remplir le rapport
+              {item.draft ? 'Reprendre le rapport' : 'Remplir le rapport'}
             </button>
           </div>
         </div>
