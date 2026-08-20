@@ -217,7 +217,12 @@ export default function PageCalls() {
             <Icon name="alert-triangle" size={13} />Rapport
           </button>
         )}
-        {!coaching && call.coach_id === userId && call.outcome == null && (
+        {/* `!canceled` : un call annulé n'a pas eu lieu, il n'y a rien à rapporter.
+            Le bouton s'affichait pourtant dans l'onglet Annulés, alors que son
+            équivalent coaching juste au-dessus était déjà protégé (la liste
+            pendingSessionRapportIds vient de getPendingSessionRapports, qui filtre
+            sur status === 'active'). */}
+        {!coaching && !canceled && call.coach_id === userId && call.outcome == null && (
           <button type="button" className="btn-ghost call-action-rapport"
             onClick={() => setOpenSalesRapportCall({ callId: call.id, inviteeName: call.invitee_name, scheduledAt: call.scheduled_at, isFollowUp: call.is_follow_up === true })}>
             <Icon name="alert-triangle" size={13} />Rapport

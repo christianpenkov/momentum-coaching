@@ -443,7 +443,13 @@ function PipelineCard({
   const dragStartedRef = useRef(false);
 
   // Bouton "Remplir le rapport d'appel" : visible dès le début du call, caché si rapport déjà rempli
-  // Accepte aussi status=cancelled sans outcome — fenêtre de transition Calendly entre reschedule et nouveau call
+  //
+  // Les calls annulés étaient acceptés, au motif d'une fenêtre de transition Calendly
+  // pendant un report. Or un report ne crée PAS un nouveau call : le webhook
+  // `invitee.rescheduled` déplace le `scheduled_at` du call existant, qui reste
+  // `active` (app/api/webhooks/calendly/route.ts:428-432). Il n'y avait donc pas de
+  // fenêtre à couvrir — juste un bouton affiché sur des calls annulés pour de bon,
+  // qui n'ont pas eu lieu et n'auront jamais lieu.
   const now = Date.now();
   // Le bouton reste affiché APRÈS qu'un rapport a été rempli : il devient « Modifier le
   // rapport ». Avant, la condition `!card.callOutcome` le faisait disparaître dès la
@@ -452,7 +458,7 @@ function PipelineCard({
   // rapportPending). Voir docs/tracking-prospect.md.
   const hasRapport = !!card.callOutcome;
   const showRapport = card.callId && card.callScheduledAt
-    && (card.callStatus === 'active' || ['cancelled', 'canceled'].includes(card.callStatus ?? ''))
+    && card.callStatus === 'active'
     && new Date(card.callScheduledAt).getTime() <= now
     && POST_CALL_STAGES.has(card.stageKey);
 
