@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { useEscapeKey } from '@/lib/useEscapeKey';
+import PipelineFunnelMobile from './PipelineFunnelMobile';
 import Image from 'next/image';
 import { useQuery } from '@tanstack/react-query';
 import InlineLoader from '@/components/ui/InlineLoader';
@@ -1951,14 +1952,17 @@ export default function PagePipeline() {
       onDragEnd={handleDragEnd}
     >
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <div>
+      {/* flexWrap : sur 375px, le titre et le groupe d'actions ne tiennent pas
+          cote a cote — sans repli le titre se coupait en deux lignes et le
+          sous-titre s'etirait en colonne d'un mot. */}
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0, flexWrap: 'wrap', rowGap: 10 }}>
+        <div style={{ minWidth: 0 }}>
           <h1 className="page-title" style={{ marginBottom: 2 }}>Pipeline Leads</h1>
           <p className="page-sub" style={{ fontSize: 12 }}>
             {loading ? 'Chargement…' : `${totalProspects} prospect${totalProspects !== 1 ? 's' : ''}`}
           </p>
           {!loading && (
-            <p className="page-sub" style={{ fontSize: 11, marginTop: 2 }}>
+            <p className="page-sub pipeline-desktop" style={{ fontSize: 11, marginTop: 2 }}>
               Le pipeline se met à jour tout seul · glisse une carte pour la déplacer, le système reprendra sa position dès qu&apos;un nouvel événement sera détecté
             </p>
           )}
@@ -2052,7 +2056,20 @@ export default function PagePipeline() {
           <InlineLoader />
         </div>
       ) : (
-        <div style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16, scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
+        <>
+        {/* Vue mobile : entonnoir en consultation. Le kanban ci-dessous n'est pas
+            utilisable au doigt (le glisser-deposer HTML5 ne se declenche pas au
+            tactile) et ses 8 colonnes demandent de defiler lateralement.
+            Bascule purement CSS a 767px : le desktop reste inchange. */}
+        <div className="pipeline-mobile" style={{ flex: 1, overflowY: 'auto', paddingBottom: 16 }}>
+          <PipelineFunnelMobile
+            cards={cards}
+            stages={stages}
+            onCardClick={cardKey => setDetailModal({ cardKey, platform: tab })}
+          />
+        </div>
+
+        <div className="pipeline-desktop" style={{ flex: 1, overflowX: 'auto', overflowY: 'auto', paddingBottom: 16, scrollbarWidth: 'thin', scrollbarColor: 'var(--border) transparent' }}>
           <div style={{ display: 'flex', gap: 8, alignItems: 'stretch', minWidth: 'max-content', height: '100%' }}>
             {stages.map(stage => {
               const stageCards = cards.filter(c => c.stageIdx === stages.findIndex(s => s.key === stage.key));
@@ -2080,6 +2097,7 @@ export default function PagePipeline() {
             })}
           </div>
         </div>
+        </>
       )}
 
       {/* Empty state — sur l'onglet affiché (son message le nomme : "Aucun lead

@@ -2084,6 +2084,11 @@ a { color: inherit; text-decoration: none; }
    colonnes et 838px de large — sur 375px il faut le faire defiler lateralement
    pour le lire, ce qui n'est pas une lecture mobile acceptable. */
 .clients-cards { display: none; }
+
+/* Pipeline : kanban sur desktop, entonnoir sous 767px. La vue mobile est un
+   ajout, le kanban n'est pas modifie — important tant que la review Meta est en
+   cours, la video ayant ete filmee avec le pipeline desktop actuel. */
+.pipeline-mobile { display: none; }
 .clients-card {
   cursor: pointer;
   padding: 14px 16px;
@@ -2511,6 +2516,10 @@ a { color: inherit; text-decoration: none; }
   /* Page Clients — tableau remplace par des cartes lisibles. */
   .clients-table-wrap { display: none !important; }
   .clients-cards { display: block !important; }
+
+  /* Pipeline — le kanban cede la place a l'entonnoir. */
+  .pipeline-desktop { display: none !important; }
+  .pipeline-mobile { display: block !important; }
 
   /* PageCalls (coach) — la carte de call "à venir" empile jusqu'à 6 éléments
      de largeur fixe sur une seule ligne flex (heure, séparateur, avatar, nom,
