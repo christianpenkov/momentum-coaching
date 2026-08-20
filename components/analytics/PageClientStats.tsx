@@ -87,6 +87,10 @@ interface YTVideo {
   views: number; likes: number; comments: number;
   views30d: number; watchTime30d: number; avgViewPct: number;
   likes30d: number; comments30d: number; shares30d: number; url: string;
+  /** CTR de la miniature, en RATIO (0-1) tel que stocké dans
+   *  analytics_yt_videos_history.ctr — multiplier par 100 pour l'affichage.
+   *  null quand YouTube n'a pas encore produit de rapport pour cette vidéo. */
+  ctr?: number | null;
 }
 interface CallRecord {
   id: string; scheduled_at: string; status: 'active' | 'canceled';
@@ -5109,7 +5113,13 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                       const metrics: [string, any][] = [
                         ['Vues', ytVideo.views], ['Likes', ytVideo.likes], ['Commentaires', ytVideo.comments],
                         ['Partages', ytVideo.shares30d], ['Watch time moy.', (() => { const sec = Math.round(ytVideo.watchTime30d * 60 / (ytVideo.views30d || 1)); return sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`; })()],
-                        ['% vu moy.', `${ytVideo.avgViewPct}%`], ['CTR miniature', '4,2%'],
+                        ['% vu moy.', `${ytVideo.avgViewPct}%`],
+                        // Vrai CTR de cette vidéo, plus une valeur codée en dur : cette
+                        // case affichait '4,2%' pour TOUTES les vidéos, quelle que soit
+                        // leur performance réelle (constaté le 2026-08-20 — les CTR réels
+                        // en base vont de 1,7 % à 3,1 %).
+                        // La colonne est un ratio (0-1), d'où le ×100.
+                        ['CTR miniature', ytVideo.ctr != null ? `${(ytVideo.ctr * 100).toFixed(1).replace('.', ',')}%` : null],
                       ];
                       return metrics.map(([label, val], i) => (
                         <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
