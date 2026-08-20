@@ -40,6 +40,19 @@ export interface FunnelStage {
   readonly lightBg: string;
 }
 
+// Libelles raccourcis pour l'affichage mobile. Les intitules complets
+// ("Lead Commentaire / LM recu", "Lien Calendly clique") ne tiennent pas sur une
+// ligne a 375px et forcaient soit la troncature a mi-mot, soit un passage a deux
+// lignes qui rallongeait tout l'entonnoir. Le sens est conserve, le desktop
+// garde les intitules longs.
+const SHORT_LABELS: Record<string, string> = {
+  lm_sent: 'LM reçu',
+  link_clicked: 'Lien cliqué',
+};
+function shortLabel(key: string, label: string): string {
+  return SHORT_LABELS[key] ?? label;
+}
+
 // Couleur d'avatar stable par personne, dérivée de sa clé — même principe que
 // components/ui/Avatar : la même personne garde sa couleur d'un écran à l'autre.
 const AVATAR_COLORS = ['#7C3AED', '#2563EB', '#059669', '#D97706', '#EA580C', '#DB2777', '#0891B2', '#65A30D'];
@@ -184,26 +197,26 @@ export default function PipelineFunnelMobile({
       }}
     >
       <span style={{ width: 8, height: 8, borderRadius: '50%', background: b.stage.color, flexShrink: 0 }} />
-      {/* Le libellé passe avant la barre : « Lead Commentaire / LM reçu » était
-          tronqué jusqu'à 414px de large. La barre est reléguée sous le libellé
-          quand la place manque plutôt que de le rogner. */}
-      <span style={{ flex: 1, minWidth: 0 }}>
-        <span style={{ display: 'block', fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-          {b.stage.label}
-        </span>
-        <span style={{ display: 'block', width: '100%', maxWidth: 90, height: 5, marginTop: 5, borderRadius: 20, background: 'var(--surface-2)', overflow: 'hidden' }}>
-          <span style={{ display: 'block', height: '100%', borderRadius: 20, background: b.stage.color, width: `${(b.list.length / max) * 100}%` }} />
-        </span>
+      {/* Tout sur une ligne : libellé court, barre, compteur. Empiler la barre
+          sous le texte rallongeait chaque ligne et forçait à faire défiler pour
+          voir la fin du tunnel. */}
+      <span style={{ fontSize: 13.5, fontWeight: 500, flexShrink: 0, whiteSpace: 'nowrap' }}>
+        {shortLabel(b.stage.key, b.stage.label)}
       </span>
-      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+      <span style={{ flex: 1, minWidth: 20, height: 7, borderRadius: 20, background: 'var(--surface-2)', overflow: 'hidden' }}>
+        <span style={{ display: 'block', height: '100%', borderRadius: 20, background: b.stage.color, width: `${(b.list.length / max) * 100}%` }} />
+      </span>
+      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>
         {b.list.length}
       </span>
       <Icon name="chevR" size={14} color="var(--faint)" />
     </button>
   );
 
-  // Les deux issues du call, côte à côte : la personne est venue, ou pas.
-  const OutcomeCard = ({
+  // Les deux issues du call, cote a cote. MEME format que les lignes d'etape
+  // (hauteur, pastille, libelle, compteur) : des cartes plus hautes poussaient
+  // "Close" hors ecran et cassaient le rythme vertical de l'entonnoir.
+  const OutcomeRow = ({
     label, count, color, bg, onOpen,
   }: { label: string; count: number; color: string; bg: string; onOpen?: () => void }) => (
     <button
@@ -211,20 +224,19 @@ export default function PipelineFunnelMobile({
       onClick={onOpen}
       disabled={!onOpen || count === 0}
       style={{
-        flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4,
-        padding: '12px 13px', minHeight: 68, borderRadius: 'var(--r-lg)',
+        flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 8,
+        padding: '13px 12px', minHeight: 48, borderRadius: 'var(--r-lg)',
         background: count > 0 ? bg : 'var(--surface)',
         border: `1px solid ${count > 0 ? color + '4d' : 'var(--border)'}`,
+        boxShadow: 'var(--shadow-card)',
         cursor: count > 0 && onOpen ? 'pointer' : 'default',
         font: 'inherit', textAlign: 'left',
         color: count > 0 ? color : 'var(--muted)',
       }}
     >
-      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ width: 7, height: 7, borderRadius: '50%', background: count > 0 ? color : 'var(--border)', flexShrink: 0 }} />
-        <span style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-      </span>
-      <span style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{count}</span>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: count > 0 ? color : 'var(--border)', flexShrink: 0 }} />
+      <span style={{ fontSize: 13.5, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums', flexShrink: 0 }}>{count}</span>
     </button>
   );
 
@@ -237,7 +249,7 @@ export default function PipelineFunnelMobile({
           se scinde. No-show à gauche (l'échec, sur lequel on agit), Show up à
           droite (la progression, qui continue vers Closé juste en dessous). */}
       <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-        <OutcomeCard
+        <OutcomeRow
           label="No-show"
           count={noShows.length}
           color="#cd5b3f"
@@ -245,7 +257,7 @@ export default function PipelineFunnelMobile({
           onOpen={() => setOpenStage('__noshow')}
         />
         {showUp && (
-          <OutcomeCard
+          <OutcomeRow
             label={showUp.stage.label}
             count={showUp.list.length}
             color={showUp.stage.color}
