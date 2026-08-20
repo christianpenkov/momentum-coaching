@@ -1432,6 +1432,14 @@ a { color: inherit; text-decoration: none; }
   color: var(--muted);
   white-space: nowrap;
 }
+/* Parenthèses en CSS et non dans le JSX : timeZoneCityLabel() reste une ville nue,
+   réutilisable ailleurs (CreateCallModal écrit "Heure de Sofia", qui ne veut pas de
+   parenthèses). Sur mobile elles séparent la ville de la durée qui suit dans la même
+   ligne — "14:30 (Sofia) · 30 min" plutôt que trois mots collés sans hiérarchie. */
+.call-card-tz::before,
+.call-card-tz-rail::before { content: '('; }
+.call-card-tz::after,
+.call-card-tz-rail::after { content: ')'; }
 .call-card-tz { margin-left: 4px; }
 .call-card-tz-rail { margin-top: 1px; text-align: center; }
 .call-card-duration { font-family: var(--font-mono); }
