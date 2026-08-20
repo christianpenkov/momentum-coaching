@@ -122,8 +122,37 @@ export async function GET(request: NextRequest) {
           .eq('profile_id', user.id).eq('ig_account_id', igAccountId);
         return { t, count, error: error?.message };
       }));
+      // Étape 3 : prospect_links suit l'état de SON lead, faute de porter un
+      // ig_account_id comme les 8 tables ci-dessus. Sans cette étape, un prospect
+      // dont le lead vient d'être archivé revenait dans les compteurs et dans le
+      // pipeline par cette table — à une étape erronée de surcroît, le lead qui
+      // portait hook_replied ayant été filtré. Fait après les étapes 1 et 2 pour
+      // lire l'état final des leads, jamais un état intermédiaire.
+      const { data: leadStates } = await serviceSupabase
+        .from('instagram_leads')
+        .select('id, archived_at')
+        .eq('profile_id', user.id);
+
+      const toArchive = (leadStates ?? []).filter(l => l.archived_at).map(l => l.id);
+      const toUnarchive = (leadStates ?? []).filter(l => !l.archived_at).map(l => l.id);
+
+      const linkResults = await Promise.all([
+        toArchive.length
+          ? serviceSupabase.from('prospect_links').update({ archived_at: now }, { count: 'exact' })
+              .eq('profile_id', user.id).is('archived_at', null).in('ig_lead_id', toArchive)
+          : Promise.resolve({ count: 0, error: null }),
+        toUnarchive.length
+          ? serviceSupabase.from('prospect_links').update({ archived_at: null }, { count: 'exact' })
+              .eq('profile_id', user.id).not('archived_at', 'is', null).in('ig_lead_id', toUnarchive)
+          : Promise.resolve({ count: 0, error: null }),
+      ]);
+
       console.log(`[IG callback] archive/désarchive pour profile_id=${user.id} previousAccountId=${previousAccountId} igAccountId=${igAccountId}:`,
-        JSON.stringify({ archived: archiveResults, unarchived: unarchiveResults }));
+        JSON.stringify({
+          archived: archiveResults,
+          unarchived: unarchiveResults,
+          prospectLinks: { archived: linkResults[0].count, unarchived: linkResults[1].count },
+        }));
     } catch (e) {
       console.error('[IG callback] Erreur archivage bascule de compte:', e);
     }

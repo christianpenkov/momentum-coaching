@@ -6041,7 +6041,10 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     fetchAllPages<any>(() =>
       supabase.from('prospect_links')
         .select('id, ig_lead_id, ig_username, short_url, calendly_link_sent, calendly_link_sent_at, first_click_at, created_at, keyword_matched, source_at_creation')
-        .eq('profile_id', targetId).order('created_at', { ascending: false })
+        // archived_at : même filtre que instagram_leads plus haut, sinon la table
+        // Performance LM et l'attribution comptent des prospects d'un ancien compte.
+        .eq('profile_id', targetId).is('archived_at', null)
+        .order('created_at', { ascending: false })
     ),
     // content_links : contient lm_id + lm_keyword (mot-clé custom par contenu, peut différer du keyword principal du LM)
     supabase.from('content_links')

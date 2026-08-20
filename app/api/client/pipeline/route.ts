@@ -51,9 +51,14 @@ export async function GET() {
       .is('archived_at', null)
       .eq('not_a_lead', false)
       .order('detected_at', { ascending: false }),
+    // archived_at : le pipeline unit cette table avec instagram_leads par ig_username.
+    // Sans le filtre, un prospect dont le lead vient d'être archivé (bascule vers un
+    // autre compte Instagram) revenait par ici — et s'affichait à une étape erronée,
+    // le lead qui portait hook_replied ayant été filtré de l'autre source.
     supa.from('prospect_links')
       .select('id, ig_username, short_url, content_id, created_at, calendly_link_sent, calendly_link_sent_at, last_calendly_link_sent_at, first_click_at, min_stage_reached')
       .eq('profile_id', user.id)
+      .is('archived_at', null)
       .order('created_at', { ascending: false }),
     supa.from('prospects')
       .select('id, platform, email, name, source, created_at')

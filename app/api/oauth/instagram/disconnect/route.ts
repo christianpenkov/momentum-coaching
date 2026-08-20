@@ -12,6 +12,10 @@ const IG_TABLES = [
   'analytics_ig_posts_history', 'analytics_ig_stories_history', 'ig_stories',
   'instagram_leads', 'instagram_lead_lm_history', 'content_links',
   'ig_post_meta', 'analytics_daily_snapshots',
+  // prospect_links n'a pas d'ig_account_id, mais à la déconnexion tout est archivé
+  // sans distinction de compte : elle peut donc rejoindre la liste telle quelle.
+  // Le callback, lui, doit la traiter à part (voir l'étape 3 là-bas).
+  'prospect_links',
 ];
 
 export async function POST() {

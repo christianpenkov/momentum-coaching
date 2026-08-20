@@ -128,14 +128,13 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
   // username, après dédup, jamais avant.
   const leadsQuery = supabase.from('instagram_leads').select('ig_username, detected_at')
     .eq('profile_id', profileId).is('archived_at', null).eq('not_a_lead', false);
-  // `ig_lead_id` en plus du pseudo : prospect_links n'a pas de colonne `archived_at`,
-  // donc un prospect dont le lead a été archivé (bascule vers un autre compte Instagram)
-  // resterait compté ici alors que le pipeline ne le montre plus — l'écart de comptage
-  // entre deux écrans, à nouveau. Les liens dont le lead est archivé sont écartés plus
-  // bas, après lecture. Volontairement PAS de filtre sur `deleted_at` : un lien supprimé
-  // depuis Gérer mes liens doit rester dans les stats, sinon le prospect sort du
-  // dénominateur du taux d'activation (voir app/api/client/prospect-links/route.ts:127).
-  const linksQuery = supabase.from('prospect_links').select('ig_username, created_at, ig_lead_id').eq('profile_id', profileId);
+  // `archived_at` : sans lui, un prospect dont le lead a été archivé (bascule vers un
+  // autre compte Instagram) resterait compté ici alors que le pipeline ne le montre
+  // plus. Volontairement PAS de filtre sur `deleted_at` : un lien supprimé depuis
+  // Gérer mes liens doit rester dans les stats, sinon le prospect sort du dénominateur
+  // du taux d'activation (voir app/api/client/prospect-links/route.ts:127).
+  const linksQuery = supabase.from('prospect_links').select('ig_username, created_at')
+    .eq('profile_id', profileId).is('archived_at', null);
 
   // .neq('ignored', true) est indispensable ici — sans lui, ce compteur inclut
   // aussi les calls que le coach a "supprimés" depuis le pipeline. Même filtre
@@ -157,30 +156,9 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
     .like('source', 'ig\\_%');
   if (since) directCallsQuery = directCallsQuery.or(`booked_at.gte.${since},and(booked_at.is.null,scheduled_at.gte.${since})`);
 
-  // Les leads archivés sont lus séparément (ids seulement) pour écarter les liens
-  // prospects qui pointent dessus : sans ça, un prospect d'un ancien compte Instagram
-  // reviendrait par la porte de derrière via prospect_links.
-  const archivedLeadsQuery = supabase.from('instagram_leads').select('id, ig_username')
-    .eq('profile_id', profileId).not('archived_at', 'is', null);
-
-  const [leadsRes, linksRes, directCallsRes, archivedRes] = await Promise.all([
-    leadsQuery, linksQuery, directCallsQuery, archivedLeadsQuery,
+  const [leadsRes, linksRes, directCallsRes] = await Promise.all([
+    leadsQuery, linksQuery, directCallsQuery,
   ]);
-
-  const archivedLeadIds = new Set(
-    ((archivedRes.data ?? []) as { id: string }[]).map(r => r.id)
-  );
-  // Repli par pseudo : les liens créés avant que ig_lead_id soit renseigné n'ont pas
-  // d'id à comparer. Un pseudo qui n'existe QUE comme lead archivé est écarté aussi.
-  const activeUsernames = new Set(
-    ((leadsRes.data ?? []) as { ig_username: string | null }[])
-      .map(r => r.ig_username?.toLowerCase()).filter(Boolean) as string[]
-  );
-  const archivedUsernames = new Set(
-    ((archivedRes.data ?? []) as { ig_username: string | null }[])
-      .map(r => r.ig_username?.toLowerCase())
-      .filter(u => !!u && !activeUsernames.has(u)) as string[]
-  );
 
   // Date la plus ancienne connue par username, toutes sources confondues.
   const earliestByUsername = new Map<string, string>();
@@ -190,11 +168,9 @@ export async function fetchIgLeadsCount(supabase: SupabaseClient, profileId: str
     const prev = earliestByUsername.get(key);
     if (!prev || r.detected_at < prev) earliestByUsername.set(key, r.detected_at);
   }
-  for (const r of (linksRes.data ?? []) as { ig_username: string | null; created_at: string | null; ig_lead_id: string | null }[]) {
+  for (const r of (linksRes.data ?? []) as { ig_username: string | null; created_at: string | null }[]) {
     if (!r.ig_username || !r.created_at) continue;
-    if (r.ig_lead_id && archivedLeadIds.has(r.ig_lead_id)) continue;
     const key = r.ig_username.toLowerCase();
-    if (!r.ig_lead_id && archivedUsernames.has(key)) continue;
     const prev = earliestByUsername.get(key);
     if (!prev || r.created_at < prev) earliestByUsername.set(key, r.created_at);
   }
