@@ -794,12 +794,17 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                     Momentum génère le lien de paiement Stripe.
                   </div>
 
+                  {/* Sélection en --accent-brand (le bleu de la marque) et non en
+                      --accent (le noir d'encre) : un choix retenu se lit comme une
+                      action de l'utilisateur, pas comme du texte. C'est aussi la
+                      couleur du bouton principal juste en dessous, donc le même
+                      langage visuel sur tout l'écran. */}
                   <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
                     {([[1, 'Comptant'], [2, '2×'], [3, '3×'], [4, '4×']] as const).map(([n, label]) => (
                       <button key={n} type="button" onClick={() => setPlan(n)}
                         style={{
-                          border: `1px solid ${plan === n ? 'var(--accent)' : 'var(--border)'}`,
-                          background: plan === n ? 'var(--accent)' : 'var(--surface)',
+                          border: `1px solid ${plan === n ? 'var(--accent-brand)' : 'var(--border)'}`,
+                          background: plan === n ? 'var(--accent-brand)' : 'var(--surface)',
                           color: plan === n ? '#fff' : 'var(--ink-2)',
                           fontWeight: plan === n ? 600 : 400,
                           borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
@@ -812,16 +817,16 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
                       <div style={{ display: 'flex', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
                         <button type="button" onClick={() => setAutoDebit(true)}
                           style={{
-                            border: `1px solid ${autoDebit ? 'var(--accent)' : 'var(--border)'}`,
-                            background: autoDebit ? 'var(--accent)' : 'var(--surface)',
+                            border: `1px solid ${autoDebit ? 'var(--accent-brand)' : 'var(--border)'}`,
+                            background: autoDebit ? 'var(--accent-brand)' : 'var(--surface)',
                             color: autoDebit ? '#fff' : 'var(--ink-2)',
                             fontWeight: autoDebit ? 600 : 400,
                             borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
                           }}>Prélèvement auto</button>
                         <button type="button" onClick={() => setAutoDebit(false)}
                           style={{
-                            border: `1px solid ${!autoDebit ? 'var(--accent)' : 'var(--border)'}`,
-                            background: !autoDebit ? 'var(--accent)' : 'var(--surface)',
+                            border: `1px solid ${!autoDebit ? 'var(--accent-brand)' : 'var(--border)'}`,
+                            background: !autoDebit ? 'var(--accent-brand)' : 'var(--surface)',
                             color: !autoDebit ? '#fff' : 'var(--ink-2)',
                             fontWeight: !autoDebit ? 600 : 400,
                             borderRadius: 999, padding: '9px 17px', fontSize: 13, cursor: 'pointer', fontFamily: 'inherit',
