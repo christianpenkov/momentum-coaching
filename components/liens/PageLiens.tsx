@@ -751,6 +751,225 @@ function ChatBubble({ tag, tagLabel, children }: { tag: string; tagLabel: string
 }
 
 // DM1 = accroche seule, pas de lien dedans — simple textarea sans token
+// ─── Aperçu du fil Instagram ──────────────────────────────────────────────────
+//
+// Cotes relevées sur la capture réelle fournie par le client (référentiel 390pt).
+// Ce sont les couleurs de la MARQUE Instagram, pas celles de Momentum : elles
+// restent en dur, les tokens du design system n'ont rien à y faire.
+const IG = {
+  bulle: '#F0F0F2',      // bulle reçue, gris très légèrement bleuté
+  gris: '#8E8E93',       // pseudo, horodatage, « appuyez deux fois »
+  violet1: '#C427E8',    // dégradé sortant, extrémité magenta
+  violet2: '#7A3FE4',    // dégradé sortant, extrémité violet-bleuté
+  appareil: '#5A4BE8',   // rond du bouton appareil photo, barre de saisie
+} as const;
+
+/** Avatar avec l'anneau story — dégradé jaune → rose → violet. */
+function IgAvatar({ url, taille }: { url: string | null; taille: number }) {
+  return (
+    <span style={{
+      width: taille, height: taille, borderRadius: '50%', flexShrink: 0, boxSizing: 'border-box',
+      background: 'conic-gradient(from 200deg,#F9CE34,#EE2A7B,#6228D7,#F9CE34)', padding: 2,
+    }}>
+      <span style={{
+        display: 'block', width: '100%', height: '100%', borderRadius: '50%', overflow: 'hidden',
+        background: '#d8cfc4', border: '1.5px solid #fff', boxSizing: 'border-box',
+      }}>
+        {url && <img src={url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Une bulle reçue (message du coach).
+ *
+ * L'avatar n'apparaît que sur la DERNIÈRE bulle d'un groupe, aligné sur le bas —
+ * c'est ce que fait Instagram, et l'oublier trahit immédiatement la maquette.
+ */
+function IgRecu({ children, avatar, avatarUrl, hint, sc }: {
+  children: ReactNode; avatar: boolean; avatarUrl: string | null; hint?: boolean; sc: number;
+}) {
+  const a = Math.round(34 * sc);
+  // flexShrink:0 — sans lui, le conteneur du fil comprime les bulles au lieu de les
+  // laisser déborder, et le fil ne défile jamais (mesuré : 515px de contenu écrasés
+  // dans 410px, scrollHeight bloqué à la hauteur du conteneur).
+  return (
+    <div style={{ display: 'flex', alignItems: 'flex-end', gap: Math.round(7 * sc), maxWidth: '84%', flexShrink: 0 }}>
+      {avatar ? <IgAvatar url={avatarUrl} taille={a} /> : <span style={{ width: a, flexShrink: 0 }} />}
+      <div>
+        <div style={{
+          background: IG.bulle, borderRadius: Math.round(20 * sc),
+          padding: `${Math.round(9 * sc)}px ${Math.round(14 * sc)}px`,
+          fontSize: +(15 * sc).toFixed(1), lineHeight: 1.34, color: '#000',
+        }}>{children}</div>
+        {hint && (
+          <div style={{ fontSize: +(13 * sc).toFixed(1), color: IG.gris, margin: `${Math.round(4 * sc)}px 0 0 ${Math.round(5 * sc)}px` }}>
+            Appuyez deux fois pour ❤️
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Gabarit à bouton : première ligne en gras, puis un rectangle blanc.
+ * C'est ce rectangle qui masque l'URL — d'où son rayon plus faible que la bulle,
+ * et sa marge intérieure : il ne touche pas les bords.
+ */
+function IgTemplate({ texte, bouton, avatar, avatarUrl, sc }: {
+  texte: string; bouton: string; avatar: boolean; avatarUrl: string | null; sc: number;
+}) {
+  return (
+    <IgRecu avatar={avatar} avatarUrl={avatarUrl} sc={sc}>
+      <div style={{ fontWeight: 700, marginBottom: Math.round(7 * sc) }}>{texte}</div>
+      <div style={{
+        background: '#fff', borderRadius: Math.round(14 * sc),
+        padding: `${Math.round(9 * sc)}px ${Math.round(12 * sc)}px`,
+        margin: `0 ${Math.round(12 * sc)}px`,
+        textAlign: 'center', fontWeight: 700, fontSize: +(15 * sc).toFixed(1),
+      }}>{bouton}</div>
+    </IgRecu>
+  );
+}
+
+/**
+ * Bulle envoyée par le prospect — dégradé diagonal, pas un aplat.
+ *
+ * Appuyer sur le bouton envoie LITTÉRALEMENT son libellé : c'est un message
+ * sortant, à droite. C'est le point que le handoff souligne le plus, parce qu'il
+ * explique pourquoi la séquence fonctionne.
+ */
+function IgEnvoye({ texte, sc }: { texte: string; sc: number }) {
+  return (
+    <div style={{
+      alignSelf: 'flex-end', maxWidth: '80%', flexShrink: 0,
+      background: `linear-gradient(135deg, ${IG.violet1}, ${IG.violet2})`,
+      borderRadius: Math.round(20 * sc),
+      padding: `${Math.round(9 * sc)}px ${Math.round(14 * sc)}px`,
+      fontSize: +(15 * sc).toFixed(1), lineHeight: 1.34, color: '#fff', fontWeight: 600,
+    }}>{texte}</div>
+  );
+}
+
+/**
+ * Le fil complet, tel que le prospect le voit.
+ *
+ * `sc` met tout à l'échelle depuis le référentiel 390pt de la capture : à 1 le
+ * rendu est à taille réelle (mobile), en dessous il tient dans la colonne du
+ * desktop sans que les proportions bougent.
+ */
+function IgFil({ seq, pseudo, avatarUrl, nom, sc, sansCadre }: {
+  seq: { accroche: string; accrocheBtn: string; lien: string; lienBtn: string; relance: string };
+  pseudo: string; avatarUrl: string | null; nom: string; sc: number; sansCadre?: boolean;
+}) {
+  // On arrive sur le DERNIER message, comme dans une vraie messagerie — et on y
+  // revient à chaque modification d'un champ, sinon écrire une longue relance la
+  // ferait sortir du champ de vision au moment précis où on veut la relire.
+  const filRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = filRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [seq.accroche, seq.accrocheBtn, seq.lien, seq.lienBtn, seq.relance]);
+
+  const cercle = (enfant: ReactNode) => (
+    <span style={{
+      width: Math.round(30 * sc), height: Math.round(30 * sc), borderRadius: '50%', background: '#fff',
+      boxShadow: '0 1px 3px rgba(0,0,0,.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+    }}>{enfant}</span>
+  );
+  const ic = (d: ReactNode) => (
+    <svg width={Math.round(15 * sc)} height={Math.round(15 * sc)} viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
+  );
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, background: '#fff', borderRadius: sansCadre ? 0 : undefined }}>
+      {/* En-tête : retour, avatar, nom + pseudo, puis combiné · caméra · étiquette */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: Math.round(9 * sc),
+        padding: `${Math.round(8 * sc)}px ${Math.round(11 * sc)}px`,
+        background: '#fff', borderBottom: '1px solid #f1eee7', flexShrink: 0,
+      }}>
+        {cercle(<svg width={Math.round(16 * sc)} height={Math.round(16 * sc)} viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>)}
+        <IgAvatar url={avatarUrl} taille={Math.round(38 * sc)} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: +(17 * sc).toFixed(1), fontWeight: 700, color: '#000', lineHeight: 1.2 }}>{nom}</div>
+          <div style={{ fontSize: +(13 * sc).toFixed(1), color: IG.gris }}>{pseudo}</div>
+        </div>
+        {cercle(ic(<path d="M15.05 5A5 5 0 0119 8.95M15.05 1A9 9 0 0123 8.94m-1 7.98v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.72 19.79 19.79 0 011 1.1 2 2 0 013 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7.09 8.9a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0121 16.92z"/>))}
+        {cercle(ic(<><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></>))}
+        {cercle(ic(<><path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.3"/></>))}
+      </div>
+
+      {/* Le fil DÉFILE — jamais rogné. Dès qu'un texte s'allonge, le contenu
+          dépasse et on peut faire défiler, comme dans une vraie messagerie.
+          `marginTop:auto` sur le premier enfant plutôt que `justifyContent:flex-end`
+          sur le conteneur : flex-end COMPRIME les enfants au lieu de les faire
+          déborder (mesuré : 515px de contenu écrasés dans 410px, scrollHeight
+          bloqué à 410). La marge automatique pousse le contenu vers le bas quand
+          il est court, sans jamais l'empêcher de dépasser quand il est long. */}
+      <div ref={filRef} style={{
+        flex: 1, minHeight: 0, overflowY: 'auto', WebkitOverflowScrolling: 'touch',
+        display: 'flex', flexDirection: 'column',
+        gap: Math.round(5 * sc), padding: `${Math.round(10 * sc)}px ${Math.round(9 * sc)}px`,
+      }}>
+        {/* Ligne système : Instagram l'insère quand la séquence part d'un commentaire.
+            `marginTop:auto` la colle en bas tant que le fil est court. */}
+        <div style={{
+          marginTop: 'auto', flexShrink: 0,
+          alignSelf: 'center', textAlign: 'center', fontSize: +(13 * sc).toFixed(1), lineHeight: 1.4,
+          color: IG.gris, padding: `${Math.round(6 * sc)}px ${Math.round(16 * sc)}px`,
+        }}>
+          {pseudo} vous a envoyé un message concernant votre commentaire sur sa publication.{' '}
+          <b style={{ color: '#3a3730' }}>Voir la publication</b>
+        </div>
+
+        <IgTemplate texte={seq.accroche} bouton={seq.accrocheBtn} avatar avatarUrl={avatarUrl} sc={sc} />
+        <IgEnvoye texte={seq.accrocheBtn} sc={sc} />
+        <IgTemplate texte={seq.lien} bouton={seq.lienBtn} avatar avatarUrl={avatarUrl} sc={sc} />
+
+        {/* Horodatage : c'est ici que se lit le délai de 2 minutes */}
+        <div style={{ alignSelf: 'center', flexShrink: 0, fontSize: +(12.5 * sc).toFixed(1), color: IG.gris, padding: `${Math.round(5 * sc)}px 0` }}>
+          {new Date(Date.now() + 2 * 60_000).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+        </div>
+
+        <IgRecu avatar avatarUrl={avatarUrl} hint sc={sc}>{seq.relance}</IgRecu>
+      </div>
+
+      {/* Barre de saisie : le rond est le bouton appareil photo, pas un simple dégradé */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: Math.round(9 * sc),
+        padding: `${Math.round(9 * sc)}px ${Math.round(11 * sc)}px`,
+        background: '#fff', borderTop: '1px solid #f1eee7', flexShrink: 0,
+      }}>
+        <span style={{
+          width: Math.round(32 * sc), height: Math.round(32 * sc), borderRadius: '50%',
+          background: IG.appareil, flexShrink: 0,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+        }}>
+          <svg width={Math.round(17 * sc)} height={Math.round(17 * sc)} viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/>
+          </svg>
+        </span>
+        <span style={{
+          flex: 1, background: IG.bulle, borderRadius: Math.round(19 * sc),
+          padding: `${Math.round(8 * sc)}px ${Math.round(13 * sc)}px`,
+          fontSize: +(14 * sc).toFixed(1), color: IG.gris,
+        }}>Votre message…</span>
+        {[
+          <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/></>,
+          <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></>,
+          <><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></>,
+          <><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></>,
+        ].map((d, i) => (
+          <svg key={i} width={Math.round(20 * sc)} height={Math.round(20 * sc)} viewBox="0 0 24 24" fill="none" stroke="#000" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>{d}</svg>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Étiquette d'un champ de séquence, avec la mention « modifié » quand il diffère
  * de ce qui est en base. Sans elle, le compteur en pied indiquerait un nombre sans
@@ -863,6 +1082,21 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   const [savingMsg, setSavingMsg] = useState(false);
   const [msgSaved, setMsgSaved] = useState(false);
   const isExisting = !!post.hasLeadMagnet;
+
+  // Compte Instagram connecté, pour l'en-tête de l'aperçu. Même clé de cache que
+  // la page : TanStack sert la valeur déjà chargée, aucune requête de plus.
+  // Le coach doit se reconnaître dans l'aperçu — c'est ce qui rend la projection
+  // crédible. Repli neutre si aucun compte n'est connecté : la séquence peut se
+  // préparer avant la connexion.
+  const { data: igCompte } = useQuery({
+    queryKey: ['liens-ig', profileId],
+    queryFn: () => fetch(`/api/instagram/stats?profileId=${profileId}`).then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+  const igNom = igCompte?.name || 'Ton compte';
+  const igPseudo = igCompte?.username ? igCompte.username : 'ton_compte';
+  const igPhoto: string | null = igCompte?.profilePicture ?? null;
 
   // ── La séquence DM, en un seul état ─────────────────────────────────────────
   //
@@ -1097,8 +1331,9 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         </div>
       </div>
 
-      {/* Séquence DM — maquette conversation Instagram */}
-      <div style={{ border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
+      {/* Séquence DM + aperçu, côte à côte en desktop */}
+      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <div style={{ flex: 1, minWidth: 0, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>Séquence de messages automatique</span>
           <span style={{ fontSize: 11, color: MUTED, marginLeft: 6 }}>envoyés dans cet ordre, sans action de ta part</span>
@@ -1213,6 +1448,36 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
             </button>
           </div>
         </div>
+      </div>
+
+      {/* Aperçu — ce que voit le prospect. Masqué en mobile : il y a là-bas une
+          bascule Modifier / Aperçu, le fil occupant alors tout l'écran. */}
+      {!isMobile && (
+        <div style={{ flex: 'none', width: 314, display: 'flex', flexDirection: 'column', gap: 8, alignItems: 'center', flexShrink: 0 }}>
+          <span style={{
+            alignSelf: 'flex-start',
+            font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em',
+            textTransform: 'uppercase', color: MUTED,
+          }}>Ce que voit le prospect</span>
+          {/* Cadre de téléphone, comme le hi-fi. Hauteur fixe pour que le fil
+              défile à l'intérieur au lieu d'allonger la page. */}
+          <div style={{
+            width: 314, height: 498, maxHeight: 498, border: '8px solid #2f2c26', borderRadius: 32,
+            overflow: 'hidden', background: '#fff', flexShrink: 0,
+            display: 'flex', flexDirection: 'column', boxSizing: 'content-box',
+          }}>
+            <IgFil
+              seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom}
+              sc={314 / 390}
+            />
+          </div>
+          {!igCompte?.username && (
+            <span style={{ fontSize: 10.5, color: FAINT, textAlign: 'center', lineHeight: 1.4 }}>
+              Connecte ton compte Instagram pour voir ta photo et ton pseudo ici.
+            </span>
+          )}
+        </div>
+      )}
       </div>
 
       {/* Lien LM */}
