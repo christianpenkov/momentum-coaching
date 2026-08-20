@@ -94,9 +94,17 @@ export async function snapshotIgPosts(
   const errors: string[] = [];
   try {
     if (!skipGuard) {
+      // ig_account_id + archived_at : cette garde empêche de reprendre deux fois le
+      // snapshot du même jour. Sans les filtres de compte, les lignes archivées d'un
+      // compte précédent portant la même snapshot_date la font croire déjà prise —
+      // et le snapshot du NOUVEAU compte n'est jamais enregistré ce jour-là, laissant
+      // un trou d'un jour dans son historique. Les deux requêtes suivantes de ce
+      // fichier filtrent déjà ainsi ; seule celle-ci avait été oubliée.
       const { count } = await supa.from('analytics_ig_posts_history')
         .select('*', { count: 'exact', head: true })
         .eq('profile_id', profileId)
+        .eq('ig_account_id', igAccountId)
+        .is('archived_at', null)
         .eq('snapshot_date', yesterday);
       if (count && count > 0) return [];
     }
@@ -134,6 +142,12 @@ export async function snapshotIgPosts(
       await supa.from('analytics_ig_posts_history')
         .update({ deleted_at: new Date().toISOString() })
         .eq('profile_id', profileId)
+        // Mêmes filtres que le SELECT ci-dessus : sans eux, l'UPDATE annulait la
+        // protection que ce SELECT venait d'appliquer. Un post_id présent dans deux
+        // comptes (republication, ou cycle A→B→A) voyait les lignes des DEUX comptes
+        // marquées supprimées, y compris celles explicitement écartées juste avant.
+        .eq('ig_account_id', igAccountId)
+        .is('archived_at', null)
         .in('post_id', missingPostIds);
     }
 

@@ -201,9 +201,18 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
   // après >48h — sans les supprimer, la card reste affichable via storage_url.
   try {
     const cutoff = new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString();
+    // ig_account_id + archived_at : `activeIds` ne contient que les stories du compte
+    // actuellement connecté. Sans ces deux filtres, les stories d'un compte précédent
+    // — absentes de cette API par construction — étaient marquées expirées à tort. Et
+    // comme expired_at n'est jamais remis à null, le retour sur l'ancien compte les
+    // désarchivait sans jamais les « désexpirer » : corruption définitive.
+    // Même garde que supabase/functions/_shared/ig-posts.ts, qui documente ce piège
+    // pour les posts sans qu'il ait été transposé ici.
     const { data: staleStories } = await supa.from('ig_stories')
       .select('id, ig_story_id')
       .eq('profile_id', profileId)
+      .eq('ig_account_id', igAccountId)
+      .is('archived_at', null)
       .is('expired_at', null)
       .lt('posted_at', cutoff);
     const toExpire = (staleStories || []).filter(s => !activeIds.has(s.ig_story_id));
