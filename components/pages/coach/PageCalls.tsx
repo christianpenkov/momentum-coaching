@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import Icon from '@/components/ui/Icon';
+import { Skeleton } from '@/components/ui/Skeleton';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import RapportModal from '@/components/ui/RapportModal';
@@ -334,10 +335,30 @@ export default function PageCalls() {
     );
   }
 
+  // Squelette calque sur la page : titre, chips de filtre, cartes de call.
   if (loading) return (
     <div className="page-content">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '80px 0', gap: 8, color: 'var(--muted)', fontSize: 13 }}>
-        <span className="loading-dots"><span /><span /><span /></span>
+      <div className="page-header">
+        <Skeleton width={90} height={22} />
+      </div>
+      {/* Rangee de chips de filtre, puis cartes de call : avatar, identite,
+          heure a droite. Memes dimensions que le rendu reel. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {[74, 82, 90, 96].map((w, i) => (
+          <Skeleton key={i} width={w} height={32} radius={20} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px' }}>
+            <Skeleton width={38} height={38} radius={19} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width={`${46 - i * 5}%`} height={13} />
+              <Skeleton width="28%" height={11} style={{ marginTop: 7 }} />
+            </div>
+            <Skeleton width={54} height={12} />
+          </div>
+        ))}
       </div>
     </div>
   );

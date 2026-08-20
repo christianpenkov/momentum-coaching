@@ -1,5 +1,6 @@
 'use client';
 import InlineLoader from '@/components/ui/InlineLoader';
+import { Skeleton } from '@/components/ui/Skeleton';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
@@ -439,7 +440,33 @@ export default function PageClientCalls() {
     setTimeout(() => setSyncMsg(null), 4000);
   }
 
-  if (loading) return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}><InlineLoader /></div>;
+  // Squelette calque sur la page : titre, chips de filtre, cartes de call.
+  if (loading) return (
+    <div className="page-content">
+      <div className="page-header">
+        <Skeleton width={90} height={22} />
+      </div>
+      {/* Rangee de chips de filtre, puis cartes de call : avatar, identite,
+          heure a droite. Memes dimensions que le rendu reel. */}
+      <div style={{ display: 'flex', gap: 6, marginBottom: 20 }}>
+        {[74, 82, 90, 96].map((w, i) => (
+          <Skeleton key={i} width={w} height={32} radius={20} />
+        ))}
+      </div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 18px' }}>
+            <Skeleton width={38} height={38} radius={19} />
+            <div style={{ flex: 1 }}>
+              <Skeleton width={`${46 - i * 5}%`} height={13} />
+              <Skeleton width="28%" height={11} style={{ marginTop: 7 }} />
+            </div>
+            <Skeleton width={54} height={12} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 
   function getCallCounterpart(call: Call) {
     if (isCoachingCall(call)) {
