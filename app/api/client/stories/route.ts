@@ -67,8 +67,13 @@ export async function GET(request: Request) {
   // "séquence solo" (1 story, CTA géré directement dessus) d'une vraie séquence
   // multi-stories (badge de regroupement affiché à la place du badge CTA direct).
   const sequenceIds = [...new Set((stories || []).map(s => s.sequence_id).filter(Boolean))] as string[];
+  // profile_id + archived_at : sans eux, une séquence dont les stories ont été
+  // archivées (bascule de compte) garde son badge « multi-stories » alors qu'il ne
+  // reste qu'une story active. Mêmes filtres que le comptage identique de
+  // app/api/client/story-sequences/route.ts.
   const { data: countRows } = sequenceIds.length
-    ? await serviceSupabase.from('ig_stories').select('sequence_id').in('sequence_id', sequenceIds)
+    ? await serviceSupabase.from('ig_stories').select('sequence_id')
+        .eq('profile_id', targetProfileId).is('archived_at', null).in('sequence_id', sequenceIds)
     : { data: [] };
   const countBySequence = new Map<string, number>();
   for (const row of countRows || []) {

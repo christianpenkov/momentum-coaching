@@ -63,7 +63,11 @@ async function fetchSalesCalls(clientId: string): Promise<Call[]> {
 
 async function fetchStoriesCount(profileId: string, since: string | null): Promise<number> {
   const supabase = createSupabase();
-  let query = supabase.from('ig_stories').select('id', { count: 'exact', head: true }).eq('profile_id', profileId);
+  // archived_at : sans ce filtre, le coach voit un nombre de stories que l'élève ne
+  // voit nulle part — tous les autres compteurs de stories (story-sequences/route.ts,
+  // stories/route.ts, story-sequences-stats/route.ts) filtrent les comptes archivés.
+  let query = supabase.from('ig_stories').select('id', { count: 'exact', head: true })
+    .eq('profile_id', profileId).is('archived_at', null);
   if (since) query = query.gte('posted_at', since);
   const { count } = await query;
   return count ?? 0;

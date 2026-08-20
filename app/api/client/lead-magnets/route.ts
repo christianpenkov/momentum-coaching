@@ -30,10 +30,19 @@ async function propagateLmUrlChange(profileId: string, lmId: string, newUrl: str
   const apiKey = integ.api_key;
 
   // 2. Trouver tous les content_links avec ce lm_id ET un lien description LM existant
+  //
+  // archived_at : on ne réécrit QUE les liens du compte Instagram actuellement
+  // connecté. Sans ce filtre, changer l'URL d'un lead magnet réécrit aussi, via
+  // l'API Short.io, les liens des posts d'un ancien compte — des liens publics
+  // toujours cliquables, dans des descriptions de posts encore en ligne et dans
+  // des DM déjà envoyés. Après un piratage, cela reviendrait à tenir à jour le
+  // tunnel de vente de celui qui détient désormais l'ancien compte.
+  // Contrepartie assumée : ces anciens liens restent figés sur l'URL précédente.
   const { data: links } = await serviceSupabase
     .from('content_links')
     .select('id, desc_short_id, desc_utms')
     .eq('profile_id', profileId)
+    .is('archived_at', null)
     .eq('lm_id', lmId)
     .eq('desc_dest_type', 'leadmagnet')
     .not('desc_short_id', 'is', null);

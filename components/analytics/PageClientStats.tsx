@@ -5455,10 +5455,17 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
     shortioResult,
     shortioClicksRes,
   ] = await Promise.allSettled([
+    // archived_at : les lignes d'un compte Instagram précédent sont archivées à la
+    // bascule (app/api/oauth/instagram/callback/route.ts). Sans ce filtre, tout cet
+    // écran affiche les courbes de followers/reach/vues d'un compte auquel l'élève
+    // n'a plus accès — constaté en base sur deux profils (45 et 31 jours de stats
+    // d'un ancien compte). app/api/instagram/stats/route.ts lit la même table pour
+    // le même besoin et filtre déjà : c'est ici que l'écart se créait.
     supabase
       .from('analytics_daily_snapshots')
       .select('*')
       .eq('profile_id', targetId)
+      .is('archived_at', null)
       .gte('date', startDateStr)
       .lte('date', endDateStr)
       .order('date', { ascending: true }),
@@ -5879,6 +5886,9 @@ async function fetchIgCurrentPeriodTotals(profileId: string | undefined, period:
       .from('analytics_daily_snapshots')
       .select('date, ig_reach, ig_views')
       .eq('profile_id', targetId)
+      // Même filtre que fetchSnapshot et que app/api/instagram/stats/route.ts :
+      // sans lui, reach30d/views30d agrègent les chiffres d'un compte précédent.
+      .is('archived_at', null)
       .gte('date', startDateStr)
       .lte('date', endDateStr)
       .order('date', { ascending: true });
@@ -6020,6 +6030,11 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
       supabase.from('instagram_lead_lm_history')
         .select('ig_user_id, keyword_matched, media_id, lead_magnet_sent, detected_at')
         .eq('profile_id', targetId)
+        // Cette table est archivée à la bascule de compte, comme instagram_leads
+        // juste au-dessus — et app/api/client/pipeline/route.ts la filtre déjà. Sans
+        // ce filtre, les réclamations LM d'un ancien compte sont comptées face à des
+        // leads qui, eux, sont filtrés : c'est le ratio > 100 % décrit plus haut.
+        .is('archived_at', null)
     ),
     // Liens Calendly envoyés par prospect — source de vérité pour la table Performance LM.
     // Paginé (fetchAllPages) — plafond fixe .limit(500) auparavant, même raison.
@@ -6032,6 +6047,10 @@ async function fetchSupabaseStats(profileId?: string, period: number = 30, custo
     supabase.from('content_links')
       .select('lm_id, lm_keyword')
       .eq('profile_id', targetId)
+      // Sans archived_at, les mots-clés configurés sur les posts d'un ancien compte
+      // apparaissent dans les stats du compte courant (app/api/client/content-links
+      // filtre déjà pour le même besoin).
+      .is('archived_at', null)
       .not('lm_id', 'is', null)
       .not('lm_keyword', 'is', null),
     // Clics LM réels (postérieurs à detected_at du lead) — même source que le pipeline.

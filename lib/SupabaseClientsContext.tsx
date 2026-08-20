@@ -100,6 +100,10 @@ export function SupabaseClientsProvider({ children }: { children: ReactNode }) {
         profileIds.length > 0
           ? supabase.from('analytics_daily_snapshots').select('profile_id, date, ig_followers, yt_subscribers, mrr')
               .in('profile_id', profileIds)
+              // Juste après une bascule de compte Instagram, la ligne archivée de J-1
+              // porte encore les followers de l'ancien compte et serait retenue comme
+              // la plus récente. Même filtre que sur `clients` plus haut.
+              .is('archived_at', null)
               .gte('date', new Date(Date.now() - 3 * 86400_000).toISOString().slice(0, 10))
               .order('date', { ascending: false })
           : { data: [], error: null },
