@@ -2108,8 +2108,11 @@ export default function PagePipeline() {
 
       {/* Empty state — sur l'onglet affiché (son message le nomme : "Aucun lead
           Instagram", "Aucun call YouTube"…), pas sur le total toutes plateformes. */}
+      {/* pipeline-desktop : sur mobile l'entonnoir affiche deja "0" sur chaque
+          etape, donc l'etat vide fait doublon — et surtout il occupait la
+          hauteur, ecrasant l'entonnoir a 226px pour 535px de contenu. */}
       {!loading && tabProspects === 0 && (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 60, paddingBottom: 60 }}>
+        <div className="pipeline-desktop" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, paddingTop: 60, paddingBottom: 60 }}>
           <div style={{ width: 44, height: 44, borderRadius: 12, background: 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/>

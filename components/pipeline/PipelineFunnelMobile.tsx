@@ -60,7 +60,7 @@ function LeadRow({ card, onClick }: { card: FunnelCard; onClick?: () => void }) 
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-        padding: '11px 12px', marginBottom: 8, textAlign: 'left',
+        padding: '12px 13px', minHeight: 56, marginBottom: 8, textAlign: 'left',
         background: 'var(--surface)', border: '1px solid var(--border)',
         borderRadius: 'var(--r-xl)', boxShadow: 'var(--shadow-card)',
         cursor: 'pointer', font: 'inherit', color: 'inherit',
@@ -109,6 +109,16 @@ export default function PipelineFunnelMobile({
     list: inFunnel.filter(c => c.stageKey === s.key),
   }));
   const max = Math.max(1, ...byStage.map(b => b.list.length));
+
+  // Le call a deux issues opposees : la personne est venue, ou pas. Les empiler
+  // l'une sous l'autre les ferait lire comme deux etapes successives, alors que
+  // c'est une bifurcation — d'ou les deux colonnes cote a cote.
+  //
+  // No-show a GAUCHE (l'echec, la liste sur laquelle on agit), Show up a DROITE
+  // (la progression, qui continue vers Closé juste en dessous).
+  const linear = byStage.filter(b => b.stage.key !== 'showed_up' && b.stage.key !== 'closed');
+  const showUp = byStage.find(b => b.stage.key === 'showed_up');
+  const closed = byStage.find(b => b.stage.key === 'closed');
 
   const selected = openStage ? byStage.find(b => b.stage.key === openStage) : null;
   const showingNoShows = openStage === '__noshow';
@@ -159,54 +169,93 @@ export default function PipelineFunnelMobile({
   }
 
   // ── Niveau 1 : entonnoir ──
+  const StageRow = ({ b }: { b: { stage: FunnelStage; list: FunnelCard[] } }) => (
+    <button
+      type="button"
+      onClick={() => setOpenStage(b.stage.key)}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+        // 48px : au-dessus du minimum tactile de 44px appliqué partout ailleurs
+        // dans l'app (.btn-primary, .chip, .icon-btn).
+        padding: '13px 14px', minHeight: 48, borderRadius: 'var(--r-lg)',
+        background: 'var(--surface)', border: '1px solid var(--border)',
+        boxShadow: 'var(--shadow-card)', cursor: 'pointer',
+        font: 'inherit', color: 'inherit', textAlign: 'left',
+      }}
+    >
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: b.stage.color, flexShrink: 0 }} />
+      {/* Le libellé passe avant la barre : « Lead Commentaire / LM reçu » était
+          tronqué jusqu'à 414px de large. La barre est reléguée sous le libellé
+          quand la place manque plutôt que de le rogner. */}
+      <span style={{ flex: 1, minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 13.5, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {b.stage.label}
+        </span>
+        <span style={{ display: 'block', width: '100%', maxWidth: 90, height: 5, marginTop: 5, borderRadius: 20, background: 'var(--surface-2)', overflow: 'hidden' }}>
+          <span style={{ display: 'block', height: '100%', borderRadius: 20, background: b.stage.color, width: `${(b.list.length / max) * 100}%` }} />
+        </span>
+      </span>
+      <span style={{ fontSize: 15, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+        {b.list.length}
+      </span>
+      <Icon name="chevR" size={14} color="var(--faint)" />
+    </button>
+  );
+
+  // Les deux issues du call, côte à côte : la personne est venue, ou pas.
+  const OutcomeCard = ({
+    label, count, color, bg, onOpen,
+  }: { label: string; count: number; color: string; bg: string; onOpen?: () => void }) => (
+    <button
+      type="button"
+      onClick={onOpen}
+      disabled={!onOpen || count === 0}
+      style={{
+        flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 4,
+        padding: '12px 13px', minHeight: 68, borderRadius: 'var(--r-lg)',
+        background: count > 0 ? bg : 'var(--surface)',
+        border: `1px solid ${count > 0 ? color + '4d' : 'var(--border)'}`,
+        cursor: count > 0 && onOpen ? 'pointer' : 'default',
+        font: 'inherit', textAlign: 'left',
+        color: count > 0 ? color : 'var(--muted)',
+      }}
+    >
+      <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <span style={{ width: 7, height: 7, borderRadius: '50%', background: count > 0 ? color : 'var(--border)', flexShrink: 0 }} />
+        <span style={{ fontSize: 12.5, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+      </span>
+      <span style={{ fontSize: 20, fontWeight: 700, fontVariantNumeric: 'tabular-nums', lineHeight: 1.1 }}>{count}</span>
+    </button>
+  );
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      {byStage.map(({ stage, list }) => (
-        <button
-          key={stage.key}
-          type="button"
-          onClick={() => setOpenStage(stage.key)}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-            padding: '10px 12px', borderRadius: 'var(--r-lg)',
-            background: 'var(--surface)', border: '1px solid var(--border)',
-            boxShadow: 'var(--shadow-card)', cursor: 'pointer',
-            font: 'inherit', color: 'inherit', textAlign: 'left',
-          }}
-        >
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: stage.color, flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, flexShrink: 0, width: 104, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-            {stage.label}
-          </span>
-          {/* Barre proportionnelle au plus gros volume : c'est le rapport entre
-              étapes qui informe, pas la valeur absolue. */}
-          <span style={{ flex: 1, height: 8, borderRadius: 20, background: 'var(--surface-2)', overflow: 'hidden' }}>
-            <span style={{ display: 'block', height: '100%', borderRadius: 20, background: stage.color, width: `${(list.length / max) * 100}%` }} />
-          </span>
-          <span style={{ fontSize: 13, fontWeight: 700, width: 24, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
-            {list.length}
-          </span>
-          <Icon name="chevR" size={13} color="var(--faint)" />
-        </button>
-      ))}
+      {linear.map(b => <StageRow key={b.stage.key} b={b} />)}
 
-      {noShows.length > 0 && (
-        <button
-          type="button"
-          onClick={() => setOpenStage('__noshow')}
-          style={{
-            display: 'flex', alignItems: 'center', gap: 10, width: '100%',
-            marginTop: 8, padding: '10px 12px', borderRadius: 'var(--r-lg)',
-            background: 'var(--red-soft)', border: '1px solid rgba(205,91,63,0.3)',
-            cursor: 'pointer', font: 'inherit', color: 'var(--red)', textAlign: 'left',
-          }}
-        >
-          <span style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--red)', flexShrink: 0 }} />
-          <span style={{ fontSize: 12.5, fontWeight: 600, flex: 1 }}>No-show — à relancer</span>
-          <span style={{ fontSize: 13, fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{noShows.length}</span>
-          <Icon name="chevR" size={13} color="var(--red)" />
-        </button>
-      )}
+      {/* Bifurcation : après le call, deux issues opposées. Les empiler les
+          ferait lire comme deux étapes successives, alors que c'en est une qui
+          se scinde. No-show à gauche (l'échec, sur lequel on agit), Show up à
+          droite (la progression, qui continue vers Closé juste en dessous). */}
+      <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+        <OutcomeCard
+          label="No-show"
+          count={noShows.length}
+          color="#cd5b3f"
+          bg="var(--red-soft)"
+          onOpen={() => setOpenStage('__noshow')}
+        />
+        {showUp && (
+          <OutcomeCard
+            label={showUp.stage.label}
+            count={showUp.list.length}
+            color={showUp.stage.color}
+            bg={showUp.stage.lightBg}
+            onOpen={() => setOpenStage(showUp.stage.key)}
+          />
+        )}
+      </div>
+
+      {closed && <div style={{ marginTop: 2 }}><StageRow b={closed} /></div>}
     </div>
   );
 }
