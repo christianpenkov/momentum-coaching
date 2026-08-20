@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNotifications } from '@/lib/useNotifications';
 import { useUser } from '@/lib/UserContext';
 import RapportModal from '@/components/ui/RapportModal';
+import PendingRapportCard from '@/components/ui/PendingRapportCard';
 import { getDeadlineStatus } from '@/lib/clientSignals';
 import DeadlineBadge from '@/components/ui/DeadlineBadge';
 import TrendBadge from '@/components/ui/TrendBadge';
@@ -94,7 +95,6 @@ export default function PageClientView() {
   const rapportNotifs = notifs.filter(n => n.type === 'rapport_call');
   const callRequestNotifs = notifs.filter(n => n.type === 'call_request');
   const [openRapport, setOpenRapport] = useState<typeof rapportNotifs[0] | null>(null);
-  const [rapportIdx, setRapportIdx] = useState(0);
 
   // Recalcul local chaque minute (bascule + fenêtre de grâce du widget "Prochain
   // call") — zéro requête réseau, purement sur les données déjà en mémoire.
@@ -279,67 +279,21 @@ export default function PageClientView() {
         </div>
       )}
 
-      {/* Rapports de call en attente — carrousel avec flèches latérales */}
-      {rapportNotifs.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="eyebrow-lg" style={{ color: 'var(--accent-brand)', marginBottom: 10 }}>
-            {rapportNotifs.length} rapport{rapportNotifs.length > 1 ? 's' : ''} en attente
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            {/* Flèche gauche */}
-            <button
-              type="button"
-              onClick={() => setRapportIdx(i => Math.max(0, i - 1))}
-              disabled={rapportIdx === 0 || rapportNotifs.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === 0 ? 'default' : 'pointer', opacity: rapportIdx === 0 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
-            >‹</button>
-
-            {/* Carte */}
-            {(() => {
-              const notif = rapportNotifs[rapportIdx];
-              if (!notif) return null;
-              return (
-                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <div>
-                      <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)', marginBottom: 4 }}>
-                        RAPPORT DE CALL{rapportNotifs.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{rapportIdx + 1} / {rapportNotifs.length}</span>}
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-                        {notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte'}
-                      </div>
-                      {notif.scheduledAt && (
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                          {formatDateIn(new Date(notif.scheduledAt), viewerTz)}
-                          {' · '}
-                          {formatTimeIn(new Date(notif.scheduledAt), viewerTz)}
-                          {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      className="btn-primary-brand"
-                      type="button"
-                      style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
-                      onClick={() => setOpenRapport(notif)}
-                    >
-                      Remplir le rapport
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-
-            {/* Flèche droite */}
-            <button
-              type="button"
-              onClick={() => setRapportIdx(i => Math.min(rapportNotifs.length - 1, i + 1))}
-              disabled={rapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: rapportIdx === rapportNotifs.length - 1 ? 'default' : 'pointer', opacity: rapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
-            >›</button>
-          </div>
-        </div>
-      )}
+      {/* Rapports de call en attente — carrousel partagé avec l'accueil coach et la
+          page Calls. Pas de badge de type ici : l'élève n'a que des rapports de
+          vente, un badge y afficherait toujours le même mot. */}
+      <PendingRapportCard
+        items={rapportNotifs.map(notif => ({
+          id: notif.id,
+          title: notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte',
+          scheduledAt: notif.scheduledAt,
+          duration: notif.duration,
+        }))}
+        onOpen={(_item, index) => {
+          const notif = rapportNotifs[index];
+          if (notif) setOpenRapport(notif);
+        }}
+      />
 
       {openRapport?.callId && (
         <RapportModal

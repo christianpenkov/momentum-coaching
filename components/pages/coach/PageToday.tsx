@@ -11,6 +11,7 @@ import CreateCallModal from '@/components/ui/CreateCallModal';
 import CallStack from '@/components/ui/CallStack';
 import SessionRapportModal from '@/components/ui/SessionRapportModal';
 import RapportModal from '@/components/ui/RapportModal';
+import PendingRapportCard from '@/components/ui/PendingRapportCard';
 import { StaggerGrid, StaggerItem } from '@/components/ui/StaggerGrid';
 import { useSupabaseClients } from '@/lib/SupabaseClientsContext';
 import { useUser } from '@/lib/UserContext';
@@ -49,7 +50,6 @@ export default function PageToday() {
   const rapportNotifs = notifs
     .filter(n => n.type === 'session_rapport' || n.type === 'rapport_call')
     .sort((a, b) => new Date(a.scheduledAt || 0).getTime() - new Date(b.scheduledAt || 0).getTime());
-  const [sessionRapportIdx, setSessionRapportIdx] = useState(0);
   const [openSessionRapport, setOpenSessionRapport] = useState<AppNotif | null>(null);
   const [openSalesRapport, setOpenSalesRapport] = useState<AppNotif | null>(null);
 
@@ -254,77 +254,32 @@ export default function PageToday() {
       })()}
 
       {/* Rapports en attente — carrousel fusionné session coaching (élèves) + call de
-          vente (calls du coach lui-même), badge Coaching/Prospect pour distinguer. */}
-      {rapportNotifs.length > 0 && (
-        <div style={{ marginBottom: 20 }}>
-          <div className="eyebrow-lg" style={{ color: 'var(--accent-brand)', marginBottom: 10 }}>
-            {rapportNotifs.length} rapport{rapportNotifs.length > 1 ? 's' : ''} en attente
-          </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <button
-              type="button"
-              onClick={() => setSessionRapportIdx(i => Math.max(0, i - 1))}
-              disabled={sessionRapportIdx === 0 || rapportNotifs.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === 0 ? 'default' : 'pointer', opacity: sessionRapportIdx === 0 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
-            >‹</button>
-
-            {(() => {
-              const notif = rapportNotifs[sessionRapportIdx];
-              if (!notif) return null;
-              const isSession = notif.type === 'session_rapport';
-              const call = calls.find(c => c.id === notif.callId);
-              const client = call ? clients.find(c => c.id === call.client_id) : null;
-              return (
-                <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
-                  <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
-                    <div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                        <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-brand)' }}>
-                          RAPPORT DE CALL{rapportNotifs.length > 1 && <span style={{ fontWeight: 400, color: 'var(--muted)', marginLeft: 8 }}>{sessionRapportIdx + 1} / {rapportNotifs.length}</span>}
-                        </span>
-                        <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: isSession ? 'var(--surface-2)' : 'var(--accent-brand-soft)', color: isSession ? 'var(--accent)' : 'var(--accent-brand)' }}>
-                          {isSession ? 'Coaching' : 'Prospect'}
-                        </span>
-                      </div>
-                      <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--accent)' }}>
-                        {isSession
-                          ? (client?.name ? `Session avec ${client.name}` : 'Session de coaching')
-                          : (notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte')}
-                      </div>
-                      {call?.topic && (
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 1 }}>{call.topic}</div>
-                      )}
-                      {notif.scheduledAt && (
-                        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 3 }}>
-                          {new Date(notif.scheduledAt).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' })}
-                          {' · '}
-                          {new Date(notif.scheduledAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
-                          {notif.duration && <span style={{ marginLeft: 8 }}>· {notif.duration}</span>}
-                        </div>
-                      )}
-                    </div>
-                    <button
-                      className="btn-primary-brand"
-                      type="button"
-                      style={{ fontSize: 13, background: 'var(--accent-brand)', flexShrink: 0 }}
-                      onClick={() => isSession ? setOpenSessionRapport(notif) : setOpenSalesRapport(notif)}
-                    >
-                      Remplir le rapport
-                    </button>
-                  </div>
-                </div>
-              );
-            })()}
-
-            <button
-              type="button"
-              onClick={() => setSessionRapportIdx(i => Math.min(rapportNotifs.length - 1, i + 1))}
-              disabled={sessionRapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1}
-              style={{ flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8, width: 32, height: 32, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, cursor: sessionRapportIdx === rapportNotifs.length - 1 ? 'default' : 'pointer', opacity: sessionRapportIdx === rapportNotifs.length - 1 || rapportNotifs.length <= 1 ? 0.2 : 1 }}
-            >›</button>
-          </div>
-        </div>
-      )}
+          vente (calls du coach lui-même), badge Coaching/Prospect pour distinguer.
+          Le carrousel lui-même vit dans PendingRapportCard, partagé avec les deux
+          écrans élève ; ici on ne fait que traduire les notifications en items. */}
+      <PendingRapportCard
+        items={rapportNotifs.map(notif => {
+          const isSession = notif.type === 'session_rapport';
+          const call = calls.find(c => c.id === notif.callId);
+          const client = call ? clients.find(c => c.id === call.client_id) : null;
+          return {
+            id: notif.id,
+            title: isSession
+              ? (client?.name ? `Session avec ${client.name}` : 'Session de coaching')
+              : (notif.inviteeName ? `Appel avec ${notif.inviteeName}` : 'Appel découverte'),
+            subtitle: call?.topic ?? null,
+            scheduledAt: notif.scheduledAt,
+            duration: notif.duration,
+            badge: { label: isSession ? 'Coaching' : 'Prospect', tone: isSession ? 'coaching' as const : 'sales' as const },
+          };
+        })}
+        onOpen={(_item, index) => {
+          const notif = rapportNotifs[index];
+          if (!notif) return;
+          if (notif.type === 'session_rapport') setOpenSessionRapport(notif);
+          else setOpenSalesRapport(notif);
+        }}
+      />
 
       {openSessionRapport?.callId && (() => {
         const call = calls.find(c => c.id === openSessionRapport.callId);
