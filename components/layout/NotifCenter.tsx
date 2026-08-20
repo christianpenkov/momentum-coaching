@@ -184,7 +184,23 @@ function NotifItem({ notif, onAction, onDismiss, onRefresh }: { notif: AppNotif;
 
       {/* Contenu */}
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)', marginBottom: 2 }}>{notif.title}</div>
+        {/* Badge de type — mêmes couleurs que la carte de l'accueil coach (PageToday),
+            pour que ce soit lu comme le même objet d'un écran à l'autre. Ici il lève une
+            ambiguïté réelle : la cloche est le seul écran où un rapport de coaching et un
+            rapport de vente s'empilent dans la même liste, et les titres seuls
+            ("Rapport de session" / "Rapport de call") se ressemblent trop pour trancher. */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 2, flexWrap: 'wrap' }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--accent)' }}>{notif.title}</div>
+          {(isRapport || isSessionRapport) && (
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, flexShrink: 0,
+              background: isSessionRapport ? 'var(--surface-2)' : 'var(--accent-brand-soft)',
+              color: isSessionRapport ? 'var(--accent)' : 'var(--accent-brand)',
+            }}>
+              {isSessionRapport ? 'Coaching' : 'Prospect'}
+            </span>
+          )}
+        </div>
         <div style={{ fontSize: 12, color: 'var(--muted)', lineHeight: 1.5 }}>{notif.body}</div>
         {notif.scheduledAt && (
           <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 4 }}>

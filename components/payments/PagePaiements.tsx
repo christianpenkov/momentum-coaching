@@ -432,7 +432,7 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
         {/* La piste reste visible à 0 % : c'est elle qui donne l'échelle. */}
         <div style={{
           height: '100%', width: `${barWidth}%`, background: 'var(--green)', borderRadius: 2,
-          transition: reduceMotion ? undefined : 'width 900ms var(--ease-out)',
+          transition: reduceMotion ? undefined : `width ${HERO_ANIM_MS}ms var(--ease-out)`,
         }} />
       </div>
       {/* Pas de mention de période : cette carte porte sur tous les deals, pas
@@ -448,7 +448,15 @@ function CashCollectedHero({ k }: { k: PaymentsData['kpis'] | undefined }) {
   );
 }
 
-/** Count-up ~1s, easing cubique sortant — le chiffre se pose au lieu d'apparaître. */
+/**
+ * Durée du count-up ET de la barre : les deux se terminent ensemble, sinon le
+ * chiffre se fige pendant que la barre court encore. 600ms plutôt que la
+ * seconde de la spec : sur un écran consulté plusieurs fois par jour, une
+ * animation trop longue se subit au lieu de se remarquer.
+ */
+const HERO_ANIM_MS = 700;
+
+/** Count-up en easing cubique sortant — le chiffre se pose au lieu d'apparaître. */
 function useCountUp(target: number, enabled: boolean): number {
   const [value, setValue] = useState(enabled ? 0 : target);
 
@@ -457,7 +465,7 @@ function useCountUp(target: number, enabled: boolean): number {
     let raf = 0;
     const start = performance.now();
     const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / 1000);
+      const t = Math.min(1, (now - start) / HERO_ANIM_MS);
       setValue(target * (1 - Math.pow(1 - t, 3)));
       if (t < 1) raf = requestAnimationFrame(tick);
     };

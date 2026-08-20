@@ -1743,7 +1743,19 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     'Likes':              { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.likes ?? 0) })), color: 'var(--accent-brand)' },
     'Commentaires':       { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.comments ?? 0) })), color: BLUE },
     'Partages':           { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.shares ?? 0) })), color: GREEN },
-    'Conv. vue→sub':      { data: mockFromTotalYT(parseFloat(conversionRate), 4), color: 'var(--accent-brand)', unit: '%' },
+    // Vraie conversion par jour (subs gagnés / vues), plus une courbe générée à partir
+    // du total. mockFromTotalYT répartissait le taux global avec un sinus : la courbe
+    // dessinait des variations là où la réalité peut être parfaitement plate (0 abonné
+    // gagné sur les 62 jours du profil de test). Corrigé le 2026-08-20.
+    'Conv. vue→sub': {
+      data: ytDays.map(d => ({
+        date: d.date,
+        v: ytDaysNoDataSet.has(d.date)
+          ? (null as any)
+          : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : 0),
+      })),
+      color: 'var(--accent-brand)', unit: '%',
+    },
     'Abonnés YT':         { data: ytDays.map(d => ({ date: d.date, v: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.subsGained ?? 0) })), color: RED },
   };
 

@@ -349,5 +349,35 @@ export async function GET(request: Request) {
     };
   }
 
+  // ── Test : durée moyenne de visionnage PAR JOUR, séparée Shorts / vidéos longues ──
+  // La doc annonce `creatorContentType` (SHORTS | VIDEO_ON_DEMAND | LIVE_STREAM | STORY)
+  // combinable avec `day`. Vérification sur la vraie chaîne avant d'en dépendre : une
+  // API peut documenter une combinaison qu'elle refuse en pratique (quota, chaîne trop
+  // petite, dimension non supportée sur ce type de rapport).
+  {
+    const start = getStartDate(30);
+    const end = getToday();
+    const tests: Record<string, string> = {
+      day_seul: `metrics=views,averageViewDuration&dimensions=day&sort=day`,
+      day_x_contentType: `metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=day,creatorContentType&sort=day`,
+      contentType_seul: `metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=creatorContentType`,
+    };
+    results.avg_duration_by_content_type = {};
+    for (const [label, q] of Object.entries(tests)) {
+      const r = await fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${start}&endDate=${end}&${q}`,
+        { headers: h }
+      );
+      const d = await r.json();
+      (results.avg_duration_by_content_type as Record<string, any>)[label] = {
+        httpStatus: r.status,
+        error: d.error?.message ?? null,
+        columnHeaders: d.columnHeaders?.map((c: any) => c.name) ?? null,
+        rowCount: d.rows?.length ?? 0,
+        sampleRows: (d.rows ?? []).slice(0, 6),
+      };
+    }
+  }
+
   return NextResponse.json(results, { status: 200 });
 }
