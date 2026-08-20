@@ -1609,6 +1609,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   useEscapeKey(() => setSelectedVideo(null), !!selectedVideo);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
+  // Liste repliee par defaut : les 32 videos affichees d'un coup repoussaient « Sources
+  // de trafic », « Mots-cles » et « Demographie » si bas que Chris ignorait leur
+  // existence. 5 lignes laissent voir le haut des blocs suivants.
+  const [showAllVideos, setShowAllVideos] = useState(false);
+  const VIDEOS_PREVIEW = 5;
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
   const [retention, setRetention] = useState<{ ratio: number; watchRatio: number }[] | null>(null);
   const [retentionSummary, setRetentionSummary] = useState<{ avgViewDurationSec: number | null; avgViewPercentage: number | null; watchTimeMin: number | null; likes: number | null; comments: number | null; shares: number | null } | null>(null);
@@ -2077,6 +2082,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 const bv = videosSortKey === 'publishedAt' ? new Date(b.publishedAt).getTime() : (b[videosSortKey] ?? 0);
                 return videosSortDir === 'desc' ? bv - av : av - bv;
               })
+              .slice(0, showAllVideos ? undefined : VIDEOS_PREVIEW)
               .map(v => (
               <tr key={v.id} onClick={() => { setSelectedVideo(v); setJobCreatedAt(null); setVideoCtr(null); setCtrPending(false); setRetention(null); setRetentionSummary(null); loadRetention(v.id, v.publishedAt); }}
                 style={{ cursor: 'pointer' }}
@@ -2103,9 +2109,25 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             ))}
           </tbody>
         </table>
+        {yt.videos.length > VIDEOS_PREVIEW && (
+          <button
+            type="button"
+            onClick={() => setShowAllVideos(v => !v)}
+            style={{
+              display: 'block', width: '100%', marginTop: 10, padding: '8px 0',
+              background: 'none', border: 'none', cursor: 'pointer',
+              fontSize: 12, fontWeight: 600, color: 'var(--accent-brand)', fontFamily: 'inherit',
+            }}
+          >
+            {showAllVideos ? 'Replier' : `Voir toutes les vidéos (${yt.videos.length})`}
+          </button>
+        )}
       </Card>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 18 }}>
+      {/* Trois colonnes : ces blocs etaient sous la liste complete des videos, donc
+          invisibles sans un long scroll. La demographie les rejoint plutot que d'ouvrir
+          une quatrieme ligne. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
         <Card title="Sources de trafic" sub="Vues par source">
           {trafficData.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
@@ -2125,6 +2147,28 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             </div>
           ))}
           {yt.searchKeywords.length === 0 && <Empty msg="Pas encore de données de recherche" />}
+        </Card>
+
+        {/* Repartition de l'audience par age et sexe. La donnee etait chargee depuis
+            l'API mais n'etait affichee NULLE PART. YouTube ne la divulgue qu'au-dela
+            d'un seuil de spectateurs (confidentialite) : d'ou le message explicite
+            plutot qu'un bloc vide, tant que la chaine n'y est pas. */}
+        <Card title="Démographie" sub="Âge et sexe des spectateurs">
+          {[...yt.demographics]
+            .sort((a, b) => b.viewerPct - a.viewerPct)
+            .slice(0, 10)
+            .map((d, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
+                <div style={{ fontSize: 11, color: 'var(--muted)', width: 96 }}>
+                  {d.ageGroup.replace('age', '')} {d.gender === 'male' ? 'H' : d.gender === 'female' ? 'F' : ''}
+                </div>
+                <div style={{ flex: 1, height: 6, background: 'var(--border)', borderRadius: 3 }}>
+                  <div style={{ height: 6, width: `${Math.min(100, d.viewerPct)}%`, background: 'var(--accent-brand)', borderRadius: 3 }} />
+                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, width: 40, textAlign: 'right' }}>{d.viewerPct.toFixed(1)}%</div>
+              </div>
+            ))}
+          {yt.demographics.length === 0 && <Empty msg="Pas encore assez de spectateurs — YouTube ne fournit cette donnée qu'au-delà d'un seuil" />}
         </Card>
       </div>
 
