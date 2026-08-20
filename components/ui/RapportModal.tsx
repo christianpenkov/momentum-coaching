@@ -538,7 +538,15 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
           {/* ── Étape 1 — présent ? ─────────────────────────────────────────── */}
           {step === 'show_up' && (
             <div>
-              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Le lead s'est présenté ?</div>
+              {/* Le nom de la personne plutôt que « Le lead » : on rapporte un appel
+                  avec quelqu'un de précis, pas une entrée de pipeline. Nom complet
+                  tel que Calendly l'a enregistré — le découper au premier mot
+                  supposerait un « prénom nom » que les données ne garantissent pas
+                  (beaucoup de noms en un seul mot). Repli sur « Le lead » quand
+                  invitee_name est absent. */}
+              <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
+                {inviteeName?.trim() ? `${inviteeName.trim()} s'est présenté ?` : "Le lead s'est présenté ?"}
+              </div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Était-il au rendez-vous ?</div>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
                 <button className="btn-primary-brand" type="button" style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700 }} disabled={saving} onClick={() => handleShowUp(true)}>
