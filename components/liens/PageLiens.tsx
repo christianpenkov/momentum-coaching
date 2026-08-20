@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, Fragment, type ReactNode } from 'react';
+import { useRouter } from 'next/navigation';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
@@ -750,6 +751,27 @@ function ChatBubble({ tag, tagLabel, children }: { tag: string; tagLabel: string
 }
 
 // DM1 = accroche seule, pas de lien dedans — simple textarea sans token
+/**
+ * Étiquette d'un champ de séquence, avec la mention « modifié » quand il diffère
+ * de ce qui est en base. Sans elle, le compteur en pied indiquerait un nombre sans
+ * dire lesquels — il faudrait relire tout le formulaire pour retrouver ses ajouts.
+ */
+function ChampSeqLabel({ libelle, precision, modifie }: { libelle: string; precision?: string; modifie: boolean }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 4, marginLeft: 4 }}>
+      <span style={{
+        flex: 1, minWidth: 0,
+        font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.06em',
+        textTransform: 'uppercase', color: MUTED,
+      }}>
+        {libelle}
+        {precision && <span style={{ textTransform: 'none', letterSpacing: 0, color: FAINT, fontWeight: 400 }}> · {precision}</span>}
+      </span>
+      {modifie && <span style={{ fontSize: 10, fontWeight: 600, color: AMBER, flexShrink: 0 }}>modifié</span>}
+    </div>
+  );
+}
+
 function Dm1Editor({ value, onChange, saved, border, amber, bg, ink }: {
   value: string; onChange: (v: string) => void; saved: boolean;
   blue: string; blueSoft: string; border: string; amber: string; bg: string; ink: string;
@@ -842,22 +864,59 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   const [msgSaved, setMsgSaved] = useState(false);
   const isExisting = !!post.hasLeadMagnet;
 
+  // ── La séquence DM, en un seul état ─────────────────────────────────────────
+  //
+  // Vocabulaire à l'écran (celui du handoff), et la colonne correspondante :
+  //   accroche      1er message, sans lien             dm_lm_message
+  //   accrocheBtn   demande le lien (quick reply)      dm_button_text
+  //   lien          porte le lien                      dm_link_message
+  //   lienBtn       ouvre le lien, 20 car. max         dm_link_button_text
+  //   relance       question d'ouverture, +2 min       dm_opener_message
+  //
+  // ⚠️ Les noms de colonnes décalent la numérotation : `dm_opener_message` est la
+  // RELANCE (l'ancien « DM3 »), pas le DM2. L'ancien code appelait d'ailleurs son
+  // state `dm2Text` alors qu'il pilotait la relance — d'où des confusions à chaque
+  // évolution. Les colonnes ne sont pas renommées (le webhook Instagram, poll-leads
+  // et send-pending-dm3 les lisent), seul l'écran l'est.
+  //
+  // Les champs du lien sont pré-remplis avec les valeurs par défaut plutôt que
+  // laissés vides : un champ vide ne montrerait pas ce qui part réellement. Effacer
+  // tout fait réapparaître la même valeur en placeholder gris.
+  const [seq, setSeq] = useState({
+    accroche: post.dmLmMessage || `👋 Voici le lien comme promis !`,
+    accrocheBtn: post.dmButtonText || '🚀 Je veux le lien !',
+    lien: post.dmLinkMessage || DM2_DEFAULT_MESSAGE,
+    lienBtn: post.dmLinkButtonText || DM2_DEFAULT_BUTTON,
+    relance: post.dmOpenerMessage || '',
+  });
+  // Référence de comparaison : ce qui est actuellement en base. Un champ modifié
+  // puis remis à sa valeur d'origine ne compte pas comme une modification.
+  const [seqRef, setSeqRef] = useState(seq);
+  const [seqSaving, setSeqSaving] = useState(false);
+  const [seqError, setSeqError] = useState<string | null>(null);
+
+  const champsModifies = (Object.keys(seq) as (keyof typeof seq)[]).filter(k => seq[k] !== seqRef[k]);
+  const nbModifs = champsModifies.length;
+
+  const setChamp = (k: keyof typeof seq, v: string) => setSeq(s => ({ ...s, [k]: v }));
+
   useEffect(() => {
     setKeyword(post.lmKeyword || '');
     setDmMessage(post.dmOpenerMessage || '');
     setResult(post.lmShortUrl || null);
-    setDm1Text(post.dmLmMessage || `👋 Voici le lien comme promis !`);
-    setDm1Saved(true);
-    setDm2Text(post.dmOpenerMessage || '');
-    setDm2Saved(true);
-    setButtonText(post.dmButtonText || '🚀 Je veux le lien !');
-    setButtonSaved(true);
-    // Sans ça, les champs du DM2 gardaient les valeurs du post précédent en
-    // changeant de contenu.
-    setDmLinkMsg(post.dmLinkMessage || DM2_DEFAULT_MESSAGE);
-    setDmLinkBtn(post.dmLinkButtonText || DM2_DEFAULT_BUTTON);
-    setDmLinkSaved(true);
-    setDmLinkBtnSaved(true);
+    // Toute la séquence en une fois : cinq états à réinitialiser séparément
+    // finissaient toujours par en laisser un derrière, qui gardait alors la valeur
+    // du contenu précédent.
+    const depuisPost = {
+      accroche: post.dmLmMessage || `👋 Voici le lien comme promis !`,
+      accrocheBtn: post.dmButtonText || '🚀 Je veux le lien !',
+      lien: post.dmLinkMessage || DM2_DEFAULT_MESSAGE,
+      lienBtn: post.dmLinkButtonText || DM2_DEFAULT_BUTTON,
+      relance: post.dmOpenerMessage || '',
+    };
+    setSeq(depuisPost);
+    setSeqRef(depuisPost);
+    setSeqError(null);
   }, [post.id]);
 
   if (isYT) return (
@@ -912,13 +971,16 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
       // Sauvegarder dans content_links
       await fetch('/api/client/content-links', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_url: lmUrl || null, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: dm1Text || null, dm_button_text: buttonText || null }),
+        body: JSON.stringify({ content_id: post.id, platform: post.platform, lm_id: resolvedLmId || null, lm_short_url: shortUrl, lm_url: lmUrl || null, lm_keyword: keyword, dm_opener_message: dmMessage || null, dm_lm_message: seq.accroche || null, dm_button_text: seq.accrocheBtn || null }),
       });
       setResult(shortUrl);
-      setDm2Text(dmMessage || '');
-      setDm2Saved(true);
-      setButtonSaved(true);
-      onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl, dmOpenerMessage: dmMessage || undefined, dmButtonText: buttonText || undefined });
+      // La relance saisie ici devient la valeur de référence : sinon la barre
+      // d'enregistrement annoncerait une modification en attente juste après avoir
+      // créé le lien.
+      const apresCreation = { ...seq, relance: dmMessage || '' };
+      setSeq(apresCreation);
+      setSeqRef(apresCreation);
+      onPostUpdated(post.id, { hasLeadMagnet: true, lmKeyword: keyword, lmShortUrl: shortUrl, dmOpenerMessage: dmMessage || undefined, dmButtonText: seq.accrocheBtn || undefined });
       setEditing(false);
     } catch (e: any) { setError(e.message); } finally { setLoading(false); }
   };
@@ -957,138 +1019,66 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   };
   const handleConfirmLeave = () => { setEditing(false); setDmMessage(savedDmMessage); setDmEdited(false); setConfirmLeave(false); };
 
-  // États pour l'édition inline des DMs (sans passer par mode édition complet)
-  const [dm1Text, setDm1Text] = useState(post.dmLmMessage || `👋 Voici le lien comme promis !`);
-  const [dm1Saved, setDm1Saved] = useState(true);
-  const [dm1Saving, setDm1Saving] = useState(false);
-  const [dm2Text, setDm2Text] = useState(savedDmMessage);
-  const [dm2Saved, setDm2Saved] = useState(true);
-  const [dm2Saving, setDm2Saving] = useState(false);
-  const [buttonText, setButtonText] = useState(post.dmButtonText || '🚀 Je veux le lien !');
-  const [buttonSaved, setButtonSaved] = useState(true);
-  const [buttonSaving, setButtonSaving] = useState(false);
+  /**
+   * Un seul enregistrement pour toute la séquence.
+   *
+   * Cinq boutons « Sauvegarder » indépendants coexistaient, chacun avec son propre
+   * état : on pouvait publier une séquence à moitié enregistrée sans s'en rendre
+   * compte. Un bug documenté en atteste — le garde-fou signalait des modifications
+   * non enregistrées mais n'en sauvait que trois sur cinq, les deux champs du lien
+   * étant perdus sans message d'erreur. Un seul appel supprime la classe de bug.
+   *
+   * Vide → null sur les champs du lien : le webhook applique alors son défaut,
+   * celui-là même que le placeholder affiche.
+   */
+  const enregistrerSequence = async () => {
+    if (!nbModifs || seqSaving) return;
+    setSeqSaving(true); setSeqError(null);
+    try {
+      const res = await fetch('/api/client/content-links', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          content_id: post.id, platform: post.platform,
+          dm_lm_message: seq.accroche,
+          dm_button_text: seq.accrocheBtn,
+          dm_link_message: seq.lien.trim() || null,
+          dm_link_button_text: seq.lienBtn.trim() || null,
+          dm_opener_message: seq.relance,
+        }),
+      });
+      if (!res.ok) throw new Error('Erreur sauvegarde');
+      onPostUpdated(post.id, {
+        dmLmMessage: seq.accroche,
+        dmButtonText: seq.accrocheBtn,
+        dmLinkMessage: seq.lien.trim() || undefined,
+        dmLinkButtonText: seq.lienBtn.trim() || undefined,
+        dmOpenerMessage: seq.relance,
+      });
+      setSeqRef(seq);
+    } catch (e: any) {
+      setSeqError(e.message || 'Erreur');
+    } finally {
+      setSeqSaving(false);
+    }
+  };
 
-  // DM2 — texte et libellé de bouton.
-  //
-  // Pré-remplis avec les valeurs par défaut (en noir, modifiables) plutôt que
-  // laissés vides : un champ vide n'aurait pas montré ce qui part réellement.
-  // Si on efface tout, le placeholder gris reprend la même valeur — on voit donc
-  // toujours ce qui sera envoyé, écrit en noir ou suggéré en gris.
-  const [dmLinkMsg, setDmLinkMsg] = useState(post.dmLinkMessage || DM2_DEFAULT_MESSAGE);
-  const [dmLinkBtn, setDmLinkBtn] = useState(post.dmLinkButtonText || DM2_DEFAULT_BUTTON);
-  const [dmLinkSaved, setDmLinkSaved] = useState(true);
-  const [dmLinkBtnSaved, setDmLinkBtnSaved] = useState(true);
-  const [dmLinkSaving, setDmLinkSaving] = useState(false);
-  const [dmLinkBtnSaving, setDmLinkBtnSaving] = useState(false);
-  const [dmLinkError, setDmLinkError] = useState<string | null>(null);
-
-  const [dm1Error, setDm1Error] = useState<string | null>(null);
-  const [dm2Error, setDm2Error] = useState<string | null>(null);
-
-  // Signale au parent (guard de navigation) qu'il y a des changements non sauvegardés dans la séquence DM
+  // Le garde-fou de navigation reste un filet, pas la règle : avec un bouton
+  // unique et la mention des modifications en pied de formulaire, l'oubli devient
+  // rare — mais il ne doit pas coûter le texte écrit.
   const unsavedGuard = useUnsavedGuard();
   useEffect(() => {
-    unsavedGuard?.setHasUnsaved(!dm1Saved || !dm2Saved || !buttonSaved || !dmLinkSaved || !dmLinkBtnSaved);
-  }, [dm1Saved, dm2Saved, buttonSaved, dmLinkSaved, dmLinkBtnSaved, unsavedGuard]);
+    unsavedGuard?.setHasUnsaved(nbModifs > 0);
+  }, [nbModifs, unsavedGuard]);
   useEffect(() => {
     return () => { unsavedGuard?.setHasUnsaved(false); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [post.id]);
-  const [buttonError, setButtonError] = useState<string | null>(null);
 
-  const saveDm1 = async (msg: string) => {
-    setDm1Saving(true); setDm1Error(null);
-    try {
-      const res = await fetch('/api/client/content-links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_lm_message: msg }),
-      });
-      if (!res.ok) throw new Error('Erreur sauvegarde');
-      onPostUpdated(post.id, { dmLmMessage: msg });
-      setDm1Saved(true);
-    } catch (e: any) { setDm1Error(e.message || 'Erreur'); } finally { setDm1Saving(false); }
-  };
-
-  const saveDm2 = async (msg: string) => {
-    setDm2Saving(true); setDm2Error(null);
-    try {
-      const res = await fetch('/api/client/content-links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_opener_message: msg }),
-      });
-      if (!res.ok) throw new Error('Erreur sauvegarde');
-      onPostUpdated(post.id, { dmOpenerMessage: msg });
-      setDm2Saved(true);
-    } catch (e: any) { setDm2Error(e.message || 'Erreur'); } finally { setDm2Saving(false); }
-  };
-
-  // Message et bouton du DM2 sauvegardés séparément : on modifie souvent l'un
-  // sans toucher à l'autre. Vide → null : le webhook applique alors son défaut,
-  // celui-là même que le placeholder affiche.
-  const saveDmLinkMessage = async (msg: string) => {
-    setDmLinkSaving(true); setDmLinkError(null);
-    try {
-      const res = await fetch('/api/client/content-links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          content_id: post.id, platform: post.platform,
-          dm_link_message: msg.trim() || null,
-        }),
-      });
-      if (!res.ok) throw new Error('Erreur sauvegarde');
-      onPostUpdated(post.id, { dmLinkMessage: msg.trim() || undefined });
-      setDmLinkSaved(true);
-    } catch (e: any) { setDmLinkError(e.message || 'Erreur'); } finally { setDmLinkSaving(false); }
-  };
-
-  const saveDmLinkButton = async (btn: string) => {
-    setDmLinkBtnSaving(true); setDmLinkError(null);
-    try {
-      const res = await fetch('/api/client/content-links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({
-          content_id: post.id, platform: post.platform,
-          dm_link_button_text: btn.trim() || null,
-        }),
-      });
-      if (!res.ok) throw new Error('Erreur sauvegarde');
-      onPostUpdated(post.id, { dmLinkButtonText: btn.trim() || undefined });
-      setDmLinkBtnSaved(true);
-    } catch (e: any) { setDmLinkError(e.message || 'Erreur'); } finally { setDmLinkBtnSaving(false); }
-  };
-
-  const saveButtonText = async (msg: string) => {
-    setButtonSaving(true); setButtonError(null);
-    try {
-      const res = await fetch('/api/client/content-links', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ content_id: post.id, platform: post.platform, dm_button_text: msg }),
-      });
-      if (!res.ok) throw new Error('Erreur sauvegarde');
-      onPostUpdated(post.id, { dmButtonText: msg });
-      setButtonSaved(true);
-    } catch (e: any) { setButtonError(e.message || 'Erreur'); } finally { setButtonSaving(false); }
-  };
-
-  // Enregistre auprès du guard de navigation la fonction qui sauvegarde tout ce qui ne l'est pas encore
-  //
-  // Les CINQ champs doivent figurer ici, exactement les mêmes que ceux surveillés
-  // par setHasUnsaved plus haut. Le message du DM2 et le libellé de son bouton y
-  // manquaient : le guard signalait bien des modifications non enregistrées, mais
-  // "enregistrer" ne sauvait que dm1/dm2/bouton DM1 — les deux champs du DM2
-  // étaient perdus sans aucun message d'erreur.
   useEffect(() => {
-    unsavedGuard?.registerSaveAll(async () => {
-      if (!dm1Saved) await saveDm1(dm1Text);
-      if (!dm2Saved) await saveDm2(dm2Text);
-      if (!buttonSaved) await saveButtonText(buttonText);
-      if (!dmLinkSaved) await saveDmLinkMessage(dmLinkMsg);
-      if (!dmLinkBtnSaved) await saveDmLinkButton(dmLinkBtn);
-    });
+    unsavedGuard?.registerSaveAll(enregistrerSequence);
     return () => { unsavedGuard?.registerSaveAll(null); };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dm1Saved, dm2Saved, buttonSaved, dmLinkSaved, dmLinkBtnSaved,
-      dm1Text, dm2Text, buttonText, dmLinkMsg, dmLinkBtn]);
+  }, [seq, seqRef, nbModifs]);
 
   if ((result || isExisting) && !editing) return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -1115,125 +1105,111 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         </div>
 
         <div style={{ padding: isMobile ? '14px' : '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
-          {/* DM1 — accroche, même style autonome que DM3 */}
+          {/* Accroche — 1er message, sans lien */}
           <div>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 1 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé avec le commentaire</span>
-            </div>
+            <ChampSeqLabel libelle="Accroche" precision="envoyée avec le commentaire" modifie={seq.accroche !== seqRef.accroche} />
             <Dm1Editor
-              value={dm1Text}
-              onChange={v => { setDm1Text(v); setDm1Saved(false); }}
-              saved={dm1Saved}
+              value={seq.accroche}
+              onChange={v => setChamp('accroche', v)}
+              saved={seq.accroche === seqRef.accroche}
               blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
             />
           </div>
-          {dm1Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8 }}>{dm1Error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2, marginBottom: 4 }}>
-            <button onClick={() => saveDm1(dm1Text)} disabled={dm1Saving || dm1Saved}
-              style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm1Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm1Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
-              {dm1Saving ? '...' : dm1Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
-            </button>
+
+          {/* Bouton de l'accroche — rendu comme sur Instagram, sous la bulle */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, marginBottom: 10 }}>
+            <ChampSeqLabel libelle="Bouton de l'accroche" precision="demande le lien · 20 car. max" modifie={seq.accrocheBtn !== seqRef.accrocheBtn} />
+            <input
+              value={seq.accrocheBtn}
+              onChange={e => setChamp('accrocheBtn', e.target.value.slice(0, 20))}
+              maxLength={20}
+              placeholder="🚀 Je veux le lien !"
+              style={{
+                padding: '8px 16px', fontSize: 13, fontWeight: 600,
+                borderRadius: 18, border: `1.5px solid ${seq.accrocheBtn === seqRef.accrocheBtn ? 'var(--accent-brand-soft)' : AMBER}`,
+                background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
+                width: `${Math.max(seq.accrocheBtn.length, 10) + 4}ch`, maxWidth: '100%',
+              }}
+            />
           </div>
 
-          {/* Bouton Quick Reply — rendu comme sur Instagram, sous la bulle DM1 */}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2, marginBottom: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-              <input
-                value={buttonText}
-                onChange={e => { setButtonText(e.target.value.slice(0, 20)); setButtonSaved(false); }}
-                maxLength={20}
-                placeholder="🚀 Je veux le lien !"
-                style={{
-                  padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                  borderRadius: 18, border: `1.5px solid ${buttonSaved ? 'var(--accent-brand-soft)' : AMBER}`,
-                  background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
-                  width: `${Math.max(buttonText.length, 10) + 4}ch`, maxWidth: '100%',
-                }}
-              />
-              <button onClick={() => saveButtonText(buttonText)} disabled={buttonSaving || buttonSaved}
-                style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: buttonSaved ? 'var(--green)' : BLUE, color: '#fff', cursor: buttonSaved ? 'default' : 'pointer', transition: 'background .2s' }}>
-                {buttonSaving ? '...' : buttonSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
-              </button>
-            </div>
-            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4 }}>Texte du bouton — max 20 caractères</div>
-            {buttonError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px' }}>{buttonError}</div>}
-          </div>
-
-          {/* DM2 — le lien, envoyé après le clic. Le lien lui-même reste dérivé du
-              lead magnet (non modifiable), mais le texte et le libellé du bouton
+          {/* Message du lien — envoyé après le clic. Le lien lui-même reste dérivé
+              du lead magnet (non modifiable), mais le texte et le libellé du bouton
               qui l'entourent sont configurables. */}
           <div style={{ marginTop: 2 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 2 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé quand le prospect clique le bouton</span>
-            </div>
+            <ChampSeqLabel libelle="Message du lien" precision="envoyé quand le prospect clique le bouton" modifie={seq.lien !== seqRef.lien} />
             <textarea
-              value={dmLinkMsg}
-              onChange={e => { setDmLinkMsg(e.target.value); setDmLinkSaved(false); }}
+              value={seq.lien}
+              onChange={e => setChamp('lien', e.target.value)}
               placeholder={DM2_DEFAULT_MESSAGE}
               rows={2}
-              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${dmLinkSaved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${seq.lien === seqRef.lien ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
             />
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
-              <button onClick={() => saveDmLinkMessage(dmLinkMsg)} disabled={dmLinkSaving || dmLinkSaved}
-                style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: 'var(--green)', color: '#fff', cursor: dmLinkSaved ? 'default' : 'pointer', opacity: dmLinkSaved ? 0.65 : 1, transition: 'opacity .2s' }}>
-                {dmLinkSaving ? '...' : dmLinkSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
-              </button>
-            </div>
           </div>
 
-          {/* Bouton du DM2 — celui qui OUVRE le lien (le bouton du DM1 le demande) */}
-          <div style={{ marginTop: 6 }}>
+          {/* Bouton du lien — celui qui OUVRE le lien (celui de l'accroche le demande) */}
+          <div style={{ marginTop: 8 }}>
+            <ChampSeqLabel libelle="Bouton du lien" precision="ouvre le lien · 20 car. max" modifie={seq.lienBtn !== seqRef.lienBtn} />
             <div style={{
-              border: `1px solid ${dmLinkBtnSaved ? BORDER : AMBER}`, borderRadius: 18,
+              border: `1px solid ${seq.lienBtn === seqRef.lienBtn ? BORDER : AMBER}`, borderRadius: 18,
               padding: '7px 14px', background: '#fff', display: 'flex', alignItems: 'center', gap: 6,
             }}>
               <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
               <input
-                value={dmLinkBtn}
-                onChange={e => { setDmLinkBtn(e.target.value.slice(0, 20)); setDmLinkBtnSaved(false); }}
+                value={seq.lienBtn}
+                onChange={e => setChamp('lienBtn', e.target.value.slice(0, 20))}
                 placeholder={DM2_DEFAULT_BUTTON}
                 maxLength={20}
                 style={{ flex: 1, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, fontWeight: 600, color: INK, fontFamily: 'inherit', minWidth: 0 }}
               />
             </div>
             <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3 }}>
-              Le lien est caché derrière ce bouton — max 20 caractères
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 4 }}>
-              <button onClick={() => saveDmLinkButton(dmLinkBtn)} disabled={dmLinkBtnSaving || dmLinkBtnSaved}
-                style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: 'var(--green)', color: '#fff', cursor: dmLinkBtnSaved ? 'default' : 'pointer', opacity: dmLinkBtnSaved ? 0.65 : 1, transition: 'opacity .2s' }}>
-                {dmLinkBtnSaving ? '...' : dmLinkBtnSaved ? '✓ Sauvegardé' : 'Sauvegarder'}
-              </button>
+              Le lien est caché derrière ce bouton
             </div>
           </div>
-
-          {dmLinkError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dmLinkError}</div>}
 
           <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 8, marginTop: 6, marginBottom: 4 }}>
             Lien envoyé dans le DM : {lmUrl || '(généré après association du lead magnet)'} — non modifiable
           </div>
 
-          {/* DM3 — message d'ouverture, envoyé 2 min après le DM2. */}
+          {/* Relance — question d'ouverture, envoyée 2 min après le lien */}
           <div style={{ marginTop: 2 }}>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 3 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé automatiquement 2 min après le DM 2</span>
-            </div>
+            <ChampSeqLabel libelle="Relance" precision="2 min après le lien" modifie={seq.relance !== seqRef.relance} />
             <textarea
-              value={dm2Text}
-              onChange={e => { setDm2Text(e.target.value); setDm2Saved(false); }}
+              value={seq.relance}
+              onChange={e => setChamp('relance', e.target.value)}
               placeholder={`Ex : "C'est quoi ton objectif principal en ce moment ?"`}
               rows={3}
-              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${dm2Saved ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
+              style={{ width: '100%', padding: '10px 12px', fontSize: 12, lineHeight: 1.8, borderRadius: 8, border: `1px solid ${seq.relance === seqRef.relance ? BORDER : AMBER}`, background: BG, color: INK, outline: 'none', boxShadow: 'none', resize: 'vertical', boxSizing: 'border-box', fontFamily: 'inherit' }}
             />
             <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4, marginTop: 3, lineHeight: 1.5 }}>
-              Le délai de 2 minutes évite que les deux messages arrivent dans la même seconde — le DM 3 paraît écrit après coup, pas automatique.
+              Le délai de 2 minutes évite que les deux messages arrivent dans la même seconde — la relance paraît écrite après coup, pas automatique.
             </div>
           </div>
-          {dm2Error && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 4 }}>{dm2Error}</div>}
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 2 }}>
-            <button onClick={() => saveDm2(dm2Text)} disabled={dm2Saving || dm2Saved}
-              style={{ padding: isMobile ? '11px 14px' : '3px 10px', minHeight: isMobile ? 44 : undefined, fontSize: isMobile ? 12 : 10.5, fontWeight: 600, borderRadius: 6, border: 'none', background: dm2Saved ? 'var(--green)' : BLUE, color: '#fff', cursor: dm2Saved ? 'default' : 'pointer', transition: 'background .2s' }}>
-              {dm2Saving ? '...' : dm2Saved ? '✓ Sauvegardé' : 'Sauvegarder'}
+
+          {seqError && <div style={{ fontSize: 11, color: RED, background: 'var(--red-soft)', borderRadius: 6, padding: '5px 10px', marginLeft: 8, marginTop: 8 }}>{seqError}</div>}
+
+          {/* Un seul enregistrement pour toute la séquence, avec le compte des
+              modifications en attente — cinq boutons indépendants laissaient
+              publier une séquence à moitié enregistrée. */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+            marginTop: 10, paddingTop: 10, borderTop: `1px solid ${BORDER}`,
+          }}>
+            <span style={{ flex: 1, minWidth: 0, fontSize: 11.5, fontWeight: 600, color: nbModifs ? AMBER : FAINT }}>
+              {nbModifs
+                ? `${nbModifs} modification${nbModifs > 1 ? 's' : ''} non enregistrée${nbModifs > 1 ? 's' : ''}`
+                : 'Séquence à jour'}
+            </span>
+            <button onClick={enregistrerSequence} disabled={!nbModifs || seqSaving}
+              style={{
+                padding: isMobile ? '0 18px' : '9px 16px', minHeight: isMobile ? 48 : undefined,
+                fontSize: isMobile ? 13 : 12.5, fontWeight: 600, borderRadius: 8, border: 'none',
+                background: nbModifs ? BLUE : SURFACE2, color: nbModifs ? '#fff' : MUTED,
+                cursor: nbModifs && !seqSaving ? 'pointer' : 'default',
+                transition: `all var(--dur-quick) var(--ease-out)`,
+              }}>
+              {seqSaving ? 'Enregistrement…' : 'Enregistrer la séquence'}
             </button>
           </div>
         </div>
@@ -1255,7 +1231,19 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
           ✏️ Modifier / Régénérer le Lead Magnet
         </button>
         <div style={{ marginLeft: 'auto' }}>
-          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} onDissociated={() => { setResult(null); setEditing(false); setKeyword(''); setSelectedLmId(''); setDm1Text(`👋 Voici le lien comme promis !`); setDm1Saved(true); setDm2Text(''); setDm2Saved(true); setButtonText('🚀 Je veux le lien !'); setButtonSaved(true); }} />
+          <DissociateButton postId={post.id} platform={post.platform} onPostUpdated={onPostUpdated} onDissociated={() => {
+            setResult(null); setEditing(false); setKeyword(''); setSelectedLmId('');
+            // Séquence remise à ses valeurs par défaut, référence comprise : après
+            // une dissociation il n'y a plus rien à enregistrer.
+            const parDefaut = {
+              accroche: `👋 Voici le lien comme promis !`,
+              accrocheBtn: '🚀 Je veux le lien !',
+              lien: DM2_DEFAULT_MESSAGE,
+              lienBtn: DM2_DEFAULT_BUTTON,
+              relance: '',
+            };
+            setSeq(parDefaut); setSeqRef(parDefaut);
+          }} />
         </div>
       </div>
     </div>
@@ -1345,31 +1333,29 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         </div>
         <div style={{ padding: isMobile ? '14px' : '20px 16px', background: 'var(--surface-2)', display: 'flex', flexDirection: 'column', gap: 4 }}>
           <div>
-            <div style={{ fontSize: 9.5, fontWeight: 700, color: FAINT, marginBottom: 3, marginLeft: 4 }}>
-              DM 1 <span style={{ fontWeight: 400, color: FAINT }}>· envoyé avec le commentaire</span>
-            </div>
+            <ChampSeqLabel libelle="Accroche" precision="envoyée avec le commentaire" modifie={false} />
             <Dm1Editor
-              value={dm1Text}
-              onChange={v => setDm1Text(v)}
+              value={seq.accroche}
+              onChange={v => setChamp('accroche', v)}
               saved={true}
               blue={BLUE} blueSoft={BLUE_SOFT} border={BORDER} amber={AMBER} bg={BG} ink={INK}
             />
           </div>
 
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 2, marginBottom: 10 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4, marginTop: 8, marginBottom: 10 }}>
+            <ChampSeqLabel libelle="Bouton de l'accroche" precision="demande le lien · 20 car. max" modifie={false} />
             <input
-              value={buttonText}
-              onChange={e => setButtonText(e.target.value.slice(0, 20))}
+              value={seq.accrocheBtn}
+              onChange={e => setChamp('accrocheBtn', e.target.value.slice(0, 20))}
               maxLength={20}
               placeholder="🚀 Je veux le lien !"
               style={{
                 alignSelf: 'flex-start', padding: '8px 16px', fontSize: 13, fontWeight: 600,
-                borderRadius: 18, border: '1.5px solid #6b7cde55',
+                borderRadius: 18, border: `1.5px solid ${BLUE_SOFT}`,
                 background: '#fff', color: BLUE, outline: 'none', textAlign: 'center',
-                width: `${Math.max(buttonText.length, 10) + 4}ch`, maxWidth: '100%',
+                width: `${Math.max(seq.accrocheBtn.length, 10) + 4}ch`, maxWidth: '100%',
               }}
             />
-            <div style={{ fontSize: 9.5, color: FAINT, marginLeft: 4 }}>Texte du bouton — max 20 caractères</div>
           </div>
 
           <ChatBubble tag="2" tagLabel="envoyé quand le prospect clique le bouton">
@@ -2940,6 +2926,7 @@ export default function PageLiens() {
   const { user } = useUser();
   const profileId = user?.id || '';
   const queryClient = useQueryClient();
+  const router = useRouter();
   const [refreshingPosts, setRefreshingPosts] = useState(false);
 
   const handleRefreshPosts = async () => {
@@ -3005,11 +2992,15 @@ export default function PageLiens() {
       if (href === window.location.pathname) return;
       e.preventDefault();
       e.stopPropagation();
-      setPendingLeaveAction(() => () => { window.location.href = href; });
+      // router.push et non window.location.href : ce dernier rechargeait toute
+      // l'application (écran blanc, tout se recharge) et annulait au passage les
+      // View Transitions entre pages. La confirmation reste identique pour
+      // l'utilisateur, seule la navigation qui suit change.
+      setPendingLeaveAction(() => () => { router.push(href); });
     };
     document.addEventListener('click', handler, true);
     return () => document.removeEventListener('click', handler, true);
-  }, []);
+  }, [router]);
 
   // ── Mutations locales (optimistic UI sur les lead magnets) ────────────────
   const [lmOverrides, setLmOverrides] = useState<LeadMagnet[] | null>(null);
