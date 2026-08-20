@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, type ReactNode } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, createContext, useContext, Fragment, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useUser } from '@/lib/UserContext';
 import { createClient } from '@/lib/supabase/client';
@@ -2697,6 +2697,94 @@ function RailContenus({ posts, rightView, onRetour, onDeplier, onProspect, onLmL
   );
 }
 
+/**
+ * Entonnoir « du contenu au prospect », all-time.
+ *
+ * Sur une seule ligne, repliable : assez petit pour rester affiché en permanence,
+ * donc réellement consulté. Un bandeau plus grand se replie au bout de deux jours
+ * et ne sert alors plus à rien.
+ *
+ * Les taux portent la lecture : vert quand ça passe, rouge quand ça décroche. C'est
+ * la réponse à « où ça casse ? », pas un tableau de bord de plus.
+ */
+function Entonnoir({ data, ouvert, onToggle, compact }: {
+  data: { contenus: number; commentaires: number; accroches: number; liensCliques: number;
+          tauxAccroches: number | null; tauxClics: number | null; pret: boolean };
+  ouvert: boolean;
+  onToggle: () => void;
+  compact: boolean;
+}) {
+  // « Prospects » et non « Commentaires » : la source exclut ceux que le coach a
+  // marqués « pas un lead » depuis le pipeline. Écrire « Commentaires » ferait
+  // croire à un décompte brut, et le chiffre ne collerait pas avec Instagram.
+  const etapes = [
+    { libelle: 'Contenus', valeur: data.contenus, taux: null as number | null },
+    { libelle: 'Prospects', valeur: data.commentaires, taux: null as number | null },
+    { libelle: 'Accroches', valeur: data.accroches, taux: data.tauxAccroches },
+    { libelle: 'Liens cliqués', valeur: data.liensCliques, taux: data.tauxClics },
+  ];
+
+  // Sous 60 %, l'étape décroche — le rouge doit se voir sans lire le chiffre.
+  const SEUIL_ALERTE = 60;
+
+  const chevron = (
+    <span style={{ alignSelf: 'flex-start', paddingTop: 19, flexShrink: 0, display: 'flex' }}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#c9c3b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+    </span>
+  );
+
+  return (
+    <div style={{
+      background: SURFACE, border: `1px solid ${BORDER}`, borderRadius: 'var(--r-card)',
+      boxShadow: 'var(--shadow-card)', padding: compact ? '11px 15px' : '11px 16px', flexShrink: 0,
+    }}>
+      <button onClick={onToggle} style={{
+        display: 'flex', alignItems: 'center', gap: 10, width: '100%',
+        background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+        marginBottom: ouvert ? 8 : 0, textAlign: 'left',
+        minHeight: compact ? undefined : 44,
+      }}>
+        <span style={{
+          flex: 1, font: "600 10px 'IBM Plex Mono', monospace", letterSpacing: '.07em',
+          textTransform: 'uppercase', color: MUTED,
+        }}>Du contenu au prospect</span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: 5, fontSize: 11, color: MUTED }}>
+          {ouvert ? 'replier' : 'déplier'}
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            style={{ transform: ouvert ? 'rotate(180deg)' : 'none', transition: `transform var(--dur-quick) var(--ease-out)` }}>
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </span>
+      </button>
+
+      {ouvert && (
+        !data.pret ? (
+          <div style={{ fontSize: 12, color: FAINT, padding: '6px 0' }}>Chargement…</div>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+            {etapes.map((e, i) => (
+              <Fragment key={e.libelle}>
+                {i > 0 && chevron}
+                <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
+                  <div style={{ border: `1px solid ${BORDER}`, borderRadius: 9, background: BG, padding: '7px 6px', boxSizing: 'border-box' }}>
+                    <div style={{ fontSize: 10, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{e.libelle}</div>
+                    <div style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-.4px', color: INK, marginTop: 1, fontVariantNumeric: 'tabular-nums' }}>{e.valeur}</div>
+                  </div>
+                  {/* Hauteur réservée même sans taux : sinon les cases ne s'alignent pas. */}
+                  <div style={{ height: 19, marginTop: 3, fontSize: 10.5, fontWeight: 700,
+                    color: e.taux === null ? 'transparent' : e.taux < SEUIL_ALERTE ? 'var(--red)' : 'var(--green)' }}>
+                    {e.taux === null ? '—' : `${e.taux} %`}
+                  </div>
+                </div>
+              </Fragment>
+            ))}
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 /** Vignette d'un contenu, avec repli sur le logo de la plateforme. */
 function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; hauteur?: number }) {
   const icon = post.platform === 'IG'
@@ -2978,6 +3066,17 @@ export default function PageLiens() {
     staleTime: 15 * 60 * 1000,
   });
 
+  // L'entonnoir se sert de la route du pipeline plutôt que d'une route dédiée :
+  // elle charge déjà instagram_leads (lead_magnet_sent, hook_replied, tracking_link)
+  // et prospect_events, soit exactement les quatre premières étapes. Une route de
+  // plus ne dirait rien que celle-ci ne sait déjà.
+  const { data: pipelineData } = useQuery({
+    queryKey: ['liens-funnel', profileId],
+    queryFn: () => fetch('/api/client/pipeline').then(r => r.json()),
+    enabled: !!profileId,
+    staleTime: 5 * 60 * 1000,
+  });
+
   // refetchOnWindowFocus/refetchOnMount: 'always' — un changement fait depuis un autre
   // appareil (ex: lien Calendly généré sur PC) doit être visible dès qu'on revient sur
   // cette page/onglet mobile, sans attendre l'expiration de staleTime (60s) ni action
@@ -3166,6 +3265,52 @@ export default function PageLiens() {
     queryClient.invalidateQueries({ queryKey: ['stories', profileId] });
   };
 
+  // ── Entonnoir « du contenu au prospect » ────────────────────────────────────
+  //
+  // All-time, sans fenêtre glissante : le coach veut savoir où sa mécanique casse,
+  // pas ce qu'elle a fait ces 30 derniers jours.
+  //
+  // Aucun filtre de compte Instagram ici : la route /api/client/pipeline filtre déjà
+  // archived_at, donc les leads d'un compte précédent sont exclus en amont. Ajouter
+  // un filtre par ig_account_id créerait un second mécanisme concurrent du premier
+  // (voir docs/a-deployer-apres-meta-review.md).
+  //
+  // La 5e étape (réponses à la relance) n'est PAS calculable aujourd'hui : la base
+  // sait qu'un prospect a répondu (hook_replied) mais pas à quel message. Il faudra
+  // tracer un prospect_event à l'envoi de la relance — d'ici là l'étape est masquée
+  // plutôt qu'approximée avec hook_replied, qui donnerait un taux faux.
+  const funnel = useMemo(() => {
+    const leads: any[] = pipelineData?.leads ?? [];
+    const events: any[] = pipelineData?.events ?? [];
+
+    const commentaires = leads.length;
+    const accroches = leads.filter(l => l.lead_magnet_sent).length;
+
+    // Un clic compte une fois par prospect, pas une fois par événement : un prospect
+    // qui reclique son lien ne fait pas un lead de plus.
+    const cliqueurs = new Set(
+      events
+        .filter(e => e.event_type === 'lm_clicked' || e.event_type === 'link_clicked')
+        .map(e => e.ig_lead_id)
+        .filter(Boolean)
+    );
+    const liensCliques = cliqueurs.size;
+
+    const taux = (num: number, den: number) => (den > 0 ? Math.round((num / den) * 100) : null);
+
+    return {
+      contenus: posts.length,
+      commentaires,
+      accroches,
+      liensCliques,
+      tauxAccroches: taux(accroches, commentaires),
+      tauxClics: taux(liensCliques, accroches),
+      pret: !!pipelineData,
+    };
+  }, [pipelineData, posts.length]);
+
+  const [funnelOuvert, setFunnelOuvert] = useState(true);
+
   const filteredPosts = posts.filter(p => {
     if (filterPlatform !== 'all' && p.platform !== filterPlatform) return false;
     if (search.trim() && !p.caption.toLowerCase().includes(search.toLowerCase())) return false;
@@ -3335,6 +3480,8 @@ export default function PageLiens() {
         <div className="liens-mobile-panel" style={{ display: 'none', flex: 1, overflowY: 'auto', padding: '16px 14px' }}>
           {(
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <Entonnoir data={funnel} ouvert={funnelOuvert} onToggle={() => setFunnelOuvert(v => !v)} compact={false} />
+
               <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
                 width: '100%', minHeight: 44, padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, boxSizing: 'border-box',
                 border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
@@ -3563,6 +3710,14 @@ export default function PageLiens() {
                 <span>Lead magnets{leadMagnets.length > 0 ? ` · ${leadMagnets.length}` : ''}</span>
               </button>
             </div>
+
+            {/* Entonnoir — état ① seulement : une fois dans un contenu, la question
+                n'est plus « où ça casse ? » mais « que dit CE contenu ». */}
+            {rightView === null && (
+              <div style={{ padding: '12px 14px 0', flexShrink: 0 }}>
+                <Entonnoir data={funnel} ouvert={funnelOuvert} onToggle={() => setFunnelOuvert(v => !v)} compact />
+              </div>
+            )}
 
             {/* Barre recherche + filtres */}
             <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
