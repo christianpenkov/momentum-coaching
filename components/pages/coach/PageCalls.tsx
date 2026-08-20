@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { useEscapeKey } from '@/lib/useEscapeKey';
 import Icon from '@/components/ui/Icon';
 import { Skeleton } from '@/components/ui/Skeleton';
 import Avatar, { getInitials } from '@/components/ui/Avatar';
@@ -40,6 +41,8 @@ export default function PageCalls() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [confirmCancelId, setConfirmCancelId] = useState<string | null>(null);
+  // Confirmation d'annulation : couche modale, Echap la ferme.
+  useEscapeKey(() => setConfirmCancelId(null), confirmCancelId !== null);
 
   // Rapports de session Google Meet en attente — même condition que le badge élève
   const [openSessionRapportCall, setOpenSessionRapportCall] = useState<{ callId: string; clientName: string | null; scheduledAt: string | null; call: Call } | null>(null);

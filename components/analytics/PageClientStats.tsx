@@ -908,6 +908,16 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
   const [selectedSequence, setSelectedSequence] = useState<any | null>(null);
   const [selectedStory, setSelectedStory] = useState<any | null>(null);
 
+  // Trois modales dans ce meme composant (post, sequence, story). Elles ne
+  // s'ouvrent pas ensemble en pratique, mais l'ordre ci-dessous garantit un
+  // comportement previsible si un chemin les superposait : on ne ferme que la
+  // couche affichee, jamais les trois d'un coup.
+  useEscapeKey(() => {
+    if (selectedStory) { setSelectedStory(null); return; }
+    if (selectedSequence) { setSelectedSequence(null); return; }
+    if (selectedPost) setSelectedPost(null);
+  }, !!selectedPost || !!selectedSequence || !!selectedStory);
+
   const { data: sequencesData } = useQuery({
     queryKey: ['story-sequences-stats-all', profileId],
     // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
@@ -1551,6 +1561,7 @@ function StorySequenceDetailModal({ profileId, sequence, onClose }: { profileId?
 
 function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceConnection }: { yt: YTStats | null; period: Period; profileId?: string; periodIndex?: number; ytIsFallback?: boolean; sinceConnection?: boolean }) {
   const [selectedVideo, setSelectedVideo] = useState<YTVideo | null>(null);
+  useEscapeKey(() => setSelectedVideo(null), !!selectedVideo);
   const [videosTypeFilter, setVideosTypeFilter] = useState<'all' | 'short' | 'long'>('all');
   const [videosSortKey, setVideosSortKey] = useState<'views' | 'views30d' | 'avgViewPct' | 'likes' | 'publishedAt'>('publishedAt');
   const [videosSortDir, setVideosSortDir] = useState<'desc' | 'asc'>('desc');
