@@ -114,6 +114,7 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
           disabled={atStart || single}
           style={arrowStyle(atStart)}
           aria-label="Rapport précédent"
+          className="carousel-arrow"
         >‹</button>
 
         <div className="card" style={{ flex: 1, borderLeft: '3px solid var(--accent-brand)', padding: '18px 20px' }}>
@@ -200,6 +201,7 @@ export default function PendingRapportCard({ items, onOpen, arrowSize = 32, marg
           disabled={atEnd || single}
           style={arrowStyle(atEnd)}
           aria-label="Rapport suivant"
+          className="carousel-arrow"
         >›</button>
       </div>
     </div>

@@ -893,7 +893,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>Montant du deal ?</div>
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 24, lineHeight: 1.6 }}>Quel montant a été signé ?</div>
               <div style={{ display: 'flex', gap: 10, alignItems: 'center', marginBottom: 20 }}>
-                <input ref={inputRef} className="input" type="number" min="0" step="any" placeholder="0" value={revenue} onChange={e => setRevenue(e.target.value)}
+                <input ref={inputRef} className="input" type="text" placeholder="0" value={revenue} onChange={e => setRevenue(e.target.value)}
                   style={{ flex: 1, fontSize: 20, fontWeight: 700, textAlign: 'right' }} autoFocus inputMode="decimal" />
                 <span style={{ fontSize: 20, fontWeight: 700, color: 'var(--accent)' }}>€</span>
               </div>

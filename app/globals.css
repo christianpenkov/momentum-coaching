@@ -2610,6 +2610,44 @@ a { color: inherit; text-decoration: none; }
   }
   .pipeline-tab-label { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 
+  /* Taches — la case a cocher fait 18px DESSINES, et c'est l'action
+     principale de l'ecran. L'agrandir gonflerait chaque ligne de la liste :
+     on etend la seule zone TAPABLE a 44px via un pseudo-element centre, le
+     carre visible ne bouge pas d'un pixel. `position: relative` sur le parent
+     n'est pas requis, l'ancrage se fait sur la case elle-meme. */
+  .task-check { position: relative; }
+  .task-check::after {
+    content: "";
+    position: absolute;
+    top: 50%; left: 50%;
+    width: 44px; height: 44px;
+    transform: translate(-50%, -50%);
+  }
+
+  /* Carrousel de rapports — fleches de navigation a 32px. */
+  .carousel-arrow { min-width: 44px !important; min-height: 44px !important; }
+
+  /* Ressources — le bouton "Mes dossiers" (icone seule, 35x33px) etait la
+     plus petite cible de l'app, et une icone sans libelle est deja la plus
+     difficile a viser. Le champ de recherche suit (38px). */
+  .res-drawer-btn { min-width: 44px; min-height: 44px; justify-content: center; }
+  .res-search { min-height: 44px; }
+
+  /* Reglages — actions d'integration ("Deconnecter", "Sync calls"...) a 44px.
+     Elles faisaient 29px : les plus petites cibles de l'app, et ce sont des
+     actions consequentes (couper une integration). */
+  .settings-row-actions .settings-action,
+  .settings-row-actions .btn-ghost {
+    min-height: 44px;
+    display: inline-flex;
+    align-items: center;
+  }
+
+  /* Paiements — filtres de statut a 44px de cible tactile (ils faisaient 29px).
+     Sur mobile seulement : le desktop se pointe a la souris, ou 29px suffit,
+     et l'agrandir partout deformerait une rangee de filtres discrete. */
+  .paiements-filter { min-height: 44px; padding: 6px 15px !important; }
+
   /* Ecarts resserres : 3 gaps a 16px coutaient 48px de hauteur. */
   .pipeline-page { gap: 10px; }
 

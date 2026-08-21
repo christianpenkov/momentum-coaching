@@ -941,7 +941,12 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
   const allAdvanceChecked = advanceConfirmations.length > 0 && advanceConfirmations.every(c => advanceChecked.has(c.id));
 
   const callBookedValid = callDate && callTime && callName.trim();
-  const closedValid = revenue !== '' && !isNaN(Number(revenue)) && Number(revenue) >= 0;
+  // La virgule est le separateur decimal francais, et le pave `inputMode`
+  // decimal la propose en premier sur mobile : `Number('1,5')` vaut NaN, donc
+  // sans cette normalisation la saisie naturelle etait refusee en silence.
+  // RapportModal fait deja ce `replace` sur le meme champ.
+  const revenueNum = Number(String(revenue).replace(',', '.'));
+  const closedValid = revenue !== '' && !isNaN(revenueNum) && revenueNum >= 0;
 
   function toggleAdvance(id: string) {
     setAdvanceChecked(prev => {
@@ -1091,7 +1096,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
             </div>
             <div style={{ marginBottom: 20 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 4 }}>Montant du deal (€)</div>
-              <input type="number" min="0" step="1" value={revenue} onChange={e => setRevenue(e.target.value)} placeholder="ex : 1500"
+              <input type="text" inputMode="decimal" value={revenue} onChange={e => setRevenue(e.target.value)} placeholder="ex : 1500"
                 style={{ width: '100%', padding: '6px 10px', fontSize: 13, fontWeight: 600, borderRadius: 7, border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--ink)', boxSizing: 'border-box' }} />
             </div>
           </>
@@ -1164,7 +1169,7 @@ function ConfirmMoveModal({ case: modalCase, cardName, targetStageKey, targetSta
                 extraData.inviteeEmail = callEmail.trim() || null;
               }
               if (modalCase === 'forward_to_closed') {
-                extraData.revenue = Number(revenue);
+                extraData.revenue = revenueNum;
               }
               onConfirm(reason || 'manual', extraData);
             }}

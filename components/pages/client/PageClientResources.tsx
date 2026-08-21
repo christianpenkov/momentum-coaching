@@ -401,6 +401,8 @@ export default function PageClientResources() {
             type="button"
             onClick={() => setDrawerOpen(true)}
             title="Mes dossiers"
+            aria-label="Mes dossiers"
+            className="res-drawer-btn"
             style={{
               background: 'var(--surface-2)', border: '1px solid var(--border)',
               borderRadius: 8, padding: '8px 9px', cursor: 'pointer',
@@ -450,6 +452,7 @@ export default function PageClientResources() {
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Rechercher…"
+              className="res-search"
               style={{
                 width: '100%', paddingLeft: 30, paddingRight: 12, paddingTop: 8, paddingBottom: 8,
                 border: '1px solid var(--border)', borderRadius: 8,
