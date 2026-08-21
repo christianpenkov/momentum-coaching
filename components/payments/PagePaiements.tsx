@@ -177,7 +177,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
             : deals.length === 0
               ? <EmptyDeals onCreate={() => setCreating(true)} />
               : isMobile
-                ? <DealCards rows={filtered} onOpen={setOpenDeal} />
+                ? <DealCards rows={filtered} onOpen={setOpenDeal} isCoach={isCoach} />
                 : <DealsTable rows={filtered} isCoach={isCoach} onOpen={setOpenDeal} />}
         </>
       ) : tab === 'reconcile' ? (
@@ -194,6 +194,7 @@ export default function PagePaiements({ title = 'Paiements', isCoach = false }: 
           detail={data.details[openDeal]}
           onClose={() => setOpenDeal(null)}
           onChange={refetch}
+          isCoach={isCoach}
         />
       )}
 
@@ -355,7 +356,7 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
           <span style={{ minWidth: 0 }}>
             <span style={{ display: 'block', fontSize: 13, fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.buyerName}</span>
             <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-              {[d.buyerSubtitle, fmtDate(d.signedAt)].filter(Boolean).join(' · ')}
+              {[isCoach ? d.buyerSubtitleCoach : d.buyerSubtitle, fmtDate(d.signedAt)].filter(Boolean).join(' · ')}
             </span>
           </span>
         </span>
@@ -375,7 +376,9 @@ function DealRowView({ d, isCoach, onOpen }: { d: DealRow; isCoach: boolean; onO
         <span style={{ display: 'block', fontSize: 11, color: 'var(--muted)', marginTop: 5 }}>{progressLabel(d)}</span>
       </td>
       <td><Pill label={st.label} tone={st.tone} /></td>
-      {isCoach && <td><Pill label={d.buyerKind === 'student' ? 'Élève' : 'Externe'} tone="neutral" /></td>}
+      {/* « Externe » se lisait « paie hors Stripe » — on nomme ce qu'est la
+          personne : un client du coach sans compte élève sur Momentum. */}
+      {isCoach && <td><Pill label={d.buyerKind === 'student' ? 'Élève' : 'Client direct'} tone="neutral" /></td>}
       <td style={{ textAlign: 'right' }}>
         <button className="btn-ghost" style={{ fontSize: 12, padding: '5px 11px', border: '1px solid var(--ink)', color: 'var(--ink)', borderRadius: 7 }}
           onClick={() => onOpen(d.id)}>Détails</button>
@@ -506,7 +509,7 @@ function MiniKpi({ label, value, color }: { label: string; value: string; color?
  * de l'autre). La carte entière est cliquable : la cible tactile fait toute la
  * ligne plutôt qu'un bouton de 30px.
  */
-function DealCards({ rows, onOpen }: { rows: DealRow[]; onOpen: (id: string) => void }) {
+function DealCards({ rows, onOpen, isCoach }: { rows: DealRow[]; onOpen: (id: string) => void; isCoach?: boolean }) {
   if (rows.length === 0) {
     return <div style={{ padding: 40, textAlign: 'center', fontSize: 13, color: 'var(--muted)' }}>Aucun deal ne correspond.</div>;
   }

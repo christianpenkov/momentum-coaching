@@ -25,6 +25,8 @@ export interface DealRow {
   id: string;
   buyerName: string;
   buyerSubtitle: string | null;
+  /** Variante vue coach : distingue élève plateforme et client externe. */
+  buyerSubtitleCoach: string | null;
   buyerKind: 'student' | 'external' | null;
   /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
   avatarUrl: string | null;
@@ -119,17 +121,36 @@ export async function GET(request: NextRequest) {
     const collected = succeeded.reduce((s: number, p: any) => s + Number(p.amount), 0);
 
     const username = d.ig_lead_id ? leadNames.get(d.ig_lead_id) : null;
+    // « élève plateforme » / « hors plateforme » ne parlent qu'au coach, qui
+    // distingue ses élèves Momentum de ses clients externes. Côté élève, TOUS
+    // ses clients sont externes par construction : le libellé n'apportait rien
+    // et laissait croire que la vente s'était faite hors de Momentum. On décrit
+    // alors l'origine du deal, seule information utile là.
+    //
+    // La route ignore qui regarde (le même composant est monté des deux côtés
+    // avec une prop) : elle renvoie les deux libellés, le composant choisit.
     const subtitle = username
       ? `@${username}`
-      : d.buyer_kind === 'student' ? 'élève plateforme'
-      : d.buyer_kind === 'external' ? 'hors plateforme'
-      : d.attribution_source === 'manual' ? 'saisi à la main'
-      : null;
+      : d.call_id ? 'call de vente'
+      : d.attribution_source === 'client_existant' ? 'client existant'
+      : d.attribution_source === 'cold_dm' ? 'cold DM'
+      : 'saisi à la main';
+
+    // « hors plateforme » se lisait « paie hors de Momentum », donc hors Stripe
+    // — le sens exactement inverse de celui voulu, et déjà occupé par
+    // l'encaissement par virement. On nomme ce qu'est la personne, pas ce
+    // qu'elle n'est pas : un client du coach qui n'a pas de compte élève.
+    const subtitleCoach = username
+      ? `@${username}`
+      : d.buyer_kind === 'student' ? 'élève Momentum'
+      : d.buyer_kind === 'external' ? 'client direct'
+      : subtitle;
 
     return {
       id: d.id,
       buyerName: d.buyer_name,
       buyerSubtitle: subtitle,
+      buyerSubtitleCoach: subtitleCoach,
       buyerKind: d.buyer_kind,
       avatarUrl: (d.ig_lead_id ? leadAvatars.get(d.ig_lead_id) : null)
         ?? (d.client_id ? clientAvatars.get(d.client_id) : null)

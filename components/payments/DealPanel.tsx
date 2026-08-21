@@ -12,11 +12,14 @@ import { fmtEur, fmtDateLong } from './types';
  * Détail d'un deal — panneau latéral, pas modal centré : la liste reste visible
  * derrière, ce qui permet d'enchaîner plusieurs deals sans perdre le contexte.
  */
-export default function DealPanel({ deal, detail, onClose, onChange }: {
+export default function DealPanel({ deal, detail, onClose, onChange, isCoach }: {
   deal: DealRow;
   detail?: DealDetail;
   onClose: () => void;
   onChange?: () => void;
+  /** Le coach distingue ses élèves Momentum de ses clients directs ; l'élève
+   *  n'a que des clients directs, le libellé n'y aurait aucun sens. */
+  isCoach?: boolean;
 }) {
   const [copied, setCopied] = useState(false);
   const [savingSent, setSavingSent] = useState(false);
@@ -100,7 +103,7 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ fontSize: 16, fontWeight: 600, letterSpacing: '-0.1px' }}>{deal.buyerName}</div>
             <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
-              {[deal.buyerSubtitle, `signé le ${fmtDateLong(deal.signedAt)}`].filter(Boolean).join(' · ')}
+              {[isCoach ? deal.buyerSubtitleCoach : deal.buyerSubtitle, `signé le ${fmtDateLong(deal.signedAt)}`].filter(Boolean).join(' · ')}
             </div>
           </div>
           <button onClick={onClose} aria-label="Fermer"

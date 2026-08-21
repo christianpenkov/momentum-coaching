@@ -4,6 +4,8 @@ export interface DealRow {
   id: string;
   buyerName: string;
   buyerSubtitle: string | null;
+  /** Variante vue coach — voir app/api/payments/route.ts. */
+  buyerSubtitleCoach: string | null;
   buyerKind: 'student' | 'external' | null;
   /** Photo Instagram du lead, ou avatar de l'élève côté coach. */
   avatarUrl: string | null;

@@ -124,8 +124,13 @@ export async function POST(request: NextRequest) {
     attributionSource = 'client_existant';
   }
 
-  // Élève de la plateforme ou client externe — alimente la colonne « Type » côté coach.
-  const buyerKind = body.clientId ? "student" : (igLeadId || prospectId) ? null : "external";
+  // Alimente la colonne « Type » côté coach : élève Momentum ou client direct.
+  // Un deal issu d'un CALL vient du pipeline, même sans lead Instagram rattaché
+  // (prospect YouTube, call pris hors DM) — le classer « client direct » le
+  // faisait passer pour une vente hors pipeline dans les stats du coach.
+  const buyerKind = body.clientId ? 'student'
+    : (igLeadId || prospectId || body.callId) ? null
+    : 'external';
 
   const { data: deal, error: dealErr } = await supa.from('deals').insert({
     profile_id: profileId,
