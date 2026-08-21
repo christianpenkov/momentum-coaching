@@ -391,6 +391,29 @@ export default function PageClientSettings() {
                   </div>
                 )}
 
+                {/* Parcours Google (YouTube, Google Calendar) : tant que l'application
+                    n'est pas validee par Google, la connexion passe par un ecran
+                    d'avertissement — triangle rouge, « Google n'a pas valide cette
+                    application », et un gros bouton bleu « Revenir en lieu sur ». Le lien
+                    qui permet de continuer est cache derriere « Parametres avances » et
+                    porte la mention « (non securise) ». Sans explication, on abandonne la.
+
+                    Le texte vit dans integrationConfig.ts, partage avec le wizard
+                    d'onboarding : l'ecrire deux fois garantirait qu'une des deux copies
+                    finisse par diverger. */}
+                {(cfg.provider === 'youtube' || cfg.provider === 'google') && !integrations[cfg.provider] && (
+                  <div style={{ padding: '0 20px 14px' }}>
+                    <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>
+                        Google affichera un avertissement — c’est normal
+                      </div>
+                      {cfg.instructions.map((step, i) => (
+                        <div key={i} style={{ marginTop: i === 0 ? 2 : 3 }}>{step.text}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* mode !== 'oauth' : un provider OAuth pur n'a pas de champ clé
                     à proposer. Garde identique à la page coach. */}
                 {isEditing && cfg.mode !== 'oauth' && (
@@ -426,16 +449,12 @@ export default function PageClientSettings() {
                         <div>3. Colle le token ci-dessous</div>
                       </div>
                     )}
-                    {cfg.provider === 'youtube' && (
-                      <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>
-                        <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>Comment obtenir ta clé YouTube :</div>
-                        <div>1. Va sur →{' '}
-                          <a href="https://console.cloud.google.com/apis/credentials" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)', textDecoration: 'underline' }}>console.cloud.google.com/apis/credentials</a>
-                        </div>
-                        <div>2. Crée une clé API → active l'API YouTube Data v3</div>
-                        <div>3. Colle la clé (<code>AIza...</code>) ci-dessous</div>
-                      </div>
-                    )}
+                    {/* (Le bloc « Comment obtenir ta clé YouTube » qui était ici décrivait
+                        une clé API console.cloud.google.com. C'était du code MORT : la
+                        condition parente exige `cfg.mode !== 'oauth'` et YouTube est en
+                        OAuth, donc il ne s'affichait jamais. Il décrivait en plus un
+                        parcours qui n'existe plus. Le vrai avertissement Google est
+                        affiché plus bas, hors de cette condition.) */}
 
                     {cfg.provider === 'shortio' && (
                       <div style={{ margin: '12px 0 10px', padding: '10px 14px', background: 'var(--surface)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 12, color: 'var(--muted)', lineHeight: 1.8 }}>

@@ -392,6 +392,22 @@ export default function PageSettings() {
                   </div>
                 )}
 
+                {/* Parcours Google (YouTube, Google Calendar) : meme avertissement que
+                    cote eleve et dans le wizard — voir PageClientSettings.tsx pour le
+                    detail. Le texte vient de integrationConfig.ts, ecrit une seule fois. */}
+                {(cfg.provider === 'youtube' || cfg.provider === 'google') && !integ && (
+                  <div style={{ padding: '0 20px 14px' }}>
+                    <div style={{ padding: '10px 14px', background: 'var(--surface-2)', borderRadius: 8, border: '1px solid var(--border)', fontSize: 11, color: 'var(--muted)', lineHeight: 1.6 }}>
+                      <div style={{ fontWeight: 600, color: 'var(--accent)', marginBottom: 4 }}>
+                        Google affichera un avertissement — c’est normal
+                      </div>
+                      {cfg.instructions.map((step, i) => (
+                        <div key={i} style={{ marginTop: i === 0 ? 2 : 3 }}>{step.text}</div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 {/* Formulaire clé API inline */}
                 {isEditing && cfg.mode !== 'oauth' && (
                   <div style={{ padding: '0 20px 16px', background: 'var(--surface-2)', borderTop: '1px solid var(--border)' }}>

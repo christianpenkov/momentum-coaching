@@ -108,8 +108,23 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     mode: 'oauth',
     oauthPath: '/api/oauth/youtube',
     wizardCopy: 'Suis tes vues et abonnés directement depuis Momentum.',
+    // Google affiche un ecran d'avertissement « Google n'a pas valide cette
+    // application », avec un triangle rouge et un bouton bleu « Revenir en lieu sur ».
+    // Le lien qui permet de continuer est cache derriere « Parametres avances » et
+    // porte la mention « (non securise) » : sans explication, on abandonne.
+    //
+    // L'ecran disparaitra quand l'application sera validee par Google. D'ici la, ces
+    // trois etapes evitent de perdre un eleve des la premiere minute (signale par
+    // Chris le 2026-08-21, capture a l'appui).
     instructions: [
-      { text: 'La connexion se fait via le bouton OAuth ci-dessus.' },
+      { text: '1. Choisis le compte Google lié à ta chaîne YouTube.' },
+      { text: '2. Google affiche « Google n’a pas validé cette application » — c’est normal, l’application est en cours de validation. Clique sur « Paramètres avancés » en bas à gauche.' },
+      { text: '3. Puis sur « Accéder à momentum-plateforme.vercel.app ».' },
+      // Les trois autorisations demandees sont toutes en .readonly (verifie dans
+      // app/api/oauth/youtube/route.ts) : youtube, yt-analytics et
+      // yt-analytics-monetary. Cette derniere n'est pas la pour les revenus mais parce
+      // que Google l'exige pour lire les impressions de miniature, d'ou le CTR.
+      { text: '4. Laisse toutes les cases cochées et valide. Momentum est en lecture seule : il lit tes statistiques, il ne peut rien publier, modifier ni supprimer.' },
     ],
   },
   {
@@ -120,8 +135,16 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     mode: 'oauth',
     oauthPath: '/api/oauth/google',
     wizardCopy: 'Crée des calls Google Meet et reçois tes invitations directement dans ton calendrier.',
+    // Meme ecran d'avertissement Google que YouTube — voir le commentaire la-bas.
+    //
+    // Un texte different sur la derniere etape : contrairement a YouTube, cette
+    // integration demande calendar.events, donc le droit de CREER des evenements.
+    // C'est le but (creer les calls Meet), mais l'annoncer en lecture seule serait faux.
     instructions: [
-      { text: 'La connexion se fait via le bouton OAuth ci-dessus.' },
+      { text: '1. Choisis ton compte Google.' },
+      { text: '2. Google affiche « Google n’a pas validé cette application » — c’est normal, l’application est en cours de validation. Clique sur « Paramètres avancés » en bas à gauche.' },
+      { text: '3. Puis sur « Accéder à momentum-plateforme.vercel.app ».' },
+      { text: '4. Laisse toutes les cases cochées et valide. Momentum crée les calls Meet dans ton agenda et lit tes disponibilités — rien d’autre.' },
     ],
   },
   {
