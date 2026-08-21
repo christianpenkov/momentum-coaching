@@ -1964,7 +1964,20 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
       // contradiction.
       cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires,
       duo: post.comments != null
-        ? { gauche: post.comments, gaucheAide: 'Total', droite: entonnoir.commentaires, droiteAide: 'Lead Magnets' }
+        ? {
+            gauche: post.comments, gaucheAide: 'Total',
+            droite: entonnoir.commentaires, droiteAide: 'Lead Magnets',
+            // Part des commentaires qui portent le mot-clé.
+            //
+            // Plafonné à 100 % : les deux chiffres ne viennent pas de la même
+            // horloge — le total est l'état actuel du post, les leads un cumul
+            // historique — donc un commentaire supprimé depuis fait mécaniquement
+            // dépasser le rapport (ici 3 sur 1, soit 300 %). Le plafond dit « tous
+            // », qui est la lecture juste, plutôt qu'un chiffre absurde.
+            taux: post.comments > 0
+              ? Math.min(100, Math.round((entonnoir.commentaires / post.comments) * 100))
+              : null,
+          }
         : undefined,
       precision: post.comments != null ? undefined : 'avec le mot-clé',
     },
@@ -1981,13 +1994,18 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
     { cle: 'conversations', libelle: 'Conversations', valeur: entonnoir.conversations, precision: 'réponses après le DM3' },
   ].filter(e => e.valeur != null) as {
     cle: string; libelle: string; valeur: number; precision?: string;
-    duo?: { gauche: number; gaucheAide: string; droite: number; droiteAide: string };
+    duo?: { gauche: number; gaucheAide: string; droite: number; droiteAide: string; taux?: number | null };
   }[];
 
+  // Plafonné à 100 %, comme le taux interne : une marche ne peut pas convertir
+  // plus de prospects qu'elle n'en a reçu. Un dépassement ne signale jamais une
+  // sur-performance, seulement deux compteurs qui n'ont pas la même horloge —
+  // typiquement un commentaire supprimé qui disparaît du total Instagram mais
+  // reste dans les leads.
   const tauxEntre = (i: number): number | null => {
     if (i === 0) return null;
     const prec = etapes[i - 1].valeur;
-    return prec > 0 ? Math.round((etapes[i].valeur / prec) * 100) : null;
+    return prec > 0 ? Math.min(100, Math.round((etapes[i].valeur / prec) * 100)) : null;
   };
 
   return (
@@ -2041,14 +2059,25 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                         // pour les deux — ce sont deux mesures de plein droit, et
                         // griser la première la faisait passer pour une note de
                         // bas de page. Ce sont les libellés qui les distinguent.
-                        <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', gap: 8, marginTop: 2 }}>
+                        <div style={{ display: 'flex', alignItems: 'stretch', justifyContent: 'center', gap: 6, marginTop: 2 }}>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
                               {e.duo.gauche.toLocaleString('fr-FR')}
                             </div>
                             <div style={{ fontSize: 9, color: FAINT, marginTop: 1, lineHeight: 1.3 }}>{e.duo.gaucheAide}</div>
                           </div>
-                          <span style={{ width: 1, background: BORDER, flexShrink: 0 }} />
+                          {/* Le taux interne se pose SUR le séparateur, entre les
+                              deux chiffres qu'il rapporte — même principe que sur
+                              les flèches : la position dit ce qui est comparé. */}
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0, gap: 1 }}>
+                            <span style={{ width: 1, flex: 1, background: BORDER }} />
+                            {e.duo.taux != null && (
+                              <span style={{ fontSize: 9, fontWeight: 700, color: MUTED, whiteSpace: 'nowrap' }}>
+                                {e.duo.taux} %
+                              </span>
+                            )}
+                            <span style={{ width: 1, flex: 1, background: BORDER }} />
+                          </div>
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums' }}>
                               {e.duo.droite.toLocaleString('fr-FR')}
