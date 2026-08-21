@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildRapportPatch, isSubmittable, estimateTotal, parseAmount, EMPTY_ANSWERS, type RapportAnswers } from './rapportPatch.ts';
+import { buildRapportPatch, isSubmittable, estimateTotal, countAnswered, parseAmount, EMPTY_ANSWERS, type RapportAnswers } from './rapportPatch.ts';
 
 // Lancé par `npm test`. Couvre les 5 chemins terminaux du rapport de vente sans
 // React, sans réseau, sans base — c'est ce qui protège le prochain changement.
@@ -137,20 +137,73 @@ test('isSubmittable', () => {
 
 // ── Progression ────────────────────────────────────────────────────────────
 
-test('estimateTotal garde répondues <= total après un retour arrière', () => {
-  // Descendre en closed (total 5), remonter, repartir sur no-show : sans le
-  // Math.max on afficherait « 5/3 ».
-  assert.ok(estimateTotal(reponses({ showedUp: false }), 5) >= 6);
-  assert.equal(estimateTotal(reponses({ showedUp: true, outcomeChoice: 'closed' }), 1), 5);
-  assert.equal(estimateTotal(reponses({ showedUp: true, outcomeChoice: 'rescheduled' }), 1), 3);
+test('estimateTotal garde répondues <= total', () => {
+  assert.equal(estimateTotal(reponses({ showedUp: true, qualified: true, outcomeChoice: 'closed', revenue: '10' })), 5);
+  assert.equal(estimateTotal(reponses({ showedUp: true, outcomeChoice: 'rescheduled' })), 3);
+  // Un no-show est complet dès la première réponse.
+  assert.equal(estimateTotal(reponses({ showedUp: false })), 1);
 });
 
 test('le total laisse toujours de la place pour la question en cours', () => {
-  // C'est le sens de la progression : `historyLength` compte les questions
-  // RÉPONDUES, il en reste au moins une, donc total > répondues tant qu'on n'a
-  // pas soumis. Sans ça la carte annonçait « 2/2 » sur un rapport inachevé.
-  for (const repondues of [0, 1, 2, 3]) {
-    const total = estimateTotal(reponses({ showedUp: true, outcomeChoice: 'to_recontact' }), repondues);
-    assert.ok(total > repondues, `${repondues} répondues → total ${total} doit être supérieur`);
+  // Sans ça la carte annonçait « 2/2 » sur un rapport inachevé.
+  for (const a of [
+    reponses({ showedUp: true }),
+    reponses({ showedUp: true, qualified: true }),
+    reponses({ showedUp: true, qualified: true, outcomeChoice: 'to_recontact' }),
+  ]) {
+    const repondues = countAnswered(a);
+    assert.ok(estimateTotal(a) > repondues, `${repondues} répondues → total doit être supérieur`);
   }
+});
+
+// ── Le compteur ne recule pas ──────────────────────────────────────────────
+
+test('countAnswered compte les réponses, pas le chemin parcouru', () => {
+  assert.equal(countAnswered(reponses()), 0, 'rien répondu');
+  assert.equal(countAnswered(reponses({ showedUp: true })), 1);
+  assert.equal(countAnswered(reponses({ showedUp: true, qualified: true })), 2);
+  assert.equal(countAnswered(reponses({ showedUp: true, qualified: true, outcomeChoice: 'to_recontact' })), 3);
+});
+
+test('revenir en arrière ne décompte pas une réponse enregistrée', () => {
+  // Le cas signalé : on répond 2 questions, on clique Retour — la réponse est
+  // toujours là, cochée à l'écran. Le compteur ne doit pas retomber à 1.
+  const a = reponses({ showedUp: true, qualified: true });
+  assert.equal(countAnswered(a), 2, 'avant le retour');
+  // Un retour arrière ne change QUE l'étape affichée, jamais les réponses.
+  assert.equal(countAnswered(a), 2, 'après le retour : identique');
+});
+
+test('un no-show ne compte qu’une réponse, et il est complet', () => {
+  const a = reponses({ showedUp: false });
+  assert.equal(countAnswered(a), 1);
+  assert.equal(estimateTotal(a), 1, '1/1 : rien ne reste à demander');
+});
+
+test('les modalités de paiement sont la dernière question d’un deal closé', () => {
+  const sansPaiement = reponses({ showedUp: true, qualified: true, outcomeChoice: 'closed', revenue: '2000' });
+  const avecPaiement = { ...sansPaiement, paymentDone: true };
+
+  // Tant que les modalités ne sont pas choisies, le rapport n'est pas terminé.
+  assert.equal(countAnswered(sansPaiement), 4);
+  assert.ok(estimateTotal(sansPaiement) > 4, 'il reste une question');
+
+  // Une fois choisies : 5/5, plus rien à demander.
+  assert.equal(countAnswered(avecPaiement), 5);
+  assert.equal(estimateTotal(avecPaiement), 5, 'jamais « 5/6 » sur un rapport complet');
+});
+
+test('paymentDone ne compte que sur la branche closed', () => {
+  // Une valeur résiduelle sur une autre branche ne doit rien ajouter.
+  const a = reponses({ showedUp: true, qualified: true, outcomeChoice: 'to_recontact', paymentDone: true });
+  assert.equal(countAnswered(a), 3);
+});
+
+test('le montant compte comme une réponse, sur la branche closed seulement', () => {
+  const sansMontant = reponses({ showedUp: true, qualified: true, outcomeChoice: 'closed' });
+  const avecMontant = reponses({ showedUp: true, qualified: true, outcomeChoice: 'closed', revenue: '2000' });
+  assert.equal(countAnswered(avecMontant), countAnswered(sansMontant) + 1);
+  // Sur une autre branche, un montant résiduel ne doit rien ajouter.
+  const autreBranche = reponses({ showedUp: true, qualified: true, outcomeChoice: 'to_recontact', revenue: '2000' });
+  assert.equal(countAnswered(autreBranche), 3);
 });

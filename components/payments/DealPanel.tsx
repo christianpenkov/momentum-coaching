@@ -123,7 +123,9 @@ export default function DealPanel({ deal, detail, onClose, onChange, isCoach }: 
         {/* Versements */}
         <div style={{ padding: isMobile ? '16px 20px' : '18px 24px', borderBottom: '1px solid var(--border-soft)', flexShrink: 0 }}>
           <div className="mono" style={{ marginBottom: 13 }}>
-            {planSummary(deal)}
+            {planSummary(deal, installments.length > 0
+              ? installments.some(i => !!i.short_url)
+              : !!deal.shortUrl)}
           </div>
 
           {installments.length > 0
@@ -364,10 +366,19 @@ function AcquisitionChain({ dealId }: { dealId: string }) {
   );
 }
 
-function planSummary(d: DealRow): string {
+/**
+ * `hasLinks` distingue un échéancier Stripe d'un encaissement hors plateforme :
+ * annoncer « un lien par échéance » sur des virements décrirait un mécanisme
+ * qui n'existe pas, et laisserait chercher des liens absents.
+ */
+function planSummary(d: DealRow, hasLinks: boolean): string {
   const base = `Deal du ${fmtDateLong(d.signedAt)} · ${fmtEur(d.amountTotal)}`;
-  if (d.paymentPlan === 'one_shot') return `${base} · comptant`;
+  if (d.paymentPlan === 'one_shot') {
+    return `${base} · comptant${hasLinks ? '' : ' · hors Stripe'}`;
+  }
   const every = d.installmentInterval === 'week' ? 'hebdomadaire' : 'mensuel';
-  const mode = d.paymentPlan === 'installments_auto' ? 'prélèvement automatique' : 'un lien par échéance';
+  const mode = d.paymentPlan === 'installments_auto'
+    ? 'prélèvement automatique'
+    : hasLinks ? 'un lien par échéance' : 'encaissement hors Stripe';
   return `${base} en ${d.installmentsCount}× ${every} · ${mode}`;
 }

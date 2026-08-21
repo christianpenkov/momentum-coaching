@@ -30,6 +30,11 @@ export interface RapportAnswers {
   manualTimeEnd: string;
   /** Créneau détecté automatiquement par Calendly. */
   foundCall: { id: string; scheduledAt: string; inviteeName: string | null } | null;
+  /**
+   * Modalités de paiement choisies et deal créé. Dernière question d'un deal
+   * closé — tant qu'elle n'a pas de réponse, le rapport n'est pas terminé.
+   */
+  paymentDone?: boolean;
   /** Mode correction d'un rapport déjà soumis — sert aussi à détecter un brouillon périmé. */
   isCorrection: boolean;
 }
@@ -157,21 +162,59 @@ export function isSubmittable(a: RapportAnswers): boolean {
 }
 
 /**
+ * Nombre de questions RÉPONDUES, compté sur les réponses elles-mêmes et non sur le
+ * chemin parcouru.
+ *
+ * C'est la différence qui compte : revenir en arrière n'efface pas la réponse
+ * donnée, elle reste enregistrée dans le brouillon. Compter les étapes franchies
+ * faisait reculer le compteur à chaque Retour, comme si la réponse avait été
+ * perdue — alors qu'elle est toujours là et qu'on la voit cochée à l'écran.
+ */
+export function countAnswered(a: RapportAnswers): number {
+  // Un no-show est terminal dès la première question : une seule réponse existe.
+  if (a.showedUp === false) return 1;
+
+  let n = 0;
+  if (a.showedUp !== null) n++;
+  if (a.qualified !== null) n++;
+  if (a.outcomeChoice !== null) n++;
+  // Montant et modalité de reprise de rendez-vous ne sont demandés que sur
+  // certaines branches — ils ne comptent que là où ils sont posés.
+  if (a.outcomeChoice === 'closed' && a.revenue !== '') n++;
+  if (a.reschedHow !== null) n++;
+  // Les modalités de paiement sont la DERNIÈRE question d'un deal closé, pas une
+  // action d'après-coup : tant qu'elles ne sont pas choisies, le rapport n'est pas
+  // terminé. `paymentDone` est posé par la modale à la création du deal.
+  if (a.outcomeChoice === 'closed' && a.paymentDone === true) n++;
+  return n;
+}
+
+/**
  * Progression affichée sur les cartes. Approximative par nature — l'utilisateur
  * peut encore changer de branche — et c'est voulu : un total figé à 17 pour un
  * no-show en 2 étapes serait mensonger.
  *
- * `historyLength` = nombre de questions RÉPONDUES (les étapes franchies), et non
- * le rang de l'étape courante : afficher « 2/2 » alors qu'il reste une question
- * laisse croire que le rapport est terminé.
- *
- * `Math.max` garantit répondues <= total, sans quoi un retour arrière suivi d'un
+ * `Math.max` garantit répondues <= total, sans quoi changer de branche pour un
  * chemin plus court afficherait « 5/3 ».
  */
-export function estimateTotal(a: RapportAnswers, historyLength: number): number {
+export function estimateTotal(a: RapportAnswers, answeredCount = countAnswered(a)): number {
+  // Un no-show est complet dès la première réponse : rien ne reste à demander.
+  if (a.showedUp === false) return 1;
+
+  // Parcours complet : le total ÉGALE le compte, sinon on afficherait « 5/6 » sur
+  // un rapport où plus rien n'est demandé.
+  if (isSubmittable(a)) {
+    if (a.outcomeChoice === 'closed' && a.paymentDone === true) return answeredCount;
+    if (a.outcomeChoice !== 'closed' && a.outcomeChoice !== null) {
+      // Les autres branches se terminent au commentaire, déjà passé ici.
+      return Math.max(answeredCount, a.outcomeChoice === 'rescheduled' ? 3 : 4);
+    }
+  }
+
   // +1 : il reste au moins la question en cours à répondre.
-  const minimum = historyLength + 1;
-  if (a.showedUp === false) return minimum;
+  const minimum = answeredCount + 1;
+  // Un deal closé compte 5 questions : présent, qualifié, résultat, montant,
+  // modalités de paiement.
   if (a.outcomeChoice === 'closed') return Math.max(minimum, 5);
   if (a.outcomeChoice === 'rescheduled') return Math.max(minimum, 3);
   return Math.max(minimum, 4);

@@ -71,7 +71,13 @@ export default function RapportChoiceStep<T extends string>({
           // « primary » est déjà bleu plein qu'il soit choisi ou non, donc revenir
           // en arrière ne montrait rien. La coche tranche sans ambiguïté, et les
           // options écartées s'estompent pour que la réponse retenue ressorte.
-          const marque = selected ? <Icon name="check" size={16} style={{ flexShrink: 0 }} /> : null;
+          //
+          // La coche est en position ABSOLUE : la mettre dans le flux décalait le
+          // libellé vers la droite, et le bouton sélectionné n'était plus aligné
+          // avec les autres. Ici le texte reste exactement à sa place.
+          const marque = selected ? (
+            <Icon name="check" size={16} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)' }} />
+          ) : null;
           const attenue = otherChosen ? { opacity: 0.45 } : {};
 
           if (selected) {
@@ -80,7 +86,7 @@ export default function RapportChoiceStep<T extends string>({
                 key={choice.value}
                 type="button"
                 className="btn-primary-brand"
-                style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+                style={{ width: '100%', padding: '16px', fontSize: 15, fontWeight: 700, position: 'relative' }}
                 disabled={disabled}
                 onClick={() => onChoose(choice.value)}
               >

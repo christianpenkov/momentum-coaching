@@ -10,7 +10,7 @@ import RapportChoiceStep from '@/components/ui/RapportChoiceStep';
 import ConfirmCheckboxDialog from '@/components/ui/ConfirmCheckboxDialog';
 import celebrationAnimation from '@/public/animations/celebration.json';
 import { useRapportDraftWriter, type RapportDraft } from '@/lib/useRapportDraft';
-import { buildRapportPatch, estimateTotal, EMPTY_ANSWERS, type RapportAnswers } from '@/lib/rapportPatch';
+import { buildRapportPatch, estimateTotal, countAnswered, EMPTY_ANSWERS, type RapportAnswers } from '@/lib/rapportPatch';
 import { wallClockToUtc, cityLabelOf, formatDateIn, formatTimeIn } from '@/lib/timezone';
 import { useViewerTimeZone } from '@/lib/UserContext';
 
@@ -89,19 +89,28 @@ interface Props {
  *  - `show_up` : c'est l'entrée, rien derrière ;
  *  - `*_check` : écran d'attente transitoire, y revenir relancerait une recherche
  *    déjà faite ;
- *  - `*_done`, `celebration`, `payment` : le rapport est DÉJÀ soumis, revenir en
- *    arrière laisserait croire qu'on peut encore le modifier alors qu'il faut
- *    passer par le mode correction.
+ *  - `*_done`, `celebration` : le rapport est DÉJÀ soumis, revenir en arrière
+ *    laisserait croire qu'on peut encore le modifier alors qu'il faut passer par
+ *    le mode correction.
+ *
+ * `payment` et `offline` N'y sont PAS : ce sont les dernières questions du
+ * rapport, pas des écrans d'après-coup. On peut y revenir, et fermer dessus garde
+ * tout en brouillon.
  */
 const NO_BACK: readonly string[] = [
   'show_up', 'rescheduled_check', 'second_call_check',
-  'rescheduled_done', 'second_call_done', 'celebration', 'payment', 'offline',
+  'rescheduled_done', 'second_call_done', 'celebration',
 ];
 
 /** Idem pour « Recommencer » : après soumission il n'y a plus de brouillon à effacer. */
 const NO_RESTART: readonly string[] = [
-  'rescheduled_done', 'second_call_done', 'celebration', 'payment', 'offline',
+  'rescheduled_done', 'second_call_done', 'celebration',
 ];
+
+/** Format monétaire FR — arrondi à l'euro, les centimes n'aident pas ici. */
+function fmtMontant(n: number): string {
+  return `${Math.round(n).toLocaleString('fr-FR')} €`;
+}
 
 function formatDate(dateStr: string, tz: string) {
   return formatDateIn(new Date(dateStr), tz);
@@ -244,8 +253,8 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     draft.saveDebounced({
       kind: 'sales',
       step,
-      stepIndex: history.length,
-      stepTotal: estimateTotal(answers, history.length),
+      stepIndex: countAnswered(answers),
+      stepTotal: estimateTotal(answers),
       answers: { ...answers, history },
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -505,6 +514,17 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
    */
   async function createDeal(skipLink: boolean) {
     const amount = parseFloat(revenue.replace(',', '.')) || 0;
+
+    // Le rapport part MAINTENANT, pas à l'étape commentaire : les modalités de
+    // paiement sont la dernière question, et tant qu'elles ne sont pas choisies le
+    // rapport n'est pas terminé. Avant lui pour que le deal créé juste après
+    // trouve un call déjà rapporté (outcome + montant), comme quand le rapport
+    // était soumis plus tôt.
+    //
+    // En correction le rapport est déjà en base : `submitRapport` le réécrit à
+    // l'identique, sans effet de bord.
+    if (!(await submitRapport(answers))) return; // erreur affichée, on reste ici
+
     setSaving(true);
     setError(null);
     try {
@@ -533,12 +553,11 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || 'Création impossible');
 
-      // Le commentaire a déjà été saisi ET le rapport déjà soumis : `payment` est
-      // maintenant la DERNIÈRE étape, plus une étape intermédiaire.
-      //
-      // ⚠️ Ne jamais revenir à `comment` ici : cette étape resoumet le rapport puis
-      // renvoie à `payment`, ce qui bouclait à l'infini et empêchait d'enregistrer
-      // (l'ordre des deux étapes a été inversé, ce retour n'a plus de sens).
+      // La dernière question du rapport vient d'être répondue.
+      setAnswers(prev => ({ ...prev, paymentDone: true }));
+
+      // ⚠️ Ne jamais revenir à `comment` ici : cette étape mène à `payment`, ce qui
+      // bouclait à l'infini et empêchait d'enregistrer.
       if (skipLink || !d.url) {
         setStep('celebration');
       } else {
@@ -570,13 +589,20 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     const a = override ?? answers;
     if (override) setAnswers(override);
 
+    // Deal closé en saisie initiale : les modalités de paiement sont la DERNIÈRE
+    // question du rapport, pas une action d'après-coup. On n'enregistre donc rien
+    // ici — c'est `createDeal` qui soumettra le rapport et le deal ensemble.
+    //
+    // Fermer sur l'écran paiement ne perd rien : le brouillon garde tout et
+    // rouvrir ramène exactement là, pour finir de choisir les modalités.
+    if (a.outcomeChoice === 'closed' && !isCorrection) {
+      goTo('payment');
+      return;
+    }
+
     const ok = await submitRapport(a);
     if (!ok) return; // erreur affichée, on reste sur l'étape
 
-    // Deal closé en saisie initiale : l'écran paiement suit, c'est lui qui crée le
-    // deal et le lien Stripe. En correction le deal existe déjà — le recréer ferait
-    // un doublon, on va droit à l'animation.
-    if (a.outcomeChoice === 'closed' && !isCorrection) { setStep('payment'); return; }
     if (afterComment === 'celebration') setStep('celebration');
     else if (afterComment === 'second_call_done') setStep('second_call_done');
     else onClose();
@@ -990,14 +1016,19 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
               <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--accent)', marginBottom: 8 }}>
                 {plan === 1 ? 'L’argent est-il déjà arrivé ?' : 'Le 1er versement est-il déjà arrivé ?'}
               </div>
+              {/* Le montant concerné lève l'ambiguïté : en plusieurs fois, la
+                  question porte sur le PREMIER versement, pas sur le total. */}
               <div style={{ fontSize: 13, color: 'var(--muted)', marginBottom: 20, lineHeight: 1.6 }}>
                 {plan === 1
-                  ? 'Momentum ne peut pas le savoir : aucun paiement hors Stripe ne remonte automatiquement.'
-                  : `Momentum créera les ${plan} échéances et te rappellera chacune à sa date.`}
+                  ? `${fmtMontant(parseFloat(revenue.replace(',', '.')) || 0)} — Momentum ne peut pas le savoir, aucun paiement hors Stripe ne remonte automatiquement.`
+                  : `${fmtMontant(Math.round(((parseFloat(revenue.replace(',', '.')) || 0) / plan) * 100) / 100)} sur ${plan} versements. Momentum créera l’échéancier et te rappellera chaque versement à sa date.`}
               </div>
 
               <div style={{ display: 'flex', gap: 8, marginBottom: 18, flexWrap: 'wrap' }}>
-                {([[true, 'Oui, déjà encaissé'], [false, plan === 1 ? 'Non, à venir' : 'Non, pas encore']] as const).map(([v, label]) => (
+                {([
+                  [true, plan === 1 ? 'Oui, déjà encaissé' : 'Oui, déjà reçu'],
+                  [false, plan === 1 ? 'Non, à venir' : 'Non, pas encore'],
+                ] as const).map(([v, label]) => (
                   <button key={String(v)} type="button" onClick={() => setOfflineReceived(v)}
                     style={{
                       border: `1px solid ${offlineReceived === v ? 'var(--accent)' : 'var(--border)'}`,
