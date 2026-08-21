@@ -343,6 +343,20 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
 }
 
 /**
+ * Formate une VARIATION sur une periode : « +12 », « -1 », « 0 ».
+ *
+ * Likes, commentaires et partages sont des soldes, pas des compteurs : YouTube
+ * renvoie le mouvement du jour, et un like retire vaut -1. Sans signe, la carte
+ * affichait « LIKES : -1 », qui se lit comme un bug alors que la valeur est juste.
+ *
+ * Le zero ne prend pas de signe : « +0 » annoncerait un gain nul comme un gain.
+ */
+function signeVariation(v: number): string {
+  if (!Number.isFinite(v)) return '—';
+  return v > 0 ? `+${fmt(v)}` : fmt(v);
+}
+
+/**
  * Reserve la hauteur d'un graphique quel que soit son etat.
  *
  * Un bloc qui affiche tour a tour un loader (~40 px), un message vide (~77 px)
@@ -2147,7 +2161,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 {ytDataLagDays >= 2 && (
                   <span
                     title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
-                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
                   >
                     J-{ytDataLagDays}
                   </span>
@@ -2182,7 +2196,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               {ytDataLagDays >= 2 && !['Abonnés', 'Vidéos publiées'].includes(s.label) && (
                 <span
                   title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
-                  style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                  style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
                 >
                   J-{ytDataLagDays}
                 </span>
@@ -2228,9 +2242,17 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // `null` indistinguables auraient rendu la même carte deux fois.
           { custom: 'watch-total' as const },
           { custom: 'watch-moyen' as const },
-          { label: 'Likes', value: fmt(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires', value: fmt(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages', value: fmt(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : `${period}j`, color: 'var(--ink)', key: 'Partages' },
+          // Likes / commentaires / partages sont des VARIATIONS sur la periode, pas des
+          // compteurs : YouTube renvoie le solde du jour, et retirer un like donne -1.
+          // Le profil de test affichait « LIKES 30j : -1 » (verifie en base le
+          // 2026-08-21 : un like retire le 14 aout, aucun ajoute) — un compteur negatif
+          // se lit comme un bug alors que la donnee est juste.
+          //
+          // Le signe rend la nature de la valeur evidente, comme sur « Abonnés nets ».
+          // Le zero n'en prend pas : « +0 » annoncerait un gain nul comme un gain.
+          { label: 'Likes', value: signeVariation(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : `${period}j`, color: (ytIsFallback ? yt.likes30d : ytLikesP) < 0 ? RED : 'var(--ink)', key: 'Likes' },
+          { label: 'Commentaires', value: signeVariation(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : `${period}j`, color: (ytIsFallback ? yt.comments30d : ytCommentsP) < 0 ? RED : 'var(--ink)', key: 'Commentaires' },
+          { label: 'Partages', value: signeVariation(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : `${period}j`, color: (ytIsFallback ? yt.shares30d : ytSharesP) < 0 ? RED : 'var(--ink)', key: 'Partages' },
         ].map((s: any, i) => {
           if (s.custom === 'watch-total') return (
             <div key="wt-total" onClick={() => openStatModal('Watch time', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
@@ -2240,7 +2262,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 {ytDataLagDays >= 2 && (
                   <span
                     title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
-                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
                   >
                     J-{ytDataLagDays}
                   </span>
@@ -2311,7 +2333,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 {ytDataLagDays >= 2 && !['Abonnés', 'Vidéos publiées'].includes(s.label) && (
                   <span
                     title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
-                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help' }}
+                    style={{ fontSize: 9, fontWeight: 700, color: 'var(--muted)', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 4, padding: '1px 4px', marginLeft: 5, cursor: 'help', whiteSpace: 'nowrap', display: 'inline-block' }}
                   >
                     J-{ytDataLagDays}
                   </span>
