@@ -45,7 +45,14 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
 
   if (!integ?.access_token) return null;
 
-  const needsRefresh = integ.expires_at &&
+  // `expires_at` NULL veut dire « on ne sait pas quand ce jeton expire », pas « il
+  // n'expire jamais ». Avec `integ.expires_at &&`, un NULL rendait la condition
+  // toujours fausse : le jeton n'etait jamais rafraichi et expirait en silence.
+  //
+  // Copie a l'identique du meme defaut dans poll-leads/index.ts, corrige le
+  // 2026-08-22 : la logique de rafraichissement existe en DEUX exemplaires et seul
+  // l'un des deux avait ete revu.
+  const needsRefresh = !integ.expires_at ||
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
 
   let token = integ.access_token;
@@ -57,6 +64,10 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
       const expiresAt = d.expires_in ? new Date(Date.now() + d.expires_in * 1000).toISOString() : null;
       await supa.from('integrations').update({ access_token: token, expires_at: expiresAt })
         .eq('profile_id', profileId).eq('provider', 'instagram');
+    } else {
+      // Un refus signifie presque toujours un jeton revoque : sans cette trace,
+      // l'echec est totalement invisible.
+      console.error(`[poll-stories] ig_token_refresh_failed profile=${profileId}: ${d?.error?.message || 'refus'}`);
     }
   }
 

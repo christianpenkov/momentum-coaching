@@ -39,7 +39,18 @@ export async function getIgCreds(profileId: string): Promise<IgCreds | null> {
 
   if (!integ?.access_token) return null;
 
-  const needsRefresh = integ.expires_at &&
+  // `expires_at` NULL veut dire « on ne sait pas quand il expire », pas « il n'expire
+  // jamais » : un jeton Instagram longue duree vaut 60 jours, sans exception. Avec
+  // `integ.expires_at &&`, un NULL rendait la condition toujours fausse et le jeton
+  // expirait en silence (constate le 2026-08-22 sur un profil dont la collecte s'etait
+  // arretee depuis 5 jours, avec un statut toujours « ok »).
+  //
+  // Troisieme copie de cette meme logique, avec poll-leads et poll-stories. Le motif
+  // `expires_at &&` existe aussi pour Stripe, Calendly, Fathom et YouTube : il n'y est
+  // PAS corrige, car un jeton Stripe Connect n'expire reellement jamais et forcer un
+  // rafraichissement y serait un appel inutile. La correction ne vaut que la ou
+  // l'absence de date est forcement une anomalie.
+  const needsRefresh = !integ.expires_at ||
     new Date(integ.expires_at).getTime() < Date.now() + 5 * 24 * 60 * 60 * 1000;
 
   let token = integ.access_token;

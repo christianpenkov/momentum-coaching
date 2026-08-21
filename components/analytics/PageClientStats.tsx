@@ -1234,7 +1234,7 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
 
   // Toutes les stories du profil, avec ou sans CTA — réutilise GET /api/client/stories
   // (déjà utilisée dans Gérer mes liens, pas de nouvelle route).
-  const { data: allStoriesData } = useQuery({
+  const { data: allStoriesData, isLoading: storiesLoading } = useQuery({
     queryKey: ['stories', profileId],
     // Sans profileId (élève consultant sa propre page), ne pas envoyer "?profileId=undefined"
     // — l'API resolveProfileId retombe sur user.id uniquement si le param est absent, pas
@@ -1546,7 +1546,26 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
           })}
         </div>
         ) : storiesInnerTab === 'story' ? (
-          allStories.length === 0 ? (
+          storiesLoading ? (
+            // Squelette pendant le chargement. Avant, « Aucune story pour l'instant »
+            // s'affichait des l'ouverture de l'onglet : on lisait une absence definitive
+            // la ou la requete etait simplement en cours (demande de Chris, 2026-08-22).
+            //
+            // Meme grille et meme rapport de forme que les vraies vignettes : rien ne
+            // bouge quand les donnees arrivent.
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+              {Array.from({ length: 6 }).map((_, i) => (
+                <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden' }}>
+                  <div style={{ aspectRatio: '1', background: 'var(--surface-2)', animation: 'squelette-pulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
+                  <div style={{ padding: '8px 10px' }}>
+                    <div style={{ height: 9, width: '55%', borderRadius: 4, background: 'var(--surface-2)', animation: 'squelette-pulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
+                    <div style={{ height: 9, width: '80%', borderRadius: 4, background: 'var(--surface-2)', marginTop: 6, animation: 'squelette-pulse 1.4s ease-in-out infinite', animationDelay: `${i * 0.08}s` }} />
+                  </div>
+                </div>
+              ))}
+              <style>{`@keyframes squelette-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }`}</style>
+            </div>
+          ) : allStories.length === 0 ? (
             <div style={{ fontSize: 12, color: 'var(--faint)', padding: '12px 0' }}>Aucune story pour l'instant.</div>
           ) : (
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
@@ -1789,17 +1808,49 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
               <div style={{ fontSize: 13, color: 'var(--muted)' }}>{new Date(selectedStory.posted_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Paris' })}</div>
               <button onClick={() => setSelectedStory(null)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: 'var(--muted)' }}>×</button>
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-              {[
-                ['👁 Reach', selectedStory.reach],
-                ['▶️ Vues', selectedStory.views],
-              ].map(([label, value], i) => (
+            {/* Toutes les metriques collectees, pas seulement reach et vues : la base en
+                stocke douze et la route des SEQUENCES en exposait deja neuf, alors que
+                celle des stories n'en remontait que deux (demande de Chris, 2026-08-22).
+
+                Une metrique absente n'est pas affichee du tout, plutot que montree a
+                « — » : sur une story, la plupart des compteurs sont naturellement vides,
+                et une grille de tirets n'apprend rien. */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              {([
+                ['Reach', selectedStory.reach],
+                ['Vues', selectedStory.views],
+                ['Interactions', selectedStory.total_interactions],
+                ['Réponses', selectedStory.replies],
+                ['Partages', selectedStory.shares],
+                ['Repartages', selectedStory.reposts],
+                ['Clics sur lien', selectedStory.link_clicks],
+                ['Abonnements', selectedStory.follows],
+                ['Visites du profil', selectedStory.profile_visits],
+                ['Suivantes', selectedStory.navigation_taps_forward],
+                ['Précédentes', selectedStory.navigation_taps_back],
+                ['Sorties', selectedStory.navigation_exits],
+              ] as [string, number | null | undefined][])
+                .filter(([, v]) => v != null)
+                .map(([label, value], i) => (
                 <div key={i} style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px' }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', marginBottom: 2 }}>{label}</div>
-                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{value ?? '—'}</div>
+                  <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--ink)' }}>{fmt(value as number)}</div>
                 </div>
               ))}
             </div>
+            {/* Aucune metrique : Meta ne fournit les insights d'une story que 24 h, et
+                seulement au-dela d'un seuil de spectateurs. Le dire vaut mieux qu'une
+                grille vide. */}
+            {[selectedStory.reach, selectedStory.views, selectedStory.total_interactions,
+              selectedStory.replies, selectedStory.shares, selectedStory.reposts,
+              selectedStory.link_clicks, selectedStory.follows, selectedStory.profile_visits,
+              selectedStory.navigation_taps_forward, selectedStory.navigation_taps_back,
+              selectedStory.navigation_exits].every(v => v == null) && (
+              <div style={{ fontSize: 12, color: 'var(--faint)', textAlign: 'center', padding: '18px 0', lineHeight: 1.5 }}>
+                Pas de statistiques pour cette story.<br />
+                Instagram ne les fournit que pendant 24 h après la publication.
+              </div>
+            )}
             {selectedStory.permalink && (
               <a href={selectedStory.permalink} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: 'var(--accent)', textDecoration: 'none', fontWeight: 600 }}>
                 Voir sur Instagram →
@@ -7811,6 +7862,12 @@ export default function PageClientStats({ profileId, clientName, title }: { prof
   const loading = (() => {
     if (!supaData) return true;
     if (periodIndex > 0 && snapLoading) return true;
+    // Mode All-Time : ses deux requetes dediees etaient absentes de cette liste. Le
+    // temps qu'elles repondent, les onglets s'affichaient avec des donnees vides et
+    // annoncaient « Connecte ton compte Instagram » ou « Pas de donnees » — on lisait
+    // une absence definitive la ou le chargement etait simplement en cours
+    // (signale par Chris, 2026-08-22).
+    if (sinceConnection && sinceConnLoading) return true;
     if (tab === 1 && igLoading) return true;
     if (tab === 2 && ytLoading) return true;
     if ((tab === 3 || tab === 4) && shortioLoading) return true;
