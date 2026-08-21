@@ -2799,18 +2799,18 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
         return (
           <button key={f} onClick={() => onChange(f)} style={{
             display: 'flex', alignItems: 'center', gap: 5, borderRadius: 999, cursor: 'pointer', fontWeight: 600,
-            padding: compact ? '4px 11px' : '6px 13px',
+            padding: compact ? '4px 11px' : '7px 14px',
             fontSize: compact ? 11 : 12.5,
             border: `1px solid ${active ? BLUE : BORDER}`,
             background: active ? BLUE : SURFACE,
             color: active ? '#fff' : MUTED,
             transition: `all var(--dur-instant) var(--ease-out)`,
           }}>
-            {/* Les logos de plateforme ne tiennent qu'en desktop : en mobile les
-                chips sont déjà à 44px de haut, l'icône ferait déborder la ligne. */}
-            {compact && f === 'IG' && <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>}
-            {compact && f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
-            {compact && f === 'STORY' && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>}
+            {/* Le logo accompagne le nom complet en pleine largeur ; dans le
+                menu déplié de 250px, le sigle seul tient la ligne. */}
+            {!compact && f === 'IG' && <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>}
+            {!compact && f === 'YT' && <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>}
+            {!compact && f === 'STORY' && <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>}
             {/* Sigles courts dans le menu déplié : à 250px, « Instagram » et
                 « YouTube » se faisaient tronquer. Le hi-fi écrit « Tous · IG ·
                 YT · Stories » dans cette colonne, et les noms complets en
@@ -2831,7 +2831,7 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
           <span style={{ width: 1, height: compact ? 20 : 26, background: BORDER, margin: '0 3px', flexShrink: 0 }} />
           <button onClick={() => onSansSequence(!sansSequence)} style={{
             display: 'flex', alignItems: 'center', gap: 5, borderRadius: 999, cursor: 'pointer', fontWeight: 600,
-            padding: compact ? '4px 11px' : '6px 13px',
+            padding: compact ? '4px 11px' : '7px 14px',
             fontSize: compact ? 11 : 12.5,
             border: `1px solid ${sansSequence ? 'var(--amber)' : BORDER}`,
             background: sansSequence ? 'var(--amber)' : SURFACE,
@@ -3311,16 +3311,31 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
 }) {
   const isStory = post.platform === 'STORY';
   const inert = groupedElsewhere && selectionMode;
+  // Survol géré en state : la page n'a pas de Tailwind et le fond est posé en
+  // inline, qui bat toute règle CSS de survol.
+  const [survol, setSurvol] = useState(false);
+
+  const fond = selected ? BLUE_SOFT
+    : survol && !inert ? SURFACE2
+    : compact ? 'transparent' : SURFACE;
 
   return (
-    <div onClick={onClick} style={{
+    <div
+      onClick={onClick}
+      onMouseEnter={() => setSurvol(true)}
+      onMouseLeave={() => setSurvol(false)}
+      style={{
       display: 'flex', alignItems: 'center', gap: 10,
       cursor: inert ? 'default' : 'pointer',
       opacity: inert ? 0.45 : 1,
       transition: `all var(--dur-instant) var(--ease-out)`,
-      ...(compact
-        ? { padding: '8px 14px', background: selected ? BLUE_SOFT : 'transparent', borderLeft: `3px solid ${selected ? BLUE : 'transparent'}` }
-        : { padding: '12px 14px', borderRadius: 10, border: `1px solid ${BORDER}`, background: selected ? BLUE_SOFT : SURFACE }),
+      background: fond,
+      // La liste est UNE carte à filets, pas une pile de cartes : c'est le
+      // conteneur qui porte bordure et rayon, chaque ligne ne pose que son
+      // filet de séparation. La sélection se marque en ombre interne — une
+      // bordure gauche décalerait le contenu de 3px au clic.
+      boxShadow: selected ? `inset 3px 0 0 ${BLUE}` : 'none',
+      padding: compact ? '8px 14px' : '13px 18px',
     }}>
       {isStory && selectionMode && (
         <div style={{
@@ -4306,31 +4321,43 @@ export default function PageLiens() {
             {/* Entonnoir — état ① seulement : une fois dans un contenu, la question
                 n'est plus « où ça casse ? » mais « que dit CE contenu ». */}
             {rightView === null && (
-              <div style={{ padding: '12px 14px 0', flexShrink: 0 }}>
-                <Entonnoir data={funnel} ouvert={funnelOuvert} onToggle={() => setFunnelOuvert(v => !v)} compact />
+              <div style={{ padding: '16px 28px 0', flexShrink: 0 }}>
+                <Entonnoir data={funnel} ouvert={funnelOuvert} onToggle={() => setFunnelOuvert(v => !v)} compact={false} />
               </div>
             )}
 
-            {/* Barre recherche + filtres */}
-            <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
-              <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
-                style={{ width: '100%', padding: '7px 10px', fontSize: 12, borderRadius: 8, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
-              <FiltresPlateforme
-                value={filterPlatform} onChange={setFilterPlatform} compact
-                contentCount={filteredPosts.length} compteurs={compteurs}
-                sansSequence={sansSequence} onSansSequence={setSansSequence}
-              />
+            {/* Filtres et recherche sur UNE ligne, la recherche à droite en 200px
+                — le hi-fi ne l'empile pas au-dessus. `compact` est réservé au
+                menu déplié de 250px : le passer ici appliquait à l'accueil
+                pleine largeur les cotes d'une colonne étroite. */}
+            <div style={{ padding: '14px 28px 12px', display: 'flex', flexDirection: 'column', gap: 11, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FiltresPlateforme
+                  value={filterPlatform} onChange={setFilterPlatform} compact={false}
+                  compteurs={compteurs}
+                  sansSequence={sansSequence} onSansSequence={setSansSequence}
+                />
+                <div style={{
+                  marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0,
+                  border: `1px solid ${BORDER}`, borderRadius: 8, padding: '8px 12px',
+                  background: SURFACE, width: 200, boxSizing: 'border-box',
+                }}>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher…"
+                    style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 12.5, color: INK, fontFamily: 'inherit' }} />
+                </div>
+              </div>
 
               {filterPlatform === 'STORY' && (
                 <SousOngletsStories
-                  value={storiesSubTab} compact
+                  value={storiesSubTab} compact={false}
                   onChange={t => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }}
                 />
               )}
 
               {filterPlatform === 'STORY' && storiesSubTab === 'stories' && (
                 <ActionsStories
-                  selectionMode={selectionMode} selectedCount={selectedStoryIds.size} compact
+                  selectionMode={selectionMode} selectedCount={selectedStoryIds.size} compact={false}
                   onStartSelection={() => setSelectionMode(true)}
                   onCancelSelection={() => { setSelectionMode(false); setSelectedStoryIds(new Set()); }}
                   onContinue={() => unsavedGuardApi.guard(() => setRightView({ type: 'story-multi', postIds: Array.from(selectedStoryIds) }))}
@@ -4345,8 +4372,15 @@ export default function PageLiens() {
               )}
             </div>
 
-            {/* Liste contenus */}
-            <div style={{ flex: 1, overflowY: 'auto' }}>
+            {/* Liste contenus — carte unique à filets : la bordure et le rayon
+                vivent ici, `.liens-carte > * + *` pose le filet entre les
+                lignes. `overflow:hidden` fait suivre le rayon aux lignes
+                sélectionnées, en haut comme en bas. */}
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 28px 28px' }}>
+              <div className="liens-carte" style={{
+                border: `1px solid ${BORDER}`, borderRadius: 12,
+                background: SURFACE, overflow: 'hidden',
+              }}>
               {filterPlatform === 'STORY' && storiesSubTab === 'sequences' ? (
                 sequences.length === 0 ? (
                   <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
@@ -4414,6 +4448,7 @@ export default function PageLiens() {
                   />
                 );
               })}
+              </div>
             </div>
           </div>
           )}
