@@ -39,7 +39,25 @@ export async function GET(request: Request) {
   const ofUntil = Math.floor((Date.now() - 3 * 24 * 60 * 60 * 1000) / 1000);
   const ofSince = Math.floor((Date.now() - 33 * 24 * 60 * 60 * 1000) / 1000);
 
-  const safeJson = async (res: Response) => { try { return await res.json(); } catch { return {}; } };
+  // Trace les reponses en erreur au lieu de les avaler.
+  //
+  // Avant, un 400 ou un 429 de Meta etait parse comme n'importe quelle reponse : le
+  // corps d'erreur (qui n'a pas de cle `data`) devenait un objet vide en aval,
+  // indiscernable d'un « pas de donnee pour cette periode ». Un jeton expire ou un
+  // quota atteint disparaissait donc totalement, et l'ecran affichait des zeros.
+  //
+  // On renvoie toujours l'objet parse pour ne rien casser en aval, mais l'echec
+  // apparait desormais dans les erreurs remontees au client.
+  const erreursApi: string[] = [];
+  const safeJson = async (res: Response) => {
+    let body: any = {};
+    try { body = await res.json(); } catch { body = {}; }
+    if (!res.ok || body?.error) {
+      const msg = body?.error?.message || `HTTP ${res.status}`;
+      erreursApi.push(String(msg).slice(0, 160));
+    }
+    return body;
+  };
 
   // reach/follower_count/accounts_engaged/total_interactions/posts : lus depuis
   // analytics_daily_snapshots / analytics_ig_posts_history (même DB que la vue
@@ -292,6 +310,11 @@ export async function GET(request: Request) {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   return NextResponse.json({
+    // Erreurs PARTIELLES : le compte repond, mais une ou plusieurs metriques ont
+    // echoue (quota, metrique depreciee, seuil de confidentialite). Elles etaient
+    // totalement avalees jusqu'ici — l'ecran affichait des zeros sans que rien
+    // n'indique une panne. Non bloquant, mais desormais visible.
+    ...(erreursApi.length ? { erreursPartielles: erreursApi } : {}),
     username: accountData.username,
     name: accountData.name,
     profilePicture: accountData.profile_picture_url || null,
