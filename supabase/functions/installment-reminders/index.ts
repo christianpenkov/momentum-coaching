@@ -80,7 +80,7 @@ Deno.serve(async (req) => {
   // échéances par jour tout au plus), inutile de multiplier les allers-retours.
   const { data: rows, error } = await sb
     .from('deal_installments')
-    .select('id, rank, amount, due_on, status, short_url, reminder_before_sent_at, reminder_late_sent_at, deals!inner(id, profile_id, buyer_name, installments_count, payment_plan, status)')
+    .select('id, rank, amount, due_on, status, short_url, sent_at, reminder_before_sent_at, reminder_late_sent_at, deals!inner(id, profile_id, buyer_name, installments_count, payment_plan, status)')
     // deal_installments ne contient aujourd'hui que du manuel — en automatique
     // c'est Stripe qui porte l'échéancier. Le filtre est explicite pour qu'un
     // futur usage de la table ne déclenche pas des rappels sur des
@@ -108,13 +108,20 @@ Deno.serve(async (req) => {
 
     try {
       // ── J-2 : l'échéance approche ────────────────────────────────────────
+      // Le lien déjà envoyé change le message, pas son déclenchement : ce
+      // n'est plus « pense à l'envoyer » mais « le paiement est attendu ».
+      // Réclamer une action déjà faite est le meilleur moyen de faire ignorer
+      // les notifications suivantes.
       if (!r.reminder_before_sent_at && r.due_on > today && r.due_on <= inTwoDays) {
+        const dejaEnvoye = !!r.sent_at;
         await sendPushToProfile(
           d.profile_id,
           `Échéance ${r.rank}/${total} dans 2 jours`,
           horsStripe
             ? `${qui} · ${montant} à encaisser`
-            : `${qui} · ${montant} — pense à envoyer le lien`,
+            : dejaEnvoye
+              ? `${qui} · ${montant} — lien déjà envoyé, paiement attendu`
+              : `${qui} · ${montant} — pense à envoyer le lien`,
           '/paiements',
         );
         await sb.from('deal_installments')
@@ -125,12 +132,19 @@ Deno.serve(async (req) => {
 
       // ── J+2 : toujours impayée ───────────────────────────────────────────
       if (!r.reminder_late_sent_at && r.due_on <= twoDaysAgo) {
+        // Deux situations très différentes derrière un même retard : le lien
+        // n'est jamais parti (l'élève doit l'envoyer), ou il est parti et le
+        // client n'a pas payé (un message personnel vaut mieux qu'un rappel).
+        // `sent_at` est fiable ici : il n'est renseigné que si l'élève a
+        // explicitement coché la case.
         await sendPushToProfile(
           d.profile_id,
           `Échéance ${r.rank}/${total} en retard`,
           horsStripe
             ? `${qui} · ${montant} — le virement est-il arrivé ?`
-            : `${qui} · ${montant} toujours impayé`,
+            : r.sent_at
+              ? `${qui} · ${montant} — lien envoyé, toujours pas payé`
+              : `${qui} · ${montant} — le lien n'a jamais été envoyé`,
           '/paiements',
         );
         await sb.from('deal_installments')
