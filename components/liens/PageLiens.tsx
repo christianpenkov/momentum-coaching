@@ -2426,6 +2426,11 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
     : (postId || undefined); // 'lead' ou 'manual' → postId direct
 
   const [history, setHistory] = useState<{ id: string; ig_username: string; short_url: string; content_id: string | null; created_at: string; clicks: number }[]>([]);
+  // L'historique demande une seconde requête (les clics sont sommés depuis les
+  // snapshots Short.io) : sans état de chargement, la colonne de droite reste
+  // vide puis apparaît d'un coup, et on ne sait pas s'il y a quelque chose à
+  // attendre ou si l'on n'a simplement aucun lien.
+  const [historyLoading, setHistoryLoading] = useState(true);
   const [historyCopied, setHistoryCopied] = useState<string | null>(null);
   const [historySearch, setHistorySearch] = useState('');
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -2440,7 +2445,8 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
     fetch('/api/client/prospect-links?activeOnly=1')
       .then(r => r.json())
       .then(d => setHistory(d.links || []))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setHistoryLoading(false));
   }, []);
 
   const generate = async () => {
@@ -2664,8 +2670,34 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
       )}
       </div>
 
-      {/* Historique des liens générés — colonne de droite */}
-      {history.length > 0 && (
+      {/* Historique des liens générés — colonne de droite.
+          Pendant le chargement : le titre de la section, puis des lignes grises
+          au gabarit des vraies. Le titre d'abord, car c'est lui qui annonce
+          qu'il y a quelque chose à attendre à cet endroit. */}
+      {historyLoading && (
+        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, width: isMobile ? '100%' : undefined }}>
+          <div className="eyebrow-sm">Liens générés</div>
+          <div style={{ height: 33, borderRadius: 8, background: SURFACE2 }} className="liens-skeleton" />
+          <div className="liens-carte" style={{ border: `1px solid ${BORDER}`, borderRadius: 12, background: SURFACE, overflow: 'hidden' }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{
+                display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px',
+                borderTop: i ? `1px solid ${BORDER}` : undefined,
+              }}>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div className="liens-skeleton" style={{ height: 11, width: `${52 - i * 8}%`, borderRadius: 4, background: SURFACE2 }} />
+                  <div className="liens-skeleton" style={{ height: 9, width: `${72 - i * 6}%`, borderRadius: 4, background: SURFACE2, marginTop: 6 }} />
+                </div>
+                <div className="liens-skeleton" style={{ height: 10, width: 42, borderRadius: 4, background: SURFACE2, flexShrink: 0 }} />
+                <div className="liens-skeleton" style={{ height: 18, width: 52, borderRadius: 999, background: SURFACE2, flexShrink: 0 }} />
+                <div className="liens-skeleton" style={{ height: 28, width: 28, borderRadius: 6, background: SURFACE2, flexShrink: 0 }} />
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!historyLoading && history.length > 0 && (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, width: isMobile ? '100%' : undefined }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
             <div className="eyebrow-sm">Liens générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
@@ -3017,8 +3049,12 @@ function FiltresPlateforme({ value, onChange, compact, contentCount, compteurs, 
   sansSequence?: boolean;
   onSansSequence?: (v: boolean) => void;
 }) {
+  // flexWrap toujours à `wrap` : en `nowrap`, les 4 chips plus « Sans séquence »
+  // ne tiennent pas dans les 250px du menu déplié et débordent hors de la
+  // colonne (les dernières sont coupées par le bord). Deux lignes valent mieux
+  // qu'un filtre invisible.
   return (
-    <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: compact ? 'nowrap' : 'wrap' }}>
+    <div style={{ display: 'flex', gap: 5, alignItems: 'center', flexWrap: 'wrap' }}>
       {(['all', 'IG', 'YT', 'STORY'] as const).map(f => {
         const active = value === f;
         // Chips fines, sur fond blanc bordé — la version pleine hauteur à 44px
@@ -3473,12 +3509,9 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
     : <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={MUTED} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>;
 
   const h = hauteur ?? size;
-  // Pastille de plateforme posée sur la vignette, comme le hi-fi : le logo en
-  // repli n'apparaît que sans miniature, or elles en ont presque toutes une —
-  // sans cette pastille, retirer le texte « IG / YT / STORY » de la ligne ferait
-  // perdre l'information au lieu de la déplacer.
-  const couleurPlateforme = post.platform === 'IG' ? 'var(--ig-color)'
-    : post.platform === 'YT' ? 'var(--yt-color)' : STORY_COLOR;
+  // Pas de pastille de plateforme sur la vignette : la ligne dit désormais
+  // « Reel Instagram du 28 juillet » en toutes lettres, ce qui porte la même
+  // information sans demander de décoder une couleur.
   // Le compteur de stories groupées : sans lui, quatre vignettes identiques
   // dans le rail ne disent pas qu'elles forment une seule séquence.
   const nbStories = post.platform === 'STORY' ? (post.sequenceStoryCount ?? 0) : 0;
@@ -3487,14 +3520,9 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
   // de vignette : Meta ne sert plus l'URL passé 24 h. Le dire dans l'infobulle
   // évite de chercher un bug d'affichage, ou d'attendre que « ça se charge ».
   const mediaPerdu = post.platform === 'STORY' && !post.thumbnail;
-  const infobulle = mediaPerdu
-    ? 'Aperçu indisponible — Instagram n’a pas fourni le média avant l’expiration de la story'
-    : post.platform === 'IG' ? 'Instagram' : post.platform === 'YT' ? 'YouTube' : 'Story';
 
-  // Pas d'overflow:hidden ici : la pastille de plateforme déborde volontairement du
-  // coin bas-droit, comme dans le hi-fi. Le rognage est porté par l'image elle-même.
   return (
-    <div title={mediaPerdu ? infobulle : undefined} style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0 }}>
+    <div title={mediaPerdu ? 'Aperçu indisponible — Instagram n’a pas fourni le média avant l’expiration de la story' : undefined} style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0 }}>
       {post.thumbnail
         ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
         : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: mediaPerdu ? 0.5 : 1 }}>{icon}</div>}
@@ -3504,14 +3532,6 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
           fontSize: 8, fontWeight: 700, borderRadius: 8, padding: '0 4px', lineHeight: 1.5,
         }}>{nbStories}</span>
       )}
-      <span
-        title={infobulle}
-        style={{
-          position: 'absolute', bottom: -2, right: -2,
-          width: 9, height: 9, borderRadius: '50%',
-          background: couleurPlateforme, border: '1.5px solid var(--surface)', boxSizing: 'border-box',
-        }}
-      />
     </div>
   );
 }
@@ -3526,23 +3546,29 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
  * `court` sert au menu déplié de 250px, où seule la plateforme tient.
  */
 function metaContenu(post: Post, court = false): string {
-  const type = post.platform === 'YT' ? 'YouTube'
-    : post.platform === 'STORY' ? 'Story'
-    : post.mediaType === 'VIDEO' || post.mediaType === 'REEL' ? 'Reel'
-    : post.mediaType === 'CAROUSEL_ALBUM' ? 'Carrousel'
-    : 'Post';
+  // Type ET plateforme en toutes lettres : « Reel Instagram », « Short YouTube ».
+  // Le sigle seul (IG / YT) obligeait à le décoder, et la pastille de couleur
+  // posée sur la vignette ne portait cette information que par convention.
+  const groupe = post.platform === 'STORY' && (post.sequenceStoryCount ?? 0) > 1;
+  const type = post.platform === 'YT'
+    ? (post.mediaType === 'SHORT' ? 'Short YouTube' : 'Vidéo YouTube')
+    : post.platform === 'STORY'
+      ? (groupe ? 'Séquence Stories' : 'Story Instagram')
+      : post.mediaType === 'VIDEO' || post.mediaType === 'REEL' ? 'Reel Instagram'
+      : post.mediaType === 'CAROUSEL_ALBUM' ? 'Carrousel Instagram'
+      : 'Post Instagram';
 
   if (court) return post.platform === 'STORY' ? 'Story' : post.platform;
 
-  const morceaux: string[] = [type];
-
   const date = post.publishedAt || post.postedAt;
-  if (date) {
-    const d = new Date(date);
-    if (!isNaN(d.getTime())) {
-      morceaux.push(d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' }));
-    }
-  }
+  const d = date ? new Date(date) : null;
+  // « du 28 juillet » plutôt que « · 28 juillet » : la date se rattache au type
+  // au lieu de former un troisième morceau détaché.
+  const morceaux: string[] = [
+    d && !isNaN(d.getTime())
+      ? `${type} du ${d.toLocaleDateString('fr-FR', { day: 'numeric', month: 'long' })}`
+      : type,
+  ];
 
   if (post.clics != null) morceaux.push(`${post.clics} clic${post.clics > 1 ? 's' : ''}`);
 
@@ -3660,6 +3686,19 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
             une colonne détachée à l'autre bout de la ligne. */}
         {!compact && (
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
+            {/* Mot-clé en tête : c'est ce qui déclenche la séquence DM, donc
+                l'information qu'on vient chercher en balayant la liste. Son
+                absence se dit en toutes lettres et en ambre, comme le hi-fi.
+                Rien sur YouTube, où le DM automatique n'existe pas. */}
+            {post.lmKeyword
+              ? <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
+              : post.platform === 'YT'
+                ? null
+                : <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, background: AMBER_SOFT, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
+                    Pas de séquence
+                  </span>}
+
             {isStory && (post.sequenceStoryCount ?? 0) > 1 && (
               <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '2px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>📎 {post.sequenceName}</span>
             )}
@@ -3672,35 +3711,20 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
               <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap' }}>Calendly</span>
             )}
 
-            {/* Mot-clé : ce qui déclenche la séquence DM. Son absence se dit en
-                toutes lettres et en ambre, comme le hi-fi — c'est précisément
-                l'information qu'on vient chercher (« lesquels ne sont pas
-                configurés ? »), et un point gris ne la portait pas. Rien sur
-                YouTube, où le DM automatique n'existe pas. */}
-            {post.lmKeyword
-              ? <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
-              : post.platform === 'YT'
-                ? null
-                : <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, background: AMBER_SOFT, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
-                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
-                    Pas de séquence
-                  </span>}
-
             <PastilleEtatStory post={post} />
           </div>
         )}
       </div>
 
-      {/* Chevron : dit que la ligne s'ouvre. Sans lui, rien ne distingue
-          visuellement une ligne cliquable d'une ligne d'information. */}
-      {!compact && (
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#c9c3b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
-      )}
-
+      {/* En compact, le mot-clé n'a pas de place sous le titre : il se pose en
+          bout de ligne. En pleine largeur il vit dans la colonne de texte. */}
       {compact && post.lmKeyword && (
         <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '1px 5px', flexShrink: 0, whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
       )}
 
+      {/* Chevron : dit que la ligne s'ouvre. Sans lui, rien ne distingue
+          visuellement une ligne cliquable d'une ligne d'information. Un seul —
+          en pleine largeur, deux se dessinaient l'un à côté de l'autre. */}
       {!(isStory && selectionMode) && (
         <svg width={compact ? 14 : 17} height={compact ? 14 : 17} viewBox="0 0 24 24" fill="none" stroke="#c9c3b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
       )}
@@ -3967,6 +3991,10 @@ export default function PageLiens() {
       id: v.id,
       caption: (v.title || 'Vidéo YouTube').slice(0, 60),
       platform: 'YT' as const,
+      // `isShort` vient de la durée (≤ 60 s) calculée par /api/youtube/stats.
+      // Repris ici en mediaType pour que la ligne dise « Short YouTube » plutôt
+      // que « Vidéo YouTube » — l'API le renvoyait déjà, le mapping le jetait.
+      mediaType: v.isShort ? 'SHORT' : 'VIDEO',
       thumbnail: v.thumbnail,
       publishedAt: v.publishedAt ?? v.timestamp ?? null,
       views: v.views ?? null,
@@ -4310,6 +4338,14 @@ export default function PageLiens() {
   return (
     <UnsavedGuardContext.Provider value={unsavedGuardApi}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } } @keyframes pulse { 0%, 100% { opacity: .5 } 50% { opacity: 1 } }`}</style>
+      <style>{`
+        /* Skeletons de chargement — une pulsation lente qui dit « ça arrive »
+           sans attirer l'œil autant qu'un spinner. */
+        .liens-skeleton { animation: pulse 1.4s var(--ease-out) infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .liens-skeleton { animation: none; opacity: .6; }
+        }
+      `}</style>
       <style>{`
         @media (max-width: 767px) {
           .liens-shell { flex-direction: column !important; }
@@ -4846,7 +4882,11 @@ export default function PageLiens() {
                 const isGroupedElsewhere = isStory && !!post.sequenceId;
                 return (
                   <LigneContenu
-                    key={post.id} post={post} compact
+                    key={post.id} post={post}
+                    // Compact = la colonne étroite de 250px du menu déplié (③).
+                    // À l'accueil (①) cette même liste occupe 1048px : elle a la
+                    // place de la méta complète et des pastilles sous le titre.
+                    compact={rightView !== null}
                     selected={isStory ? (selectionMode ? false : selectedStory?.id === post.id) : selectedPost?.id === post.id}
                     checked={isStory && selectedStoryIds.has(post.id)}
                     selectionMode={selectionMode}
