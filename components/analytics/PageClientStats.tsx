@@ -13,7 +13,7 @@ import Heatmap from '@/components/charts/Heatmap';
 import {
   ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Legend, PieChart, Pie, Cell,
-  AreaChart as ReAreaChart, Area, ReferenceLine,
+  AreaChart as ReAreaChart, Area,
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
 import { isCallHonored } from '@/lib/callHonored';
@@ -1433,6 +1433,12 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
+                  {/* Meme rendu que le graphique « Abonnes nets / jour » de la section :
+                      une grille en pointilles qui marque chaque graduation, zero compris,
+                      et pas de ReferenceLine par-dessus (elle dessinait une barre blanche
+                      en travers). Les deux montrent la meme metrique, ils doivent se
+                      ressembler. */}
+                  <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
                   {(() => {
                     const borne = borneAbonnesNets(statModal.data.map(d => d.v));
@@ -1448,7 +1454,6 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                       />
                     );
                   })()}
-                  <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
                   <Tooltip content={({ active, payload, label }) => {
                     if (!active || !payload?.length) return null;
                     const v = payload[0].value as number;
@@ -2361,9 +2366,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                     />
                   );
                 })()}
-                {/* Ligne de zero, pour que le point de bascule reste lisible meme quand
-                    la courbe s'en eloigne. */}
-                <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
+                {/* Pas de ReferenceLine sur zero : la CartesianGrid trace deja une ligne
+                    a chaque graduation, dont zero, en pointilles discrets. La superposer
+                    d'un trait plein var(--border) dessinait une barre blanche en travers
+                    du graphique (signale le 2026-08-21). */}
                 <Tooltip content={<ChartTooltip />} />
                 <Area type="monotone" dataKey="netSubs" name="Abonnés nets" stroke={GREEN} strokeWidth={2} fill="url(#grad-yt-netsubs)" dot={todayDotFactory(GREEN, 'date', lastRealPointKey(netSubsForChart, 'date', 'netSubs'))} activeDot={{ r: 4, strokeWidth: 0, fill: GREEN }} isAnimationActive={false} />
               </ReAreaChart>
@@ -2694,7 +2700,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   if (min === null) return '—';
                   return dureeDepuisMinutes(min);
                 })()],
-                ...(!selectedVideo.isShort && !loadingRetention ? (() => {
+                // La case existe des le depart, comme ses voisines : elle etait absente
+                // pendant le chargement puis surgissait, ce qui decalait toute la grille.
+                ...(!selectedVideo.isShort ? [['CTR miniature', (() => {
+                  if (loadingRetention) return <MiniLoadingDots />;
                   // Le CTR n'existe QUE pour les videos publiees apres le demarrage du
                   // suivi. YouTube ne fournit les impressions de miniature que via
                   // l'API Reporting, dont le job ne collecte qu'a partir de sa creation :
@@ -2711,18 +2720,18 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   const isOlderThanJob = jobCreatedAt && selectedVideo.publishedAt && new Date(selectedVideo.publishedAt) < new Date(jobCreatedAt);
                   if (isOlderThanJob) {
                     const depuis = new Date(jobCreatedAt!).toLocaleDateString('fr-FR', { day: 'numeric', month: 'long', year: 'numeric' });
-                    return [['CTR miniature', (
+                    return (
                       <span
                         title={`YouTube ne fournit les impressions de miniature qu'à partir du démarrage du suivi, le ${depuis}. Cette vidéo est antérieure : les rares impressions enregistrées depuis ne représentent qu'une fraction de son audience réelle, et le CTR calculé dessus serait trompeur. Les vidéos publiées après cette date ont un CTR fiable.`}
-                        style={{ cursor: 'help', borderBottom: '1px dotted var(--muted)', color: 'var(--muted)' }}
+                        style={{ cursor: 'help', color: 'var(--muted)', borderBottom: '1px dotted var(--muted)' }}
                       >
-                        Non mesurable
+                        N/D
                       </span>
-                    )] as [string, React.ReactNode]];
+                    );
                   }
-                  if (ctrPending) return [['CTR miniature', 'Bientôt dispo'] as [string, React.ReactNode]];
-                  return [['CTR miniature', videoCtr !== null ? `${videoCtr}%` : '—'] as [string, React.ReactNode]];
-                })() : []),
+                  if (ctrPending) return <span style={{ color: 'var(--muted)' }}>Bientôt</span>;
+                  return videoCtr !== null ? `${videoCtr}%` : '—';
+                })()] as [string, React.ReactNode]] : []),
                 ['Likes', fmt(retentionSummary?.likes ?? (loadingRetention ? selectedVideo.likes : 0))],
                 ['Commentaires', fmt(retentionSummary?.comments ?? (loadingRetention ? selectedVideo.comments : 0))],
                 ['Partages', loadingRetention ? <MiniLoadingDots /> : fmt(retentionSummary?.shares ?? 0)],
@@ -5568,9 +5577,9 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         ['CTR miniature', ytVideo.ctr != null ? `${(ytVideo.ctr * 100).toFixed(1).replace('.', ',')}%` : (
                           <span
                             title="YouTube ne fournit les impressions de miniature qu'à partir du démarrage du suivi sur la plateforme. Cette vidéo est antérieure : le CTR calculé sur les rares impressions enregistrées depuis serait trompeur. Les vidéos publiées après le démarrage ont un CTR fiable."
-                            style={{ cursor: 'help', fontSize: 13, fontWeight: 600, borderBottom: '1px dotted var(--muted)', color: 'var(--muted)' }}
+                            style={{ cursor: 'help', color: 'var(--muted)', borderBottom: '1px dotted var(--muted)' }}
                           >
-                            Non mesurable
+                            N/D
                           </span>
                         )],
                       ];
