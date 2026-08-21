@@ -115,12 +115,24 @@ export default function PageClientSettings() {
   // (demande de Chris, 2026-08-22).
   useEffect(() => {
     const connected = searchParams.get('connected');
+    const erreur = searchParams.get('error');
+    if (!connected && !erreur) return;
+
     if (connected) {
       const nom = INTEGRATIONS.find(i => i.provider === connected)?.name || connected;
       showToast(`${nom} connecté avec succès ✓`);
     }
-    const erreur = searchParams.get('error');
     if (erreur) showToast(`Erreur de connexion (${erreur})`);
+
+    // Retire le parametre de l'URL une fois le message affiche.
+    //
+    // Sans ca il y reste : chaque rafraichissement de la page rejoue « connecte avec
+    // succes », et l'URL partagee ou mise en favori porte une confirmation qui n'a plus
+    // de sens (signale par Chris le 2026-08-22).
+    //
+    // replaceState plutot que router.replace : on remplace l'entree d'historique sans
+    // declencher de nouvelle navigation, donc sans re-rendu ni requete.
+    window.history.replaceState({}, '', window.location.pathname);
   }, [searchParams]);
 
   async function saveKey(provider: Provider) {

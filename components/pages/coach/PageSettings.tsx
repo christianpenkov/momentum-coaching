@@ -58,12 +58,19 @@ export default function PageSettings() {
 
   useEffect(() => {
     const connected = searchParams.get('connected');
+    const error = searchParams.get('error');
+    if (!connected && !error) return;
+
     if (connected) {
       const name = INTEGRATION_CONFIG.find(c => c.provider === connected)?.name || connected;
       showToast(`${name} connecté avec succès ✓`);
     }
-    const error = searchParams.get('error');
     if (error) showToast(`Erreur de connexion (${error})`, true);
+
+    // Retire le parametre de l'URL une fois le message affiche : sans ca, chaque
+    // rafraichissement rejoue « connecte avec succes ». Meme correction que la page
+    // Reglages de l'eleve (2026-08-22).
+    window.history.replaceState({}, '', window.location.pathname);
   }, [searchParams]);
 
   function showToast(msg: string, isError = false) {
