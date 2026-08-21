@@ -6741,7 +6741,19 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
   const igTapsTotal   = snaps.reduce((s, r) => s + (r.ig_profile_taps ?? 0), 0);
   const igWCTotal     = snaps.reduce((s, r) => s + (r.ig_website_clicks ?? 0), 0);
   const igFUTotal     = snaps.reduce((s, r) => s + (r.ig_follows_unfollows ?? 0), 0);
-  const igLeadTotal   = snaps.reduce((s, r) => s + (r.ig_lead_count ?? 0), 0);
+  // La colonne ig_lead_count a ete supprimee le 2026-08-22 : elle etait ecrite `null`
+  // a quatre endroits du code, jamais alimentee, et faisait doublon avec la table
+  // instagram_leads — la seule source reelle, et la plus riche puisqu'elle se filtre
+  // par periode, par source et par statut.
+  //
+  // La documentation Meta confirme qu'aucune metrique Instagram ne fournit un compteur
+  // de leads ou de conversations : il n'existait donc aucune source possible pour
+  // cette colonne.
+  //
+  // 0 ici plutot qu'un comptage : ce chemin construit un objet de messagerie a partir
+  // des SNAPSHOTS, qui n'ont jamais porte cette information. Le vrai comptage se fait
+  // ailleurs, sur instagram_leads.
+  const igLeadTotal = 0;
 
   // Posts IG : dédupliquer par post_id (garder le snapshot le plus récent de la période)
   const latestIgPost = new Map<string, any>();

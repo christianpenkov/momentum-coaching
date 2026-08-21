@@ -26,7 +26,6 @@ export interface IgDayMetricsCore {
   ig_website_clicks: number | null;
   ig_accounts_engaged: number | null;
   ig_total_interactions: number | null;
-  ig_lead_count: number | null;
   ig_response_rate: number | null;
   ig_reach_follower: number | null;
   ig_reach_non_follower: number | null;
@@ -123,7 +122,6 @@ export async function fetchIgDayMetricsCore(
     ig_website_clicks:     insightMap['website_clicks'] !== undefined ? sum(insightMap['website_clicks']) : null,
     ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
     ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
-    ig_lead_count:         null,
     ig_response_rate:      null,
     ig_reach_follower:     reachFollower,
     ig_reach_non_follower: reachNonFollower,

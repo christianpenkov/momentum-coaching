@@ -21,7 +21,6 @@ export interface IgDaySnapshot {
   ig_website_clicks: number | null;
   ig_accounts_engaged: number | null;
   ig_total_interactions: number | null;
-  ig_lead_count: number | null;
   ig_response_rate: number | null;
   ig_reach_follower: number | null;
   ig_reach_non_follower: number | null;
@@ -156,7 +155,6 @@ export async function fetchIgDayMetrics(
     ig_website_clicks:     insightMap['website_clicks'] !== undefined ? sum(insightMap['website_clicks']) : null,
     ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
     ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
-    ig_lead_count:         null,
     ig_response_rate:      null,
     ig_reach_follower:     reachFollower,
     ig_reach_non_follower: reachNonFollower,
@@ -222,8 +220,7 @@ export async function fetchIgBackfill30d(
       ig_website_clicks:     metrics['website_clicks'] ?? null,
       ig_accounts_engaged:   null,
       ig_total_interactions: null,
-      ig_lead_count:         null,
-      ig_response_rate:      null,
+        ig_response_rate:      null,
       // Non backfillable rétroactivement en un seul appel (le breakdown follow_type sur
       // reach ne renvoie un vrai détail que sur une fenêtre d'un jour, cf. fetchIgDayMetrics)
       // — l'historique de cette métrique ne démarre qu'à partir du prochain cron/refresh.
@@ -528,7 +525,6 @@ export async function upsertIgSnapshot(
     ig_website_clicks:     snapshot.ig_website_clicks,
     ig_accounts_engaged:   snapshot.ig_accounts_engaged,
     ig_total_interactions: snapshot.ig_total_interactions,
-    ig_lead_count:         snapshot.ig_lead_count,
     ig_response_rate:      snapshot.ig_response_rate,
     ig_reach_follower:     snapshot.ig_reach_follower,
     ig_reach_non_follower: snapshot.ig_reach_non_follower,

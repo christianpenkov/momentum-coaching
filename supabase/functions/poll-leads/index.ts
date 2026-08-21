@@ -197,17 +197,26 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   // collectee QUE par lib/ig-fetch.ts, cote Node, qui ne tourne qu'au backfill de
   // premiere connexion : les colonnes s'arretaient donc au 27 juillet sur le profil de
   // test. Elle est ajoutee ici.
-  const [accountRes, insightsRes, insightsTvRes, engagedRes, reachBdRes] = await Promise.all([
+  const [accountRes, insightsRes, insightsTvRes, engagedRes, reachBdRes, followsBdRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count,follows_count&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views,profile_links_taps,website_clicks&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`),
+    // follows_and_unfollows exige metric_type=total_value ET breakdown=follow_type.
+    //
+    // Sa valeur n'est PAS dans `total_value.value` — qui vaut None — mais uniquement
+    // dans le breakdown. Le code ne lisait que la premiere, d'ou une colonne vide sur
+    // 280 lignes qu'on a longtemps prise pour « Meta ne fournit plus cette metrique ».
+    // Verifie contre l'API le 2026-08-22 : FOLLOWER 0, NON_FOLLOWER 1.
+    //
+    // Documentation Meta : non renvoyee si le compte a moins de 100 abonnes.
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=follows_and_unfollows&metric_type=total_value&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`),
   ]);
 
-  const [accountData, insightsData, insightsTvData, engagedData, reachBdData] = await Promise.all([
+  const [accountData, insightsData, insightsTvData, engagedData, reachBdData, followsBdData] = await Promise.all([
     safeJson(accountRes), safeJson(insightsRes), safeJson(insightsTvRes),
-    safeJson(engagedRes), safeJson(reachBdRes),
+    safeJson(engagedRes), safeJson(reachBdRes), safeJson(followsBdRes),
   ]);
 
   // Quota epuise : on le signale a l'appelant en levant, plutot que de rendre des
@@ -216,6 +225,7 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   const reponses: [Response, any][] = [
     [accountRes, accountData], [insightsRes, insightsData],
     [insightsTvRes, insightsTvData], [engagedRes, engagedData], [reachBdRes, reachBdData],
+    [followsBdRes, followsBdData],
   ];
   if (reponses.some(([r, b]) => estErreurQuota(r, b))) {
     throw new Error('ig_quota_epuise');
@@ -242,6 +252,18 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   // null (pas 0) quand Meta ne renvoie aucune ligne : un 0 se lirait « aucun abonne
   // touche », alors que la realite est « Meta n'a pas fourni la ventilation » — c'est
   // exactement ce qui affichait un « Followers reach rate » de 0 % a l'ecran.
+  // Somme des lignes d'un breakdown Meta. `total_value.value` peut valoir None alors
+  // que le detail existe : c'est le cas de follows_and_unfollows, dont la valeur n'est
+  // QUE dans le breakdown.
+  const sommeBreakdown = (donnees: any): number | null => {
+    for (const m of (donnees?.data || [])) {
+      const lignes = (m.total_value?.breakdowns || []).flatMap((bd: any) => bd.results || []);
+      if (lignes.length === 0) continue;
+      return lignes.reduce((t: number, r: any) => t + (r.value ?? 0), 0);
+    }
+    return null;
+  };
+
   let reachFollower: number | null = null;
   let reachNonFollower: number | null = null;
   for (const m of (reachBdData?.data || [])) {
@@ -286,14 +308,13 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_followers:          accountData.followers_count ?? null,
     ig_following:          accountData.follows_count ?? null,
     ig_views:              tvMap['views'] ?? null,
-    ig_follows_unfollows:  insightMap['follows_and_unfollows'] !== undefined ? sum(insightMap['follows_and_unfollows']) : null,
+    ig_follows_unfollows:  sommeBreakdown(followsBdData),
     ig_profile_taps:       tvMap['profile_links_taps'] ?? null,
     ig_website_clicks:     tvMap['website_clicks'] ?? null,
     ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
     ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
     ig_reach_follower:     reachFollower,
     ig_reach_non_follower: reachNonFollower,
-    ig_lead_count:         null,
     ig_response_rate:      null,
   };
 }
