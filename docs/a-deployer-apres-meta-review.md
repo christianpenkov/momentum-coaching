@@ -37,6 +37,30 @@ Le `SELECT` filtrait soigneusement `ig_account_id` + `archived_at`, l'`UPDATE` q
 suivait ne filtrait que `post_id` : un post présent dans deux comptes voyait les
 lignes des deux marquées supprimées.
 
+### `poll-stories/index.ts` — un média perdu ne disait pas pourquoi
+`ensureStoryMediaStored` avait **quatre** chemins d'échec renvoyant le même
+`{ null, null }` muet, et l'appelant n'en remontait aucun. Une story sans vignette
+était donc indiagnosticable après coup — et le média n'est plus récupérable une
+fois la story expirée (Meta ne sert plus l'URL passé 24 h).
+
+Constaté sur la story du 2026-08-16 (`17960436179980274`, VIDEO) : détectée
+26 min après publication, donc bien avant expiration, `storage_path` et
+`storage_url` vides, aucun fichier dans le bucket. Cause exacte non
+déterminable rétroactivement — c'est précisément le défaut corrigé. La piste la
+plus probable est un `media_url` absent de la réponse Meta, cas
+[documenté et intermittent](https://developers.facebook.com/community/threads/298461861532746/).
+
+Chaque échec porte désormais une `raison` (`media_url_absent`,
+`telechargement_http_404`, `upload: …`, `exception: …`), remontée dans `errors`
+**et écrite dans `webhook_debug_log`** — un `console.error` ne survit pas à la
+rétention des logs, or c'est ce qu'on vient chercher des jours plus tard.
+
+Requête de suivi après déploiement :
+```sql
+select created_at, data from webhook_debug_log
+where message = 'poll-stories errors' order by created_at desc limit 20;
+```
+
 ### `_shared/ig-posts.ts` — garde d'idempotence sans filtre de compte
 Les lignes archivées d'un compte précédent portant la même `snapshot_date` faisaient
 croire le snapshot déjà pris → **trou d'un jour** dans l'historique du nouveau compte.
