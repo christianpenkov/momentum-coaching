@@ -87,8 +87,10 @@ export async function PUT(
   // Bornes défensives : step_index/step_total viennent du client et alimentent le
   // libellé « étape N/M » des cartes. La base a déjà un CHECK >= 1 ; on évite ici de
   // lui envoyer une valeur qui la ferait échouer, puisque cet échec serait avalé.
-  const stepIndex = Math.max(1, Math.min(99, Number(body.step_index) || 1));
-  const stepTotal = Math.max(stepIndex, Math.min(99, Number(body.step_total) || 1));
+  // Minimum 0 et non 1 : `step_index` compte les questions RÉPONDUES, et un
+  // brouillon peut exister avant qu'une seule ait été validée (champ libre saisi).
+  const stepIndex = Math.max(0, Math.min(99, Number(body.step_index) || 0));
+  const stepTotal = Math.max(stepIndex, 1, Math.min(99, Number(body.step_total) || 1));
 
   const { error } = await serviceSupabase
     .from('call_rapport_drafts')

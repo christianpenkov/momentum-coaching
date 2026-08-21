@@ -221,7 +221,10 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     draft.save({
       kind: 'sales',
       step: s,
-      stepIndex: h.length + 1,
+      // Questions RÉPONDUES, pas étape courante : `history` contient exactement
+      // les étapes franchies. Avec un `+ 1` on affichait « 2/2 » alors qu'il
+      // restait une question à répondre — on croyait le rapport terminé.
+      stepIndex: h.length,
       stepTotal: estimateTotal(a, h.length),
       answers: { ...a, history: h },
     });
@@ -234,7 +237,7 @@ export default function RapportModal({ callId, inviteeName, scheduledAt, isFollo
     draft.saveDebounced({
       kind: 'sales',
       step,
-      stepIndex: history.length + 1,
+      stepIndex: history.length,
       stepTotal: estimateTotal(answers, history.length),
       answers: { ...answers, history },
     });

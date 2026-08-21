@@ -159,13 +159,20 @@ export function isSubmittable(a: RapportAnswers): boolean {
 /**
  * Progression affichée sur les cartes. Approximative par nature — l'utilisateur
  * peut encore changer de branche — et c'est voulu : un total figé à 17 pour un
- * no-show en 2 étapes serait mensonger. `Math.max` garantit index <= total, sans
- * quoi un retour arrière suivi d'un chemin plus court affiche « étape 6/5 ».
+ * no-show en 2 étapes serait mensonger.
+ *
+ * `historyLength` = nombre de questions RÉPONDUES (les étapes franchies), et non
+ * le rang de l'étape courante : afficher « 2/2 » alors qu'il reste une question
+ * laisse croire que le rapport est terminé.
+ *
+ * `Math.max` garantit répondues <= total, sans quoi un retour arrière suivi d'un
+ * chemin plus court afficherait « 5/3 ».
  */
 export function estimateTotal(a: RapportAnswers, historyLength: number): number {
-  const index = historyLength + 1;
-  if (a.showedUp === false) return index;
-  if (a.outcomeChoice === 'closed') return Math.max(index, 5);
-  if (a.outcomeChoice === 'rescheduled') return Math.max(index, 3);
-  return Math.max(index, 4);
+  // +1 : il reste au moins la question en cours à répondre.
+  const minimum = historyLength + 1;
+  if (a.showedUp === false) return minimum;
+  if (a.outcomeChoice === 'closed') return Math.max(minimum, 5);
+  if (a.outcomeChoice === 'rescheduled') return Math.max(minimum, 3);
+  return Math.max(minimum, 4);
 }

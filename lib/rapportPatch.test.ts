@@ -137,10 +137,20 @@ test('isSubmittable', () => {
 
 // ── Progression ────────────────────────────────────────────────────────────
 
-test('estimateTotal garde index <= total après un retour arrière', () => {
+test('estimateTotal garde répondues <= total après un retour arrière', () => {
   // Descendre en closed (total 5), remonter, repartir sur no-show : sans le
-  // Math.max on afficherait « étape 6/3 ».
+  // Math.max on afficherait « 5/3 ».
   assert.ok(estimateTotal(reponses({ showedUp: false }), 5) >= 6);
   assert.equal(estimateTotal(reponses({ showedUp: true, outcomeChoice: 'closed' }), 1), 5);
   assert.equal(estimateTotal(reponses({ showedUp: true, outcomeChoice: 'rescheduled' }), 1), 3);
+});
+
+test('le total laisse toujours de la place pour la question en cours', () => {
+  // C'est le sens de la progression : `historyLength` compte les questions
+  // RÉPONDUES, il en reste au moins une, donc total > répondues tant qu'on n'a
+  // pas soumis. Sans ça la carte annonçait « 2/2 » sur un rapport inachevé.
+  for (const repondues of [0, 1, 2, 3]) {
+    const total = estimateTotal(reponses({ showedUp: true, outcomeChoice: 'to_recontact' }), repondues);
+    assert.ok(total > repondues, `${repondues} répondues → total ${total} doit être supérieur`);
+  }
 });

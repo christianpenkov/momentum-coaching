@@ -88,7 +88,12 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
   const hasAnything = attended !== null || topic !== null || topicCustom !== '' || notes !== '';
 
   const answers = (): SessionAnswers => ({ attended, topic, topicCustom, notes, isCorrection: isEdit });
-  const stepIndex = step === 'attended' ? 1 : 2;
+  // Questions RÉPONDUES, pas rang de l'étape courante : sur l'étape topic_notes la
+  // présence est acquise (1 sur 2), et il reste le sujet à choisir. Compter
+  // l'étape courante affichait « 2/2 » et laissait croire au rapport terminé.
+  const compteReponses = (s: SessionRapportStep, t: SessionTopic | null) =>
+    s === 'attended' ? 0 : (t ? 2 : 1);
+  const stepIndex = compteReponses(step, topic);
   const stepTotal = isEdit ? 1 : 2;
 
   /** Sauvegarde immédiate, puis changement d'étape. */
@@ -98,7 +103,7 @@ export default function SessionRapportModal({ callId, studentName, scheduledAt, 
     // pas créer de brouillon, sinon la carte annonce « Commencé » pour rien.
     const rempli = a.attended !== null || a.topic !== null || a.topicCustom !== '' || a.notes !== '';
     if (rempli) {
-      draft.save({ kind: 'session', step: next, stepIndex: next === 'attended' ? 1 : 2, stepTotal, answers: a });
+      draft.save({ kind: 'session', step: next, stepIndex: compteReponses(next, a.topic), stepTotal, answers: a });
     }
     setStep(next);
   }
