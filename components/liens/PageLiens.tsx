@@ -3010,30 +3010,42 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
           boxSizing: 'border-box', overflowY: 'auto', overflowX: 'hidden',
         }}>
 
-        {/* Tête : retour, puis épinglage quand le rail est ouvert */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: ouvert ? '0 11px 8px' : '0 0 8px', flexShrink: 0, borderBottom: `1px solid ${BORDER_SOFT}`, marginBottom: 4 }}>
+        {/* Tête : retour, puis épinglage une fois le rail ouvert.
+            Le libellé et l'épingle sont DÉMONTÉS quand le rail est replié, pas
+            seulement transparents : à 56px de large, un bouton de 115px déborde
+            et décale les vignettes en dessous, même invisible. */}
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          padding: ouvert ? '0 11px 8px' : '0 0 8px',
+          flexShrink: 0, borderBottom: `1px solid ${BORDER_SOFT}`, marginBottom: 4,
+          justifyContent: ouvert ? 'flex-start' : 'center',
+        }}>
           <button onClick={onRetour} title="Revenir à tous les contenus" aria-label="Revenir à tous les contenus" style={{
             display: 'flex', alignItems: 'center', gap: 6, background: 'none', border: 'none', cursor: 'pointer',
-            padding: 0, color: BLUE, fontSize: 12, fontWeight: 700, flexShrink: 0, minWidth: 34, justifyContent: ouvert ? 'flex-start' : 'center',
+            padding: 0, color: BLUE, fontSize: 12, fontWeight: 700, flexShrink: 0,
+            width: ouvert ? 'auto' : 34, height: 34, justifyContent: 'center',
           }}>
             {IcoRetour}
-            <m.span initial={false} animate={{ opacity: ouvert ? 1 : 0 }} transition={fondu}
-              style={{ whiteSpace: 'nowrap', pointerEvents: ouvert ? 'auto' : 'none' }}>Gérer mes liens</m.span>
+            {ouvert && (
+              <m.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fondu}
+                style={{ whiteSpace: 'nowrap' }}>Gérer mes liens</m.span>
+            )}
           </button>
 
-          {/* L'épingle n'a de sens qu'une fois ouvert : elle décide si le rail
-              reste déplié quand la souris part. */}
-          <m.button onClick={onEpingler}
-            initial={false} animate={{ opacity: ouvert ? 1 : 0 }} transition={fondu}
-            title={epingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
-            aria-label={epingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
-            style={{
-              marginLeft: 'auto', width: 26, height: 24, borderRadius: 6, flexShrink: 0,
-              cursor: ouvert ? 'pointer' : 'default', pointerEvents: ouvert ? 'auto' : 'none',
-              background: epingle ? BLUE : SURFACE, border: `1px solid ${epingle ? BLUE : BORDER}`,
-              color: epingle ? '#fff' : INK,
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-            }}>{IcoMenu}</m.button>
+          {/* L'épingle décide si le rail reste déplié quand la souris part —
+              elle n'a donc de sens qu'une fois ouvert. */}
+          {ouvert && (
+            <m.button onClick={onEpingler}
+              initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fondu}
+              title={epingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
+              aria-label={epingle ? 'Ne plus garder la liste ouverte' : 'Garder la liste ouverte'}
+              style={{
+                marginLeft: 'auto', width: 26, height: 24, borderRadius: 6, flexShrink: 0, cursor: 'pointer',
+                background: epingle ? BLUE : SURFACE, border: `1px solid ${epingle ? BLUE : BORDER}`,
+                color: epingle ? '#fff' : INK,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>{IcoMenu}</m.button>
+          )}
         </div>
 
         {posts.map(post => {
@@ -3053,13 +3065,18 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
                 <VignetteContenu post={post} size={34} hauteur={post.platform === 'STORY' ? 44 : 34} />
               </span>
 
-              <m.span initial={false} animate={{ opacity: ouvert ? 1 : 0 }} transition={fondu}
-                style={{ flex: 1, minWidth: 0, textAlign: 'left', pointerEvents: ouvert ? 'auto' : 'none' }}>
-                <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: actif ? BLUE : INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.caption}</span>
-                <span style={{ display: 'block', fontSize: 10.5, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
-                  {metaContenu(post, true)}{post.lmKeyword ? ` · ${post.lmKeyword.toUpperCase()}` : ''}
-                </span>
-              </m.span>
+              {/* Démonté quand le rail est replié, pas seulement transparent :
+                  un bloc de texte invisible occupe quand même sa largeur et
+                  pousse la vignette hors des 56px. */}
+              {ouvert && (
+                <m.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fondu}
+                  style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+                  <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: actif ? BLUE : INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.caption}</span>
+                  <span style={{ display: 'block', fontSize: 10.5, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 1 }}>
+                    {metaContenu(post, true)}{post.lmKeyword ? ` · ${post.lmKeyword.toUpperCase()}` : ''}
+                  </span>
+                </m.span>
+              )}
             </button>
           );
         })}
@@ -3865,8 +3882,8 @@ export default function PageLiens() {
   const [survolMenu, setSurvolMenu] = useState(false);
   const timerSurvol = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const OUVERTURE_MS = 250;
-  const FERMETURE_MS = 320;
+  const OUVERTURE_MS = 75;
+  const FERMETURE_MS = 75;
 
   const survolRail = useCallback((dedans: boolean) => {
     if (timerSurvol.current) clearTimeout(timerSurvol.current);
