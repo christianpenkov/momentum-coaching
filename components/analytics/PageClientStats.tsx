@@ -2363,8 +2363,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   Pas de badge J-3 non plus : sur du cumul depuis la publication, trois
                   jours de retard ne changent rien de lisible — contrairement a un
                   chiffre du jour. */}
-              <div style={{ marginBottom: 10 }}>
-                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time moyen / vue</span>
+              {/* Titre raccourci en « Watch time moyen » : avec « / vue » plus la mention
+                  de fenetre, l'en-tete passait sur deux lignes et decalait cette carte
+                  par rapport a ses quatre voisines (constate a l'ecran le 2026-08-21).
+                  « / vue » est de toute facon redondant avec « moyen » ici, et les deux
+                  valeurs sous-jacentes sont bien des durees par vue. */}
+              <div style={{ marginBottom: 10, whiteSpace: 'nowrap' }}>
+                <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time moyen</span>
                 <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>depuis toujours</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
