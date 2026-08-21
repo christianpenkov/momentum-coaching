@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import InlineLoader from '@/components/ui/InlineLoader';
 import { useQuery } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
@@ -411,13 +411,87 @@ function nomAppareil(code: string): string {
  * pendant que le graphique voisin en montrait neuf. Deux graphiques cote a cote, deux
  * densites differentes (constate par Chris a l'ecran le 2026-08-21).
  *
- * ~9 labels au maximum en vue mois, tous les jours en vue semaine. Meme regle que le
- * composant partage components/charts/AreaChart.tsx, posee ici une seule fois : elle
- * etait recopiee dans treize graphiques, dont huit avaient derive.
+ * Tous les jours en vue semaine ; en vue mois, autant de dates que la LARGEUR le
+ * permet, sans jamais les faire se toucher.
+ *
+ * `largeurPx` optionnel : quand l'appelant connait la largeur reelle du graphique
+ * (via ResponsiveContainer), on calcule combien de dates y tiennent au lieu de figer
+ * un nombre.
+ *
+ * 80 px par date alors qu'une date (« 13 août ») en occupe environ 50 : la marge est
+ * VOLONTAIRE. « Mieux vaut pas assez de dates que trop et mal equilibre » (Chris) —
+ * un axe trop dense se lit mal, un axe aere reste lisible. On sous-estime donc
+ * toujours ce qui tient.
+ *
+ * Sans largeur fournie, repli sur ~12 labels : la valeur qui convient aux graphiques
+ * pleine largeur de cette page. C'etait 9 auparavant, ce qui laissait de grands vides
+ * (demande de Chris, 2026-08-21).
+ *
+ * Meme regle que le composant partage components/charts/AreaChart.tsx, posee ici une
+ * seule fois : elle etait recopiee dans treize graphiques, dont huit avaient derive.
  */
-function graduationsDates(nbPoints: number, periode: number): number | 'preserveStartEnd' {
+const LARGEUR_LABEL_DATE_PX = 80;
+
+/**
+ * Mesure la largeur d'un conteneur et la suit au redimensionnement.
+ *
+ * Sert a decider combien de dates tiennent sur l'axe d'un graphique : sur un ecran
+ * large il y a la place d'en afficher plus que sur un mobile, et figer un nombre
+ * revient a choisir le pire des deux cas.
+ *
+ * Renvoie 0 avant la premiere mesure — graduationsDates retombe alors sur son repli,
+ * donc l'axe est correct des le premier rendu, pas seulement apres mesure.
+ */
+function useLargeur<T extends HTMLElement>(): [React.RefObject<T | null>, number] {
+  const ref = useRef<T>(null);
+  const [largeur, setLargeur] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(entries => {
+      const w = entries[0]?.contentRect?.width ?? 0;
+      // Arrondi au pas de 20 px : evite de recalculer l'axe a chaque pixel pendant
+      // un redimensionnement, donc pas de scintillement des dates.
+      setLargeur(prev => (Math.abs(w - prev) > 20 ? w : prev));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return [ref, largeur];
+}
+
+function graduationsDates(nbPoints: number, periode: number, largeurPx?: number): number | 'preserveStartEnd' {
   if (periode === 7) return 0;
-  return Math.max(1, Math.ceil(nbPoints / 9) - 1);
+  const maxLabels = largeurPx && largeurPx > 0
+    ? Math.max(2, Math.floor(largeurPx / LARGEUR_LABEL_DATE_PX))
+    : 12;
+  if (nbPoints <= maxLabels) return 0;
+  return Math.max(1, Math.ceil(nbPoints / maxLabels) - 1);
+}
+
+/**
+ * Graduations EXPLICITES d'un axe de dates : premiere et derniere toujours incluses,
+ * le reste reparti uniformement entre les deux.
+ *
+ * Pourquoi pas un simple `interval` : Recharts place alors ses graduations tous les
+ * N points a partir du premier, et la derniere ne tombe juste que si (nbPoints - 1)
+ * est un multiple de N. Quand ce nombre est premier — 29 jours, 52, 83 — aucun pas
+ * ne fonctionne. `preserveStartEnd` force bien la derniere mais en L'AJOUTANT aux
+ * graduations regulieres, d'ou le « 29 juil, grand vide, 31 juil » signale par Chris.
+ *
+ * En fournissant la liste, on garantit les deux extremites ET un espacement regulier
+ * (au plus un jour d'ecart entre deux intervalles), quelle que soit la longueur de la
+ * periode. Demande de Chris : « globalement tout le temps la premiere et derniere ».
+ */
+function datesAxe(dates: string[], periode: number, largeurPx?: number): string[] | undefined {
+  const n = dates.length;
+  // undefined = on laisse Recharts decider (vue semaine : toutes les dates tiennent).
+  if (periode === 7 || n <= 2) return undefined;
+  const maxLabels = largeurPx && largeurPx > 0
+    ? Math.max(2, Math.floor(largeurPx / LARGEUR_LABEL_DATE_PX))
+    : 12;
+  if (n <= maxLabels) return undefined;
+  return Array.from({ length: maxLabels }, (_, i) => dates[Math.round((i * (n - 1)) / (maxLabels - 1))]);
 }
 
 /**
@@ -1976,6 +2050,17 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // Mots-cles, Demographie), ou le retard n'a pas d'importance : on y lit une structure
   // cumulee, pas un chiffre du jour. Choix de Chris, 2026-08-21.
   const ytLagSuffix = ytDataLagDays >= 2 ? ` · données J-${ytDataLagDays}` : '';
+  // Etiquette de fenetre des cartes. En mode All-Time, les cartes affichaient « 30j »
+  // alors que le bandeau annonçait « All-Time, depuis le 30/05/2026 » et que les
+  // graphiques couvraient juin a aout : l'etiquette contredisait la periode reellement
+  // affichee (constate par Chris a l'ecran le 2026-08-21).
+  const ytEtiquettePeriode = sinceConnection ? 'total' : `${period}j`;
+  // Largeur reelle des deux grands graphiques (Vues / jour et Abonnes nets / jour) :
+  // ils partagent la meme colonne de la grille, une seule mesure suffit. Elle sert a
+  // decider combien de dates tiennent sur l'axe — sur un ecran large il y a la place
+  // d'en afficher plus que sur un mobile, et figer un nombre revient a choisir le
+  // pire des deux cas (demande de Chris, 2026-08-21).
+  const [refGraphiques, largeurGraphiques] = useLargeur<HTMLDivElement>();
   const ytLastEngagementDateFmt = ytLastEngagementDate
     ? new Date(ytLastEngagementDate + 'T12:00:00Z').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })
     : null;
@@ -2263,20 +2348,20 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // direct via la Data API v3. « all time » induisait en erreur — la carte ne
           // cumule rien sur une periode, elle affiche un compteur.
           { label: 'Abonnés', value: fmt(yt.subscribers), color: 'var(--ink)', key: 'Abonnés YT' },
-          { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
+          { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: ytEtiquettePeriode, color: YT_COLOR, key: 'Vidéos publiées' },
           // Libelle « Abonnés nets » sans suffixe : on est dans l'onglet YouTube, a cote
           // d'une carte « Abonnés ». Le « YT » etait un reste de la cle technique, qui
           // reste 'Abonnés nets YT' pour ne pas entrer en collision avec la serie
           // Instagram du meme nom.
-          { label: 'Abonnés nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
-          { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
+          { label: 'Abonnés nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: ytEtiquettePeriode, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
+          { label: 'Vues', value: fmt(ytViewsP), sub: ytEtiquettePeriode, color: 'var(--ink)', key: 'Vues 30j' },
           null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
           if (s === null) return (
             <div key="vues-sub" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px' }}>
               <div style={{ marginBottom: 10 }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Vues pour 1 abonné gagné</span>
-                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ytEtiquettePeriode}</span>
                 {/* Cette carte a son propre rendu (valeurs Shorts/Vidéos côte à côte),
                     elle n'héritait donc pas du badge de la boucle. Ses deux termes
                     viennent de l'Analytics API : même retard que les cartes voisines. */}
@@ -2372,15 +2457,15 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           //
           // Le signe rend la nature de la valeur evidente, comme sur « Abonnés nets ».
           // Le zero n'en prend pas : « +0 » annoncerait un gain nul comme un gain.
-          { label: 'Likes', value: signeVariation(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : `${period}j`, color: (ytIsFallback ? yt.likes30d : ytLikesP) < 0 ? RED : 'var(--ink)', key: 'Likes' },
-          { label: 'Commentaires', value: signeVariation(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : `${period}j`, color: (ytIsFallback ? yt.comments30d : ytCommentsP) < 0 ? RED : 'var(--ink)', key: 'Commentaires' },
-          { label: 'Partages', value: signeVariation(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : `${period}j`, color: (ytIsFallback ? yt.shares30d : ytSharesP) < 0 ? RED : 'var(--ink)', key: 'Partages' },
+          { label: 'Likes', value: signeVariation(ytIsFallback ? yt.likes30d : ytLikesP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.likes30d : ytLikesP) < 0 ? RED : 'var(--ink)', key: 'Likes' },
+          { label: 'Commentaires', value: signeVariation(ytIsFallback ? yt.comments30d : ytCommentsP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.comments30d : ytCommentsP) < 0 ? RED : 'var(--ink)', key: 'Commentaires' },
+          { label: 'Partages', value: signeVariation(ytIsFallback ? yt.shares30d : ytSharesP), sub: ytIsFallback ? '30j' : ytEtiquettePeriode, color: (ytIsFallback ? yt.shares30d : ytSharesP) < 0 ? RED : 'var(--ink)', key: 'Partages' },
         ].map((s: any, i) => {
           if (s.custom === 'watch-total') return (
             <div key="wt-total" onClick={() => openStatModal('Watch time', '')} style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 18px', cursor: 'pointer', transition: 'background .15s' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={e => e.currentTarget.style.background = 'var(--surface)'}>
               <div style={{ marginBottom: 10 }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time</span>
-                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ytEtiquettePeriode}</span>
                 {ytDataLagDays >= 2 && (
                   <span
                     title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
@@ -2433,7 +2518,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   manquait. */}
               <div style={{ marginBottom: 10, whiteSpace: 'nowrap' }}>
                 <span className="eyebrow-sm" style={{ color: 'var(--muted)' }}>Watch time moyen</span>
-                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{period}j</span>
+                <span style={{ fontSize: 10, fontWeight: 500, color: 'var(--faint)', marginLeft: 5 }}>{ytEtiquettePeriode}</span>
                 {ytDataLagDays >= 2 && (
                   <span
                     title={`Délai de traitement de YouTube Analytics.${ytLastEngagementDateFmt ? ` Dernière donnée disponible : ${ytLastEngagementDateFmt}.` : ''}`}
@@ -2494,8 +2579,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         })}
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
-        <Card title="Vues / jour" sub={`${period} jours${ytLagSuffix}`}>
+      <div ref={refGraphiques} style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 18 }}>
+        <Card title="Vues / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}${ytLagSuffix}`}>
           {(() => {
             // null (pas 0) sur les jours sans vraie donnée — même traitement que
             // "Abonnés nets / jour" juste en dessous : sinon une barre à 0 est
@@ -2511,12 +2596,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             if (allPending) return <ZoneGraphique height={220}><Empty msg="Pas encore de données" /></ZoneGraphique>;
             // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
             // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
-            const viewsTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(viewsForChart.length / 9) - 1);
             return (
               <ResponsiveContainer width="100%" height={220}>
                 <ComposedChart data={viewsForChart} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={viewsTickInterval} />
+                  <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} ticks={datesAxe(viewsForChart.map(d => d.date), period, largeurGraphiques * 0.62)} />
                   <YAxis tick={{ fontSize: 11, fill: 'var(--muted)' }} axisLine={false} tickLine={false} />
                   <Tooltip content={<ChartTooltip />} />
                   <Bar dataKey="views" name="Vues" fill="var(--accent-brand)" radius={[2, 2, 0, 0]} opacity={0.8} />
@@ -2544,7 +2628,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
         </Card>
       </div>
 
-      <Card title="Abonnés nets / jour" sub={`${period} jours${ytLagSuffix}`}>
+      <Card title="Abonnés nets / jour" sub={`${sinceConnection ? 'Depuis la connexion' : period + ' jours'}${ytLagSuffix}`}>
         {(() => {
           // null (pas 0) sur les jours sans vraie donnée — sinon la ligne continue à plat
           // jusqu'à la fin de la période au lieu de s'arrêter au dernier point réel, même
@@ -2573,7 +2657,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
-                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={graduationsDates(netSubsForChart.length, period)} />
+                <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} ticks={datesAxe(netSubsForChart.map(d => d.date), period, largeurGraphiques)} />
                 {(() => {
                   const borne = borneAbonnesNets(netSubsForChart.map(d => d.netSubs));
                   return (
