@@ -425,7 +425,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     // répercutée. Sert la courbe « Watch time moyen », qui distingue Shorts et vidéos
     // longues — distinction que yt_avg_view_duration_sec (tous formats confondus) ne
     // permet pas, et qui était donc simulée jusqu'au 2026-08-20.
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration&dimensions=day,creatorContentType&sort=day`, { headers: auth }),
+    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=day,creatorContentType&sort=day`, { headers: auth }),
     // Sources de trafic, appareils et demographie : repartitions CUMULEES, pas des
     // series journalieres. Stockees en JSONB sur la ligne du dernier jour, que
     // l'affichage lit en mode historique.
@@ -470,12 +470,15 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
   // Pas de throw si cette requête échoue : la ventilation est un complément, son absence
   // ne doit pas faire perdre les métriques principales du jour.
-  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null }>();
+  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null; shortsWatch: number | null; longWatch: number | null }>();
   for (const br of (byTypeData?.rows ?? []) as any[]) {
-    const [bday, btype, bviews, bavg] = br;
-    const cur = byType.get(bday) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null };
-    if (btype === 'shorts') { cur.shortsDur = bavg ?? null; cur.shortsViews = bviews ?? null; }
-    else if (btype === 'videoOnDemand') { cur.longDur = bavg ?? null; cur.longViews = bviews ?? null; }
+    // colonnes : day(0), creatorContentType(1), views(2), averageViewDuration(3),
+    // estimatedMinutesWatched(4) — deja en MINUTES, pas de division (cf. le bug du
+    // 2026-08-20 sur yt_watch_time_min).
+    const [bday, btype, bviews, bavg, bwatch] = br;
+    const cur = byType.get(bday) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null, shortsWatch: null, longWatch: null };
+    if (btype === 'shorts') { cur.shortsDur = bavg ?? null; cur.shortsViews = bviews ?? null; cur.shortsWatch = bwatch ?? null; }
+    else if (btype === 'videoOnDemand') { cur.longDur = bavg ?? null; cur.longViews = bviews ?? null; cur.longWatch = bwatch ?? null; }
     byType.set(bday, cur);
   }
   // ?? plutôt que || : un vrai 0 (0 vue, 0 like, 0 commentaire...) est une donnée
@@ -512,6 +515,8 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     yt_avg_duration_long_sec:   byType.get(r[0])?.longDur ?? null,
     yt_views_shorts:            byType.get(r[0])?.shortsViews ?? null,
     yt_views_long:              byType.get(r[0])?.longViews ?? null,
+    yt_watch_time_shorts_min:   byType.get(r[0])?.shortsWatch ?? null,
+    yt_watch_time_long_min:     byType.get(r[0])?.longWatch ?? null,
     // Agregats de fenetre : portes UNIQUEMENT par la derniere ligne. Les repartir sur
     // chaque jour serait faux (ce sont des cumuls sur toute la periode), et l'affichage
     // lit justement le dernier snapshot (lastSnap?.yt_traffic_sources).
@@ -1248,7 +1253,7 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         }
 
         for (const row of ytRows) {
-          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), ...(row.yt_search_keywords ? { yt_search_keywords: row.yt_search_keywords } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
+          const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, yt_watch_time_shorts_min: row.yt_watch_time_shorts_min, yt_watch_time_long_min: row.yt_watch_time_long_min, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), ...(row.yt_search_keywords ? { yt_search_keywords: row.yt_search_keywords } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
           if (error) throw new Error(`yt_upsert_${row.date}: ${error.message}`);
         }
       })(),

@@ -26,6 +26,11 @@ export interface YtDaySnapshot {
   yt_avg_duration_long_sec: number | null;
   yt_views_shorts: number | null;
   yt_views_long: number | null;
+  /** Watch time par format, en minutes. Vient directement de l'API : le reconstituer
+   *  par « vues × durée moyenne » donne un résultat faux, `averageViewDuration` étant
+   *  arrondi à la seconde (1,25 min calculée contre 0,00 réelle, vérifié le 2026-08-21). */
+  yt_watch_time_shorts_min: number | null;
+  yt_watch_time_long_min: number | null;
 }
 
 // ── Token (avec refresh OAuth) ────────────────────────────────────────────────
@@ -96,7 +101,7 @@ export async function fetchYtDayMetrics(
     // lignes par (jour × format) pour TOUTES les métriques, dont certaines n'ont pas de
     // sens ventilées (subscribers est un total de chaîne).
     fetch(
-      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration&dimensions=day,creatorContentType&sort=day`,
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=day,creatorContentType&sort=day`,
       { headers: auth }
     ),
   ]);
@@ -109,12 +114,14 @@ export async function fetchYtDayMetrics(
 
   // day -> { shorts, long } — l'API n'émet une ligne que pour les formats ayant eu des
   // vues ce jour-là, d'où le null quand le format est absent (pas de faux zéro).
-  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null }>();
+  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null; shortsWatch: number | null; longWatch: number | null }>();
   for (const r of (byTypeData?.rows ?? []) as any[]) {
-    const [day, type, views, avgDur] = r;
-    const cur = byType.get(day) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null };
-    if (type === 'shorts') { cur.shortsDur = avgDur ?? null; cur.shortsViews = views ?? null; }
-    else if (type === 'videoOnDemand') { cur.longDur = avgDur ?? null; cur.longViews = views ?? null; }
+    // colonnes : day, creatorContentType, views, averageViewDuration,
+    // estimatedMinutesWatched — deja en MINUTES, pas de division.
+    const [day, type, views, avgDur, watchMin] = r;
+    const cur = byType.get(day) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null, shortsWatch: null, longWatch: null };
+    if (type === 'shorts') { cur.shortsDur = avgDur ?? null; cur.shortsViews = views ?? null; cur.shortsWatch = watchMin ?? null; }
+    else if (type === 'videoOnDemand') { cur.longDur = avgDur ?? null; cur.longViews = views ?? null; cur.longWatch = watchMin ?? null; }
     byType.set(day, cur);
   }
 
@@ -154,6 +161,8 @@ export async function fetchYtDayMetrics(
       yt_avg_duration_long_sec:   byType.get(r[0])?.longDur ?? null,
       yt_views_shorts:            byType.get(r[0])?.shortsViews ?? null,
       yt_views_long:              byType.get(r[0])?.longViews ?? null,
+      yt_watch_time_shorts_min:   byType.get(r[0])?.shortsWatch ?? null,
+      yt_watch_time_long_min:     byType.get(r[0])?.longWatch ?? null,
     };
   });
 }
@@ -184,6 +193,8 @@ export async function upsertYtSnapshot(
       yt_avg_duration_long_sec:   snapshot.yt_avg_duration_long_sec,
       yt_views_shorts:            snapshot.yt_views_shorts,
       yt_views_long:              snapshot.yt_views_long,
+      yt_watch_time_shorts_min:   snapshot.yt_watch_time_shorts_min,
+      yt_watch_time_long_min:     snapshot.yt_watch_time_long_min,
       backfill_source:          source,
     }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
 

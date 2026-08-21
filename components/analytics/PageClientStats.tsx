@@ -75,7 +75,7 @@ interface YTStats {
   // (colonnes yt_avg_duration_shorts_sec / _long_sec, alimentées depuis la dimension
   // creatorContentType de l'API). null quand le format n'a eu aucune vue ce jour-là —
   // jamais 0, qui se lirait « personne n'a regardé ».
-  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null }[];
+  chartData: { date: string; views: number; watchTime: number; subsGained?: number; subsLost?: number; netSubs?: number; likes?: number; comments?: number; shares?: number; subscribers?: number | null; avgViewDurationSec?: number | null; avgDurationShorts?: number | null; avgDurationLong?: number | null; viewsShorts?: number | null; viewsLong?: number | null; watchTimeShorts?: number | null; watchTimeLong?: number | null }[];
   videos: YTVideo[]; trafficSources: { source: string; views: number; watchMinutes: number }[];
   devices: { device: string; views: number; watchMinutes: number }[];
   demographics: { ageGroup: string; gender: string; viewerPct: number }[];
@@ -1906,6 +1906,31 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const openStatModal = (label: string, value: string) => {
     const s = ytStatSeries[label];
     if (!s) return;
+    if (label === 'Watch time') {
+      // Watch time separe Shorts / videos longues — demande de Chris.
+      //
+      // Les valeurs viennent de l'API (colonnes yt_watch_time_*_min, dimension
+      // creatorContentType). Ne PAS les reconstituer par « vues x duree moyenne » :
+      // averageViewDuration est arrondi a la seconde, et sur petits volumes l'erreur
+      // s'amplifie — 1,25 min calculee contre 0,00 reelle sur une journee testee.
+      setStatModal({
+        label: 'Watch time — Shorts',
+        value: watchTimeLabel,
+        color: AMBER,
+        data: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeShorts ?? null),
+        })),
+        label2: 'Vidéos longues',
+        data2: ytDays.map(d => ({
+          date: d.date,
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).watchTimeLong ?? null),
+        })),
+        color2: '#64748b',
+        unit: 'min',
+      });
+      return;
+    }
     if (label === 'Watch time moyen') {
       // Vraies durées moyennes par jour et par format (colonnes yt_avg_duration_*_sec,
       // alimentées depuis la dimension creatorContentType de l'API — vérifiée sur une
@@ -6126,6 +6151,8 @@ async function fetchSnapshot(profileId: string | undefined, periodIndex: number,
       // abonnés gagnés (voir le commentaire sur la série plus bas).
       subscribers: r.yt_subscribers ?? null,
       avgViewDurationSec: r.yt_avg_view_duration_sec ?? null,
+      watchTimeShorts: r.yt_watch_time_shorts_min ?? null,
+      watchTimeLong:   r.yt_watch_time_long_min ?? null,
       avgDurationShorts: r.yt_avg_duration_shorts_sec ?? null,
       avgDurationLong:   r.yt_avg_duration_long_sec ?? null,
       viewsShorts:       r.yt_views_shorts ?? null,

@@ -135,12 +135,22 @@ export async function GET(request: Request) {
   // viennent de la YouTube Data API v3 (compteurs publics de la vidéo), qui n'a PAS ce
   // délai et se met à jour quasi instantanément. Ce sont deux APIs Google différentes
   // avec des garanties différentes, pas la même donnée vue à deux endroits.
-  const [channelRes, analyticsRes, trafficRes, devicesRes, demoRes, searchTermsRes] = await Promise.all([
+  const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes, searchTermsRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=snippet,statistics,contentDetails&mine=true', {
       headers: authHeader,
     }),
     fetch(
       `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`,
+      { headers: authHeader }
+    ),
+    // Ventilation par format (Shorts / videos longues), jour par jour.
+    //
+    // Le chemin snapshot la fournit depuis le 2026-08-20, mais pas celui-ci : la modale
+    // « Watch time moyen / vue », qui lit chartData.avgDurationShorts, s'ouvrait donc
+    // VIDE en periode courante (constate le 2026-08-21). Meme defaut que la courbe des
+    // abonnes, corrigee la veille — les deux chemins doivent porter les memes champs.
+    fetch(
+      `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views,averageViewDuration,estimatedMinutesWatched&dimensions=day,creatorContentType&sort=day`,
       { headers: authHeader }
     ),
     fetch(
@@ -161,10 +171,23 @@ export async function GET(request: Request) {
     ),
   ]);
 
-  const [channelData, analyticsData, trafficData, devicesData, demoData, searchTermsData] = await Promise.all([
-    channelRes.json(), analyticsRes.json(), trafficRes.json(),
+  const [channelData, analyticsData, byTypeData, trafficData, devicesData, demoData, searchTermsData] = await Promise.all([
+    channelRes.json(), analyticsRes.json(), byTypeRes.json(), trafficRes.json(),
     devicesRes.json(), demoRes.json(), searchTermsRes.json(),
   ]);
+
+  // day -> ventilation par format. L'API n'émet une ligne que pour les formats ayant eu
+  // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
+  // colonnes : day, creatorContentType, views, averageViewDuration,
+  // estimatedMinutesWatched — cette dernière déjà en MINUTES, pas de division.
+  const byType = new Map<string, { shortsDur: number | null; longDur: number | null; shortsViews: number | null; longViews: number | null; shortsWatch: number | null; longWatch: number | null }>();
+  for (const r of (byTypeData?.rows ?? []) as any[]) {
+    const [day, type, views, avgDur, watchMin] = r;
+    const cur = byType.get(day) ?? { shortsDur: null, longDur: null, shortsViews: null, longViews: null, shortsWatch: null, longWatch: null };
+    if (type === 'shorts') { cur.shortsDur = avgDur ?? null; cur.shortsViews = views ?? null; cur.shortsWatch = watchMin ?? null; }
+    else if (type === 'videoOnDemand') { cur.longDur = avgDur ?? null; cur.longViews = views ?? null; cur.longWatch = watchMin ?? null; }
+    byType.set(day, cur);
+  }
 
   const channel = channelData?.items?.[0];
   if (!channel) return NextResponse.json({ error: 'Chaîne introuvable' }, { status: 404 });
@@ -214,6 +237,15 @@ export async function GET(request: Request) {
     comments: r[6] || 0,
     shares: r[7] || 0,
     subscribers: subsByDay[i],
+    // ?? null et non ?? 0 : un format sans vue ce jour-là n'a pas de durée moyenne, et
+    // un 0 se lirait « regardé 0 seconde » au lieu de « pas de vue sur ce format ».
+    avgViewDurationSec: r[8] ?? null,
+    avgDurationShorts: byType.get(r[0])?.shortsDur ?? null,
+    avgDurationLong:   byType.get(r[0])?.longDur ?? null,
+    viewsShorts:       byType.get(r[0])?.shortsViews ?? null,
+    viewsLong:         byType.get(r[0])?.longViews ?? null,
+    watchTimeShorts:   byType.get(r[0])?.shortsWatch ?? null,
+    watchTimeLong:     byType.get(r[0])?.longWatch ?? null,
   }));
 
   // Sources de trafic
