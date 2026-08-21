@@ -465,6 +465,13 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   const ytDevices        = ((devicesData?.rows ?? []) as any[]).map(r => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
   const ytDemographics   = ((demoData?.rows ?? []) as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 }));
   const ytSearchKeywords = ((keywordsData?.rows ?? []) as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 }));
+
+  // Le total d'abonnes vient de la Data API v3 : il est connu EN TEMPS REEL, sans le
+  // delai de 2-3 jours de l'Analytics API. Il etait pourtant ecrit uniquement sur les
+  // lignes que l'Analytics renvoie — donc jamais sur les jours recents, ou le compteur
+  // restait vide alors que sa valeur etait disponible (constate le 2026-08-21 : rien du
+  // 19 au 21 aout). Expose separement pour pouvoir l'ecrire sur le jour courant.
+  const subscribersNow = subscribers;
   // day -> ventilation par format. L'API n'émet une ligne que pour les formats ayant eu
   // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
   // Pas de throw si cette requête échoue : la ventilation est un complément, son absence
@@ -487,7 +494,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   if (!rows.some((r: any) => r[0] === startDate)) {
     console.error(`[poll-leads] yt_missing_oldest_day: startDate=${startDate} endDate=${endDate} reçu=${rows.length} jour(s), startDate absent de la réponse Analytics API`);
   }
-  return rows.map((r: any, i: number) => ({
+  return { subscribersNow, rows: rows.map((r: any, i: number) => ({
     date: r[0], yt_views: r[1] ?? null,
     // `estimatedMinutesWatched` est DÉJÀ en minutes (le nom de la métrique le dit).
     // Le /60 qui était ici la traitait comme des secondes : tout jour sous 30 minutes
@@ -512,7 +519,7 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     yt_devices:         i === rows.length - 1 ? ytDevices        : null,
     yt_demographics:    i === rows.length - 1 ? ytDemographics   : null,
     yt_search_keywords: i === rows.length - 1 ? ytSearchKeywords  : null,
-  }));
+  })) };
 }
 
 function parseReachCsv(text: string): { video_id: string; impressions: number; clicks: number }[] {
@@ -1219,7 +1226,27 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   if (ytToken) {
     const [ytMetricsResult, ytCtrResult, ytVideosResult] = await Promise.allSettled([
       (async () => {
-        const ytRows = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
+        const { subscribersNow: ytSubsNow, rows: ytRows } = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
+
+        // Total d'abonnes sur le JOUR COURANT, ecrit independamment de l'Analytics API.
+        //
+        // Ce total vient de la Data API v3, disponible en temps reel. L'Analytics ayant
+        // 2-3 jours de retard, ses lignes s'arretent au 18 alors qu'on est le 21 : le
+        // compteur d'abonnes restait donc vide sur les jours recents, alors que sa
+        // valeur etait parfaitement connue. La courbe s'arretait 3 jours avant
+        // aujourd'hui sans raison.
+        //
+        // Ecrit sur aujourd'hui ET hier : hier peut ne pas avoir de ligne Analytics non
+        // plus, et un trou au milieu couperait la courbe.
+        if (ytSubsNow != null) {
+          for (const d of [todayStr, yesterday]) {
+            const { error: subErr } = await supa.from('analytics_daily_snapshots')
+              .upsert({ profile_id: profileId, date: d, yt_subscribers: ytSubsNow, backfill_source: 'cron' },
+                       { onConflict: 'profile_id,date', ignoreDuplicates: false });
+            if (subErr) console.error(`[poll-leads] yt_subscribers_${d}: ${subErr.message}`);
+          }
+        }
+
         for (const row of ytRows) {
           const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: row.date, yt_views: row.yt_views, yt_watch_time_min: row.yt_watch_time_min, yt_subscribers: row.yt_subscribers, yt_subs_gained: row.yt_subs_gained, yt_subs_lost: row.yt_subs_lost, yt_net_subs: row.yt_net_subs, yt_likes: row.yt_likes, yt_comments: row.yt_comments, yt_shares: row.yt_shares, yt_avg_view_duration_sec: row.yt_avg_view_duration_sec, yt_avg_duration_shorts_sec: row.yt_avg_duration_shorts_sec, yt_avg_duration_long_sec: row.yt_avg_duration_long_sec, yt_views_shorts: row.yt_views_shorts, yt_views_long: row.yt_views_long, ...(row.yt_traffic_sources ? { yt_traffic_sources: row.yt_traffic_sources } : {}), ...(row.yt_devices ? { yt_devices: row.yt_devices } : {}), ...(row.yt_demographics ? { yt_demographics: row.yt_demographics } : {}), ...(row.yt_search_keywords ? { yt_search_keywords: row.yt_search_keywords } : {}), backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
           if (error) throw new Error(`yt_upsert_${row.date}: ${error.message}`);

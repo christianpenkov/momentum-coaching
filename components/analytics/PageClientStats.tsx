@@ -87,6 +87,10 @@ interface YTVideo {
   views: number; likes: number; comments: number;
   views30d: number; watchTime30d: number; avgViewPct: number;
   likes30d: number; comments30d: number; shares30d: number; url: string;
+  /** Total de vues depuis la publication — denominateur des ratios watch time / vues,
+   *  qui doivent diviser deux valeurs de la MEME fenetre. `views30d` porte lui les vues
+   *  des 30 derniers jours, une notion differente. */
+  viewsAllTime?: number;
   /** CTR de la miniature, en RATIO (0-1) tel que stocké dans
    *  analytics_yt_videos_history.ctr — multiplier par 100 pour l'affichage.
    *  null quand YouTube n'a pas encore produit de rapport pour cette vidéo. */
@@ -666,7 +670,9 @@ function TabOverviewV2({ ig, yt, stripe, msgs, calls, callsAllTime, shortio, per
       // v.watchTime30d est déjà en minutes (row.watch_time_min) — pas de /60 ici, contrairement
       // à la branche IG ci-dessus (avgWatchTimeMs en ms) : diviser aussi par 60 donnait un résultat
       // 60x trop petit (ex: 0.0 min affiché au lieu de 2.5 min).
-      const avgWatchTimeMin = v.watchTime30d && v.views30d > 0 ? Math.round(v.watchTime30d / v.views30d * 10) / 10 : null;
+      // Denominateur all-time : watchTime30d est lui aussi all-time cote API live.
+      const vViews = v.viewsAllTime ?? v.views30d;
+      const avgWatchTimeMin = v.watchTime30d && vViews > 0 ? Math.round(v.watchTime30d / vViews * 10) / 10 : null;
       const viewsLifetimeYT = ytLiveViewsByIdOv.get(v.id) ?? null;
       return { id: v.id, title: v.title, thumbnail: v.thumbnail || null, platform: 'YT' as const, type: v.isShort ? 'Short' : 'Vidéo', views: v.views30d, totalViews: v.views, watchTime: v.watchTime30d, avgWatchTimeMin, noShowCount, noShowPct, closedCount, closedPct, callsBooked, revenueTotal: revTotal, revenuePerCall: callsBooked > 0 ? Math.round(revTotal / callsBooked) : 0, cashPerView: viewsLifetimeYT && viewsLifetimeYT > 0 ? revTotal / viewsLifetimeYT : null };
     }),
@@ -1813,11 +1819,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // watchTime30d, cumuls 30j du cron), donc le ratio est juste meme si la fenetre n'est
   // pas celle affichee. A ne pas confondre avec « vues pour 1 abonne » ci-dessus, qui
   // melangeait bien deux fenetres differentes.
-  const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + v.views30d, 0) > 0
-    ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / shortsVideos.reduce((s,v) => s + v.views30d, 0))
+  const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0) > 0
+    ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / shortsVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0))
     : null;
-  const avgWatchLong = longVideos.length > 0 && longVideos.reduce((s,v) => s + v.views30d, 0) > 0
-    ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / longVideos.reduce((s,v) => s + v.views30d, 0))
+  const avgWatchLong = longVideos.length > 0 && longVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0) > 0
+    ? Math.round(longVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / longVideos.reduce((s,v) => s + (v.viewsAllTime ?? v.views30d), 0))
     : null;
 
   const ytStatSeries: Record<string, { data: { date: string; v: number }[]; color: string; unit?: string }> = {

@@ -263,14 +263,28 @@ export async function GET(request: Request) {
 
   if (videoIds.length > 0) {
     const videoIdsStr = videoIds.join(',');
-    const [detailsRes, analyticsVideosRes, subsAllTimeRes, ctrByVideo] = await Promise.all([
+    const [detailsRes, analyticsVideosRes, views30dRes, subsAllTimeRes, ctrByVideo] = await Promise.all([
       fetch(
         `https://www.googleapis.com/youtube/v3/videos?part=snippet,statistics,contentDetails&id=${videoIdsStr}`,
         { headers: authHeader }
       ),
-      // Métriques contenu all-time par vidéo (perf contenu, pas business)
+      // Metriques contenu ALL-TIME par video (perf contenu, pas business) — sert aux
+      // ratios watch time / vues, ou numerateur et denominateur viennent de la meme
+      // fenetre, donc justes quelle que soit sa largeur.
       fetch(
         `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=2020-01-01&endDate=${getToday()}&metrics=views,estimatedMinutesWatched,averageViewPercentage,likes,comments,shares,subscribersGained&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
+        { headers: authHeader }
+      ),
+      // Vues des 30 DERNIERS JOURS par video — requete distincte, pour la colonne
+      // « Vues 30j » du tableau.
+      //
+      // Elle affichait jusqu'ici le total all-time de la requete ci-dessus, stocke dans
+      // un champ nomme views30d : une video de juin 2025 a 1 972 vues affichait « +1970
+      // sur 30j », soit 99,9 % de ses vues en un mois. La vraie valeur est 12.
+      // Le chemin snapshot, lui, lisait bien views_period — deux chemins, deux valeurs
+      // differentes dans le meme champ (constate le 2026-08-21).
+      fetch(
+        `https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${getStartDate(30)}&endDate=${getToday()}&metrics=views&dimensions=video&filters=video==${videoIdsStr}&maxResults=50`,
         { headers: authHeader }
       ),
       // Abonnés gagnés all-time par vidéo (sans filtre pour avoir toutes les vidéos)
@@ -284,6 +298,12 @@ export async function GET(request: Request) {
 
     const detailsData = await detailsRes.json();
     const analyticsVideosData = await analyticsVideosRes.json();
+    const views30dData = await views30dRes.json();
+    // videoId -> vues des 30 derniers jours (0 si la video n'a eu aucune vue : l'API
+    // n'emet pas de ligne dans ce cas, et 0 est ici la bonne valeur — la video existe,
+    // elle n'a simplement pas ete vue).
+    const views30dByVideo: Record<string, number> = {};
+    for (const row of views30dData?.rows || []) views30dByVideo[row[0]] = row[1] || 0;
     const subsAllTimeData = await subsAllTimeRes.json();
 
     // Map abonnés all-time par videoId
@@ -296,10 +316,15 @@ export async function GET(request: Request) {
     }
 
     // Map analytics 30j par videoId
-    const analyticsByVideo: Record<string, { views30d: number; watchTime30d: number; avgViewPct: number; likes30d: number; comments30d: number; shares30d: number; subsGained30d: number }> = {};
+    const analyticsByVideo: Record<string, { views30d: number; viewsAllTime: number; watchTime30d: number; avgViewPct: number; likes30d: number; comments30d: number; shares30d: number; subsGained30d: number }> = {};
     for (const row of analyticsVideosData?.rows || []) {
       analyticsByVideo[row[0]] = {
-        views30d: row[1] || 0,
+        // Vues des 30 derniers jours (requete dediee), pas le total all-time de CETTE
+        // requete — c'est ce que la colonne « Vues 30j » annonce.
+        views30d: views30dByVideo[row[0]] ?? 0,
+        // Total all-time, conserve pour les ratios watch time / vues qui doivent
+        // diviser deux valeurs de la meme fenetre.
+        viewsAllTime: row[1] || 0,
         // Déjà en minutes — même correction que poll-leads/index.ts et yt-fetch.ts.
         watchTime30d: Math.round(row[2] || 0),
         avgViewPct: parseFloat(((row[3] || 0)).toFixed(1)),
@@ -313,7 +338,7 @@ export async function GET(request: Request) {
     const retentionCurve: any[] = [];
 
     videos = (detailsData?.items || []).map((v: any) => {
-      const a = analyticsByVideo[v.id] || { views30d: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0, subsGained30d: 0 };
+      const a = analyticsByVideo[v.id] || { views30d: 0, viewsAllTime: 0, watchTime30d: 0, avgViewPct: 0, likes30d: 0, comments30d: 0, shares30d: 0, subsGained30d: 0 };
       const st = subsAllTimeByVideo[v.id] || { subsGainedTotal: 0, subsLostTotal: 0 };
       const rawDuration = v.contentDetails?.duration || 'PT0S';
       const durMatch = rawDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
@@ -330,6 +355,9 @@ export async function GET(request: Request) {
         likes: parseInt(v.statistics?.likeCount || '0'),
         comments: parseInt(v.statistics?.commentCount || '0'),
         views30d: a.views30d,
+        // Total all-time : denominateur des ratios watch time / vues, qui doivent
+        // diviser deux valeurs de la MEME fenetre. Ne pas y substituer views30d.
+        viewsAllTime: a.viewsAllTime,
         watchTime30d: a.watchTime30d,
         avgViewPct: a.avgViewPct,
         likes30d: a.likes30d,
