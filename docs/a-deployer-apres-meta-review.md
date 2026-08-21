@@ -79,6 +79,28 @@ Rien de spécial à faire, mais à vérifier une fois en ligne :
 - 8 lectures qui filtrent désormais `archived_at` (Mes Stats, liste des élèves,
   fiche élève coach, comptage de stories, mots-clés, lead magnets).
 
+### Refonte UI « Gérer mes liens » (branche `refonte-liens`)
+
+Toute la refonte est du code applicatif : elle part au `git push`, aucune
+migration, aucune Edge Function. Deux points à vérifier une fois en ligne :
+
+- `app/api/client/prospect-links` (GET) renvoie désormais un champ `clicks` par
+  lien, sommé depuis `shortio_link_daily_snapshots` sur `human_clicks`. Une
+  requête de plus par appel, bornée par `.in('short_url', …)` sur les liens déjà
+  chargés. Vérifier que la pastille affiche bien un nombre et non `0` partout :
+  ```sql
+  select pl.ig_username, coalesce(sum(s.human_clicks),0) clics
+  from prospect_links pl
+  left join shortio_link_daily_snapshots s
+    on s.short_url = pl.short_url and s.profile_id = pl.profile_id
+  where pl.deleted_at is null group by 1 order by 2 desc;
+  ```
+- L'onglet **Stats** lit des champs que le mapping de `PageLiens` jetait
+  auparavant (`reach`, `saves`, `shares`, `profile_visits`, `follows` côté Meta ;
+  `avgViewPct`, `watchTime30d`, `ctr` côté YouTube). Aucune requête ajoutée — les
+  deux API les renvoyaient déjà. `profile_visits`/`follows` ne sont peuplés qu'à
+  ~25 % : le tiret affiché à leur place est le comportement voulu, pas un bug.
+
 ---
 
 ## 4. Connu, non corrigé — vérifié sans impact mesurable
