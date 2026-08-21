@@ -139,3 +139,94 @@ réparties sur trop de termes pour qu'aucun n'atteigne le seuil.
 
 Même mécanisme que la démographie. Le bloc affiche un message explicite plutôt qu'un vide
 inexpliqué.
+
+---
+
+# Session du 2026-08-21 — affichage, unités, CTR
+
+Suite de l'audit, centrée sur ce que la page **montre** plutôt que sur ce qu'elle collecte.
+
+## CTR miniature — la correction du 20 août était insuffisante
+
+Le 20 août, le CTR codé en dur (`'4,2%'`) a été remplacé par la vraie colonne. **Mais la
+vraie colonne est trompeuse pour les vidéos publiées avant le démarrage du suivi.**
+
+L'API Reporting ne collecte qu'à partir de la création du job (ici le **29 mai 2026**).
+Une vidéo antérieure n'a en base que ses impressions résiduelles :
+
+| Vidéo | Publiée | Vues totales | Impressions en base | Couverture |
+|---|---|---|---|---|
+| `awrGQJIdthA` | 2025-06-02 | 2 012 | 113 | **0,1 %** |
+| `oM7qrjjHvlw` | 2025-06-14 | 1 972 | 593 | 0,5 % |
+| `DABmJUjKEcE` | 2025-06-14 | 1 731 | 102 | 0,2 % |
+
+Le « CTR » de 1,77 % affiché sur la première ne mesurait pas la performance de sa
+miniature : il mesurait un fond de traîne sur un échantillon minuscule.
+
+**Les 30 vidéos de la chaîne sont antérieures au job** (la plus récente date de juillet
+2025). Les 58 CTR affichés étaient donc tous trompeurs.
+
+**Correction** : `get_yt_videos_history` annule le CTR à la lecture quand
+`published_at < job_created_at` (migration `20260821180000`). La règle vit dans la RPC et
+non dans les composants — un écran sur deux appliquait déjà le test, l'autre non, exactement
+le motif de divergence corrigé partout ailleurs dans cet audit. La donnée brute reste en
+base si YouTube ouvre un jour l'historique.
+
+L'affichage montre **`N/D`** grisé avec l'explication au survol, et non un tiret muet ni
+une case absente : une absence expliquée informe, une case vide ressemble à un oubli.
+
+⚠️ **Corrige une affirmation de la section « Métriques indisponibles »** ci-dessus : le CTR
+via l'API Reporting fonctionne sans monétisation, c'est exact, mais **uniquement pour les
+vidéos publiées après la création du job**. Ce n'est pas une limite de monétisation, c'est
+une limite de date de démarrage.
+
+## Durées — un seul composant, `lib/duree.ts`
+
+Le watch time était formaté à **trois endroits avec trois règles**. La carte affichait
+« 0 min » pendant que l'axe du même graphique montrait « 40s ».
+
+Pire : **deux fonctions `fmtSec` différentes cohabitaient dans le même fichier** — l'une
+pour une durée écoulée (« 3m45s »), l'autre pour une position dans une vidéo (« 3:45 »).
+
+`lib/duree.ts` expose désormais `dureeDepuisSecondes`, `dureeDepuisMinutes` et
+`positionLecteur`. L'unité s'adapte pour que **deux valeurs proches ne tombent jamais sur
+le même libellé** : un arrondi en minutes entières graduait « 1 min, 1 min, 1 min, 0 min,
+0 min » sur une chaîne dont les journées vont de 0 à 16 minutes. Sous 3 minutes, on affiche
+des secondes.
+
+`lib/duree.test.ts` contient un test qui vérifie qu'aucune série de graduations ne produit
+deux libellés identiques — le bug ne peut pas revenir sans faire échouer `npm test`.
+
+## Zéro dans un graphique, zéro dans un KPI — deux questions différentes
+
+Décision de Chris, appliquée aux courbes de moyennes (« Watch time moyen / vue »,
+« Conv. vue→abonné ») :
+
+- **Le graphique affiche 0** les jours sans vue. Une courbe continue se lit mieux qu'une
+  nuée de points isolés.
+- **Le KPI de période les exclut**. Il divise somme(watch time) par somme(vues) : un jour
+  sans vue contribue 0 au numérateur *et* au dénominateur, donc ne dilue rien.
+
+Le graphique montre le rythme, le KPI mesure la performance. Seuls les jours que YouTube
+n'a **pas encore traités** restent des trous — la donnée n'existe pas, ce qui n'est pas la
+même chose qu'un jour mesuré sans vue.
+
+## Axe des abonnés nets — `domain` ne suffit pas dans Recharts
+
+Trois tentatives ont échoué avant de trouver la cause réelle :
+
+1. Domaine symétrique posé sur le `YAxis` → **sans effet visible**.
+2. Marge proportionnelle de 20 % → gonflait l'axe à −24/+24 pour une pointe à 20.
+3. Carte qui affichait « Pas de mouvement sur cette période » **à la place du graphique**
+   dès que tous les jours valaient zéro — le cas normal sur une chaîne stable.
+
+**Cause racine** : Recharts recalcule ses propres bornes « jolies » par-dessus le `domain`.
+Il faut lui passer `ticks` explicitement. Les graduations sont construites **depuis zéro
+vers l'extérieur**, sans quoi le pas ne retombe pas sur zéro (borne 101 graduait
+« …−2, 31… » sans zéro).
+
+Résultat : rien ne bouge → `−1 / 0 / +1`, puis l'échelle s'ouvre à l'amplitude réelle.
+
+**Ne pas remettre de `ReferenceLine` sur zéro** : la `CartesianGrid` trace déjà une ligne à
+chaque graduation. La superposer d'un trait plein `var(--border)` dessine une barre blanche
+en travers du graphique.
