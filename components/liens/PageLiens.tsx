@@ -2001,8 +2001,32 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
               const taux = tauxEntre(i);
               return (
                 <Fragment key={e.cle}>
+                  {/* Le taux vit SUR la flèche, entre les deux cases qu'il
+                      relie : sa position dit ce qu'il compare, sans avoir à
+                      l'écrire. Centré sous une case, il devenait ambigu dès que
+                      celle-ci portait deux chiffres — « 1 % » sous
+                      « 1 Total │ 3 Lead Magnets » pouvait se lire comme le
+                      rapport entre ces deux-là. */}
                   {i > 0 && (
-                    <span style={{ alignSelf: 'center', color: '#c9c5bc', fontSize: 13, flexShrink: 0, paddingTop: 2 }}>›</span>
+                    <div style={{
+                      alignSelf: 'center', flexShrink: 0, textAlign: 'center',
+                      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 1,
+                    }}>
+                      <span style={{ color: '#c9c5bc', fontSize: 13, lineHeight: 1 }}>›</span>
+                      {/* Coloré uniquement sur les marches de la séquence, où un
+                          taux bas est un vrai défaut à corriger. Les marches
+                          d'audience (vues → portée → commentaires) restent
+                          neutres : 1 % de commentaires sur la portée est la
+                          norme sur Instagram, le peindre en rouge crierait à
+                          l'échec devant un chiffre parfaitement sain. */}
+                      {taux != null && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 700, whiteSpace: 'nowrap',
+                          color: !ETAPES_SEQUENCE.has(e.cle) ? MUTED
+                            : taux >= 50 ? 'var(--green)' : RED,
+                        }}>{taux} %</span>
+                      )}
+                    </div>
                   )}
                   <div style={{ flex: 1, minWidth: 0, textAlign: 'center' }}>
                     <div style={{
@@ -2042,21 +2066,6 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                         <div style={{ fontSize: 9, color: FAINT, marginTop: 2, lineHeight: 1.3 }}>{e.precision}</div>
                       )}
                     </div>
-                    {/* Le taux se lit sous l'étape d'arrivée : c'est là qu'on
-                        cherche la marche qui casse.
-                        Coloré uniquement sur les marches de la séquence, où un
-                        taux bas est un vrai défaut à corriger. Les marches
-                        d'audience (vues → portée → commentaires) restent
-                        neutres : 1 % de commentaires sur la portée est la norme
-                        sur Instagram, le peindre en rouge crierait à l'échec
-                        devant un chiffre parfaitement sain. */}
-                    {taux != null && (
-                      <div style={{
-                        fontSize: 10.5, fontWeight: 700, marginTop: 4,
-                        color: !ETAPES_SEQUENCE.has(e.cle) ? MUTED
-                          : taux >= 50 ? 'var(--green)' : RED,
-                      }}>{taux} %</div>
-                    )}
                   </div>
                 </Fragment>
               );
