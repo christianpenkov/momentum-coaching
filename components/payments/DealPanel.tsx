@@ -150,6 +150,11 @@ export default function DealPanel({ deal, detail, onClose, onChange }: {
                 ))
               : <div style={{ fontSize: 12.5, color: 'var(--muted)' }}>Aucun paiement encaissé pour l&apos;instant.</div>}
 
+          {/* En prélèvement automatique, l'échéancier vit chez Stripe et non en
+              base — le dupliquer créerait deux sources de vérité. On le lit donc
+              à l'ouverture du panneau, seul endroit où la question se pose. */}
+          {deal.paymentPlan === 'installments_auto' && <AutoScheduleBlock dealId={deal.id} />}
+
           {/* Le lien vit ici, pas en pied de panneau : le bloc dit DE QUEL lien il
               s'agit, ce qu'un bouton isolé ne pourrait pas faire. */}
           {linkToCopy && deal.status !== 'paid' && (
@@ -208,6 +213,68 @@ function Total({ label, value, color }: { label: string; value: string; color?: 
     <div>
       <div style={{ fontSize: 11, color: 'var(--muted)', marginBottom: 5 }}>{label}</div>
       <div className="tabular" style={{ fontSize: 18, fontWeight: 700, letterSpacing: '-0.3px', color: color ?? 'var(--ink)' }}>{value}</div>
+    </div>
+  );
+}
+
+/**
+ * Prochaine échéance et date de fin des prélèvements, lues chez Stripe.
+ *
+ * Le mot « abonnement » n'apparaît jamais : ce que vend le coach est un
+ * accompagnement payé en plusieurs fois, pas une souscription reconductible.
+ * Employer ce terme laisserait croire à un renouvellement sans fin — l'inverse
+ * exact de ce que garantit le bornage.
+ */
+function AutoScheduleBlock({ dealId }: { dealId: string }) {
+  const [sched, setSched] = useState<{
+    status: string; perPayment: number | null; interval: string | null;
+    nextPaymentAt: string | null; endsAt: string | null; bounded: boolean;
+    totalCount: number | null;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    fetch(`/api/payments/schedule?dealId=${dealId}`)
+      .then(r => r.ok ? r.json() : { schedule: null })
+      .then(d => { if (alive) { setSched(d.schedule); setLoading(false); } })
+      .catch(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [dealId]);
+
+  if (loading || !sched) return null;
+  if (sched.status === 'canceled') return null;
+
+  return (
+    <div style={{ marginTop: 12, padding: '10px 12px', background: 'var(--surface-2)', borderRadius: 8 }}>
+      <div className="mono" style={{ marginBottom: 7 }}>Prélèvements automatiques</div>
+
+      {sched.nextPaymentAt && (
+        <Row label="Prochain prélèvement" value={fmtDateLong(sched.nextPaymentAt)} />
+      )}
+      {sched.perPayment != null && (
+        <Row label="Montant" value={`${fmtEur(sched.perPayment)} par mois`} />
+      )}
+
+      {/* Sans date de fin, Stripe prélèverait indéfiniment : l'anomalie doit se
+          voir, pas se deviner. Le webhook coupe en secours au dernier versement,
+          mais un élève doit pouvoir le constater lui-même. */}
+      {sched.bounded && sched.endsAt ? (
+        <Row label="Dernier prélèvement" value={fmtDateLong(sched.endsAt)} />
+      ) : (
+        <div style={{ fontSize: 11.5, color: 'var(--red)', marginTop: 5 }}>
+          Aucune date de fin enregistrée — préviens le support avant la dernière échéance.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Row({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, fontSize: 12.5, padding: '2px 0' }}>
+      <span style={{ color: 'var(--muted)' }}>{label}</span>
+      <span style={{ color: 'var(--ink)', fontWeight: 500 }}>{value}</span>
     </div>
   );
 }
