@@ -140,6 +140,9 @@ interface ContentLink {
   dm_button_text?: string | null;
   dm_link_message?: string | null;
   dm_link_button_text?: string | null;
+  /** Clics humains all-time, tous liens du contenu confondus. Calculé côté
+   *  route (voir app/api/client/content-links). null = aucun lien à mesurer. */
+  clics?: number | null;
 }
 
 interface LeadMagnet {
@@ -1370,14 +1373,17 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
 
       {/* Bascule Modifier / Aperçu — mobile seulement */}
       {isMobile && (
-        <div style={{ display: 'flex', gap: 4, padding: 3, background: SURFACE2, borderRadius: 10, border: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', gap: 7 }}>
           {([['modifier', 'Modifier'], ['apercu', 'Aperçu']] as const).map(([cle, libelle]) => (
             <button key={cle} onClick={() => setVueMobile(cle)} style={{
-              flex: 1, minHeight: 44, border: 'none', borderRadius: 8, cursor: 'pointer',
-              fontSize: 13.5, fontWeight: 700, fontFamily: 'inherit',
-              background: vueMobile === cle ? SURFACE : 'transparent',
-              color: vueMobile === cle ? INK : MUTED,
-              boxShadow: vueMobile === cle ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+              flex: 1, minHeight: 44, borderRadius: 999, cursor: 'pointer',
+              fontSize: 12.5, fontWeight: 600, fontFamily: 'inherit',
+              // Actif en encre pleine, comme les chips du hi-fi : sur un fond
+              // déjà clair, une pastille blanche sur gris ne se voit pas assez
+              // pour dire dans quelle vue on se trouve.
+              border: `1px solid ${vueMobile === cle ? INK : BORDER}`,
+              background: vueMobile === cle ? INK : SURFACE,
+              color: vueMobile === cle ? 'var(--bg)' : MUTED,
               transition: `all var(--dur-quick) var(--ease-out)`,
             }}>{libelle}</button>
           ))}
@@ -1917,8 +1923,13 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
               fontSize: 15, fontWeight: 600, color: INK, lineHeight: 1.3,
               overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
             }}>{post.caption}</div>
+            {/* « Reel · 28 juillet · 142 clics · mot-clé SCRIPT » — le mot-clé
+                s'ajoute ici, là où la liste le porte en pastille : dans le
+                détail on a la place de l'écrire, et c'est ce qu'on vérifie en
+                arrivant. */}
             <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {metaContenu(post, false)}
+              {post.lmKeyword ? ` · mot-clé ${post.lmKeyword.toUpperCase()}` : ''}
             </div>
           </div>
           {post.hasLeadMagnet && (
@@ -1932,15 +1943,18 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
         </div>
       </div>
 
-      {/* Onglets à la largeur de leur texte, sans fond sur l'actif : le
-          soulignement bleu suffit à désigner l'onglet courant, et des onglets
-          en flex:1 s'étiraient sur toute la largeur du panneau. */}
+      {/* Onglets à la largeur de leur texte, sans fond sur l'actif. C'est le
+          SOULIGNEMENT qui porte l'accent bleu ; le texte de l'onglet actif passe
+          en encre et prend du gras. Colorer aussi le texte en bleu dédoublait le
+          signal et affaiblissait la lecture. */}
       <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${BORDER}`, background: BG, padding: isMobile ? '0 14px' : '0 24px' }}>
         {tabs.map(tab => (
           <button key={tab.key} onClick={() => unsavedGuard?.guard(() => setActiveTab(tab.key as 'desc' | 'lm' | 'stats'))} style={{
-            minHeight: 44, padding: '0 14px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
-            background: 'transparent',
-            color: activeTab === tab.key ? BLUE : MUTED,
+            minHeight: 44, padding: '0 15px', fontSize: 13,
+            fontWeight: activeTab === tab.key ? 600 : 400,
+            border: 'none', cursor: 'pointer', background: 'transparent',
+            color: activeTab === tab.key ? INK : MUTED,
+            marginBottom: -1,
             borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
             transition: 'all .15s',
           }}>{tab.label}</button>
@@ -2654,7 +2668,7 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
       {history.length > 0 && (
         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 10, width: isMobile ? '100%' : undefined }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-            <div className="eyebrow-sm">Liens Calendly générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
+            <div className="eyebrow-sm">Liens générés <span style={{ fontWeight: 400, color: FAINT }}>({history.length})</span></div>
           </div>
           <input
             value={historySearch}
@@ -2666,42 +2680,46 @@ function PanneauCalendlyProspect({ profileId, activeDomain, domainsLoaded, calen
           <div className="liens-carte" style={{ border: `1px solid ${BORDER}`, borderRadius: 12, background: SURFACE, overflow: 'hidden' }}>
           {history.filter(h => !historySearch || h.ig_username.toLowerCase().includes(historySearch.toLowerCase())).map(h => {
             const post = posts.find(p => p.id === h.content_id);
-            const lead = leads.find(l => l.ig_username.toLowerCase() === h.ig_username.toLowerCase());
             const copied = historyCopied === h.id;
             const isDeleting = deletingId === h.id;
             return (
-              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '11px 14px', background: SURFACE, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
-                <Avatar initials={getInitials(h.ig_username)} avatarUrl={lead?.avatar_url} seed={lead?.ig_user_id || h.ig_username} size={30} />
+              <div key={h.id} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '11px 14px', background: SURFACE, opacity: isDeleting ? 0.4 : 1, transition: 'opacity .15s' }}>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, marginBottom: 2, minWidth: 0 }}>
-                    <span style={{ fontSize: 12.5, fontWeight: 700, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
-                    {post && <span style={{ fontSize: 10, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· {post.platform} · {post.caption.slice(0, 25)}...</span>}
+                  <div style={{ display: 'flex', alignItems: 'baseline', gap: 6, minWidth: 0 }}>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: INK, flexShrink: 0 }}>@{h.ig_username}</span>
+                    {post && <span style={{ fontSize: 10, color: FAINT, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}>· {post.platform} · {post.caption.slice(0, 22)}…</span>}
                   </div>
                   {/* Le lien court lui-même : c'est ce qu'on vient copier, il doit
                       être lisible sans passer par le presse-papiers pour vérifier
                       qu'on prend le bon. */}
-                  <div style={{ fontSize: 11, color: MUTED, fontFamily: 'var(--font-mono, ui-monospace), monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 10.5, color: FAINT, marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {h.short_url.replace(/^https?:\/\//, '')}
-                  </div>
-                  <div style={{ fontSize: 10, color: FAINT, marginTop: 1 }}>
-                    {new Date(h.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' })} à {new Date(h.created_at).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
                   </div>
                 </div>
 
+                {/* Date en colonne propre, comme le hi-fi : elle s'aligne d'une
+                    ligne à l'autre au lieu de suivre un lien de largeur variable. */}
+                <span style={{ fontSize: 11, color: MUTED, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  {new Date(h.created_at).toLocaleDateString('fr-FR', { day: 'numeric', month: 'short' })}
+                </span>
+
                 {/* Clics — la promesse de l'écran (« chaque clic est tracké ») se
-                    vérifie ici. Vert dès le premier clic : c'est le signal qu'un
-                    prospect a ouvert le Calendly. */}
-                <div style={{
-                  flexShrink: 0, fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '3px 9px',
-                  color: h.clicks > 0 ? 'var(--green)' : FAINT,
-                  background: h.clicks > 0 ? 'var(--green-soft)' : SURFACE2,
-                }} title={`${h.clicks} clic${h.clicks > 1 ? 's' : ''} humain${h.clicks > 1 ? 's' : ''}`}>
-                  {h.clicks} clic{h.clicks > 1 ? 's' : ''}
-                </div>
+                    vérifie ici. Vert dès le premier clic ; un tiret neutre à zéro,
+                    car « 0 clic » en vert se lirait comme un succès et en rouge
+                    comme un échec, alors qu'un lien récent n'a rien à dire encore. */}
+                <span style={{ width: 64, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
+                  <span style={{
+                    fontSize: 11, fontWeight: 600, borderRadius: 999, padding: '3px 9px', whiteSpace: 'nowrap',
+                    color: h.clicks > 0 ? 'var(--green)' : MUTED,
+                    background: h.clicks > 0 ? 'var(--green-soft)' : SURFACE2,
+                  }} title={h.clicks > 0 ? `${h.clicks} clic${h.clicks > 1 ? 's' : ''} humain${h.clicks > 1 ? 's' : ''}` : 'Aucun clic pour l’instant'}>
+                    {h.clicks > 0 ? `${h.clicks} clic${h.clicks > 1 ? 's' : ''}` : '—'}
+                  </span>
+                </span>
 
                 <button
                   onClick={() => { navigator.clipboard.writeText(h.short_url); setHistoryCopied(h.id); setTimeout(() => setHistoryCopied(null), 2000); }}
-                  style={{ flexShrink: 0, fontSize: 12.5, fontWeight: 700, padding: '8px 15px', borderRadius: 8, border: `1.5px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : BG, color: copied ? 'var(--green)' : MUTED, cursor: 'pointer', transition: 'all .15s' }}>
+                  style={{ flexShrink: 0, fontSize: 12, fontWeight: 600, padding: '6px 11px', borderRadius: 7, border: `1px solid ${copied ? 'var(--green)' : BORDER}`, background: copied ? 'var(--green-soft)' : SURFACE, color: copied ? 'var(--green)' : INK, cursor: 'pointer', transition: 'all .15s' }}>
                   {copied ? '✓ Copié' : 'Copier'}
                 </button>
                 <button
@@ -3071,9 +3089,11 @@ function SousOngletsStories({ value, onChange, compact }: {
   compact: boolean;
 }) {
   // Sous-onglets en retrait, rayon plus faible que les filtres au-dessus : ils
-  // sont subordonnés au filtre Stories, la forme doit le dire.
+  // sont subordonnés au filtre Stories, la forme doit le dire. Le « ↳ » du hi-fi
+  // rend cette subordination explicite au lieu de la laisser deviner.
   return (
-    <div style={{ display: 'flex', gap: 4 }}>
+    <div style={{ display: 'flex', gap: compact ? 4 : 7, alignItems: 'center', paddingLeft: 3 }}>
+      <span style={{ color: FAINT, fontSize: 12, flexShrink: 0 }}>↳</span>
       {(['stories', 'sequences'] as const).map(t => (
         <button key={t} onClick={() => onChange(t)} style={{
           borderRadius: 8, cursor: 'pointer', fontWeight: 600,
@@ -3463,13 +3483,21 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
   // dans le rail ne disent pas qu'elles forment une seule séquence.
   const nbStories = post.platform === 'STORY' ? (post.sequenceStoryCount ?? 0) : 0;
 
+  // Une story dont le média n'a pas pu être copié avant expiration n'aura JAMAIS
+  // de vignette : Meta ne sert plus l'URL passé 24 h. Le dire dans l'infobulle
+  // évite de chercher un bug d'affichage, ou d'attendre que « ça se charge ».
+  const mediaPerdu = post.platform === 'STORY' && !post.thumbnail;
+  const infobulle = mediaPerdu
+    ? 'Aperçu indisponible — Instagram n’a pas fourni le média avant l’expiration de la story'
+    : post.platform === 'IG' ? 'Instagram' : post.platform === 'YT' ? 'YouTube' : 'Story';
+
   // Pas d'overflow:hidden ici : la pastille de plateforme déborde volontairement du
   // coin bas-droit, comme dans le hi-fi. Le rognage est porté par l'image elle-même.
   return (
-    <div style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0 }}>
+    <div title={mediaPerdu ? infobulle : undefined} style={{ position: 'relative', width: size, height: h, borderRadius: size >= 44 ? 8 : 6, background: SURFACE2, flexShrink: 0 }}>
       {post.thumbnail
         ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: 'inherit' }} />
-        : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</div>}
+        : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', opacity: mediaPerdu ? 0.5 : 1 }}>{icon}</div>}
       {nbStories > 1 && (
         <span style={{
           position: 'absolute', top: 2, right: 2, background: 'rgba(0,0,0,.6)', color: '#fff',
@@ -3477,7 +3505,7 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
         }}>{nbStories}</span>
       )}
       <span
-        title={post.platform === 'IG' ? 'Instagram' : post.platform === 'YT' ? 'YouTube' : 'Story'}
+        title={infobulle}
         style={{
           position: 'absolute', bottom: -2, right: -2,
           width: 9, height: 9, borderRadius: '50%',
@@ -3486,11 +3514,6 @@ function VignetteContenu({ post, size, hauteur }: { post: Post; size: number; ha
       />
     </div>
   );
-}
-
-/** Le petit point gris qui marque l'absence d'un CTA — plus discret qu'un texte. */
-function PointAbsence({ title }: { title: string }) {
-  return <span style={{ width: 3, height: 3, borderRadius: '50%', background: FAINT, flexShrink: 0, opacity: 0.4 }} title={title} />;
 }
 
 /**
@@ -3534,8 +3557,13 @@ function metaContenu(post: Post, court = false): string {
  * qu'un mot-clé est configuré — un badge « Active » n'y dirait rien.
  */
 function PastilleEtatStory({ post }: { post: Post }) {
-  if (post.platform !== 'STORY') return null;
-  const expiree = !!post.expiredAt;
+  // Une story périme en 24 h, d'où le cas « Expirée » qui n'existe que pour
+  // elles. Pour un post ou une vidéo, la séquence tourne tant qu'un mot-clé est
+  // posé — c'est ce que dit « Active », et le hi-fi la met sur tout contenu
+  // configuré, pas seulement sur les stories.
+  const isStory = post.platform === 'STORY';
+  const expiree = isStory && !!post.expiredAt;
+  if (!isStory && !post.lmKeyword) return null;
   return (
     <span style={{
       fontSize: 10, fontWeight: 600, borderRadius: 4, padding: '1px 5px',
@@ -3626,14 +3654,12 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
         <div style={{ fontSize: 11, color: MUTED, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {metaContenu(post, compact)}
         </div>
-      </div>
 
-      {/* Pastilles À DROITE, après le bloc flex:1 — comme le hi-fi. Sous le titre
-          elles se mêlaient à la méta ; ici elles forment une colonne qu'on lit
-          verticalement d'une ligne à l'autre. */}
-      {!compact && (
-        <>
-          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+        {/* Pastilles sous le titre, à gauche, dans la colonne de texte : elles
+            décrivent CE contenu, elles se lisent donc avec lui plutôt que dans
+            une colonne détachée à l'autre bout de la ligne. */}
+        {!compact && (
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap', marginTop: 6 }}>
             {isStory && (post.sequenceStoryCount ?? 0) > 1 && (
               <span style={{ fontSize: 10, fontWeight: 600, color: STORY_COLOR, background: STORY_SOFT, borderRadius: 4, padding: '2px 6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 130 }}>📎 {post.sequenceName}</span>
             )}
@@ -3646,24 +3672,29 @@ function LigneContenu({ post, selected, checked, selectionMode, groupedElsewhere
               <span style={{ fontSize: 10, fontWeight: 600, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', whiteSpace: 'nowrap' }}>Calendly</span>
             )}
 
-            {/* Mot-clé : ce qui déclenche la séquence DM. Un point gris quand il
-                manque — « Pas de séquence » écrit sur chaque ligne non configurée
-                transformait la liste en mur d'avertissements ; le filtre
-                « Sans séquence » sert à les isoler. Rien sur YouTube, où le DM
-                automatique n'existe pas. */}
+            {/* Mot-clé : ce qui déclenche la séquence DM. Son absence se dit en
+                toutes lettres et en ambre, comme le hi-fi — c'est précisément
+                l'information qu'on vient chercher (« lesquels ne sont pas
+                configurés ? »), et un point gris ne la portait pas. Rien sur
+                YouTube, où le DM automatique n'existe pas. */}
             {post.lmKeyword
               ? <span style={{ fontSize: 10, fontWeight: 700, color: MUTED, background: SURFACE2, borderRadius: 4, padding: '2px 6px', letterSpacing: '.02em', whiteSpace: 'nowrap' }}>{post.lmKeyword.toUpperCase()}</span>
               : post.platform === 'YT'
                 ? null
-                : <PointAbsence title="Pas de séquence" />}
-          </div>
+                : <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, background: AMBER_SOFT, borderRadius: 999, padding: '2px 8px', whiteSpace: 'nowrap' }}>
+                    <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
+                    Pas de séquence
+                  </span>}
 
-          {/* Colonne fixe de 104px, comme le hi-fi : l'état s'aligne d'une ligne
-              à l'autre au lieu de flotter après une pastille de largeur variable. */}
-          <div style={{ width: 104, flexShrink: 0, display: 'flex', justifyContent: 'flex-end' }}>
             <PastilleEtatStory post={post} />
           </div>
-        </>
+        )}
+      </div>
+
+      {/* Chevron : dit que la ligne s'ouvre. Sans lui, rien ne distingue
+          visuellement une ligne cliquable d'une ligne d'information. */}
+      {!compact && (
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="#c9c3b5" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><polyline points="9 18 15 12 9 6"/></svg>
       )}
 
       {compact && post.lmKeyword && (
@@ -3963,12 +3994,16 @@ export default function PageLiens() {
     const enrichedFromShortio = [...igPosts, ...ytPosts].map(post => {
       const descLink = shortioLinks.find((l: any) => l.postId === post.id && l.linkType === 'post');
       const lmLink = shortioLinks.find((l: any) => l.postId === post.id && l.linkType === 'leadmagnet');
-      // Clics cumulés des deux liens du contenu (description + lead magnet) :
-      // c'est le trafic que ce contenu a généré, quel que soit le lien cliqué.
-      // null plutôt que 0 quand aucun lien n'existe — « 0 clic » sur un contenu
-      // sans lien se lirait comme un échec, alors qu'il n'y a rien à mesurer.
-      const clicsDesc = descLink?.humanClicks ?? descLink?.clicks ?? null;
-      const clicsLm = lmLink?.humanClicks ?? lmLink?.clicks ?? null;
+      // Clics cumulés des liens du contenu (description + lead magnet) : c'est
+      // le trafic que ce contenu a généré, quel que soit le lien cliqué.
+      //
+      // /api/shortio/stats expose `humanClicks30d`, PAS `humanClicks` : la
+      // lecture précédente portait sur un champ inexistant et rendait `clics`
+      // toujours null — la ligne de contenu n'a donc jamais affiché de clics.
+      // Ces valeurs restent bornées à 30 jours ; l'all-time arrive juste après
+      // par content_links, et l'écrase.
+      const clicsDesc = descLink?.humanClicks30d ?? null;
+      const clicsLm = lmLink?.humanClicks30d ?? null;
       const clics = clicsDesc === null && clicsLm === null
         ? null
         : (clicsDesc ?? 0) + (clicsLm ?? 0);
@@ -4007,6 +4042,11 @@ export default function PageLiens() {
         dmButtonText: cl.dm_button_text || undefined,
         dmLinkMessage: cl.dm_link_message || undefined,
         dmLinkButtonText: cl.dm_link_button_text || undefined,
+        // All-time, calculé par /api/client/content-links sur TOUS les liens du
+        // contenu. Prioritaire sur la valeur 30 jours de Short.io ci-dessus :
+        // « on montre tout en all time ». `?? post.clics` et non `|| ` — un
+        // contenu à 0 clic doit afficher 0, pas retomber sur l'autre source.
+        clics: cl.clics ?? post.clics ?? null,
       };
     });
 
@@ -4397,21 +4437,27 @@ export default function PageLiens() {
               {/* Les deux mêmes CTA qu'en desktop, où ils vivent sur la ligne de
                   titre. Le mobile n'avait que le Calendly : la bibliothèque de
                   lead magnets n'était atteignable d'aucune façon. */}
-              <div style={{ display: 'flex', gap: 8 }}>
+              {/* Boutons pleins, comme le hi-fi : ce sont les deux actions du
+                  haut de page, elles doivent porter plus que la liste. Le
+                  Calendly prend l'accent, le LM l'encre — deux actions de rang
+                  égal mais de nature différente. Le libellé « LM » est abrégé :
+                  à côté d'un bouton pleine largeur, « Lead magnet » forçait un
+                  retour à la ligne sur 390px. */}
+              <div style={{ display: 'flex', gap: 9 }}>
                 <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
-                  flex: 1, minWidth: 0, minHeight: 44, padding: '11px 12px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
-                  border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
+                  flex: 1, minWidth: 0, minHeight: 48, padding: '0 14px', fontSize: 12.5, fontWeight: 600, borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
+                  border: 'none', background: BLUE, color: '#fff',
                 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
                   <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Calendly prospect</span>
                 </button>
 
                 <button onClick={() => openMobileDetail({ type: 'lm-library' })} style={{
-                  flex: 1, minWidth: 0, minHeight: 44, padding: '11px 12px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
-                  border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
+                  flexShrink: 0, minHeight: 48, padding: '0 16px', fontSize: 12.5, fontWeight: 600, borderRadius: 10, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
+                  border: 'none', background: INK, color: 'var(--bg)',
                 }}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Lead magnet</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                  LM
                 </button>
               </div>
 

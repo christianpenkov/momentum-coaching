@@ -68,8 +68,22 @@ async function getIgCreds(profileId: string): Promise<{ token: string; igAccount
 // Télécharge le visuel une seule fois par story (jamais re-téléchargé si déjà en
 // bucket — le visuel d'une story ne change pas dans le temps, contrairement aux
 // insights qui doivent être re-pollés jusqu'à expiration).
-async function ensureStoryMediaStored(profileId: string, igStoryId: string, mediaUrl: string | null): Promise<{ storagePath: string | null; storageUrl: string | null }> {
-  if (!mediaUrl) return { storagePath: null, storageUrl: null };
+/**
+ * Copie le média d'une story dans le bucket, avant que Meta ne le fasse expirer.
+ *
+ * Renvoie `raison` quand ça échoue : les quatre chemins d'échec retournaient le
+ * même `{ null, null }` muet, et l'appelant ne les remontait nulle part. Une
+ * story sans vignette était donc indiscernable — c'est exactement ce qui s'est
+ * produit sur la story du 2026-08-16 (VIDEO, détectée 26 min après publication,
+ * donc bien avant expiration), impossible à diagnostiquer après coup.
+ *
+ * `media_url` absent de la réponse Meta est un cas documenté et intermittent
+ * (également pour tout média signalé pour droits d'auteur), pas une erreur de
+ * notre côté : d'où une raison distincte, pour ne pas chercher un bug ici quand
+ * c'est l'API qui n'a rien fourni.
+ */
+async function ensureStoryMediaStored(profileId: string, igStoryId: string, mediaUrl: string | null): Promise<{ storagePath: string | null; storageUrl: string | null; raison?: string }> {
+  if (!mediaUrl) return { storagePath: null, storageUrl: null, raison: 'media_url_absent' };
 
   const ext = mediaUrl.includes('.mp4') || mediaUrl.includes('video') ? 'mp4' : 'jpg';
   const path = `${profileId}/${igStoryId}.${ext}`;
@@ -82,15 +96,15 @@ async function ensureStoryMediaStored(profileId: string, igStoryId: string, medi
 
   try {
     const mediaRes = await fetch(mediaUrl);
-    if (!mediaRes.ok) return { storagePath: null, storageUrl: null };
+    if (!mediaRes.ok) return { storagePath: null, storageUrl: null, raison: `telechargement_http_${mediaRes.status}` };
     const buf = await mediaRes.arrayBuffer();
     const { error } = await supa.storage.from('ig-stories')
       .upload(path, buf, { contentType: ext === 'mp4' ? 'video/mp4' : 'image/jpeg', upsert: true });
-    if (error) return { storagePath: null, storageUrl: null };
+    if (error) return { storagePath: null, storageUrl: null, raison: `upload: ${error.message} (${buf.byteLength} octets, ${ext})` };
     const { data: { publicUrl } } = supa.storage.from('ig-stories').getPublicUrl(path);
     return { storagePath: path, storageUrl: publicUrl };
-  } catch {
-    return { storagePath: null, storageUrl: null };
+  } catch (e: any) {
+    return { storagePath: null, storageUrl: null, raison: `exception: ${e?.message || 'inconnue'}` };
   }
 }
 
@@ -130,6 +144,11 @@ async function pollProfileStories(profileId: string, token: string, igAccountId:
         const stored = await ensureStoryMediaStored(profileId, igStoryId, story.media_url || null);
         storagePath = stored.storagePath;
         storageUrl = stored.storageUrl;
+        // La story est enregistrée quand même — sans vignette, mais avec ses
+        // insights et sa séquence. On note seulement pourquoi le média manque :
+        // sans ça, une story sans photo n'a aucune explication consultable, et
+        // le média n'est plus récupérable une fois la story expirée.
+        if (stored.raison) errors.push(`media_${igStoryId} (${story.media_type}): ${stored.raison}`);
       } else {
         const { data: { publicUrl } } = supa.storage.from('ig-stories').getPublicUrl(storagePath);
         storageUrl = publicUrl;
@@ -258,6 +277,14 @@ Deno.serve(async (req: Request) => {
 
     if (Object.keys(allErrors).length) {
       console.error('poll-stories errors', JSON.stringify(allErrors));
+      // Et en base : un console.error ne survit pas à la rétention des logs, or
+      // c'est précisément ce qu'on vient chercher des jours plus tard (« pourquoi
+      // cette story n'a pas de photo ? »). Le média d'une story expirée n'étant
+      // plus récupérable, la trace est la seule chose qui reste.
+      await supa.from('webhook_debug_log').insert({
+        message: 'poll-stories errors',
+        data: allErrors,
+      });
     }
   };
 

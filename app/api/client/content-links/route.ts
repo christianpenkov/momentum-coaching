@@ -19,7 +19,57 @@ export async function GET() {
     .is('archived_at', null);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ content_links: data ?? [] });
+
+  const rows = data ?? [];
+
+  // Clics all-time par contenu, tous liens confondus.
+  //
+  // Pourquoi ici et pas via /api/shortio/stats : cette route-là est bornée à 30
+  // jours (`since30d`) et sert aussi Mes Stats — y toucher changerait des
+  // chiffres affichés ailleurs. Et elle expose `humanClicks30d`, pas
+  // `humanClicks` : PageLiens lisait un champ inexistant, d'où des clics
+  // toujours absents de la ligne de contenu.
+  //
+  // On somme `human_clicks` (jamais `total_clicks`) pour exclure les bots —
+  // même métrique que partout ailleurs dans la plateforme.
+  const urlsParContenu = new Map<string, string[]>();
+  const toutesUrls = new Set<string>();
+  for (const r of rows) {
+    const urls = [
+      (r as any).lm_short_url,
+      (r as any).desc_calendly_short_url,
+      (r as any).desc_lm_short_url,
+      (r as any).desc_custom_short_url,
+      (r as any).desc_short_url,
+    ].filter((u): u is string => typeof u === 'string' && u.length > 0);
+    if (urls.length === 0) continue;
+    urlsParContenu.set(r.content_id, urls);
+    urls.forEach(u => toutesUrls.add(u));
+  }
+
+  const clicsParUrl = new Map<string, number>();
+  if (toutesUrls.size > 0) {
+    const { data: snaps } = await supa
+      .from('shortio_link_daily_snapshots')
+      .select('short_url, human_clicks')
+      .eq('profile_id', user.id)
+      .in('short_url', [...toutesUrls]);
+    for (const s of snaps ?? []) {
+      clicsParUrl.set(s.short_url, (clicsParUrl.get(s.short_url) ?? 0) + (s.human_clicks ?? 0));
+    }
+  }
+
+  return NextResponse.json({
+    content_links: rows.map(r => {
+      const urls = urlsParContenu.get(r.content_id);
+      // null (et non 0) quand le contenu n'a aucun lien : « 0 clic » se lirait
+      // comme un échec là où il n'y a simplement rien à mesurer.
+      const clics = urls
+        ? urls.reduce((n, u) => n + (clicsParUrl.get(u) ?? 0), 0)
+        : null;
+      return { ...r, clics };
+    }),
+  });
 }
 
 export async function POST(request: Request) {
