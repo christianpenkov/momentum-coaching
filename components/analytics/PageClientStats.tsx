@@ -2627,11 +2627,25 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               const dataMin = vals.length > 0 ? Math.min(...vals) : 0;
               const dataMax = vals.length > 0 ? Math.max(...vals) : 0;
               const isCounter = statModal.unit == null;
+              // Les abonnes nets sont une metrique signee : zero doit tomber au milieu,
+              // pas en bas. La regle generique ci-dessous ecrase le domaine vers [0, n]
+              // des que dataMin >= 0 (Math.max(0, lo)) — donc sur une chaine sans
+              // mouvement, toutes les valeurs a 0, la ligne se collait en bas.
+              //
+              // Meme axe que la section « Abonnes nets / jour » et que l'autre modale :
+              // une seule regle, borneAbonnesNets, appliquee partout (constate le
+              // 2026-08-21 sur la vignette du KPI).
+              const estAbonnesNets = statModal.label === 'Abonnés nets' || statModal.label === 'Abonnés nets YT';
               const range = dataMax - dataMin;
               const margin = isCounter ? Math.max(1, Math.ceil(range * 0.1)) : (range > 0 ? range * 0.1 : 1);
               const lo = dataMin - margin;
-              const yDomain: [number, number] = [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin];
-              const yTicks = isCounter
+              const borneNets = estAbonnesNets ? borneAbonnesNets(statModal.data.map(d => d.v)) : 0;
+              const yDomain: [number, number] = estAbonnesNets
+                ? domaineAbonnesNets(borneNets)
+                : [dataMin >= 0 ? Math.max(0, lo) : lo, dataMax + margin];
+              const yTicks = estAbonnesNets
+                ? graduationsAbonnesNets(borneNets)
+                : isCounter
                 ? Array.from({ length: Math.floor(yDomain[1]) - Math.ceil(yDomain[0]) + 1 }, (_, i) => Math.ceil(yDomain[0]) + i)
                     .filter((_, i, arr) => arr.length <= 6 || i % Math.ceil(arr.length / 6) === 0)
                 : undefined;
@@ -2646,6 +2660,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                       <stop offset="95%" stopColor={statModal.color} stopOpacity={0} />
                     </linearGradient>
                   </defs>
+                  {/* Grille sur les metriques signees seulement : elle marque chaque
+                      graduation, zero compris, ce qui rend le milieu de l'axe lisible.
+                      Meme rendu que la section et que l'autre modale. */}
+                  {estAbonnesNets && <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />}
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={generalTickInterval} />
                   <YAxis tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} width={44} allowDecimals={!isCounter} domain={yDomain} ticks={yTicks} tickFormatter={(v: number) => v >= 1000 ? `${Math.round(v / 1000)}k` : (isCounter ? String(Math.round(v)) : String(v))} />
                   <Tooltip content={({ active, payload, label }) => {
@@ -2743,20 +2761,22 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               ))}
             </div>
             {/* Bandeau séparé pour Rétention moy. + Durée moyenne d'une vue, comme avant
-                la fusion dans la grille du dessus. */}
-            {!loadingRetention && retentionSummary && (
-              <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
-                {[
-                  ['Rétention moy.', retentionSummary.avgViewPercentage !== null ? fmtPct(retentionSummary.avgViewPercentage) : '—'],
-                  ['Durée moyenne d\'une vue', retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—'],
-                ].map(([label, value], i) => (
-                  <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
-                    <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
-                    <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
-                  </div>
-                ))}
-              </div>
-            )}
+                la fusion dans la grille du dessus.
+
+                Le bandeau existe des l'ouverture, comme la grille du dessus : il etait
+                absent pendant le chargement puis surgissait, ce qui faisait grandir la
+                modale sous les yeux. Meme correction que la case CTR plus haut. */}
+            <div style={{ display: 'flex', gap: 0, marginBottom: 16, borderTop: '1px solid var(--border)', borderBottom: '1px solid var(--border)', padding: '12px 0' }}>
+              {[
+                ['Rétention moy.', loadingRetention ? <MiniLoadingDots /> : (retentionSummary && retentionSummary.avgViewPercentage !== null ? fmtPct(retentionSummary.avgViewPercentage) : '—')],
+                ['Durée moyenne d\'une vue', loadingRetention ? <MiniLoadingDots /> : (retentionSummary && retentionSummary.avgViewDurationSec !== null ? `${Math.floor(retentionSummary.avgViewDurationSec / 60)}:${String(Math.round(retentionSummary.avgViewDurationSec % 60)).padStart(2, '0')}` : '—')],
+              ].map(([label, value], i) => (
+                <div key={i} style={{ flex: 1, textAlign: 'center', borderLeft: i > 0 ? '1px solid var(--border)' : 'none' }}>
+                  <div style={{ fontSize: 18, fontWeight: 800 }}>{value}</div>
+                  <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>{label}</div>
+                </div>
+              ))}
+            </div>
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
               ? (() => {
