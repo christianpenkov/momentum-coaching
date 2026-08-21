@@ -431,9 +431,22 @@ function signeVariation(v: number): string {
  * 2026-08-21 — « quelle que soit la donnee, c'est la meme taille »).
  */
 function ZoneGraphique({ height, children }: { height: number; children: React.ReactNode }) {
-  // width: '100%' explicite — ResponsiveContainer en height="100%" mesure son parent,
-  // et un conteneur flex sans largeur posee le laisse a zero.
-  return <div style={{ height, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{children}</div>;
+  // minHeight plutot que height : un graphique en hauteur fixe a l'interieur reste
+  // exactement a sa taille, mais un message ou un loader plus haut que prevu ne se
+  // retrouve pas rogne.
+  //
+  // minWidth: 0 sur l'enfant flex — sans lui, un ResponsiveContainer imbrique peut
+  // mesurer une largeur negative au premier rendu, ce que Recharts signale par
+  // « width(-1) and height(-1) » dans la console.
+  //
+  // Pas de centrage horizontal ici : Empty porte son propre textAlign, et InlineLoader
+  // son propre justifyContent. L'enfant occupe toute la largeur, ce dont un graphique
+  // a besoin.
+  return (
+    <div style={{ minHeight: height, width: '100%', minWidth: 0, display: 'flex', alignItems: 'center' }}>
+      <div style={{ width: '100%', minWidth: 0 }}>{children}</div>
+    </div>
+  );
 }
 
 // ─── TAB 1 : Vue Générale — helpers ──────────────────────────────────────────
@@ -3026,7 +3039,12 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 const xTickFormatter = (v: number) => totalSec > 0 ? fmtSec(v) : `${Math.round(v)}%`;
                 const xAxisMax = totalSec > 0 ? totalSec : 100;
                 return (
-                <ResponsiveContainer width="100%" height="100%">
+                // Hauteur en PIXELS, pas en pourcentage : ZoneGraphique est un conteneur
+                // flex dont la hauteur n'est pas encore mesuree au premier rendu, et
+                // Recharts avertissait alors « width(-1) and height(-1) » (constate dans
+                // la console du navigateur le 2026-08-21). La valeur reste celle de la
+                // zone, les deux doivent donc rester alignees.
+                <ResponsiveContainer width="100%" height={160}>
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                     <defs>
                       <linearGradient id="grad-retention" x1="0" y1="0" x2="0" y2="1">
