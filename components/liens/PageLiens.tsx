@@ -1922,14 +1922,35 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
   // Étapes de l'entonnoir : l'audience vient des métriques du réseau, la suite
   // du pipeline. Sur YouTube il n'y a ni commentaire déclencheur ni DM
   // automatique — l'entonnoir n'y a rien à dire, on ne montre que les vues.
+  //
+  // Chaque étape porte une précision sous son chiffre : « Accroches » ou
+  // « Conversations » ne disent pas d'eux-mêmes à quel moment de la séquence ils
+  // correspondent, et c'est justement ce qu'on vient lire.
   const etapes = [
     { cle: 'vues', libelle: 'Vues', valeur: post.views ?? null },
     { cle: 'reach', libelle: 'Comptes touchés', valeur: post.reach ?? null },
-    { cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires },
-    { cle: 'accroches', libelle: 'Accroches', valeur: entonnoir.accroches },
-    { cle: 'clics', libelle: 'Liens cliqués', valeur: entonnoir.clics },
-    { cle: 'conversations', libelle: 'Conversations', valeur: entonnoir.conversations },
-  ].filter(e => e.valeur != null) as { cle: string; libelle: string; valeur: number }[];
+    {
+      cle: 'commentaires', libelle: 'Commentaires', valeur: entonnoir.commentaires,
+      // Le chiffre qui compte est celui des commentaires PORTANT LE MOT-CLÉ :
+      // c'est lui qui déclenche la séquence.
+      //
+      // Le total Instagram n'est PAS rappelé ici, malgré l'envie : `post.comments`
+      // est l'état actuel du post, quand les leads sont un cumul historique. Un
+      // commentaire supprimé depuis disparaît du premier et reste dans le second,
+      // d'où des « 3 sur 1 au total » impossibles à lire (cas constaté : 3 leads
+      // de juin à août, 1 commentaire encore en ligne). Le total figure dans les
+      // métriques Instagram juste dessous, où il est à sa place.
+      precision: 'avec le mot-clé',
+    },
+    { cle: 'accroches', libelle: 'Accroches', valeur: entonnoir.accroches, precision: 'DM1 envoyés' },
+    { cle: 'clics', libelle: 'Lead magnets ouverts', valeur: entonnoir.clics, precision: 'lien du DM2 cliqué' },
+    // « après le DM3 » et non « au DM3 » : le webhook pose hook_replied dès que
+    // le prospect écrit en DM, sans savoir à quel message il répond. Comme la
+    // relance est le dernier message de la séquence, une réponse arrive en
+    // pratique après elle — mais l'écrire « réponses au DM3 » promettrait une
+    // précision que la donnée n'a pas.
+    { cle: 'conversations', libelle: 'Conversations', valeur: entonnoir.conversations, precision: 'réponses après le DM3' },
+  ].filter(e => e.valeur != null) as { cle: string; libelle: string; valeur: number; precision?: string }[];
 
   const tauxEntre = (i: number): number | null => {
     if (i === 0) return null;
@@ -1960,6 +1981,9 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
                       <div style={{ fontSize: 17, fontWeight: 700, color: INK, fontVariantNumeric: 'tabular-nums', marginTop: 2 }}>
                         {e.valeur.toLocaleString('fr-FR')}
                       </div>
+                      {e.precision && (
+                        <div style={{ fontSize: 9, color: FAINT, marginTop: 2, lineHeight: 1.3 }}>{e.precision}</div>
+                      )}
                     </div>
                     {/* Le taux se lit sous l'étape d'arrivée : c'est là qu'on
                         cherche la marche qui casse.
@@ -1988,10 +2012,14 @@ function TabStats({ post, profileId }: { post: Post; profileId: string }) {
             </div>
           )}
 
-          {/* Dit ce que « Conversations » compte vraiment : sans ça, on le lit
-              comme « réponses à la relance », que la base ne sait pas isoler. */}
+          {/* La précision portée par chaque étape dit désormais à quel moment de
+              la séquence elle correspond ; ne reste ici que la réserve sur
+              « Conversations », que la donnée ne sait pas rattacher à un message
+              précis. */}
           <div style={{ fontSize: 10.5, color: FAINT, lineHeight: 1.5 }}>
-            « Conversations » compte les prospects qui ont répondu en DM, quel que soit le message.
+            Une conversation compte un prospect qui a répondu en DM. Instagram ne dit pas à quel
+            message il répond : la relance étant le dernier de la séquence, la réponse arrive
+            en pratique après elle.
           </div>
         </div>
       )}
