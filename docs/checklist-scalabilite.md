@@ -15,7 +15,7 @@ Le détail de cet audit est dans [`youtube-scalabilite.md`](./youtube-scalabilit
 | Intégration | Auditée | Capacité mesurée | Doc |
 |---|---|---|---|
 | YouTube | ✅ 2026-08-21 | **121 élèves** | [youtube-scalabilite.md](./youtube-scalabilite.md) |
-| Instagram | ❌ à faire | inconnue | — |
+| Instagram | ✅ 2026-08-22 | quota par utilisateur (non partagé) | [instagram-scalabilite.md](./instagram-scalabilite.md) |
 | Short.io | ❌ à faire | inconnue | [shortio-api.md](./shortio-api.md) |
 | Calendly | ❌ à faire | inconnue | — |
 | Stripe | ❌ à faire | inconnue | — |
@@ -39,7 +39,7 @@ Quotas connus :
 | API | Quota/jour | Partagé ? |
 |---|---|---|
 | YouTube Data v3 + Analytics | 10 000 unités | oui, tous élèves confondus |
-| Instagram Graph | à vérifier | — |
+| Instagram Graph | **4800 × impressions/24h** | **non**, par utilisateur |
 | Short.io | ~60 req/fenêtre | oui (clé/domaine) |
 
 ---
