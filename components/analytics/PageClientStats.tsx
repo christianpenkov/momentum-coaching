@@ -1724,8 +1724,24 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const watchTimeH = Math.round(ytWatchTimeP / 60);
 
   // Vues/sub par type de contenu (depuis les vidéos de la période)
-  const shortsViewsP = yt.videos.filter(v => v.isShort).reduce((s, v) => s + v.views30d, 0);
-  const longViewsP = yt.videos.filter(v => !v.isShort).reduce((s, v) => s + v.views30d, 0);
+  // Vues par format sur la PERIODE AFFICHEE (colonnes yt_views_shorts / _long, ajoutees
+  // le 2026-08-20 depuis la dimension creatorContentType).
+  //
+  // Auparavant : somme de v.views30d, un cumul FIGE sur 30 jours glissants cote cron —
+  // independant de la periode choisie. Sur une vue a 7 jours, « vues pour 1 abonne »
+  // divisait donc 30 jours de vues par 7 jours d'abonnes gagnes : deux fenetres
+  // melangees, ratio surevalue d'un facteur ~4.
+  //
+  // Repli sur l'ancien calcul si la ventilation manque (jours anterieurs a la collecte).
+  const shortsViewsFromDays = ytDays.reduce((s, d) => s + ((d as any).viewsShorts ?? 0), 0);
+  const longViewsFromDays   = ytDays.reduce((s, d) => s + ((d as any).viewsLong ?? 0), 0);
+  const hasFormatBreakdown  = shortsViewsFromDays > 0 || longViewsFromDays > 0;
+  const shortsViewsP = hasFormatBreakdown
+    ? shortsViewsFromDays
+    : yt.videos.filter(v => v.isShort).reduce((s, v) => s + v.views30d, 0);
+  const longViewsP = hasFormatBreakdown
+    ? longViewsFromDays
+    : yt.videos.filter(v => !v.isShort).reduce((s, v) => s + v.views30d, 0);
   const subsRef = ytSubsGainedP > 0 ? ytSubsGainedP : (yt.subsGained30d > 0 ? yt.subsGained30d : 0);
   const viewsPerSubShorts = subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
   const viewsPerSubLong = subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
@@ -1752,6 +1768,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // v.watchTime30d vient de row.watch_time_min (des minutes, cf. ligne ~4903) — *60 pour
   // repasser en secondes avant division, sinon fmtSec() (qui attend des secondes) affiche
   // toujours "0m00s" (ex: 500min de watch time / 10000 vues = 0.05 arrondi à 0).
+  // Ratio watch time / vues : les deux termes viennent de la MEME fenetre (views30d et
+  // watchTime30d, cumuls 30j du cron), donc le ratio est juste meme si la fenetre n'est
+  // pas celle affichee. A ne pas confondre avec « vues pour 1 abonne » ci-dessus, qui
+  // melangeait bien deux fenetres differentes.
   const avgWatchShorts = shortsVideos.length > 0 && shortsVideos.reduce((s,v) => s + v.views30d, 0) > 0
     ? Math.round(shortsVideos.reduce((s,v) => s + v.watchTime30d * 60, 0) / shortsVideos.reduce((s,v) => s + v.views30d, 0))
     : null;
