@@ -3756,23 +3756,13 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
                   {/* Une seule ligne de méta ici : le mot-clé suffit à dire si le
                       lead magnet tourne, la date et les clics se lisent dans le
                       détail juste à côté. À 250px, tout empiler rend la colonne
-                      illisible.
-
-                      L'absence se dit aussi, en ambre : « lesquels ne sont pas
-                      configurés ? » est la question qui fait ouvrir cette page, et
-                      une ligne muette s'y lisait comme une ligne dont il n'y avait
-                      rien à dire. Rien sur YouTube, où le DM automatique
-                      n'existe pas. */}
-                  {post.lmKeyword ? (
+                      illisible — et l'absence de mot-clé se lit déjà au filtre
+                      « Sans lead magnet », qui est fait pour ça. */}
+                  {post.lmKeyword && (
                     <span style={{ display: 'block', fontSize: 10, fontWeight: 600, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
                       {post.lmKeyword.toUpperCase()}
                     </span>
-                  ) : post.platform !== 'YT' ? (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, whiteSpace: 'nowrap', marginTop: 2 }}>
-                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
-                      Pas de lead magnet
-                    </span>
-                  ) : null}
+                  )}
                 </m.span>
               )}
             </button>
@@ -4591,10 +4581,20 @@ export default function PageLiens() {
   // est justement celle qui fait ouvrir cette page.
   const [sansSequence, setSansSequence] = useState(false);
 
+  // Déclaré ici, avec les autres états de filtrage : `filteredPosts` en dépend
+  // juste en dessous, et le `useState` vivait plus bas dans le composant.
+  const [storiesSubTab, setStoriesSubTab] = useState<'stories' | 'sequences'>('stories');
+
   const filteredPosts = posts.filter(p => {
     if (filterPlatform !== 'all' && p.platform !== filterPlatform) return false;
     if (sansSequence && p.lmKeyword) return false;
     if (search.trim() && !p.caption.toLowerCase().includes(search.toLowerCase())) return false;
+    // Sous-onglet « Séquences » : seules les stories qui appartiennent à une
+    // séquence ont leur place dans la liste. La liste large s'en tirait en
+    // remplaçant tout son rendu par celui des séquences, mais le rail, lui,
+    // affiche `filteredPosts` — il montrait donc les stories isolées sous un
+    // onglet qui promet le contraire.
+    if (filterPlatform === 'STORY' && storiesSubTab === 'sequences' && !p.sequenceId) return false;
     return true;
   });
 
@@ -4622,8 +4622,6 @@ export default function PageLiens() {
   const selectedStoriesForGroup = rightView?.type === 'story-multi'
     ? posts.filter(p => rightView.postIds.includes(p.id))
     : [];
-  const [storiesSubTab, setStoriesSubTab] = useState<'stories' | 'sequences'>('stories');
-
   // Parcours desktop en trois états :
   //   ① rightView === null           → la liste occupe toute la largeur
   //   ② rightView + menu replié      → rail d'icônes 56px + détail (état par
