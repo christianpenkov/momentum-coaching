@@ -2,20 +2,25 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getYtToken } from '@/lib/yt-fetch';
+import { parisDateStr } from '@/lib/period';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Journee calendaire PARIS, pas UTC — voir docs/fuseaux-horaires.md, « les
+// statistiques restent calees sur les journees Paris ». `toISOString()` renvoyait la
+// veille entre minuit et 2h du matin heure de Paris, tronquant la fenetre demandee a
+// l'API d'une journee pour qui consulte la nuit.
 function getToday() {
-  return new Date().toISOString().split('T')[0];
+  return parisDateStr(new Date());
 }
 
 function getStartDate(daysAgo: number) {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
+  return parisDateStr(d);
 }
 
 export async function GET(request: Request) {

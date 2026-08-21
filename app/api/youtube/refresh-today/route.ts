@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { createClient } from '@supabase/supabase-js';
 import { getYtToken, fetchYtDayMetrics, upsertYtSnapshot } from '@/lib/yt-fetch';
+import { parisDateStr } from '@/lib/period';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -32,10 +33,14 @@ export async function POST(request: Request) {
   }
 
   const today = new Date();
+  // Journee calendaire PARIS, pas UTC. Cette route ECRIT en base sur des cles de jour :
+  // entre minuit et 2h du matin heure de Paris, `toISOString()` renvoyait la veille et
+  // le rafraichissement ecrivait donc sur la mauvaise ligne. Regle posee dans
+  // docs/fuseaux-horaires.md, helper partage dans lib/period.ts.
   const isoDate = (daysAgo: number) => {
     const d = new Date(today);
     d.setDate(d.getDate() - daysAgo);
-    return d.toISOString().split('T')[0];
+    return parisDateStr(d);
   };
 
   const startDate = isoDate(2);

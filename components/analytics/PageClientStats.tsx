@@ -1926,9 +1926,23 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   const longViewsP = hasFormatBreakdown
     ? longViewsFromDays
     : yt.videos.filter(v => !v.isShort).reduce((s, v) => s + v.views30d, 0);
-  const subsRef = ytSubsGainedP > 0 ? ytSubsGainedP : (yt.subsGained30d > 0 ? yt.subsGained30d : 0);
-  const viewsPerSubShorts = subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
-  const viewsPerSubLong = subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
+  // Abonnes gagnes SUR LA PERIODE AFFICHEE, sans repli sur les 30 jours.
+  //
+  // Le repli `ytSubsGainedP > 0 ? ... : yt.subsGained30d` divisait les vues de la
+  // periode par les abonnes de 30 JOURS des que la periode n'avait aucun gain : sur une
+  // vue a 7 jours, un ratio construit sur deux fenetres differentes, donc sous-evalue.
+  // C'est exactement le defaut que shortsViewsP corrige juste au-dessus.
+  //
+  // Sans gain sur la periode, le ratio n'existe pas : « X vues pour 1 abonne » n'a
+  // aucun sens quand personne ne s'est abonne. La carte affiche « — », ce qui est vrai,
+  // plutot qu'un chiffre emprunte a une autre fenetre (constate le 2026-08-21).
+  const subsRef = ytSubsGainedP;
+  // Denominateur et numerateur doivent venir de la meme fenetre : si la ventilation par
+  // format manque (jours anterieurs a sa collecte), shortsViewsP se replie sur des
+  // cumuls 30j et le ratio redeviendrait bancal. On ne l'affiche alors pas.
+  const ratioFenetreCoherente = hasFormatBreakdown;
+  const viewsPerSubShorts = ratioFenetreCoherente && subsRef > 0 && shortsViewsP > 0 ? Math.round(shortsViewsP / subsRef) : null;
+  const viewsPerSubLong = ratioFenetreCoherente && subsRef > 0 && longViewsP > 0 ? Math.round(longViewsP / subsRef) : null;
 
   const videosInPeriod = yt.videos.filter(v => {
     const t = new Date(v.publishedAt).getTime();
@@ -2114,7 +2128,11 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
           // cumule rien sur une periode, elle affiche un compteur.
           { label: 'Abonnés', value: fmt(yt.subscribers), color: 'var(--ink)', key: 'Abonnés YT' },
           { label: 'Vidéos publiées', value: fmt(ytVideosInPeriodCount), sub: `${period}j`, color: YT_COLOR, key: 'Vidéos publiées' },
-          { label: 'Abonnés nets YT', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
+          // Libelle « Abonnés nets » sans suffixe : on est dans l'onglet YouTube, a cote
+          // d'une carte « Abonnés ». Le « YT » etait un reste de la cle technique, qui
+          // reste 'Abonnés nets YT' pour ne pas entrer en collision avec la serie
+          // Instagram du meme nom.
+          { label: 'Abonnés nets', value: `${ytNetSubsP >= 0 ? '+' : ''}${fmt(ytNetSubsP)}`, sub: `${period}j`, color: ytNetSubsP >= 0 ? GREEN : RED, key: 'Abonnés nets YT' },
           { label: 'Vues', value: fmt(ytViewsP), sub: `${period}j`, color: 'var(--ink)', key: 'Vues 30j' },
           null, // carte Vues/sub custom Shorts vs Vidéos
         ].map((s, i) => {
@@ -2172,7 +2190,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             </div>
             <div style={{ fontSize: 20, fontWeight: 800, color: s.color, lineHeight: 1, marginBottom: s.label === 'Vidéos publiées' ? 8 : 0 }}>
               {s.value}
-              {s.label === 'Abonnés nets YT' && (
+              {/* Teste la CLE, pas le libelle : le libelle est du texte d'affichage, le
+                  renommer ne doit pas faire disparaitre le detail « (+X -Y) ». */}
+              {s.key === 'Abonnés nets YT' && (
                 <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>
                   {' ('}
                   <span style={{ color: GREEN }}>+{fmt(ytSubsGainedP)}</span>
@@ -5631,7 +5651,21 @@ function TabShortioB({ shortio, shortioLoading, ig, yt, leads, leadMagnets, dest
                         // Passe par lib/duree.ts comme le reste de la plateforme : cette
                         // ligne refaisait son propre arrondi et pouvait afficher une autre
                         // valeur que la meme donnee ailleurs.
-                        ['Watch time moy.', dureeDepuisSecondes(ytVideo.watchTime30d * 60 / (ytVideo.views30d || 1))],
+                        //
+                        // Denominateur all-time, comme le numerateur. `watchTime30d` porte
+                        // un nom trompeur : cote API live il contient de l'ALL-TIME (la
+                        // requete par video part de 2020-01-01). Il etait divise par
+                        // views30d, les vraies vues sur 30 jours — deux fenetres melangees,
+                        // moyenne surevaluee d'autant que la video est ancienne.
+                        //
+                        // Le `|| 1` etait pire : une video sans vue sur 30 jours affichait
+                        // tout son watch time all-time comme s'il venait d'UNE vue. Une
+                        // division impossible se dit « — », elle ne s'invente pas
+                        // (constate le 2026-08-21). Meme calcul qu'a la ligne ~752.
+                        ['Watch time moy.', (() => {
+                          const vues = ytVideo.viewsAllTime ?? ytVideo.views30d;
+                          return vues > 0 ? dureeDepuisSecondes(ytVideo.watchTime30d * 60 / vues) : null;
+                        })()],
                         ['% vu moy.', `${ytVideo.avgViewPct}%`],
                         // Vrai CTR de cette vidéo, plus une valeur codée en dur : cette
                         // case affichait '4,2%' pour TOUTES les vidéos, quelle que soit

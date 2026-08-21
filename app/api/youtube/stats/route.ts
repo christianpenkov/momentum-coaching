@@ -3,30 +3,43 @@ import { createClient } from '@supabase/supabase-js';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 import { getYtToken } from '@/lib/yt-fetch';
 import { gunzipSync } from 'zlib';
+import { parisDateStr } from '@/lib/period';
+import { formaterDureeVideo } from '@/lib/duree';
 
 const serviceSupabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
   process.env.SUPABASE_SERVICE_ROLE_KEY!
 );
 
+// Duree ISO 8601 de l'API (« PT3M45S ») vers l'affichage (« 3:45 »).
+//
+// Le formatage lui-meme vit dans lib/duree.ts, partage avec le mode historique qui
+// lit des secondes stockees en base : deux implementations du meme format finissaient
+// par diverger — la meme video se serait affichee « 1:05:30 » ici et « 65:30 » la-bas.
 function parseDuration(iso: string): string {
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
   if (!m) return '0:00';
-  const h = parseInt(m[1] || '0');
-  const min = parseInt(m[2] || '0');
-  const sec = parseInt(m[3] || '0');
-  if (h > 0) return `${h}:${String(min).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
-  return `${min}:${String(sec).padStart(2, '0')}`;
+  const sec = parseInt(m[1] || '0') * 3600 + parseInt(m[2] || '0') * 60 + parseInt(m[3] || '0');
+  return formaterDureeVideo(sec) || '0:00';
 }
 
+// Journee calendaire PARIS, pas UTC.
+//
+// `toISOString()` donne le jour UTC : entre minuit et 2h du matin heure de Paris (en
+// ete), il renvoie la VEILLE. Les fenetres demandees a l'API YouTube s'arretaient donc
+// un jour trop tot pour qui consulte la nuit.
+//
+// docs/fuseaux-horaires.md pose la regle : « les statistiques restent calees sur les
+// journees Paris ». parisDateStr existe justement pour remplacer ce motif partout ;
+// les routes YouTube ne l'avaient pas suivi (constate le 2026-08-21).
 function getToday() {
-  return new Date().toISOString().split('T')[0];
+  return parisDateStr(new Date());
 }
 
 function getStartDate(daysAgo: number) {
   const d = new Date();
   d.setDate(d.getDate() - daysAgo);
-  return d.toISOString().split('T')[0];
+  return parisDateStr(d);
 }
 
 // Récupère les CTR par vidéo depuis la Reporting API (channel_reach_basic_a1)
