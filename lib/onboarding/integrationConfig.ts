@@ -78,6 +78,11 @@ const BASE_INTEGRATIONS: IntegrationDef[] = [
     wizardCopy: 'Chaque euro encaissé remonte tout seul, rattaché à son deal et au contenu qui l\'a produit.',
     instructions: [
       { text: 'Le bouton « Connecter » ci-dessus suffit dans la plupart des cas : tu choisis ton compte Stripe, c\'est tout.' },
+      // Un compte Stripe non finalisé se connecte SANS ERREUR mais refuse tout
+      // paiement : le lien serait créé et le client se heurterait au refus.
+      // L'avertissement doit venir avant, pas au premier deal perdu.
+      { text: 'Ton compte Stripe doit être activé pour encaisser : identité, description de ton activité et IBAN renseignés chez Stripe. Sans ça la connexion fonctionne, mais aucun paiement ne pourra aboutir.' },
+      { text: 'Vérifier l\'activation de mon compte →', href: 'https://dashboard.stripe.com/account/onboarding', hrefLabel: 'dashboard.stripe.com' },
       { text: 'Si Stripe refuse la connexion (compte déjà relié à une autre plateforme type Kajabi ou Systeme.io), utilise une clé restreinte à la place.' },
       { text: 'Créer une clé restreinte →', href: 'https://dashboard.stripe.com/apikeys/create', hrefLabel: 'dashboard.stripe.com/apikeys/create' },
       { text: 'Donne-lui les droits Lecture sur Clients, Paiements, Abonnements et Factures, puis colle-la ci-dessous.' },
