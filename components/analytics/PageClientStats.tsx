@@ -17,6 +17,7 @@ import {
 } from 'recharts';
 import { getPeriodWindow, parisDateStr, parisAddDays } from '@/lib/period';
 import { isCallHonored } from '@/lib/callHonored';
+import { dureeDepuisSecondes, dureeDepuisMinutes, positionLecteur } from '@/lib/duree';
 
 // ─── Portal Modal ─────────────────────────────────────────────────────────────
 function usePortalMounted() {
@@ -370,6 +371,35 @@ function Signal({ type, text, isLast }: { type: SignalType; text: string; isLast
   );
 }
 
+
+// ─── Domaine d'axe pour les abonnes nets ──────────────────────────────────────
+
+/**
+ * Axe centre sur zero, pour une valeur qui peut etre negative (abonnes gagnes
+ * moins abonnes perdus).
+ *
+ * Regle : le zero reste au milieu, et l'amplitude s'adapte aux donnees. Quand
+ * rien ne bouge — le cas normal sur une chaine stable — on montre -1 et +1 de
+ * part et d'autre, ce qui donne une ligne plate centree plutot qu'une ligne
+ * collee en bas. Des qu'une variation apparait, l'axe s'ouvre a la plus grande
+ * amplitude observee, plus une marge.
+ *
+ * C'est le pendant du graphique des abonnes (total), ou 49 constant s'affiche
+ * centre avec 48 et 50 autour. Ici la valeur de reference est zero au lieu du
+ * total, mais le comportement voulu est le meme.
+ *
+ * Symetrique volontairement : perdre 3 abonnes doit se lire aussi bas qu'en
+ * gagner 3 se lit haut. Un axe ajuste separement en haut et en bas ferait
+ * paraitre une petite perte aussi grave qu'un gros gain.
+ */
+const domaineAbonnesNets = ([dataMin, dataMax]: readonly [number, number]): [number, number] => {
+  const amplitude = Math.max(Math.abs(dataMin), Math.abs(dataMax));
+  // Rien n'a bouge de la periode : -1 / 0 / +1, la ligne plate se lit au milieu.
+  if (amplitude === 0) return [-1, 1];
+  // Marge d'un cran seulement. Une marge proportionnelle (20 %) gonflait l'axe a
+  // -24/+24 pour une pointe a 20 abonnes, ecrasant la courbe sur une bande etroite.
+  return [-(amplitude + 1), amplitude + 1];
+};
 
 // ─── Custom Tooltip ───────────────────────────────────────────────────────────
 
@@ -1375,22 +1405,13 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                     </linearGradient>
                   </defs>
                   <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={statModalTickInterval} />
-                  {/* Domaine SYMETRIQUE autour de zero : cette modale montre des abonnes
-                      nets, une valeur qui peut descendre sous zero. L'ancien domaine
-                      faisait Math.max(0, lo) des que le minimum etait positif — avec
-                      toutes les valeurs a zero, la ligne collait en bas au lieu d'etre
-                      centree, et une perte future n'aurait eu aucun repere. */}
                   <YAxis
                     tick={{ fontSize: 10, fill: 'var(--muted)' }}
                     axisLine={false}
                     tickLine={false}
                     width={30}
                     allowDecimals={false}
-                    domain={([dataMin, dataMax]: readonly [number, number]) => {
-                      const amplitude = Math.max(1, Math.abs(dataMin), Math.abs(dataMax));
-                      const marge = Math.max(1, Math.ceil(amplitude * 0.2));
-                      return [-(amplitude + marge), amplitude + marge];
-                    }}
+                    domain={domaineAbonnesNets}
                   />
                   <ReferenceLine y={0} stroke="var(--border)" strokeWidth={1} />
                   <Tooltip content={({ active, payload, label }) => {
@@ -1822,16 +1843,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // rien a exclure du calcul.
   const ytWatchShortsP = ytDays.reduce((s, d) => s + ((d as any).watchTimeShorts ?? 0), 0);
   const ytWatchLongP = ytDays.reduce((s, d) => s + ((d as any).watchTimeLong ?? 0), 0);
-  // Une decimale sous 10 minutes : Math.round() seul produisait un axe gradue
-  // « 1 min, 1 min, 1 min, 0 min, 0 min » — les valeurs intermediaires (0,2 / 0,5 / 0,8)
-  // s'ecrasaient toutes sur deux libelles identiques (constate le 2026-08-21).
-  const fmtWatchMin = (m: number) =>
-    m >= 60 ? `${Math.round(m / 60)}h`
-    : m >= 10 ? `${Math.round(m)} min`
-    : `${Math.round(m * 10) / 10} min`;
-  const watchTimeLabel = ytWatchTimeP >= 60
-    ? `${Math.round(ytWatchTimeP / 60)}h`
-    : `${Math.round(ytWatchTimeP)} min`;
+  // Toutes les durees de la plateforme passent par lib/duree.ts — voir l'en-tete de
+  // ce fichier pour la regle et le bug qui l'a motivee.
+  const fmtWatchMin = dureeDepuisMinutes;
+  const watchTimeLabel = dureeDepuisMinutes(ytWatchTimeP);
 
   // Vues/sub par type de contenu (depuis les vidéos de la période)
   // Vues par format sur la PERIODE AFFICHEE (colonnes yt_views_shorts / _long, ajoutees
@@ -1871,7 +1886,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     longues: yt.videos.filter(v => !v.isShort && parisDateStr(new Date(v.publishedAt)) === d.date).length,
   }));
 
-  const fmtSec = (sec: number) => sec >= 3600 ? `${Math.round(sec/3600)}h` : `${Math.floor(sec/60)}m${String(sec%60).padStart(2,'0')}s`;
+  const fmtSec = dureeDepuisSecondes;
 
   const shortsVideos = yt.videos.filter(v => v.isShort);
   const longVideos = yt.videos.filter(v => !v.isShort);
@@ -2152,22 +2167,25 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   </span>
                 )}
               </div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: AMBER, lineHeight: 1, marginBottom: 10 }}>{watchTimeLabel}</div>
+              {/* Pas de total en gros chiffre : la carte affiche uniquement la
+                  ventilation Shorts / videos longues, comme « Watch time moyen / vue »
+                  juste a cote. Le total restait de toute facon lisible en additionnant
+                  les deux, et sa presence rompait l'alignement des deux cartes. */}
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
                     <span style={{ fontSize: 10, color: 'var(--muted)' }}>Shorts</span>
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchShortsP)}</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchShortsP)}</span>
                 </div>
-                <div style={{ width: 1, height: 28, background: 'var(--border)', flexShrink: 0 }} />
+                <div style={{ width: 1, height: 32, background: 'var(--border)', flexShrink: 0 }} />
                 <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 3 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
                     <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#64748b', flexShrink: 0 }} />
                     <span style={{ fontSize: 10, color: 'var(--muted)' }}>Vidéos longues</span>
                   </div>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchLongP)}</span>
+                  <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--ink)' }}>{fmtWatchMin(ytWatchLongP)}</span>
                 </div>
               </div>
             </div>
@@ -2295,22 +2313,12 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" vertical={false} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: 'var(--muted)' }} axisLine={false} tickLine={false} tickFormatter={period === 7 ? fmtAxisDateWithDay : fmtAxisDate} interval={period === 7 ? 0 : "preserveStartEnd"} />
-                {/* Domaine SYMETRIQUE autour de zero : un graphique d'abonnes nets doit
-                    montrer le zero au milieu, les gains au-dessus et les pertes en
-                    dessous. Sans domaine explicite, l'axe s'ajuste aux donnees — toutes
-                    a zero ici, donc la ligne collait en bas de la zone au lieu d'etre
-                    centree, et une perte future n'aurait eu aucun repere visuel.
-                    L'amplitude est celle de la plus grande variation, minimum 1. */}
                 <YAxis
                   tick={{ fontSize: 10, fill: 'var(--muted)' }}
                   axisLine={false}
                   tickLine={false}
                   allowDecimals={false}
-                  domain={([dataMin, dataMax]: readonly [number, number]) => {
-                    const amplitude = Math.max(1, Math.abs(dataMin), Math.abs(dataMax));
-                    const marge = Math.max(1, Math.ceil(amplitude * 0.2));
-                    return [-(amplitude + marge), amplitude + marge];
-                  }}
+                  domain={domaineAbonnesNets}
                 />
                 {/* Ligne de zero, pour que le point de bascule reste lisible meme quand
                     la courbe s'en eloigne. */}
@@ -2687,11 +2695,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                   return parts[0] || 0;
                 };
                 const totalSec = parseDurSec(selectedVideo.duration);
-                const fmtSec = (s: number) => {
-                  const m = Math.floor(s / 60);
-                  const sec = Math.round(s % 60);
-                  return `${m}:${String(sec).padStart(2, '0')}`;
-                };
+                // Position dans la video (« 3:45 »), pas une duree ecoulee : cette
+                // fonction s'appelait `fmtSec` comme celle du watch time, deux notions
+                // differentes sous le meme nom dans le meme fichier.
+                const fmtSec = positionLecteur;
                 const retData = retention.map(p => ({
                   x: totalSec > 0 ? p.ratio * totalSec : p.ratio * 100,
                   pct: Math.round(p.watchRatio * 100),
