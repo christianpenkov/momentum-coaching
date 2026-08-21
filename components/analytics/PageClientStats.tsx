@@ -1763,7 +1763,15 @@ function TabInstagram({ ig, period, periodIndex, profileId, sinceConnection }: {
                 ['↗️ Partages', selectedPost.shares],
                 ['▶️ Vues', selectedPost.views],
                 ['⚡ Interactions', selectedPost.totalInteractions],
-              ].map(([label, value], i) => (
+                // Presentes en base et deja remontees par la route, mais jamais
+                // affichees : la modale en montrait sept sur les dix disponibles.
+                // Meta ne les fournit que pour les posts NON-Reels, d'ou le filtre
+                // ci-dessous qui masque celles qui sont absentes plutot que d'afficher
+                // des tirets (2026-08-22).
+                ['👤 Abonnements', selectedPost.follows],
+                ['🔍 Visites du profil', selectedPost.profileVisits],
+              ].filter(([, v]) => v !== null && v !== undefined)
+               .map(([label, value], i) => (
                 <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                   <div style={{ fontSize: 10, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
                   <div style={{ fontSize: 18, fontWeight: 700 }}>{value !== null && value !== undefined ? fmt(value as number) : '—'}</div>
