@@ -108,6 +108,23 @@ interface Post {
   mediaType?: string | null;
   publishedAt?: string | null;
   clics?: number | null;
+  // Métriques du contenu, pour l'onglet Stats. Les deux API les renvoyaient
+  // déjà — /api/instagram/stats depuis analytics_ig_posts_history, YouTube en
+  // live — le mapping les jetait simplement. Nullable partout : Meta ne fournit
+  // pas profileVisits/follows sur les vieux posts (25% de couverture en base),
+  // et un 0 affiché à la place d'une absence ferait croire à un échec.
+  likes?: number | null;
+  comments?: number | null;
+  saved?: number | null;
+  shares?: number | null;
+  totalInteractions?: number | null;
+  follows?: number | null;
+  profileVisits?: number | null;
+  // YouTube seulement
+  watchTime30d?: number | null;
+  avgViewPct?: number | null;
+  subsGainedTotal?: number | null;
+  ctr?: number | null;
 }
 
 interface ContentLink {
@@ -715,6 +732,13 @@ function TabDesc({ post, profileId, domain, canGenerate, showDisconnectedWarning
             </div>
           )}
           <GeneratedUrlRow url={currentUrl} label="Lien description" />
+          {/* Le code refuse de regénérer un lien Calendly existant (voir generate,
+              branche 'calendly'). Sans le dire, l'absence de bouton « Regénérer »
+              passe pour un oubli — alors que c'est délibéré : régénérer casserait
+              le lien déjà collé dans la description du contenu. */}
+          <div style={{ fontSize: 11, color: FAINT, lineHeight: 1.45 }}>
+            Ce lien ne sera jamais regénéré : il reste valable tant que le contenu existe.
+          </div>
         </div>
       )}
 
@@ -1729,6 +1753,92 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   );
 }
 
+// ─── Onglet Stats ────────────────────────────────────────────────────────────
+// Les chiffres du contenu lui-même, en lecture seule. Les deux API les
+// renvoyaient déjà par post ; ils n'étaient repris nulle part dans cet écran,
+// obligeant à quitter « Gérer mes liens » pour savoir si un post marchait.
+
+/** Formate un nombre à la française, « — » si la métrique est absente. */
+function statValeur(n: number | null | undefined): string {
+  if (n == null) return '—';
+  return n.toLocaleString('fr-FR');
+}
+
+function CarteStat({ label, valeur, aide }: { label: string; valeur: string; aide?: string }) {
+  return (
+    <div style={{
+      border: `1px solid ${BORDER}`, borderRadius: 10, background: SURFACE,
+      padding: '12px 14px', minWidth: 0,
+    }}>
+      <div className="eyebrow-sm" style={{ marginBottom: 5 }}>{label}</div>
+      <div style={{ fontSize: 19, fontWeight: 700, color: valeur === '—' ? FAINT : INK, lineHeight: 1.15 }}>{valeur}</div>
+      {aide && <div style={{ fontSize: 10.5, color: FAINT, marginTop: 3 }}>{aide}</div>}
+    </div>
+  );
+}
+
+function TabStats({ post }: { post: Post }) {
+  const isYT = post.platform === 'YT';
+
+  // Ordre d'importance décroissante : la portée d'abord (« combien de gens
+  // l'ont vu »), puis l'engagement, puis ce que ça a rapporté au compte.
+  const stats: { label: string; valeur: string; aide?: string }[] = isYT
+    ? [
+        { label: 'Vues', valeur: statValeur(post.views) },
+        { label: 'Likes', valeur: statValeur(post.likes) },
+        { label: 'Commentaires', valeur: statValeur(post.comments) },
+        { label: 'Partages', valeur: statValeur(post.shares), aide: '30 derniers jours' },
+        { label: 'Rétention', valeur: post.avgViewPct != null ? `${Math.round(post.avgViewPct)} %` : '—', aide: 'Durée vue moyenne' },
+        { label: 'Temps de visionnage', valeur: post.watchTime30d != null ? `${statValeur(Math.round(post.watchTime30d))} min` : '—', aide: '30 derniers jours' },
+        { label: 'Abonnés gagnés', valeur: statValeur(post.subsGainedTotal), aide: 'Depuis la publication' },
+        { label: 'CTR', valeur: post.ctr != null ? `${(post.ctr * 100).toFixed(1)} %` : '—', aide: 'Clics sur la miniature' },
+      ]
+    : [
+        { label: 'Comptes touchés', valeur: statValeur(post.reach) },
+        { label: 'Vues', valeur: statValeur(post.views) },
+        { label: 'Likes', valeur: statValeur(post.likes) },
+        { label: 'Commentaires', valeur: statValeur(post.comments) },
+        { label: 'Enregistrements', valeur: statValeur(post.saved) },
+        { label: 'Partages', valeur: statValeur(post.shares) },
+        { label: 'Interactions', valeur: statValeur(post.totalInteractions) },
+        { label: 'Visites du profil', valeur: statValeur(post.profileVisits) },
+        { label: 'Abonnements', valeur: statValeur(post.follows), aide: 'Depuis ce contenu' },
+      ];
+
+  const aucune = stats.every(s => s.valeur === '—');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div style={{ fontSize: 12.5, color: MUTED, lineHeight: 1.5 }}>
+        Les chiffres de ce contenu, tels que {isYT ? 'YouTube' : 'Instagram'} les rapporte.
+        {' '}Ils se rafraîchissent une fois par jour.
+      </div>
+
+      {aucune ? (
+        // Meta ne calcule les insights qu'à partir d'un certain volume, et pas du
+        // tout sur les contenus les plus anciens. Le dire plutôt que d'afficher
+        // une grille de tirets sans explication.
+        <div style={{ fontSize: 12.5, color: FAINT, background: SURFACE2, border: `1px solid ${BORDER}`, borderRadius: 10, padding: '14px 16px', lineHeight: 1.5 }}>
+          Aucune statistique disponible pour ce contenu. {isYT
+            ? 'YouTube ne remonte pas de données sur les vidéos très récentes ou très anciennes.'
+            : 'Instagram ne fournit pas d’insights sur les publications trop anciennes, ou publiées avant la connexion du compte.'}
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(150px, 1fr))', gap: 10 }}>
+          {stats.map(s => <CarteStat key={s.label} {...s} />)}
+        </div>
+      )}
+
+      {post.permalink && (
+        <a href={post.permalink} target="_blank" rel="noopener noreferrer"
+          style={{ fontSize: 12.5, fontWeight: 600, color: BLUE, textDecoration: 'none', alignSelf: 'flex-start' }}>
+          Voir la publication ↗
+        </a>
+      )}
+    </div>
+  );
+}
+
 function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendlyUrl, leadMagnets, onLmCreated, onPostUpdated }: {
   post: Post; profileId: string; activeDomain: ShortDomain | null; domainsLoaded: boolean;
   calendlyUrl: string; leadMagnets: LeadMagnet[]; onLmCreated: (lm: LeadMagnet) => void;
@@ -1740,51 +1850,58 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
   // terminé — sinon il clignote pendant ~1s à chaque ouverture (canGenerate est faux tant que
   // domainsLoaded ne l'est pas, même si Short.io est bien connecté).
   const showDisconnectedWarning = domainsLoaded && !canGenerate;
-  const [activeTab, setActiveTab] = useState<'desc' | 'lm'>('desc');
+  const [activeTab, setActiveTab] = useState<'desc' | 'lm' | 'stats'>('desc');
   const unsavedGuard = useUnsavedGuard();
   const isMobile = useIsMobile();
 
   useEffect(() => { setActiveTab('desc'); }, [post.id]);
 
   const tabs = [
-    { key: 'desc', label: `Lien description${post.hasDescLink ? ' ✓' : ''}` },
+    { key: 'desc', label: `Description${post.hasDescLink ? ' ✓' : ''}` },
     { key: 'lm', label: `Lead magnet${post.hasLeadMagnet ? ' ✓' : ''}` },
+    { key: 'stats', label: 'Stats' },
   ];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      {/* Header post */}
-      <div style={{ padding: isMobile ? '14px' : '14px 20px', borderBottom: `1px solid ${BORDER}` }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ width: 38, height: 38, borderRadius: 7, background: SURFACE2, flexShrink: 0, overflow: 'hidden' }}>
-            {post.thumbnail
-              ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-              : <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                  {post.platform === 'IG'
-                    ? <svg width="14" height="14" viewBox="0 0 24 24" fill={MUTED}><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/></svg>
-                    : <svg width="16" height="12" viewBox="0 0 24 24" fill={MUTED}><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-                  }
-                </div>
-            }
-          </div>
+      {/* En-tête du contenu ouvert — même vignette et même ligne de méta que la
+          liste d'accueil : on doit reconnaître au premier coup d'œil la ligne
+          sur laquelle on vient de cliquer. Les badges d'état sont remplacés par
+          une pastille « Séquence active » à droite ; « Lien desc ✓ » et « LM ✓ »
+          se lisent déjà sur les onglets juste dessous, les répéter ici faisait
+          dire deux fois la même chose à deux endroits différents. */}
+      <div style={{ padding: isMobile ? '14px' : '15px 24px', borderBottom: `1px solid ${BORDER}` }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11 }}>
+          <VignetteContenu post={post} size={36} hauteur={36} />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 600, color: INK, lineHeight: 1.3, marginBottom: 4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{post.caption}</div>
-            <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-              <span style={{ fontSize: 10, fontWeight: 700, color: post.platform === 'IG' ? '#c2185b' : '#d32f2f', opacity: 0.8 }}>{post.platform}</span>
-              {post.hasDescLink && <span style={{ fontSize: 10, color: BLUE, fontWeight: 600, background: BLUE_SOFT, borderRadius: 4, padding: '1px 6px' }}>Lien desc ✓</span>}
-              {post.hasLeadMagnet && <span style={{ fontSize: 10, color: 'var(--green)', fontWeight: 600, background: 'var(--green-soft)', borderRadius: 4, padding: '1px 6px' }}>{post.lmKeyword ? `#${post.lmKeyword}` : 'LM ✓'}</span>}
+            <div style={{
+              fontSize: 15, fontWeight: 600, color: INK, lineHeight: 1.3,
+              overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+            }}>{post.caption}</div>
+            <div style={{ fontSize: 11.5, color: MUTED, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {metaContenu(post, false)}
             </div>
           </div>
+          {post.hasLeadMagnet && (
+            <span style={{
+              flexShrink: 0, fontSize: 11, fontWeight: 700, borderRadius: 999, padding: '4px 11px',
+              color: 'var(--green)', background: 'var(--green-soft)',
+            }}>
+              {post.lmKeyword ? `Séquence · ${post.lmKeyword.toUpperCase()}` : 'Séquence active'}
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: `1px solid ${BORDER}`, background: BG }}>
+      {/* Onglets à la largeur de leur texte, sans fond sur l'actif : le
+          soulignement bleu suffit à désigner l'onglet courant, et des onglets
+          en flex:1 s'étiraient sur toute la largeur du panneau. */}
+      <div style={{ display: 'flex', gap: 4, borderBottom: `1px solid ${BORDER}`, background: BG, padding: isMobile ? '0 14px' : '0 24px' }}>
         {tabs.map(tab => (
-          <button key={tab.key} onClick={() => unsavedGuard?.guard(() => setActiveTab(tab.key as 'desc' | 'lm'))} style={{
-            flex: 1, minHeight: 44, padding: '0', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
-            background: activeTab === tab.key ? SURFACE : 'transparent',
-            color: activeTab === tab.key ? INK : MUTED,
+          <button key={tab.key} onClick={() => unsavedGuard?.guard(() => setActiveTab(tab.key as 'desc' | 'lm' | 'stats'))} style={{
+            minHeight: 44, padding: '0 14px', fontSize: 13, fontWeight: 600, border: 'none', cursor: 'pointer',
+            background: 'transparent',
+            color: activeTab === tab.key ? BLUE : MUTED,
             borderBottom: activeTab === tab.key ? `2px solid ${BLUE}` : '2px solid transparent',
             transition: 'all .15s',
           }}>{tab.label}</button>
@@ -1795,6 +1912,7 @@ function PanneauActions({ post, profileId, activeDomain, domainsLoaded, calendly
       <div style={{ flex: 1, overflowY: 'auto', padding: isMobile ? '14px' : '20px 24px' }}>
         {activeTab === 'desc' && <TabDesc post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} calendlyUrl={calendlyUrl} leadMagnets={leadMagnets} onPostUpdated={onPostUpdated} />}
         {activeTab === 'lm' && <TabLm post={post} profileId={profileId} domain={domain} canGenerate={canGenerate} showDisconnectedWarning={showDisconnectedWarning} leadMagnets={leadMagnets} onLmCreated={onLmCreated} onPostUpdated={onPostUpdated} />}
+        {activeTab === 'stats' && <TabStats post={post} />}
       </div>
     </div>
   );
@@ -3024,7 +3142,9 @@ function RailBouton({ children, title, actif, accent, onClick }: {
  * qui donne l'impression que le rail se déplie au lieu d'être remplacé : les
  * miniatures restent en place, le texte apparaît à côté.
  */
-function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler, onOuvrirPost, onSurvol }: {
+function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler, onOuvrirPost, onSurvol,
+  filterPlatform, onFilterPlatform, compteurs, sansSequence, onSansSequence,
+  search, onSearch, storiesSubTab, onStoriesSubTab }: {
   posts: Post[];
   rightView: RightView;
   ouvert: boolean;
@@ -3033,6 +3153,18 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
   onEpingler: () => void;
   onOuvrirPost: (post: Post) => void;
   onSurvol?: (dedans: boolean) => void;
+  // Filtres et recherche : sans eux, ouvrir un contenu enfermait dans le
+  // sous-ensemble filtré au moment du clic — impossible de passer d'un Reel à
+  // une story sans repasser par l'accueil.
+  filterPlatform: 'all' | 'IG' | 'YT' | 'STORY';
+  onFilterPlatform: (f: 'all' | 'IG' | 'YT' | 'STORY') => void;
+  compteurs: { all: number; IG: number; YT: number; STORY: number; sansSequence: number };
+  sansSequence: boolean;
+  onSansSequence: (v: boolean) => void;
+  search: string;
+  onSearch: (v: string) => void;
+  storiesSubTab: 'stories' | 'sequences';
+  onStoriesSubTab: (t: 'stories' | 'sequences') => void;
 }) {
   const idCourant = rightView && (rightView.type === 'post' || rightView.type === 'story') ? rightView.post.id : null;
   const reduit = useReducedMotion();
@@ -3108,6 +3240,39 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
               }}>{IcoMenu}</m.button>
           )}
         </div>
+
+        {/* Filtres, sous-onglets et recherche — état déplié seulement. Repliés,
+            ils n'auraient nulle part où tenir dans 56px. Montés/démontés plutôt
+            que masqués, pour la même raison que le reste du rail. */}
+        {ouvert && (
+          <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fondu}
+            style={{ padding: '0 11px 8px', display: 'flex', flexDirection: 'column', gap: 7, flexShrink: 0, borderBottom: `1px solid ${BORDER_SOFT}`, marginBottom: 5 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, border: `1px solid ${BORDER}`, borderRadius: 7, padding: '5px 8px', background: SURFACE }}>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke={FAINT} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+              <input value={search} onChange={e => onSearch(e.target.value)} placeholder="Rechercher…"
+                style={{ flex: 1, minWidth: 0, border: 'none', outline: 'none', background: 'transparent', fontSize: 11.5, color: INK, fontFamily: 'inherit' }} />
+            </div>
+
+            <FiltresPlateforme
+              value={filterPlatform} onChange={onFilterPlatform} compact
+              compteurs={compteurs}
+              sansSequence={sansSequence} onSansSequence={onSansSequence}
+            />
+
+            {filterPlatform === 'STORY' && (
+              <SousOngletsStories value={storiesSubTab} onChange={onStoriesSubTab} compact />
+            )}
+          </m.div>
+        )}
+
+        {/* Liste vide après filtrage : sans ce message, le rail déplié paraît
+            cassé alors qu'il applique simplement un filtre trop étroit. */}
+        {ouvert && posts.length === 0 && (
+          <m.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fondu}
+            style={{ padding: '12px 11px', fontSize: 11.5, color: FAINT, textAlign: 'center', lineHeight: 1.45 }}>
+            {search ? 'Aucun résultat.' : 'Aucun contenu avec ce filtre.'}
+          </m.div>
+        )}
 
         {posts.map(post => {
           const actif = post.id === idCourant;
@@ -3717,6 +3882,15 @@ export default function PageLiens() {
         permalink: p.permalink || null,
         mediaType: p.type ?? null,
         publishedAt: p.timestamp ?? null,
+        reach: p.reach ?? null,
+        views: p.views ?? null,
+        likes: p.likes ?? null,
+        comments: p.comments ?? null,
+        saved: p.saved ?? null,
+        shares: p.shares ?? null,
+        totalInteractions: p.totalInteractions ?? null,
+        follows: p.follows ?? null,
+        profileVisits: p.profileVisits ?? null,
       }));
 
     const ytPosts: Post[] = (ytData?.videos || []).map((v: any) => ({
@@ -3725,6 +3899,14 @@ export default function PageLiens() {
       platform: 'YT' as const,
       thumbnail: v.thumbnail,
       publishedAt: v.publishedAt ?? v.timestamp ?? null,
+      views: v.views ?? null,
+      likes: v.likes ?? null,
+      comments: v.comments ?? null,
+      shares: v.shares30d ?? null,
+      watchTime30d: v.watchTime30d ?? null,
+      avgViewPct: v.avgViewPct ?? null,
+      subsGainedTotal: v.subsGainedTotal ?? null,
+      ctr: v.ctr ?? null,
     }));
 
     const shortioLinks = (shortioData?.links || []).map((l: any) => {
@@ -4359,6 +4541,12 @@ export default function PageLiens() {
               onEpingler={() => { setMenuEpingle(v => !v); setSurvolMenu(false); }}
               onOuvrirPost={post => unsavedGuardApi.guard(() => setRightView(post.platform === 'STORY' ? { type: 'story', post } : { type: 'post', post }))}
               onSurvol={survolRail}
+              filterPlatform={filterPlatform} onFilterPlatform={setFilterPlatform}
+              compteurs={compteurs}
+              sansSequence={sansSequence} onSansSequence={setSansSequence}
+              search={search} onSearch={setSearch}
+              storiesSubTab={storiesSubTab}
+              onStoriesSubTab={t => { setStoriesSubTab(t); if (t === 'sequences') { setSelectionMode(false); setSelectedStoryIds(new Set()); } }}
             />
           )}
 
