@@ -1129,6 +1129,12 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
   const igPseudo = igCompte?.username ? igCompte.username : 'ton_compte';
   const igPhoto: string | null = igCompte?.profilePicture ?? null;
 
+  // Bascule Modifier / Aperçu — mobile seulement. Sur 390px, formulaire et fil
+  // côte à côte ne tiennent pas, et empiler l'aperçu sous le formulaire le rend
+  // invisible : on écrit un message sans jamais voir ce qu'il donne. La bascule
+  // rend l'aperçu atteignable en un geste, plein écran.
+  const [vueMobile, setVueMobile] = useState<'modifier' | 'apercu'>('modifier');
+
   // ── La séquence DM, en un seul état ─────────────────────────────────────────
   //
   // Vocabulaire à l'écran (celui du handoff), et la colonne correspondante :
@@ -1362,8 +1368,41 @@ function TabLm({ post, profileId, domain, canGenerate, showDisconnectedWarning, 
         </div>
       </div>
 
+      {/* Bascule Modifier / Aperçu — mobile seulement */}
+      {isMobile && (
+        <div style={{ display: 'flex', gap: 4, padding: 3, background: SURFACE2, borderRadius: 10, border: `1px solid ${BORDER}` }}>
+          {([['modifier', 'Modifier'], ['apercu', 'Aperçu']] as const).map(([cle, libelle]) => (
+            <button key={cle} onClick={() => setVueMobile(cle)} style={{
+              flex: 1, minHeight: 44, border: 'none', borderRadius: 8, cursor: 'pointer',
+              fontSize: 13.5, fontWeight: 700, fontFamily: 'inherit',
+              background: vueMobile === cle ? SURFACE : 'transparent',
+              color: vueMobile === cle ? INK : MUTED,
+              boxShadow: vueMobile === cle ? '0 1px 3px rgba(0,0,0,.08)' : 'none',
+              transition: `all var(--dur-quick) var(--ease-out)`,
+            }}>{libelle}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Aperçu mobile — plein écran, sans cadre de téléphone : l'appareil du
+          coach fait le cadre, l'échelle est donc 1:1. */}
+      {isMobile && vueMobile === 'apercu' && (
+        <div style={{
+          border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden',
+          background: '#fff', display: 'flex', flexDirection: 'column',
+          height: 'min(72vh, 620px)',
+        }}>
+          <IgFil seq={seq} pseudo={igPseudo} avatarUrl={igPhoto} nom={igNom} sc={1} sansCadre />
+        </div>
+      )}
+      {isMobile && vueMobile === 'apercu' && !igCompte?.username && (
+        <span style={{ fontSize: 11.5, color: FAINT, textAlign: 'center', lineHeight: 1.4 }}>
+          Connecte ton compte Instagram pour voir ta photo et ton pseudo ici.
+        </span>
+      )}
+
       {/* Séquence DM + aperçu, côte à côte en desktop */}
-      <div style={{ display: 'flex', gap: 16, alignItems: 'flex-start' }}>
+      <div style={{ display: isMobile && vueMobile === 'apercu' ? 'none' : 'flex', gap: 16, alignItems: 'flex-start' }}>
       <div style={{ flex: 1, minWidth: 0, border: `1px solid ${BORDER}`, borderRadius: 12, overflow: 'hidden' }}>
         <div style={{ padding: '10px 14px', borderBottom: `1px solid ${BORDER}`, background: BG }}>
           <span style={{ fontSize: 12, fontWeight: 700, color: INK }}>Séquence de messages automatique</span>
@@ -4355,13 +4394,26 @@ export default function PageLiens() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               <Entonnoir data={funnel} ouvert={funnelOuvert} onToggle={() => setFunnelOuvert(v => !v)} compact={false} />
 
-              <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
-                width: '100%', minHeight: 44, padding: '11px 14px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8, boxSizing: 'border-box',
-                border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
-              }}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
-                Envoyer un lien Calendly Prospect en DM
-              </button>
+              {/* Les deux mêmes CTA qu'en desktop, où ils vivent sur la ligne de
+                  titre. Le mobile n'avait que le Calendly : la bibliothèque de
+                  lead magnets n'était atteignable d'aucune façon. */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={() => openMobileDetail({ type: 'prospect' })} style={{
+                  flex: 1, minWidth: 0, minHeight: 44, padding: '11px 12px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
+                  border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Calendly prospect</span>
+                </button>
+
+                <button onClick={() => openMobileDetail({ type: 'lm-library' })} style={{
+                  flex: 1, minWidth: 0, minHeight: 44, padding: '11px 12px', fontSize: 13, fontWeight: 700, borderRadius: 8, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, boxSizing: 'border-box',
+                  border: `1.5px solid ${BORDER}`, background: 'transparent', color: MUTED,
+                }}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>Lead magnet</span>
+                </button>
+              </div>
 
               <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Rechercher un contenu…"
                 style={{ width: '100%', minHeight: 44, padding: '10px 14px', fontSize: 14, borderRadius: 10, border: `1px solid ${BORDER}`, background: SURFACE, color: INK, outline: 'none', boxSizing: 'border-box' }} />
@@ -4435,6 +4487,82 @@ export default function PageLiens() {
                 <div style={{ padding: '20px 16px', fontSize: 12, color: FAINT, textAlign: 'center' }}>
                   {search ? 'Aucun résultat.' : 'Aucun contenu trouvé.'}
                 </div>
+              ) : filterPlatform === 'STORY' && selectionMode ? (
+                // Grille 9/16 pendant la sélection : une séquence de stories est
+                // un ORDRE, et une liste verticale de lignes ne le montre pas.
+                // La grille rapproche l'écran de la pellicule Instagram, et le
+                // numéro dit à quel rang chaque story partira.
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 8 }}>
+                  {(() => {
+                    // Le rang suit l'ordre de la LISTE, pas l'ordre des clics :
+                    // c'est celui-là que la séquence utilisera, `selectedStoriesForGroup`
+                    // étant construit par `posts.filter`. Numéroter selon l'ordre de
+                    // sélection afficherait un rang que l'enregistrement ignore.
+                    const cochees = filteredPosts.filter(p => selectedStoryIds.has(p.id)).map(p => p.id);
+                    return filteredPosts.map(post => {
+                    const dejaGroupee = !!post.sequenceId;
+                    const rang = cochees.indexOf(post.id);
+                    const coche = rang !== -1;
+                    // Le CTA se pose par défaut sur la dernière story du groupe
+                    // (voir le useEffect de PanneauStorySequence). Reste modifiable
+                    // à l'étape suivante — d'où « CTA » et non « CTA figé ».
+                    const porteCta = coche && rang === cochees.length - 1;
+                    return (
+                      <button
+                        key={post.id}
+                        onClick={() => {
+                          if (dejaGroupee) return;
+                          setSelectedStoryIds(prev => {
+                            const next = new Set(prev);
+                            if (next.has(post.id)) next.delete(post.id); else next.add(post.id);
+                            return next;
+                          });
+                        }}
+                        style={{
+                          position: 'relative', padding: 0, border: 'none', background: 'none',
+                          aspectRatio: '9 / 16', borderRadius: 10, overflow: 'hidden',
+                          cursor: dejaGroupee ? 'default' : 'pointer',
+                          opacity: dejaGroupee ? 0.4 : 1,
+                          boxShadow: coche ? `0 0 0 3px ${BLUE}` : `0 0 0 1px ${BORDER}`,
+                          transition: `box-shadow var(--dur-quick) var(--ease-out)`,
+                        }}>
+                        {post.thumbnail
+                          ? <img src={post.thumbnail} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block' }} />
+                          : <span style={{ display: 'block', width: '100%', height: '100%', background: SURFACE2 }} />}
+
+                        {/* Le rang, pas une simple coche : c'est l'ordre d'envoi. */}
+                        {coche && (
+                          <span style={{
+                            position: 'absolute', top: 6, right: 6,
+                            minWidth: 22, height: 22, borderRadius: '50%',
+                            background: BLUE, color: '#fff',
+                            fontSize: 12, fontWeight: 700,
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            border: '2px solid #fff', boxSizing: 'content-box',
+                          }}>{rang + 1}</span>
+                        )}
+
+                        {porteCta && (
+                          <span style={{
+                            position: 'absolute', left: 6, bottom: 6,
+                            fontSize: 9.5, fontWeight: 700, letterSpacing: '.04em',
+                            padding: '3px 7px', borderRadius: 999,
+                            background: 'var(--green)', color: '#fff',
+                          }}>CTA</span>
+                        )}
+
+                        {dejaGroupee && (
+                          <span style={{
+                            position: 'absolute', left: 6, top: 6,
+                            fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 5,
+                            background: 'rgba(0,0,0,.6)', color: '#fff',
+                          }}>Déjà groupée</span>
+                        )}
+                      </button>
+                    );
+                    });
+                  })()}
+                </div>
               ) : filteredPosts.map(post => {
                 const isStory = post.platform === 'STORY';
                 const isGroupedElsewhere = isStory && !!post.sequenceId;
@@ -4469,7 +4597,9 @@ export default function PageLiens() {
           <div style={{
             position: 'fixed', inset: 0, zIndex: 200,
             background: BG, overflowY: 'auto',
-            paddingBottom: 'calc(56px + env(safe-area-inset-bottom) + 6px)',
+            // Doit valoir exactement la hauteur de .bottom-nav (globals.css) :
+            // 64px, pas 56 — les 8px d'écart masquaient le bas du panneau.
+            paddingBottom: 'calc(64px + env(safe-area-inset-bottom) + 6px)',
             transform: drawerClosing ? 'translateX(100%)' : 'translateX(0)',
             transition: 'transform 280ms cubic-bezier(0.4, 0, 0.2, 1)',
           }}>
