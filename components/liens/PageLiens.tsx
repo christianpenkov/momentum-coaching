@@ -3753,15 +3753,26 @@ function RailContenus({ posts, rightView, ouvert, epingle, onRetour, onEpingler,
                 <m.span initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={fondu}
                   style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
                   <span style={{ display: 'block', fontSize: 12, fontWeight: 600, color: actif ? BLUE : INK, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.35 }}>{post.caption}</span>
-                  {/* Une seule ligne de méta ici : le mot-clé suffit à dire si la
-                      séquence tourne, la date et les clics se lisent dans le
+                  {/* Une seule ligne de méta ici : le mot-clé suffit à dire si le
+                      lead magnet tourne, la date et les clics se lisent dans le
                       détail juste à côté. À 250px, tout empiler rend la colonne
-                      illisible. */}
-                  {post.lmKeyword && (
+                      illisible.
+
+                      L'absence se dit aussi, en ambre : « lesquels ne sont pas
+                      configurés ? » est la question qui fait ouvrir cette page, et
+                      une ligne muette s'y lisait comme une ligne dont il n'y avait
+                      rien à dire. Rien sur YouTube, où le DM automatique
+                      n'existe pas. */}
+                  {post.lmKeyword ? (
                     <span style={{ display: 'block', fontSize: 10, fontWeight: 600, color: MUTED, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: 2 }}>
                       {post.lmKeyword.toUpperCase()}
                     </span>
-                  )}
+                  ) : post.platform !== 'YT' ? (
+                    <span style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 10, fontWeight: 600, color: AMBER, whiteSpace: 'nowrap', marginTop: 2 }}>
+                      <span style={{ width: 4, height: 4, borderRadius: '50%', background: AMBER, flexShrink: 0 }} />
+                      Pas de lead magnet
+                    </span>
+                  ) : null}
                 </m.span>
               )}
             </button>
