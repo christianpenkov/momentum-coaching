@@ -342,6 +342,25 @@ function Empty({ msg = 'Aucune donnée disponible' }: { msg?: string }) {
   return <div style={{ padding: '32px 0', textAlign: 'center', color: 'var(--faint)', fontSize: 13 }}>{msg}</div>;
 }
 
+/**
+ * Reserve la hauteur d'un graphique quel que soit son etat.
+ *
+ * Un bloc qui affiche tour a tour un loader (~40 px), un message vide (~77 px)
+ * puis un graphique (160 px) fait grandir la page sous les yeux : le contenu
+ * dessous saute, et sur une modale on voit la fenetre s'agrandir apres
+ * l'ouverture. Le lecteur perd le fil de ce qu'il regardait.
+ *
+ * La hauteur est donc celle du graphique dans les trois cas, le loader et le
+ * message vide etant centres dedans. Regle posee ici une seule fois : l'ecrire
+ * dans chaque bloc garantissait qu'un nouveau bloc l'oublie (demande de Chris,
+ * 2026-08-21 — « quelle que soit la donnee, c'est la meme taille »).
+ */
+function ZoneGraphique({ height, children }: { height: number; children: React.ReactNode }) {
+  // width: '100%' explicite — ResponsiveContainer en height="100%" mesure son parent,
+  // et un conteneur flex sans largeur posee le laisse a zero.
+  return <div style={{ height, width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{children}</div>;
+}
+
 // ─── TAB 1 : Vue Générale — helpers ──────────────────────────────────────────
 
 // Carte affichant une stat AVEC sa formule de calcul en dessous
@@ -2295,7 +2314,10 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               views: ytDaysNoDataSet.has(d.date) ? (null as any) : d.views,
             }));
             const allPending = viewsForChart.every(d => d.views === null);
-            if (allPending) return <Empty msg="Pas encore de données" />;
+            // Meme hauteur que le graphique : la carte gardait 220 px avec la courbe et
+            // retombait a ~77 px avec le message, ce qui faisait remonter tout le bas de
+            // la page selon la periode consultee.
+            if (allPending) return <ZoneGraphique height={220}><Empty msg="Pas encore de données" /></ZoneGraphique>;
             // Même formule que le composant partagé AreaChart (components/charts/AreaChart.tsx) :
             // ~9 labels max en vue mois, tous les jours affichés en vue semaine.
             const viewsTickInterval = period === 7 ? 0 : Math.max(1, Math.ceil(viewsForChart.length / 9) - 1);
@@ -2335,7 +2357,8 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             netSubs: ytDaysNoDataSet.has(d.date) ? (null as any) : (d.netSubs ?? 0),
           }));
           const allPending = netSubsForChart.every(d => d.netSubs === null);
-          if (allPending) return <Empty msg="Pas encore de données" />;
+          // Meme hauteur que le graphique (160 px), comme la carte « Vues » au-dessus.
+          if (allPending) return <ZoneGraphique height={160}><Empty msg="Pas encore de données" /></ZoneGraphique>;
           // PAS de court-circuit « aucun mouvement » : une ligne plate a zero dit
           // « aucun abonne perdu sur la periode », ce qui est une information reelle
           // et rassurante. Le message vide qui s'affichait a la place laissait croire
@@ -2468,8 +2491,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       {/* Trois colonnes : ces blocs etaient sous la liste complete des videos, donc
           invisibles sans un long scroll. La demographie les rejoint plutot que d'ouvrir
           une quatrieme ligne. */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
+      {/* Les trois cartes partagent une hauteur minimale : cote a cote dans une grille,
+          elles s'alignaient sur la plus haute et laissaient un vide sous les autres des
+          qu'une seule avait moins de lignes (ou son message « pas encore de donnees »).
+          180 px = 10 lignes de liste, le cas plein. */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18, alignItems: 'stretch' }}>
         <Card title="Sources de trafic" sub="Vues par source">
+          <div style={{ minHeight: 180 }}>
           {trafficData.map((s, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', width: 90, textTransform: 'capitalize' }}>{s.name}</div>
@@ -2479,8 +2507,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               <div style={{ fontSize: 11, fontWeight: 600, width: 40, textAlign: 'right' }}>{fmt(s.views)}</div>
             </div>
           ))}
+          {/* Cette carte etait la seule des trois sans etat vide : quand l'API ne
+              renvoie aucune source, elle affichait un bloc muet. */}
+          {trafficData.length === 0 && <Empty msg="Pas encore de données de trafic" />}
+          </div>
         </Card>
         <Card title="Mots-clés de recherche" sub="Top 10 termes">
+          <div style={{ minHeight: 180 }}>
           {yt.searchKeywords.slice(0, 10).map((k, i) => (
             <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 8 }}>
               <div style={{ fontSize: 11, color: 'var(--muted)', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{k.term}</div>
@@ -2488,6 +2521,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             </div>
           ))}
           {yt.searchKeywords.length === 0 && <Empty msg="Pas encore de données de recherche" />}
+          </div>
         </Card>
 
         {/* Repartition de l'audience par age et sexe. La donnee etait chargee depuis
@@ -2495,6 +2529,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
             d'un seuil de spectateurs (confidentialite) : d'ou le message explicite
             plutot qu'un bloc vide, tant que la chaine n'y est pas. */}
         <Card title="Démographie" sub="Âge et sexe des spectateurs">
+          <div style={{ minHeight: 180 }}>
           {[...yt.demographics]
             .sort((a, b) => b.viewerPct - a.viewerPct)
             .slice(0, 10)
@@ -2510,6 +2545,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               </div>
             ))}
           {yt.demographics.length === 0 && <Empty msg="Pas encore assez de spectateurs — YouTube ne fournit cette donnée qu'au-delà d'un seuil" />}
+          </div>
         </Card>
       </div>
 
@@ -2778,6 +2814,9 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
               ))}
             </div>
             <div style={{ marginBottom: 8, fontSize: 12, fontWeight: 600 }}>Courbe de rétention</div>
+            {/* Hauteur reservee : le loader, le message vide et le graphique occupent
+                tous 160 px, sinon la modale grandissait a l'arrivee de la donnee. */}
+            <ZoneGraphique height={160}>
             {loadingRetention ? <Loading /> : retention && retention.length > 0
               ? (() => {
                 // Parse durée "H:MM:SS" ou "M:SS" en secondes totales
@@ -2799,7 +2838,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 const xTickFormatter = (v: number) => totalSec > 0 ? fmtSec(v) : `${Math.round(v)}%`;
                 const xAxisMax = totalSec > 0 ? totalSec : 100;
                 return (
-                <ResponsiveContainer width="100%" height={160}>
+                <ResponsiveContainer width="100%" height="100%">
                   <ReAreaChart data={retData} margin={{ top: 4, right: 8, left: 0, bottom: 24 }}>
                     <defs>
                       <linearGradient id="grad-retention" x1="0" y1="0" x2="0" y2="1">
@@ -2826,6 +2865,7 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
                 );
               })()
               : <Empty msg="Rétention non disponible pour cette vidéo" />}
+            </ZoneGraphique>
             <a href={selectedVideo.url} target="_blank" rel="noreferrer" style={{ display: 'block', marginTop: 14, textAlign: 'center', fontSize: 12, color: RED, textDecoration: 'none', fontWeight: 600 }}>
               Voir sur YouTube →
             </a>
