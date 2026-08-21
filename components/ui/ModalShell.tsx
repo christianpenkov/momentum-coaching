@@ -107,17 +107,22 @@ export default function ModalShell({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  if (typeof document === 'undefined' || hidden) return null;
-
-  const isSheet = variant === 'sheet';
-  const handleOverlayClick = onOverlayClick ?? onClose;
-
   // Une sélection de texte à la souris (drag qui déborde de la boîte) déclenche un
   // mousedown dans la boîte mais peut relâcher (mouseup/click) sur l'overlay — sans ce
   // garde, ce simple drag de sélection était interprété comme un clic sur l'overlay et
   // fermait le modal. On ne ferme que si le clic a démarré ET s'est terminé sur
   // l'overlay lui-même (pas de sélection en cours ni de drag depuis le contenu).
+  //
+  // DECLARE AVANT le  ci-dessous : place apres, ce hook n'etait pas
+  // execute quand le modal etait masque, le nombre de hooks changeait d'un rendu a
+  // l'autre et React levait l'erreur #300 (« Rendered fewer hooks than expected »).
+  // Meme defaut que celui trouve dans PageClientStats le 2026-08-21.
   const overlayMouseDownOnSelf = useRef(false);
+
+  if (typeof document === 'undefined' || hidden) return null;
+
+  const isSheet = variant === 'sheet';
+  const handleOverlayClick = onOverlayClick ?? onClose;
 
   return createPortal(
     <motion.div
