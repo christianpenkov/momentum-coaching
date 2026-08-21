@@ -466,12 +466,6 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   const ytDemographics   = ((demoData?.rows ?? []) as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 }));
   const ytSearchKeywords = ((keywordsData?.rows ?? []) as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 }));
 
-  // Le total d'abonnes vient de la Data API v3 : il est connu EN TEMPS REEL, sans le
-  // delai de 2-3 jours de l'Analytics API. Il etait pourtant ecrit uniquement sur les
-  // lignes que l'Analytics renvoie — donc jamais sur les jours recents, ou le compteur
-  // restait vide alors que sa valeur etait disponible (constate le 2026-08-21 : rien du
-  // 19 au 21 aout). Expose separement pour pouvoir l'ecrire sur le jour courant.
-  const subscribersNow = subscribers;
   // day -> ventilation par format. L'API n'émet une ligne que pour les formats ayant eu
   // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
   // Pas de throw si cette requête échoue : la ventilation est un complément, son absence
@@ -487,6 +481,12 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   // ?? plutôt que || : un vrai 0 (0 vue, 0 like, 0 commentaire...) est une donnée
   // légitime, pas une absence de donnée — || le convertissait à tort en null.
   const subscribers = parseInt(channelData?.items?.[0]?.statistics?.subscriberCount ?? '0') ?? null;
+  // Total d'abonnes : Data API v3, connu EN TEMPS REEL, sans le delai de 2-3 jours de
+  // l'Analytics API. Il n'etait ecrit que sur les lignes renvoyees par l'Analytics —
+  // donc jamais sur les jours recents, ou le compteur restait vide alors que sa valeur
+  // etait disponible (constate le 2026-08-21 : rien du 19 au 21 aout).
+  // Expose separement pour pouvoir l'ecrire sur le jour courant.
+  const subscribersNow = subscribers;
   const rows: any[] = analyticsData?.rows || [];
   // D2 : signaler seulement si le jour le PLUS ANCIEN de la fenêtre demandée (startDate)
   // est absent — Google a largement eu le temps de le traiter. Si seul endDate (le plus
