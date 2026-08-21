@@ -412,11 +412,27 @@ async function getYtToken(profileId: string): Promise<string | null> {
   return data.access_token;
 }
 
-async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate: string) {
+/**
+ * @param avecRepartitions false pour ne demander que les metriques journalieres.
+ *
+ * Les quatre repartitions (sources de trafic, appareils, demographie, mots-cles)
+ * portent sur une fenetre FIXE de 30 jours glissants : une journee de plus ou de moins
+ * ne deplace quasiment rien dans un cumul mensuel. Les redemander a chaque
+ * synchronisation coutait 4 des 7 appels pour une donnee qui bouge lentement.
+ *
+ * Elles ne sont donc rafraichies qu'une fois par jour, contre une fois par heure pour
+ * les metriques journalieres. Le cout par profil passe de 7 a 3 appels sur 23 des
+ * 24 synchronisations quotidiennes.
+ */
+async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate: string, avecRepartitions = true) {
   const auth = { Authorization: `Bearer ${accessToken}` };
   // 30 jours glissants avant endDate — fenetre des repartitions (voir plus bas).
   const repartitionStart = new Date(new Date(endDate).getTime() - 30 * 86400_000)
     .toISOString().split('T')[0];
+  // Reponse neutre pour les appels omis : le code en aval lit `.rows`, une reponse
+  // vide produit donc des tableaux vides, et les colonnes JSONB correspondantes ne
+  // sont pas ecrites (le mapping les conditionne deja a leur presence).
+  const sauteAppel = () => Promise.resolve(new Response('{}', { status: 200 }));
   const [channelRes, analyticsRes, byTypeRes, trafficRes, devicesRes, demoRes, keywordsRes] = await Promise.all([
     fetch('https://www.googleapis.com/youtube/v3/channels?part=statistics&mine=true', { headers: auth }),
     fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${startDate}&endDate=${endDate}&metrics=views,estimatedMinutesWatched,subscribersGained,subscribersLost,likes,comments,shares,averageViewDuration&dimensions=day&sort=day`, { headers: auth }),
@@ -439,12 +455,12 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     //
     // Ces trois colonnes existaient et etaient LUES par PageClientStats, mais aucun code
     // ne les ecrivait : 266 lignes en base, 0 remplie.
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }),
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }),
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=insightTrafficSourceType&sort=-views`, { headers: auth }) : sauteAppel(),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views,estimatedMinutesWatched&dimensions=deviceType&sort=-views`, { headers: auth }) : sauteAppel(),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=viewerPercentage&dimensions=ageGroup,gender`, { headers: auth }) : sauteAppel(),
     // Top 10 des termes de recherche. Meme fenetre de 30 jours que les autres
     // repartitions : un « top des termes du 15 aout » n'aurait pas de sens.
-    fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`, { headers: auth }),
+    avecRepartitions ? fetch(`https://youtubeanalytics.googleapis.com/v2/reports?ids=channel==MINE&startDate=${repartitionStart}&endDate=${endDate}&metrics=views&dimensions=insightTrafficSourceDetail&filters=insightTrafficSourceType==YT_SEARCH&sort=-views&maxResults=10`, { headers: auth }) : sauteAppel(),
   ]);
   // D1 : un statut HTTP non-2xx sur l'Analytics API (429 rate limit, 5xx...) doit
   // être une vraie erreur, pas silencieusement traité comme "pas encore de données".
@@ -461,10 +477,20 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
   // Mis en forme au format attendu par PageClientStats (cf. types YTStats). Pas de throw
   // si l'une echoue : ces repartitions sont un complement, leur absence ne doit pas faire
   // perdre les metriques principales du jour.
-  const ytTrafficSources = ((trafficData?.rows ?? []) as any[]).map(r => ({ source: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
-  const ytDevices        = ((devicesData?.rows ?? []) as any[]).map(r => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 }));
-  const ytDemographics   = ((demoData?.rows ?? []) as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 }));
-  const ytSearchKeywords = ((keywordsData?.rows ?? []) as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 }));
+  // null (pas []) quand l'appel a ete saute : le mapping conditionne l'ecriture de ces
+  // colonnes a une valeur truthy, or un tableau VIDE est truthy en JavaScript. Sans ce
+  // null, sauter les repartitions les ECRASERAIT par des tableaux vides et les quatre
+  // cartes se videraient a la premiere synchronisation horaire de la journee.
+  //
+  // Le HTTP est verifie avant de mapper : une reponse d'erreur Google ne porte pas de
+  // cle « rows », et le repli sur un tableau vide la rendait indistinguable d'un vrai
+  // « aucune source de trafic » — puis l'ecrivait par-dessus des donnees valides. Un
+  // echec laisse desormais la colonne intacte, comme un appel saute.
+  const repOk = (res: Response, data: any) => avecRepartitions && res.ok && Array.isArray(data?.rows);
+  const ytTrafficSources = repOk(trafficRes, trafficData) ? (trafficData.rows as any[]).map(r => ({ source: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 })) : null;
+  const ytDevices        = repOk(devicesRes, devicesData) ? (devicesData.rows as any[]).map(r => ({ device: r[0], views: r[1] ?? 0, watchMinutes: r[2] ?? 0 })) : null;
+  const ytDemographics   = repOk(demoRes, demoData) ? (demoData.rows as any[]).map(r => ({ ageGroup: r[0], gender: r[1], viewerPct: r[2] ?? 0 })) : null;
+  const ytSearchKeywords = repOk(keywordsRes, keywordsData) ? (keywordsData.rows as any[]).map(r => ({ term: r[0], views: r[1] ?? 0 })) : null;
 
   // day -> ventilation par format. L'API n'émet une ligne que pour les formats ayant eu
   // des vues ce jour-là : null quand le format est absent, jamais un faux 0.
@@ -509,7 +535,13 @@ async function fetchYtDayMetrics(accessToken: string, startDate: string, endDate
     // toute journée sous 1 minute — le défaut même qu'on corrige.
     yt_watch_time_min: r[2] ?? null,
     yt_subscribers: subscribers, yt_subs_gained: r[3] ?? null, yt_subs_lost: r[4] ?? null,
-    yt_net_subs: ((r[3] ?? 0) - (r[4] ?? 0)) ?? null, yt_likes: r[5] ?? null,
+    // Le `?? null` en fin d'expression etait mort : une soustraction de deux nombres
+    // n'est jamais nullish, et Deno le signalait (TS2869). Il masquait un vrai defaut —
+    // quand les DEUX termes manquent, la donnee est inconnue, et le calcul ecrivait
+    // quand meme 0, c'est-a-dire « aucun mouvement d'abonnes ce jour-la ». Un faux zero
+    // la ou il faut un trou. Corrige le 2026-08-21.
+    yt_net_subs: (r[3] == null && r[4] == null) ? null : ((r[3] ?? 0) - (r[4] ?? 0)),
+    yt_likes: r[5] ?? null,
     yt_comments: r[6] ?? null, yt_shares: r[7] ?? null, yt_avg_view_duration_sec: r[8] ?? null,
     yt_avg_duration_shorts_sec: byType.get(r[0])?.shortsDur ?? null,
     yt_avg_duration_long_sec:   byType.get(r[0])?.longDur ?? null,
@@ -1306,12 +1338,19 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     .maybeSingle();
   const ytDernierSync = ytIntegration?.last_synced_at ? new Date(ytIntegration.last_synced_at).getTime() : 0;
   const ytDoitSync = Date.now() - ytDernierSync >= YT_INTERVALLE_MS;
+  // Les quatre repartitions (sources de trafic, appareils, demographie, mots-cles)
+  // portent sur 30 jours glissants : une seule mise a jour par jour suffit largement,
+  // et elles representent 4 des 7 appels. On les rafraichit quand la derniere sync
+  // date d'un autre JOUR calendaire — ou au tout premier passage (last_synced_at nul),
+  // pour que la carte ne soit jamais vide apres une connexion.
+  const ytRepartitionsAFaire = ytDernierSync === 0
+    || new Date(ytDernierSync).toISOString().split('T')[0] !== new Date().toISOString().split('T')[0];
 
   const ytToken = ytDoitSync ? await getYtToken(profileId) : null;
   if (ytToken) {
     const [ytMetricsResult, ytCtrResult, ytVideosResult] = await Promise.allSettled([
       (async () => {
-        const { subscribersNow: ytSubsNow, rows: ytRows } = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday);
+        const { subscribersNow: ytSubsNow, rows: ytRows } = await fetchYtDayMetrics(ytToken, isoDate(3), yesterday, ytRepartitionsAFaire);
 
         // Total d'abonnes sur le JOUR COURANT, ecrit independamment de l'Analytics API.
         //
