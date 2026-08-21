@@ -203,6 +203,65 @@ Question de contrôle : **après connexion, l'écran est-il complet immédiateme
 
 ---
 
+## 10 ter. Aucun hook React après un retour anticipé
+
+Trois occurrences trouvées le 2026-08-21, dont deux vieilles de plusieurs mois.
+
+```jsx
+function MonComposant() {
+  const [a] = useState();
+  if (!data) return <Empty />;   // ← sortie anticipée
+  const [b] = useState();        // ← JAMAIS exécuté quand data est vide
+}
+```
+
+React compte les hooks à chaque rendu. Si le nombre change, il lève l'erreur
+**#300** et la page casse — d'où les « this page couldn't load ».
+
+Le piège : ça marche tant que la condition est toujours fausse. Le plantage
+n'apparaît qu'au moment du chargement d'une nouvelle période, ou en changeant de
+type de contenu.
+
+**Les trois cas** : `PageClientStats` (mesure de largeur), `ModalShell` (toutes
+les modales de la plateforme), `PageLiens/TabLm` (25 hooks après le retour
+« Non disponible sur YouTube »).
+
+Balayage du motif sur tout le dépôt :
+
+```bash
+# Cherche un hook situé après un return anticipé, dans chaque composant
+python3 - <<'EOF'
+import re, io, os
+hook = re.compile(r'(useState|useEffect|useCallback|useMemo|useRef|useQuery)\s*[<(]')
+early = re.compile(r'^  (?:if\s*\(.+?\)\s*return|return\s+(?!\()\S)')
+for base in ['app', 'components', 'lib']:
+    for root, dirs, files in os.walk(base):
+        dirs[:] = [d for d in dirs if d not in ('node_modules', '.next')]
+        for f in files:
+            if not f.endswith(('.tsx', '.ts')): continue
+            p = os.path.join(root, f)
+            lines = io.open(p, encoding='utf-8').read().split('
+')
+            starts = [(i, m.group(1)) for i, l in enumerate(lines)
+                      if (m := re.match(r'^(?:export default |export )?function ([A-Za-z0-9_]+)', l))]
+            starts.append((len(lines), '_'))
+            for k in range(len(starts) - 1):
+                a, nom = starts[k]; b = starts[k + 1][0]
+                if not nom[0].isupper() and not nom.startswith('use'): continue
+                fr = None
+                for i in range(a + 1, b):
+                    l = lines[i]
+                    if l.strip().startswith(('//', '*')): continue
+                    if fr is None and early.match(l): fr = i
+                    elif fr is not None and hook.search(l):
+                        print(f'{p} :: {nom} (return L{fr+1} -> hook L{i+1})'); break
+EOF
+```
+
+Résultat attendu : **aucune ligne**.
+
+---
+
 ## 11. Lancer le bon vérificateur de types
 
 **`tsc` et `npm run build` ne couvrent pas `supabase/functions/`.**
