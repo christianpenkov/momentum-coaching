@@ -1822,7 +1822,13 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
   // rien a exclure du calcul.
   const ytWatchShortsP = ytDays.reduce((s, d) => s + ((d as any).watchTimeShorts ?? 0), 0);
   const ytWatchLongP = ytDays.reduce((s, d) => s + ((d as any).watchTimeLong ?? 0), 0);
-  const fmtWatchMin = (m: number) => m >= 60 ? `${Math.round(m / 60)}h` : `${Math.round(m)} min`;
+  // Une decimale sous 10 minutes : Math.round() seul produisait un axe gradue
+  // « 1 min, 1 min, 1 min, 0 min, 0 min » — les valeurs intermediaires (0,2 / 0,5 / 0,8)
+  // s'ecrasaient toutes sur deux libelles identiques (constate le 2026-08-21).
+  const fmtWatchMin = (m: number) =>
+    m >= 60 ? `${Math.round(m / 60)}h`
+    : m >= 10 ? `${Math.round(m)} min`
+    : `${Math.round(m * 10) / 10} min`;
   const watchTimeLabel = ytWatchTimeP >= 60
     ? `${Math.round(ytWatchTimeP / 60)}h`
     : `${Math.round(ytWatchTimeP)} min`;
@@ -1914,13 +1920,12 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
     'Conv. vue→abonné': {
       data: ytDays.map(d => ({
         date: d.date,
-        // null et non 0 quand il n'y a aucune vue : c'est un TAUX, donc une division.
-        // Sans vue le taux est indefini, pas nul — afficher 0 dirait « des gens ont vu
-        // et aucun ne s'est abonne », alors que personne n'a vu. Meme distinction que
-        // pour le watch time moyen : une somme peut valoir 0, une moyenne ne le peut pas.
+        // 0 sur les jours sans vue, comme le watch time moyen : une courbe continue se
+        // lit mieux qu'une nuee de points. Le KPI, lui, divise les totaux de la periode
+        // (abonnes gagnes / vues) et n'est donc pas dilue par ces jours.
         v: ytDaysNoDataSet.has(d.date)
           ? (null as any)
-          : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : (null as any)),
+          : (d.views > 0 ? Math.round(((d.subsGained ?? 0) / d.views) * 100 * 1000) / 1000 : 0),
       })),
       color: 'var(--accent-brand)', unit: '%',
     },
@@ -1979,20 +1984,29 @@ function TabYouTube({ yt, period, profileId, periodIndex, ytIsFallback, sinceCon
       // se rabattait sur des valeurs INVENTÉES quand la donnée manquait (45 s pour les
       // Shorts, 480 s pour les longues — des chiffres sans source).
       //
-      // null hors couverture ET quand le format n'a eu aucune vue : la courbe fait un
-      // trou plutôt que de descendre à 0, qui se lirait « regardé 0 seconde ».
+      // GRAPHIQUE : 0 sur les jours sans vue — une courbe continue se lit bien mieux
+      // qu'une nuee de points isoles sur une petite chaine (choix de Chris, 2026-08-21).
+      //
+      // KPI : ces jours n'y entrent PAS. avgWatchShorts fait somme(watch time) /
+      // somme(vues) par video — un jour sans vue contribue 0 au numerateur ET au
+      // denominateur, il ne dilue donc pas la moyenne. Le graphique montre le rythme,
+      // le KPI mesure la performance reelle : les deux repondent a des questions
+      // differentes, d'ou deux traitements.
+      //
+      // Seuls les jours que YouTube n'a pas encore traites restent en trou : la donnee
+      // n'existe pas encore, contrairement a un jour mesure sans vue.
       setStatModal({
         label: 'Watch time moyen / vue — Shorts',
         value: avgWatchShorts !== null ? fmtSec(avgWatchShorts) : '—',
         color: '#e8a838',
         data: ytDays.map(d => ({
           date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? null),
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationShorts ?? 0),
         })),
         label2: 'Vidéos longues',
         data2: ytDays.map(d => ({
           date: d.date,
-          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? null),
+          v: ytDaysNoDataSet.has(d.date) ? (null as any) : ((d as any).avgDurationLong ?? 0),
         })),
         color2: '#64748b',
         unit: 's',
