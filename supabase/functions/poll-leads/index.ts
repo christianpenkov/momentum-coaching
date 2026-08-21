@@ -134,14 +134,32 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
   const since = Math.floor(d.getTime() / 1000);
   const until = since + 86400;
 
-  const [accountRes, insightsRes, engagedRes] = await Promise.all([
+  // ⚠️ Deux formes de requete, et Meta n'accepte pas les memes metriques dans chacune.
+  //
+  // `views`, `profile_links_taps` et `website_clicks` etaient demandes SANS
+  // `metric_type=total_value` : Meta acceptait la requete, ne renvoyait simplement
+  // aucune serie pour eux, et le code n'y voyait que du feu. Resultat, ig_views etait
+  // vide sur les 107 jours du profil de test alors que l'API en renvoie 271 sur 7 jours
+  // (verifie le 2026-08-22).
+  //
+  // A l'inverse `follower_count` ne fonctionne QUE sans total_value — avec, la reponse
+  // est vide. D'ou la separation en deux appels plutot qu'un seul.
+  //
+  // La ventilation abonnes / non-abonnes du reach (breakdown=follow_type) n'etait
+  // collectee QUE par lib/ig-fetch.ts, cote Node, qui ne tourne qu'au backfill de
+  // premiere connexion : les colonnes s'arretaient donc au 27 juillet sur le profil de
+  // test. Elle est ajoutee ici.
+  const [accountRes, insightsRes, insightsTvRes, engagedRes, reachBdRes] = await Promise.all([
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}?fields=followers_count,follows_count&access_token=${token}`),
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count,profile_links_taps,website_clicks,views&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach,follower_count&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views,profile_links_taps,website_clicks&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=accounts_engaged,total_interactions&metric_type=total_value&period=day&since=${since}&until=${until}&access_token=${token}`),
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&metric_type=total_value&breakdown=follow_type&period=day&since=${since}&until=${until}&access_token=${token}`),
   ]);
 
-  const [accountData, insightsData, engagedData] = await Promise.all([
-    safeJson(accountRes), safeJson(insightsRes), safeJson(engagedRes),
+  const [accountData, insightsData, insightsTvData, engagedData, reachBdData] = await Promise.all([
+    safeJson(accountRes), safeJson(insightsRes), safeJson(insightsTvRes),
+    safeJson(engagedRes), safeJson(reachBdRes),
   ]);
 
   const insightMap: Record<string, number[]> = {};
@@ -149,6 +167,34 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     insightMap[metric.name] = (metric.values || []).map((v: any) => v.value || 0);
   }
   const sum = (arr: number[]) => (arr || []).reduce((a: number, b: number) => a + b, 0);
+
+  // Metriques du second appel (metric_type=total_value) : la valeur est dans
+  // `total_value.value`, pas dans une serie `values`. Meme convention que engagedData
+  // juste en dessous.
+  const tvMap: Record<string, number> = {};
+  for (const m of (insightsTvData?.data || [])) {
+    if (m.total_value?.value != null) tvMap[m.name] = m.total_value.value;
+  }
+
+  // Ventilation du reach par type d'audience. Absente du cron jusqu'au 2026-08-22 :
+  // seul le backfill Node la collectait, d'ou des colonnes qui s'arretaient a la date
+  // de la premiere connexion.
+  //
+  // null (pas 0) quand Meta ne renvoie aucune ligne : un 0 se lirait « aucun abonne
+  // touche », alors que la realite est « Meta n'a pas fourni la ventilation » — c'est
+  // exactement ce qui affichait un « Followers reach rate » de 0 % a l'ecran.
+  let reachFollower: number | null = null;
+  let reachNonFollower: number | null = null;
+  for (const m of (reachBdData?.data || [])) {
+    const lignes = (m.total_value?.breakdowns || []).flatMap((bd: any) => bd.results || []);
+    if (lignes.length === 0) continue;
+    reachFollower = 0; reachNonFollower = 0;
+    for (const r of lignes) {
+      const cle = r.dimension_values?.[0];
+      if (cle === 'FOLLOWER') reachFollower += r.value ?? 0;
+      else if (cle === 'NON_FOLLOWER') reachNonFollower += r.value ?? 0;
+    }
+  }
   // engagedData contient 2 métriques distinctes (accounts_engaged ET total_interactions)
   // dans le même appel — un .reduce() sur tout le tableau sans distinguer m.name
   // additionnait les deux valeurs ensemble et assignait cette somme aux deux colonnes
@@ -180,12 +226,14 @@ async function fetchIgDayMetrics(token: string, igAccountId: string, date: strin
     ig_reach:              insightMap['reach'] !== undefined ? sum(insightMap['reach']) : null,
     ig_followers:          accountData.followers_count ?? null,
     ig_following:          accountData.follows_count ?? null,
-    ig_views:              insightMap['views'] !== undefined ? sum(insightMap['views']) : null,
+    ig_views:              tvMap['views'] ?? null,
     ig_follows_unfollows:  insightMap['follows_and_unfollows'] !== undefined ? sum(insightMap['follows_and_unfollows']) : null,
-    ig_profile_taps:       insightMap['profile_links_taps'] !== undefined ? sum(insightMap['profile_links_taps']) : null,
-    ig_website_clicks:     insightMap['website_clicks'] !== undefined ? sum(insightMap['website_clicks']) : null,
+    ig_profile_taps:       tvMap['profile_links_taps'] ?? null,
+    ig_website_clicks:     tvMap['website_clicks'] ?? null,
     ig_accounts_engaged:   (engagedData?.data || []).some((m: any) => m.name === 'accounts_engaged') ? accountsEngagedTotal : null,
     ig_total_interactions: (engagedData?.data || []).some((m: any) => m.name === 'total_interactions') ? totalInteractionsTotal : null,
+    ig_reach_follower:     reachFollower,
+    ig_reach_non_follower: reachNonFollower,
     ig_lead_count:         null,
     ig_response_rate:      null,
   };
@@ -1332,7 +1380,34 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
   const todayStr = isoDate(0);
 
   // IG J-1 + posts individuels (en parallèle)
-  const igCreds = await getIgCreds(profileId);
+  //
+  // ─── Cadence : une synchronisation par heure ────────────────────────────────────
+  //
+  // Meme raisonnement que YouTube (voir plus bas) : ce cron tourne toutes les 5
+  // minutes pour capter les leads vite, mais les metriques d'un compte Instagram ne
+  // changent pas 288 fois par jour. Sans garde-fou, fetchIgDayMetrics emettait ses
+  // appels a chaque passage — 864 par profil et par jour pour des chiffres identiques.
+  //
+  // Le quota Instagram n'est pas structure comme celui de YouTube : il vaut
+  // 4800 x impressions sur 24 h et il est PROPRE A CHAQUE UTILISATEUR, il ne se
+  // partage donc pas entre eleves. Le risque de saturation est faible sur un compte
+  // actif, mais il devient reel sur une journee a tres faible audience — et emettre
+  // 864 appels pour rien reste du gaspillage qui rapproche du plafond sans aucun
+  // benefice de fraicheur (mesure du 2026-08-22, en-tete x-app-usage a 0 %).
+  //
+  // Le collecteur de leads et de DM, lui, n'est PAS ralenti : il reste a chaque
+  // passage, c'est lui qui doit reagir vite.
+  const IG_INTERVALLE_MS = 60 * 60 * 1000;
+  const { data: igIntegration } = await supa
+    .from('integrations')
+    .select('last_synced_at')
+    .eq('profile_id', profileId)
+    .eq('provider', 'instagram')
+    .maybeSingle();
+  const igDernierSync = igIntegration?.last_synced_at ? new Date(igIntegration.last_synced_at).getTime() : 0;
+  const igDoitSync = Date.now() - igDernierSync >= IG_INTERVALLE_MS;
+
+  const igCreds = igDoitSync ? await getIgCreds(profileId) : null;
   if (igCreds) {
     const [igMetricsResult, igPostsResult] = await Promise.allSettled([
       (async () => {
@@ -1340,8 +1415,8 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
         const { error } = await supa.from('analytics_daily_snapshots').upsert({ profile_id: profileId, date: yesterday, ...metrics, backfill_source: 'cron' }, { onConflict: 'profile_id,date', ignoreDuplicates: false });
         if (error) throw new Error(error.message);
         // ig_followers/ig_following viennent de accountData.followers_count/follows_count
-        // (état ACTUEL du compte, pas une vraie métrique period=day datée) — le cron ne
-        // tournant qu'une fois par jour et écrivant seulement la ligne "hier", le nombre
+        // (état ACTUEL du compte, pas une vraie métrique period=day datée) — le cron
+        // n'écrivant que la ligne "hier", le nombre
         // d'abonnés du jour COURANT restait à null jusqu'au lendemain matin (décalage
         // d'un jour entre le vrai changement et la date où il apparaît). Écrit aussi ces
         // deux colonnes (seulement elles, sans écraser reach/engagement/interactions qui
@@ -1377,6 +1452,16 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     if (igMetricsResult.status === 'rejected') errors.push(`ig_fetch: ${igMetricsResult.reason?.message || 'unknown'}`);
     if (igPostsResult.status === 'fulfilled') errors.push(...igPostsResult.value);
     else errors.push(`ig_posts: ${igPostsResult.reason?.message || 'unknown'}`);
+
+    // Horodate la synchronisation pour que la cadence horaire se rearme.
+    //
+    // Ecrit meme en cas d'erreur, volontairement : sans ca, un compte dont le jeton est
+    // expire relancerait ses appels toutes les 5 minutes indefiniment. L'erreur reste
+    // tracee dans last_snapshot_error et dans cron_runs.
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'instagram');
   }
 
   // Short.io J-1 + click stream

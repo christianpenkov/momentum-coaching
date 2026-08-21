@@ -85,11 +85,20 @@ export async function GET(request: Request) {
     fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=views&metric_type=total_value&breakdown=follow_type,media_product_type&period=day&since=${since}&until=${until}&access_token=${token}`),
     // Reach RÉELLEMENT dédupliqué sur la fenêtre, ventilé abonnés/non-abonnés — pas une
     // somme de valeurs quotidiennes (qui recompte un même compte touché sur plusieurs
-    // jours) — confirmé en testant l'API réelle : period=days_28 + metric_type=total_value
-    // + breakdown=follow_type renvoie le VRAI nombre de comptes uniques distincts par
-    // catégorie sur toute la fenêtre, calculé côté serveur par Meta. Fenêtre fixe 28j (pas
-    // de since/until arbitraire possible pour reach en mode dédupliqué, contrairement à views).
-    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=days_28&metric_type=total_value&breakdown=follow_type&access_token=${token}`),
+    // jours) : Meta calcule les comptes uniques côté serveur.
+    //
+    // ⚠️ `since`/`until` sont INDISPENSABLES. Le commentaire precedent affirmait qu'ils
+    // n'etaient pas acceptes pour cette metrique et la requete les omettait : Meta
+    // ignorait alors le `period=days_28`, repondait `period: day` et ne renvoyait
+    // qu'UNE journee — la derniere. Sur le compte de test cela donnait
+    // { NON_FOLLOWER: 1 } et zero FOLLOWER, donc un « Followers reach rate » affiche a
+    // 0 % et un « Reach non-followers » a 100 %, soit exactement l'inverse de la
+    // realite.
+    //
+    // Verifie contre l'API le 2026-08-22, meme requete avec les bornes :
+    //   sans since/until : { NON_FOLLOWER: 1 }          -> 0 %
+    //   avec since/until : { FOLLOWER: 121, NON_FOLLOWER: 14 } -> 48 %
+    fetch(`https://graph.instagram.com/v22.0/${igAccountId}/insights?metric=reach&period=days_28&metric_type=total_value&breakdown=follow_type&since=${since}&until=${until}&access_token=${token}`),
     dbSnapshotsPromise,
     dbPostsPromise,
   ]);
@@ -121,14 +130,20 @@ export async function GET(request: Request) {
   let reach28dDedupNonFollowers: number | null = null;
   for (const metric of reachDedupData?.data || []) {
     if (metric.name === 'reach' && metric.total_value?.breakdowns) {
+      // On n'initialise a 0 que si la ventilation contient VRAIMENT des lignes.
+      //
+      // Avant, le simple fait que `breakdowns` existe suffisait a poser 0, meme quand
+      // aucune categorie n'etait renvoyee : l'ecran affichait alors « 0 % » — une
+      // mesure — la ou il fallait « N/D » — une absence. Le composant gere deja le cas
+      // null (« seuil Meta non atteint »), il n'etait simplement jamais atteint.
+      const lignes = metric.total_value.breakdowns.flatMap((bd: any) => bd.results || []);
+      if (lignes.length === 0) continue;
       reach28dDedupFollowers = 0;
       reach28dDedupNonFollowers = 0;
-      for (const bd of metric.total_value.breakdowns) {
-        for (const r of bd.results || []) {
-          const key = r.dimension_values?.[0];
-          if (key === 'FOLLOWER') reach28dDedupFollowers += r.value ?? 0;
-          else if (key === 'NON_FOLLOWER') reach28dDedupNonFollowers += r.value ?? 0;
-        }
+      for (const r of lignes) {
+        const key = r.dimension_values?.[0];
+        if (key === 'FOLLOWER') reach28dDedupFollowers += r.value ?? 0;
+        else if (key === 'NON_FOLLOWER') reach28dDedupNonFollowers += r.value ?? 0;
       }
     }
   }
