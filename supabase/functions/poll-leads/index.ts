@@ -1519,6 +1519,22 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     || new Date(igDernierSync).toISOString().split('T')[0] !== new Date().toISOString().split('T')[0];
 
   const igCreds = igDoitSync ? await getIgCreds(profileId) : null;
+
+  // Horodate MEME quand les identifiants sont introuvables — jeton revoque, expire, ou
+  // integration incomplete. Sans ca, getIgCreds renvoyait null, le bloc entier etait
+  // saute, l'horodatage plus bas n'etait jamais atteint, et le profil retentait toutes
+  // les 5 minutes indefiniment : 288 appels par jour dans le vide.
+  //
+  // C'est exactement le cas rencontre le 2026-08-22 sur un profil au jeton mort. Le
+  // commentaire de l'horodatage plus bas disait deja vouloir eviter ce scenario ; il
+  // etait simplement place du mauvais cote de la condition.
+  if (igDoitSync && !igCreds) {
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'instagram');
+  }
+
   if (igCreds) {
     const [igMetricsResult, igPostsResult, igRattrapageResult] = await Promise.allSettled([
       (async () => {
@@ -1644,6 +1660,21 @@ async function snapshotProfile(profileId: string): Promise<string[]> {
     || new Date(ytDernierSync).toISOString().split('T')[0] !== new Date().toISOString().split('T')[0];
 
   const ytToken = ytDoitSync ? await getYtToken(profileId) : null;
+
+  // Horodate MEME sans jeton exploitable — meme raison que pour Instagram juste
+  // au-dessus : sinon getYtToken renvoie null, le bloc est saute, l'horodatage plus bas
+  // n'est jamais atteint, et le profil retente toutes les 5 minutes indefiniment.
+  //
+  // Defaut trouve d'abord cote Instagram le 2026-08-22, puis cherche ici : il y etait
+  // aussi. Le commentaire de l'horodatage disait vouloir eviter exactement ce scenario,
+  // mais se trouvait du mauvais cote de la condition dans les deux cas.
+  if (ytDoitSync && !ytToken) {
+    await supa.from('integrations')
+      .update({ last_synced_at: new Date().toISOString() })
+      .eq('profile_id', profileId)
+      .eq('provider', 'youtube');
+  }
+
   if (ytToken) {
     const [ytMetricsResult, ytCtrResult, ytVideosResult, ytRattrapageResult] = await Promise.allSettled([
       (async () => {
